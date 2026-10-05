@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import type { StoryIndexEntry } from "../../board/review-build";
-import { startRenderDeadline } from "../../board/render-deadline";
+import { useDeadlineResource } from "../use-deadline-resource";
+import { SectionMessage } from "../section-message";
 import { VariantSheet } from "../sheet";
-import { loadCompositionStories, type SheetStory } from "../stories";
-import styles from "../library.module.css";
+import { loadCompositionStories } from "../stories";
 
 export function CompositionsSheet({ entries, root, theme, focused, annotating, frameSource, onToggle, onEscape, onExitAnnotate }: {
   entries: StoryIndexEntry[];
@@ -17,29 +17,15 @@ export function CompositionsSheet({ entries, root, theme, focused, annotating, f
   onExitAnnotate: () => void;
 }) {
   const key = entries.map((entry) => entry.id).join("\u0000");
-  const [state, setState] = useState<{ key: string; stories?: SheetStory[]; failed?: boolean } | null>(null);
-  useEffect(() => {
-    if (!entries.length) return;
-    let live = true;
-    const stop = startRenderDeadline(() => { if (live) setState({ key, failed: true }); });
-    loadCompositionStories(entries).then((stories) => {
-      if (live) setState({ key, stories });
-    }, () => {
-      if (live) setState({ key, failed: true });
-    }).finally(stop);
-    return () => {
-      live = false;
-      stop();
-    };
-  }, [entries, key]);
-  const current = state?.key === key ? state : null;
-  if (!entries.length) return <p className={styles.sectionMessage} role="status">No compositions are in this build.</p>;
-  if (!current?.stories) {
-    return <p className={styles.sectionMessage} role={current?.failed ? "alert" : "status"}>
-      {current?.failed ? "Couldn't load the compositions. Reload to try again." : "Loading compositions…"}
-    </p>;
+  const load = useCallback(() => loadCompositionStories(entries), [entries]);
+  const { value: stories, failed } = useDeadlineResource(entries.length ? key : undefined, load);
+  if (!entries.length) return <SectionMessage>No compositions are in this build.</SectionMessage>;
+  if (!stories) {
+    return <SectionMessage failed={failed}>
+      {failed ? "Couldn't load the compositions. Reload to try again." : "Loading compositions…"}
+    </SectionMessage>;
   }
-  return <VariantSheet root={root} component="Compositions" changed={false} stories={current.stories} theme={theme}
+  return <VariantSheet root={root} component="Compositions" changed={false} stories={stories} theme={theme}
     focused={focused} focusedArgs={null} annotating={annotating} frameSource={frameSource} showReasons={false}
     onToggle={onToggle} onEscape={onEscape} onExitAnnotate={onExitAnnotate} />;
 }

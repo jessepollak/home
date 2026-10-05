@@ -5,7 +5,7 @@ function channel(value: number): number {
   return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
 }
 
-export function relativeLuminance({ r, g, b }: Rgba): number {
+function relativeLuminance({ r, g, b }: Rgba): number {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
 

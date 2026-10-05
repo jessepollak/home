@@ -6,7 +6,7 @@ import { startRenderDeadline } from "../board/render-deadline";
 import { storyCanvasUrl } from "../board/url-state";
 import { isFrameLoaded, watchFrameFailure, watchFrameLoaded } from "./frame-loading";
 
-export type FrameSectionTarget = { story: string; component: string; label: string; changed: boolean };
+type FrameSectionTarget = { story: string; component: string; label: string; changed: boolean };
 
 type PreviewApi = {
   currentRender?: { id?: string; phase?: string; story?: { id?: string } };

@@ -4,7 +4,7 @@ import { AGENTATION_ENDPOINT, shouldRenderAgentation } from "@/client/observabil
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { startRenderDeadline } from "../board/render-deadline";
+import { applyTheme } from "../../../../.storybook/theme";
 import type { ReviewBuild, StoryIndexEntry } from "../board/review-build";
 import { writeBoardUrl } from "../board/url-state";
 import { COMPOSITIONS, countLabel, libraryCatalog, OVERVIEW, type LibraryCatalog } from "./catalog";
@@ -18,9 +18,11 @@ import { PropsBar } from "./props-bar";
 import { VariantSheet } from "./sheet";
 import { restoredFocus, toggleFocus } from "./sheet-state";
 import { LibrarySidebar } from "./sidebar";
-import { compositionEntries, loadNotUsedInProduct, loadStoryModule, peekStoryModule, sheetStories, type StoryModule } from "./stories";
+import { compositionEntries, loadNotUsedInProduct, loadStoryModule, peekStoryModule, sheetStories } from "./stories";
 import { loadLibraryIndex } from "./story-index";
 import { readLibraryUrl, writeLibraryUrl } from "./url-state";
+import { SectionMessage } from "./section-message";
+import { useDeadlineResource } from "./use-deadline-resource";
 import styles from "./library.module.css";
 
 type StoryIndex = Record<string, StoryIndexEntry>;
@@ -52,27 +54,6 @@ function LibraryMessage({ children }: { children: string }) {
       <Empty><EmptyDescription role="status">{children}</EmptyDescription></Empty>
     </main>
   </div>;
-}
-
-function useStoryModule(importPath: string | undefined) {
-  const [state, setState] = useState<{ path: string; module?: StoryModule; failed?: boolean } | null>(null);
-  const cached = importPath ? peekStoryModule(importPath) : undefined;
-  useEffect(() => {
-    if (!importPath || peekStoryModule(importPath)) return;
-    let live = true;
-    const stop = startRenderDeadline(() => { if (live) setState({ path: importPath, failed: true }); });
-    loadStoryModule(importPath).then((module) => {
-      if (live) setState({ path: importPath, module });
-    }, () => {
-      if (live) setState({ path: importPath, failed: true });
-    }).finally(stop);
-    return () => {
-      live = false;
-      stop();
-    };
-  }, [importPath]);
-  const current = state?.path === importPath ? state : null;
-  return { module: cached ?? current?.module, failed: !cached && current?.failed === true };
 }
 
 function componentStories(index: StoryIndex, title: string): StoryIndexEntry[] {
@@ -127,7 +108,8 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   const position = Math.max(0, catalog.items.findIndex((entry) => entry.id === selected));
   const item = catalog.items[position];
   const entries = useMemo(() => componentStories(index, item.title), [index, item.title]);
-  const { module, failed } = useStoryModule(overview || composing ? undefined : entries[0]?.importPath);
+  const { value: module, failed } = useDeadlineResource(
+    overview || composing ? undefined : entries[0]?.importPath || undefined, loadStoryModule, peekStoryModule);
   const allStories = useMemo(() => module ? sheetStories(module, entries, theme) : null, [module, entries, theme]);
   const stories = useMemo(() => allStories?.filter((story) => !story.themePinned) ?? null, [allStories]);
   const hiddenThemes = allStories ? allStories.length - (stories?.length ?? 0) : 0;
@@ -138,7 +120,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   const args = useMemo(() => focusedStory && controls ? storyArgs(controls, focusedStory.initialArgs, overrides) : null,
     [focusedStory, controls, overrides]);
   useLayoutEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
+    applyTheme(document, theme);
   }, [theme]);
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 0;
@@ -251,9 +233,9 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
             stories={stories} theme={theme} focused={focused} focusedArgs={args} annotating={annotating}
             hiddenThemes={hiddenThemes} frameSource={frameSource} onToggle={toggle}
             onEscape={clearFocus} onExitAnnotate={() => setAnnotating(false)} /> :
-            <p className={styles.sectionMessage} role={failed ? "alert" : "status"}>
+            <SectionMessage failed={failed}>
               {failed ? `Couldn't load ${item.name}'s stories. Reload to try again.` : `Loading ${item.name}…`}
-            </p>}
+            </SectionMessage>}
         </div>
       </div>}
     </main>

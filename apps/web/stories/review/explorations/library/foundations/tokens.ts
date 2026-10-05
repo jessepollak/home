@@ -13,7 +13,7 @@ const GRAPHIC_MIN = 3;
 const FAMILY_ORDER = ["surface", "text", "primary", "status", "market", "balance", "payout"];
 const PATTERN_VALUE = /gradient\(/i;
 
-export function topLevelBlocks(css: string): CssBlock[] {
+function topLevelBlocks(css: string): CssBlock[] {
   const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const blocks: CssBlock[] = [];
   let depth = 0;
@@ -50,7 +50,7 @@ export function blockDeclarations(css: string, prelude: string): Declaration[] {
   return topLevelBlocks(css).filter((block) => block.prelude === prelude).flatMap((block) => block.declarations);
 }
 
-export function colorFamily(name: string): ColorFamily {
+function colorFamily(name: string): ColorFamily {
   if (name === "foreground" || name.endsWith("-foreground")) {
     const base = name.slice(0, -"foreground".length).replace(/-$/, "");
     if (base.startsWith("payout-")) return "payout";
@@ -61,7 +61,7 @@ export function colorFamily(name: string): ColorFamily {
   return name.includes("-") ? name.split("-")[0] : "surface";
 }
 
-export function contrastRule(name: string, family: ColorFamily, pattern: boolean, names: Set<string>): ContrastRule {
+function contrastRule(name: string, family: ColorFamily, pattern: boolean, names: Set<string>): ContrastRule {
   if (pattern) return { use: "pattern" };
   const pair = name.endsWith("-foreground") ? name.slice(0, -"-foreground".length) : null;
   if (pair && names.has(pair)) {

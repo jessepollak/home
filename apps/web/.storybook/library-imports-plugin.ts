@@ -5,11 +5,8 @@ import { init, parse } from "es-module-lexer";
 import { normalizePath, transformWithEsbuild, type Plugin } from "vite";
 import { loadCsf } from "storybook/internal/csf-tools";
 import type { ImportEntry, LibraryImports } from "../stories/review/explorations/library/isolation";
+import { virtualModulePlugin } from "./virtual-module-plugin";
 
-const virtualId = "virtual:library-imports";
-const resolvedId = `\0${virtualId}`;
-const compositionVirtualId = "virtual:composition-coverage";
-const compositionResolvedId = `\0${compositionVirtualId}`;
 const webRoot = fileURLToPath(new URL("../", import.meta.url));
 
 function transformLibrarySource(source: string, filename: string) {
@@ -114,9 +111,13 @@ export async function walkCompositionUiImports(entry: string | string[], root = 
   return [...reached].sort();
 }
 
+export async function compositionFiles(root = webRoot): Promise<string[]> {
+  return (await readdir(join(root, "stories/review/compositions"))).filter((name) => name.endsWith(".stories.tsx")).sort();
+}
+
 export async function compositionUiImports(root = webRoot): Promise<Record<string, string[]>> {
   const directory = join(root, "stories/review/compositions");
-  const files = (await readdir(directory)).filter((name) => name.endsWith(".stories.tsx")).sort();
+  const files = await compositionFiles(root);
   return Object.fromEntries(await Promise.all(files.map(async (name) =>
     [name, await walkCompositionUiImports(join(directory, name), root)])));
 }
@@ -133,30 +134,32 @@ export async function productUiImports(root = webRoot, files?: string[], readSou
   return walkCompositionUiImports(routes, root, readSource, isProductSource);
 }
 
+export async function uiCatalog(root = webRoot): Promise<Map<string, string>> {
+  const uiRoot = join(root, "components/ui");
+  const files = (await readdir(uiRoot)).filter((name) => name.endsWith(".stories.tsx")).sort();
+  const catalog = await Promise.all(files.map(async (file): Promise<Array<[string, string]>> => {
+    const csf = loadCsf(await readFile(join(uiRoot, file), "utf8"), { makeTitle: (title) => title }).parse();
+    return csf.meta.title?.startsWith("UI/") && csf.stories.length > 0
+      ? [[file.slice(0, -".stories.tsx".length), csf.stories[0].id.split("--")[0]]] : [];
+  }));
+  return new Map(catalog.flat());
+}
+
 async function compositionNotUsedInProduct(root = webRoot): Promise<string[]> {
   const used = new Set(await productUiImports(root));
-  const uiRoot = join(root, "components/ui");
-  const files = (await readdir(uiRoot)).filter((name) => name.endsWith(".stories.tsx"));
-  const catalog = await Promise.all(files.map(async (file) => {
-    const csf = loadCsf(await readFile(join(uiRoot, file), "utf8"), { makeTitle: (title) => title }).parse();
-    return csf.meta.title?.startsWith("UI/") && csf.stories.length > 0 ? [file.slice(0, -".stories.tsx".length)] : [];
-  }));
-  return catalog.flat().filter((name) => !used.has(name)).sort();
+  return [...(await uiCatalog(root)).keys()].filter((name) => !used.has(name)).sort();
 }
 
 export function libraryImportsPlugin(root = webRoot, computeCoverage: () => Promise<string[]> = () => compositionNotUsedInProduct(root)): Plugin {
   const uiRoot = join(root, "components/ui");
   const matches = (file: string) => /^(?:[^/]+\.(?:ts|tsx)|[^/]+\/index\.tsx)$/.test(normalizePath(relative(uiRoot, file)));
-  let cleanup: (() => void) | undefined;
   let compositionCoverage: Promise<string> | undefined;
-  return {
+  return virtualModulePlugin({
     name: "library-imports",
-    resolveId(id) {
-      if (id === virtualId) return resolvedId;
-      if (id === compositionVirtualId) return compositionResolvedId;
-    },
-    async load(id) {
-      if (id === compositionResolvedId) {
+    watchFiles: [uiRoot, ...["client", "components", "shared", "app", "stories", "lib", "hooks"].map((directory) => join(root, directory))],
+    modules: [{
+      id: "virtual:composition-coverage",
+      load() {
         if (!compositionCoverage) {
           const pending = computeCoverage()
             .then((names) => `export const notUsedInProduct = ${JSON.stringify(names)};`)
@@ -167,54 +170,36 @@ export function libraryImportsPlugin(root = webRoot, computeCoverage: () => Prom
           compositionCoverage = pending;
         }
         return compositionCoverage;
-      }
-      if (id !== resolvedId) return;
-      const entries = await readdir(uiRoot, { withFileTypes: true });
-      const files = (await Promise.all(entries.map(async (entry) => {
-        if (entry.isFile() && /\.(?:ts|tsx)$/.test(entry.name)) return [join(uiRoot, entry.name)];
-        if (entry.isDirectory()) {
-          return (await readdir(join(uiRoot, entry.name))).includes("index.tsx") ? [join(uiRoot, entry.name, "index.tsx")] : [];
-        }
-        return [];
-      }))).flat();
-      const payload: LibraryImports = Object.fromEntries(await Promise.all(files.map(async (file) => {
-        this.addWatchFile(file);
-        const key = `../../../../${normalizePath(relative(root, file))}`;
-        try {
-          return [key, await lexLibraryImports(await readFile(file, "utf8"), file)];
-        } catch {
-          return [key, { specifiers: [], nonLiteralDynamic: false, lexFailure: true }];
-        }
-      })));
-      return `export default ${JSON.stringify(payload)};`;
-    },
-    configureServer(server) {
-      server.watcher.add(uiRoot);
-      server.watcher.add(["client", "components", "shared", "app", "stories", "lib", "hooks"].map((directory) => join(root, directory)));
-      const changed = (file: string) => {
+      },
+      watch(file) {
         const local = normalizePath(relative(root, file));
-        if (!local.startsWith("../") && !local.split("/").includes("node_modules") && /\.[cm]?[jt]sx?$/.test(local)) {
-          compositionCoverage = undefined;
-          const coverage = server.moduleGraph.getModuleById(compositionResolvedId);
-          if (coverage) {
-            server.moduleGraph.invalidateModule(coverage);
-            server.ws.send({ type: "full-reload" });
+        if (local.startsWith("../") || local.split("/").includes("node_modules") || !/\.[cm]?[jt]sx?$/.test(local)) return false;
+        compositionCoverage = undefined;
+        return true;
+      },
+    }, {
+      id: "virtual:library-imports",
+      async load(addWatchFile) {
+        const entries = await readdir(uiRoot, { withFileTypes: true });
+        const files = (await Promise.all(entries.map(async (entry) => {
+          if (entry.isFile() && /\.(?:ts|tsx)$/.test(entry.name)) return [join(uiRoot, entry.name)];
+          if (entry.isDirectory()) {
+            return (await readdir(join(uiRoot, entry.name))).includes("index.tsx") ? [join(uiRoot, entry.name, "index.tsx")] : [];
           }
-        }
-        if (!matches(file)) return;
-        const node = server.moduleGraph.getModuleById(resolvedId);
-        if (!node) return;
-        server.moduleGraph.invalidateModule(node);
-        server.ws.send({ type: "full-reload" });
-      };
-      for (const event of ["add", "change", "unlink"] as const) server.watcher.on(event, changed);
-      cleanup = () => {
-        for (const event of ["add", "change", "unlink"] as const) server.watcher.off(event, changed);
-      };
-      server.httpServer?.once("close", cleanup);
-    },
-    closeBundle() {
-      cleanup?.();
-    },
-  };
+          return [];
+        }))).flat();
+        const payload: LibraryImports = Object.fromEntries(await Promise.all(files.map(async (file) => {
+          addWatchFile(file);
+          const key = `../../../../${normalizePath(relative(root, file))}`;
+          try {
+            return [key, await lexLibraryImports(await readFile(file, "utf8"), file)];
+          } catch {
+            return [key, { specifiers: [], nonLiteralDynamic: false, lexFailure: true }];
+          }
+        })));
+        return `export default ${JSON.stringify(payload)};`;
+      },
+      watch: matches,
+    }],
+  });
 }

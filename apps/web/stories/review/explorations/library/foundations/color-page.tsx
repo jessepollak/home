@@ -15,7 +15,7 @@ const FAMILY_LABEL: Record<string, string> = {
 };
 
 
-export function ruleLabel(rule: ContrastRule): string {
+function ruleLabel(rule: ContrastRule): string {
   if (rule.use === "text" || rule.use === "graphic") {
     const target = rule.against === "surfaces" ? "card and page" : `--${rule.against.pair}`;
     return `${rule.use === "text" ? "Text" : "Graphic"} · ${rule.min}:1 on ${target}`;
@@ -25,7 +25,7 @@ export function ruleLabel(rule: ContrastRule): string {
 }
 
 
-export function useColorMeasurements(snapshot: ThemeValues | null) {
+function useColorMeasurements(snapshot: ThemeValues | null) {
   return useMemo(() => snapshot ? foundations.colors.map((token) => ({
     token,
     light: measureColor(token, snapshot.light),

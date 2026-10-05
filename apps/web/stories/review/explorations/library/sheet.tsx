@@ -6,10 +6,12 @@ import { createFrameSlots, fittedFrameHeight, FRAME_MIN_HEIGHT, FRAME_WIDTH, fra
   type FrameSlots } from "./sheet-state";
 import { storyCanvasUrl } from "../board/url-state";
 import type { SheetStory } from "./stories";
+import { SectionMessage } from "./section-message";
 import styles from "./library.module.css";
 
 
 const USER_SCROLL_WINDOW = 1000;
+const USER_SCROLL_EVENTS = ["wheel", "touchstart", "pointerdown"];
 
 function useFrameScrollGuard(root: HTMLElement | null, busy: { current: Set<string> }) {
   const userUntil = useRef(0);
@@ -22,12 +24,11 @@ function useFrameScrollGuard(root: HTMLElement | null, busy: { current: Set<stri
       if (performance.now() < userUntil.current || !busy.current.size) allowed = root.scrollTop;
       else if (root.scrollTop !== allowed) root.scrollTop = allowed;
     };
-    const rootEvents = ["wheel", "touchstart", "pointerdown"] as const;
-    for (const name of rootEvents) root.addEventListener(name, user, { passive: true });
+    for (const name of USER_SCROLL_EVENTS) root.addEventListener(name, user, { passive: true });
     doc.addEventListener("keydown", user, true);
     root.addEventListener("scroll", scroll);
     return () => {
-      for (const name of rootEvents) root.removeEventListener(name, user);
+      for (const name of USER_SCROLL_EVENTS) root.removeEventListener(name, user);
       doc.removeEventListener("keydown", user, true);
       root.removeEventListener("scroll", scroll);
     };
@@ -48,7 +49,7 @@ class SectionBoundary extends Component<SectionInputs & { story: string; childre
   }
   render() {
     if (this.state.error !== null) {
-      return <p className={styles.sectionMessage} role="alert">{this.state.error || `Story failed to render: ${this.props.story}`}</p>;
+      return <SectionMessage failed>{this.state.error || `Story failed to render: ${this.props.story}`}</SectionMessage>;
     }
     return this.props.children;
   }
@@ -225,8 +226,7 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
       restored.current = true;
       if (animation !== undefined) cancelAnimationFrame(animation);
     };
-    const events = ["wheel", "touchstart", "pointerdown"] as const;
-    for (const event of events) root.addEventListener(event, cancel, { passive: true });
+    for (const event of USER_SCROLL_EVENTS) root.addEventListener(event, cancel, { passive: true });
     root.ownerDocument.addEventListener("keydown", cancel, true);
     if (measurementsReady) {
       animation = requestAnimationFrame(() => {
@@ -248,7 +248,7 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
     return () => {
       cancelled = true;
       if (animation !== undefined) cancelAnimationFrame(animation);
-      for (const event of events) root.removeEventListener(event, cancel);
+      for (const event of USER_SCROLL_EVENTS) root.removeEventListener(event, cancel);
       root.ownerDocument.removeEventListener("keydown", cancel, true);
     };
   }, [root, focused, measurementsReady, onUserInput]);

@@ -40,9 +40,10 @@ export function createFrameSlots(limit: number): FrameSlots {
   };
 }
 
-export const FRAME_WIDTH = 390;
+export const PHONE_VIEWPORT: FrameViewport = { width: 390, height: 844 };
+export const FRAME_WIDTH = PHONE_VIEWPORT.width;
 export const FRAME_MIN_HEIGHT = 160;
-export const FRAME_MAX_HEIGHT = 844;
+const FRAME_MAX_HEIGHT = PHONE_VIEWPORT.height;
 const PORTAL_FRAME_HEIGHT = 560;
 const FRAME_PADDING = 48;
 

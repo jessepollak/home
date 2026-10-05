@@ -1,6 +1,6 @@
 import type { PropValue } from "./controls";
 
-export type LibraryUrlState = { component?: string; story?: string; props: Record<string, PropValue>; theme?: "light" | "dark" };
+type LibraryUrlState = { component?: string; story?: string; props: Record<string, PropValue>; theme?: "light" | "dark" };
 
 function parseProps(input: string | null): Record<string, PropValue> {
   if (!input) return {};

@@ -46,6 +46,14 @@ export const Library: Story = {
 const section = (canvas: { getByRole: (role: "heading", options: { name: RegExp }) => HTMLElement }, name: string) =>
   within(canvas.getByRole("heading", { name: new RegExp(`^${name}`) })).getByRole("button");
 const search = (canvasElement: HTMLElement) => new URL(canvasElement.ownerDocument.location.href).searchParams;
+const withLibraryParams = (set: Record<string, string>, clear: string[] = []) => () => {
+  const original = location.href;
+  const url = new URL(original);
+  for (const key of clear) url.searchParams.delete(key);
+  for (const [key, value] of Object.entries(set)) url.searchParams.set(key, value);
+  history.replaceState(history.state, "", url);
+  return () => history.replaceState(history.state, "", original);
+};
 
 export const Workspace: Story = {
   args: { build: fixtureBuild, storyIndex: fixtureIndex, frameSource: "blank" },
@@ -134,14 +142,7 @@ const overviewIndex = indexOf([
 export const Overview: Story = {
   args: { build: fixtureBuild, storyIndex: overviewIndex, frameSource: "blank" },
   parameters: { a11y: { test: "error" } },
-  beforeEach: () => {
-    const original = location.href;
-    const url = new URL(original);
-    for (const key of ["component", "story", "props"]) url.searchParams.delete(key);
-    url.searchParams.set("theme", "light");
-    history.replaceState(history.state, "", url);
-    return () => history.replaceState(history.state, "", original);
-  },
+  beforeEach: withLibraryParams({ theme: "light" }, ["component", "story", "props"]),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     const surface = await canvas.findByRole("main", { name: "Library overview" });
@@ -277,15 +278,7 @@ export const Compositions: Story = {
 export const CompositionCoverage: Story = {
   args: { build: fixtureBuild, storyIndex: compositionsIndex, frameSource: "blank" },
   parameters: { a11y: { test: "error" } },
-  beforeEach: () => {
-    const original = location.href;
-    const url = new URL(original);
-    for (const key of ["story", "props"]) url.searchParams.delete(key);
-    url.searchParams.set("component", "compositions");
-    url.searchParams.set("theme", "light");
-    history.replaceState(history.state, "", url);
-    return () => history.replaceState(history.state, "", original);
-  },
+  beforeEach: withLibraryParams({ component: "compositions", theme: "light" }, ["story", "props"]),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
@@ -299,16 +292,9 @@ export const CompositionCoverage: Story = {
 
 export const RestoredPreview: Story = {
   args: { build: fixtureBuild, storyIndex: restoredIndex, frameSource: "blank", theme: "dark" },
-  beforeEach: () => {
-    const original = location.href;
-    const url = new URL(original);
-    url.searchParams.set("component", "ui-button");
-    url.searchParams.set("story", "ui-button--loading");
-    url.searchParams.set("props", JSON.stringify({ children: "RESTORED" }));
-    url.searchParams.set("theme", "dark");
-    history.replaceState(history.state, "", url);
-    return () => history.replaceState(history.state, "", original);
-  },
+  beforeEach: withLibraryParams({
+    component: "ui-button", story: "ui-button--loading", props: JSON.stringify({ children: "RESTORED" }), theme: "dark",
+  }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     await expect(await canvas.findByRole("heading", { name: "Loading" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
@@ -328,13 +314,7 @@ export const RestoredPreview: Story = {
 export const Foundations: Story = {
   args: { build: fixtureBuild, storyIndex: fixtureIndex, frameSource: "blank" },
   parameters: { a11y: { test: "error" } },
-  beforeEach: () => {
-    const original = location.href;
-    const url = new URL(original);
-    url.searchParams.set("theme", "light");
-    history.replaceState(history.state, "", url);
-    return () => history.replaceState(history.state, "", original);
-  },
+  beforeEach: withLibraryParams({ theme: "light" }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     const foundations = await canvas.findByRole("listbox", { name: "Foundations" });
@@ -403,14 +383,7 @@ export const Foundations: Story = {
 
 export const RestoredFoundation: Story = {
   args: { build: fixtureBuild, storyIndex: fixtureIndex, frameSource: "blank" },
-  beforeEach: () => {
-    const original = location.href;
-    const url = new URL(original);
-    url.searchParams.set("component", "foundations/radius-spacing");
-    url.searchParams.set("theme", "dark");
-    history.replaceState(history.state, "", url);
-    return () => history.replaceState(history.state, "", original);
-  },
+  beforeEach: withLibraryParams({ component: "foundations/radius-spacing", theme: "dark" }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     const surface = await canvas.findByRole("main", { name: "Radius & spacing foundations" });

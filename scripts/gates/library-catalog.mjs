@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -183,16 +183,11 @@ export function compositionA11yFindings(files, previewSource, exemptions) {
 }
 
 export async function repositoryLibraryCatalogFindings(root = webRoot, policyDirectory = fileURLToPath(new URL("./", import.meta.url))) {
-  const { compositionUiImports, productUiImports } = await libraryWalkers();
-  const components = new Map();
-  const ui = join(root, "components/ui");
-  for (const name of readdirSync(ui).filter((name) => name.endsWith(".stories.tsx")).sort()) {
-    const csf = loadCsf(readFileSync(join(ui, name), "utf8"), { makeTitle: (title) => title }).parse();
-    if (csf.meta.title?.startsWith("UI/") && csf.stories.length) components.set(name.slice(0, -".stories.tsx".length), csf.stories[0].id.split("--")[0]);
-  }
+  const { compositionUiImports, productUiImports, uiCatalog, compositionFiles } = await libraryWalkers();
+  const components = await uiCatalog(root);
   if (!components.size) throw new Error("No Library catalog components found");
   const directory = join(root, "stories/review/compositions");
-  const stories = readdirSync(directory).filter((name) => name.endsWith(".stories.tsx")).sort()
+  const stories = (await compositionFiles(root))
     .map((name) => ({ path: join(directory, name), content: readFileSync(join(directory, name), "utf8") }));
   const notUsed = JSON.parse(readFileSync(join(policyDirectory, "library-catalog-not-used.json"), "utf8"));
   const exemptions = JSON.parse(readFileSync(join(policyDirectory, "library-composition-a11y-exemptions.json"), "utf8"));

@@ -3,7 +3,7 @@ import type { ComponentType } from "react";
 import type { StoryIndexEntry } from "../board/review-build";
 import type { ArgType } from "./controls";
 import { frameReason, hasPinnedTheme, readPortalRule, type FrameReason, type PortalRule, type StoryAnnotations } from "./isolation";
-import { declaredViewport, type FrameViewport } from "./sheet-state";
+import { declaredViewport, PHONE_VIEWPORT, type FrameViewport } from "./sheet-state";
 
 export type StoryModule = Record<string, unknown> & { default?: StoryAnnotations };
 
@@ -138,9 +138,8 @@ export async function loadNotUsedInProduct(): Promise<string[]> {
   return notUsedInProduct;
 }
 
-export const COMPOSITION_TITLE = "Compositions/";
+const COMPOSITION_TITLE = "Compositions/";
 const COMPOSITION_STORY = /^(?:\.\/)?(?:apps\/web\/)?stories\/review\/compositions\/[^/]+\.stories\.[^/]+$/;
-const PHONE_VIEWPORT: FrameViewport = { width: 390, height: 844 };
 const EmptyStory: ComponentType<Record<string, unknown>> = () => null;
 
 export function compositionEntries(entries: Record<string, StoryIndexEntry>): StoryIndexEntry[] {
@@ -148,7 +147,7 @@ export function compositionEntries(entries: Record<string, StoryIndexEntry>): St
     COMPOSITION_STORY.test(entry.importPath));
 }
 
-export function orderedCompositionEntries(entries: StoryIndexEntry[], modules: ReadonlyMap<string, StoryModule>): StoryIndexEntry[] {
+function orderedCompositionEntries(entries: StoryIndexEntry[], modules: ReadonlyMap<string, StoryModule>): StoryIndexEntry[] {
   const orders = new Map([...modules].map(([path, module]) => {
     const library = module.default?.parameters?.library;
     const order = library && typeof library === "object" && "order" in library ? library.order : undefined;

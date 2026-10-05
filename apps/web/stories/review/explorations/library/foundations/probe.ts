@@ -1,3 +1,4 @@
+import { applyTheme } from "../../../../../.storybook/theme";
 import type { Rgba } from "./contrast";
 
 export type ThemeName = "light" | "dark";
@@ -7,7 +8,7 @@ function sheetText(sheet: CSSStyleSheet): string {
   return Array.from(sheet.cssRules, (rule) => rule.cssText).join("\n");
 }
 
-export type ThemeProbe = { status: "measured"; values: ThemeValues } | { status: "unavailable" };
+type ThemeProbe = { status: "measured"; values: ThemeValues } | { status: "unavailable" };
 
 export function probeThemes(names: string[], reader = readThemeValues): ThemeProbe {
   try {
@@ -17,7 +18,7 @@ export function probeThemes(names: string[], reader = readThemeValues): ThemePro
   }
 }
 
-export function readThemeValues(names: string[], owner: Document = document): ThemeValues {
+function readThemeValues(names: string[], owner: Document = document): ThemeValues {
   const css = Array.from(owner.styleSheets, sheetText).join("\n");
   if (!css.trim()) throw new Error("Theme stylesheets unavailable");
   const frame = owner.createElement("iframe");
@@ -31,7 +32,7 @@ export function readThemeValues(names: string[], owner: Document = document): Th
     style.textContent = css;
     doc.head.append(style);
     const read = (theme: ThemeName) => {
-      doc.documentElement.classList.toggle("dark", theme === "dark");
+      applyTheme(doc, theme);
       const computed = frame.contentWindow!.getComputedStyle(doc.documentElement);
       return Object.fromEntries(names.map((name) => [name, computed.getPropertyValue(`--${name}`).trim()]));
     };

@@ -33,14 +33,14 @@ export function frameReason(meta: StoryAnnotations, story: StoryAnnotations, por
   return null;
 }
 
-export function rendersPortal(source: string): boolean {
+function rendersPortal(source: string): boolean {
   return /\bPortal\b|[\w$]+Portal\b|createPortal/.test(source);
 }
 
 export type ImportEntry = { specifiers: string[]; nonLiteralDynamic: boolean; lexFailure: boolean };
 export type LibraryImports = Record<string, ImportEntry>;
 
-export function componentModulePaths(specifiers: readonly string[], storyPath: string): string[] {
+function componentModulePaths(specifiers: readonly string[], storyPath: string): string[] {
   const paths = new Set<string>();
   for (const specifier of specifiers) {
     if (specifier.includes("?")) throw new Error("Unsupported import query");
@@ -58,7 +58,7 @@ export function componentModulePaths(specifiers: readonly string[], storyPath: s
   return [...paths];
 }
 
-export function resolveComponentPath(path: string, keys: readonly string[]): string | undefined {
+function resolveComponentPath(path: string, keys: readonly string[]): string | undefined {
   if (/\.[^/]+$/.test(path) && !/\.(?:js|jsx|ts|tsx)$/.test(path)) return undefined;
   const base = path.replace(/\.(?:js|jsx|ts|tsx)$/, "");
   return [path, `${base}.tsx`, `${base}.ts`, `${base}/index.tsx`].find((candidate) => keys.includes(candidate));

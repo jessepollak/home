@@ -1,8 +1,8 @@
 import { selectorClasses } from "./candidates";
 import type { MotionUse } from "./usage";
 
-export type MotionValue = { property: string; value: string };
-export type MotionReference = { utilities: Record<string, MotionValue[] | null>; tokens: MotionValue[]; easings: string[] };
+type MotionValue = { property: string; value: string };
+type MotionReference = { utilities: Record<string, MotionValue[] | null>; tokens: MotionValue[]; easings: string[] };
 
 const MOTION_NAME = /(?:^|[-])(?:ease|duration|delay|transition|animation|animate|motion)(?:-|$)/;
 const PROPERTIES = ["transition-property", "transition-duration", "transition-timing-function", "transition-delay"];
