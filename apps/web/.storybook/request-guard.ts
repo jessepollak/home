@@ -51,7 +51,7 @@ export function isVercelToolbarRequest(request: Request, storybookOrigin: string
 
 const ASSET_IMAGE_HOSTS = ["token-media.defined.fi", "media.thegrid.id"] as const;
 
-export function isAssetImageRequest(request: Request): boolean {
+function isAssetImageRequest(request: Request): boolean {
   const url = new URL(request.url);
   return url.protocol === "https:" && (request.method === "GET" || request.method === "HEAD") &&
     ASSET_IMAGE_HOSTS.some((host) => url.hostname === host) && /\.(?:png|jpe?g|webp|svg)$/.test(url.pathname);
