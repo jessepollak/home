@@ -241,9 +241,6 @@ export const Compositions: Story = {
     await userEvent.click(canvas.getByRole("option", { name: "Compositions, 5 compositions" }));
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
     await expect(within(surface).getByText("Compositions · 5 compositions")).toBeVisible();
-    await expect(await within(surface).findByRole("link", { name: "Button Group" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
-    await expect(within(surface).getByRole("link", { name: "Dialog" })).toBeVisible();
-    await expect(within(surface).getByText(/^Not used in any product screen:/)).toHaveTextContent("Not used in any product screen: Button Group, Dialog, Kbd, Progress");
     await expect(search(canvasElement).get("component")).toBe("compositions");
     await expect(window.history.length).toBe(historyLength + 2);
     for (const name of ["Home", "Home Loading", "Invest", "Asset Detail", "Card Onboarding", "Active", "Coverage", "Operator"]) {
@@ -274,6 +271,28 @@ export const Compositions: Story = {
     await waitFor(() => expect(search(canvasElement).get("story")).toBe("compositions-card-onboarding--card-onboarding"));
     await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
     await expect(search(canvasElement).get("theme")).toBe("dark");
+  },
+};
+
+export const CompositionCoverage: Story = {
+  args: { build: fixtureBuild, storyIndex: compositionsIndex, frameSource: "blank" },
+  parameters: { a11y: { test: "error" } },
+  beforeEach: () => {
+    const original = location.href;
+    const url = new URL(original);
+    for (const key of ["story", "props"]) url.searchParams.delete(key);
+    url.searchParams.set("component", "compositions");
+    url.searchParams.set("theme", "light");
+    history.replaceState(history.state, "", url);
+    return () => history.replaceState(history.state, "", original);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    const surface = await canvas.findByRole("main", { name: "Library compositions" });
+    const productUsage = await within(surface).findByText(/^Not used in any product screen:/, {}, { timeout: INITIAL_MODULE_TIMEOUT });
+    await expect(within(productUsage).getByRole("link", { name: "Button Group" })).toBeVisible();
+    await expect(within(productUsage).getByRole("link", { name: "Dialog" })).toBeVisible();
+    await expect(productUsage).toHaveTextContent("Not used in any product screen: Button Group, Dialog, Kbd, Progress");
   },
 };
 
