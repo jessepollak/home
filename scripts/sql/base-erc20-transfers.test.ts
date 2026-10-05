@@ -125,6 +125,36 @@ test("generated query scopes rows and paginates after cancellation in numeric or
   expect(third.nextCursor).toBeNull();
 }, 30_000);
 
+test("generated query continues pagination after a truncated SQL response", async () => {
+  const rows = [
+    event("newest", "added", { log_index: 10 }),
+    event("middle", "added"),
+    event("oldest", "added", { block_number: "9" }),
+  ];
+  let firstCall = true;
+  const history = createBaseErc20TransferHistory({
+    assets,
+    now: () => NOW,
+    transport: {
+      async run({ sql }) {
+        const result = await execute(sql, rows);
+        const pageRows = firstCall ? result.slice(0, 1) : result;
+        firstCall = false;
+        return {
+          result: pageRows,
+          metadata: { cached: false, executionTimestamp: NOW.toISOString(), executionTimeMs: 1, rowCount: result.length },
+        };
+      },
+    },
+  });
+  const first = await history.listTransfers({ ...input, limit: 10 });
+  expect(first.transfers.map((row) => row.logId)).toEqual(["newest"]);
+  expect(first.nextCursor).not.toBeNull();
+  const second = await history.listTransfers({ ...input, limit: 10, cursor: first.nextCursor! });
+  expect(second.transfers.map((row) => row.logId)).toEqual(["middle", "oldest"]);
+  expect(second.nextCursor).toBeNull();
+}, 30_000);
+
 test("generated query rejects unknown actions instead of returning empty history", async () => {
   const { sql } = buildBaseErc20TransferQuery(input, assets, NOW);
   await expect(execute(sql, [event("unknown", "unexpected")])).rejects.toThrow("Cannot parse");
