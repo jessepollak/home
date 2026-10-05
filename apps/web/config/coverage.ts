@@ -7,8 +7,6 @@ import {
 } from "./regions";
 import type { FundingAssetId } from "@/shared/assets/base";
 
-export const COVERAGE_REGISTRY_CHECKED_AT = "2026-09-16" as const;
-
 export const COVERAGE_RESEARCH_SOURCE = {
   name: "Home top-100 issuer-first local-stablecoin research (#539 final findings)",
   checkedAt: "2026-09-16",
@@ -31,7 +29,6 @@ export type CoverageWorkstreamStage = (typeof coverageWorkstreamStages)[number];
 export type CoverageProviderId = "coinbase" | "idrx" | "ripio";
 
 export type CoverageEvidence = { url: string; checkedAt: string; note: string };
-export type HomeRouteEvidence = { environment: "hosted-production"; proofRef: string; checkedAt: string };
 export type CoveragePortfolioWorkstream = {
   routeId: string;
   currencyCode: string;
@@ -49,7 +46,7 @@ export type CoverageRecord = {
   configuredInHome: boolean;
   issuerRoute: { status: CoverageIssuerStatus; rail: string; audience: string; evidence: CoverageEvidence | null };
   portfolio: { status: CoveragePortfolioStatus; workstreams: readonly CoveragePortfolioWorkstream[] };
-  homeRoute: { status: CoverageHomeStatus; providerId: CoverageProviderId | null; assetId: FundingAssetId | null; paymentMethodIds: readonly string[]; evidence: HomeRouteEvidence | null };
+  homeRoute: { status: CoverageHomeStatus; providerId: CoverageProviderId | null; assetId: FundingAssetId | null; paymentMethodIds: readonly string[] };
   quoteObservation: null | { quotedAt: string; spreadBps: number | null; feeSummary: string; sourceUrl: string };
 };
 
@@ -193,11 +190,11 @@ function priorityWorkstreams(countryCode: string): readonly CoveragePortfolioWor
 }
 
 const homeRoutes: Partial<Record<CountryCode, CoverageRecord["homeRoute"]>> = {
-  AR: { status: "in-build", providerId: "ripio", assetId: "base:wars", paymentMethodIds: ["bank_transfer"], evidence: null },
-  BR: { status: "in-build", providerId: "ripio", assetId: "base:wbrl", paymentMethodIds: ["pix"], evidence: null },
-  CO: { status: "in-build", providerId: "ripio", assetId: "base:wcop", paymentMethodIds: ["bank_transfer", "breb", "r2p_bancolombia", "r2p_nequi"], evidence: null },
-  ID: { status: "in-build", providerId: "idrx", assetId: "base:idrx", paymentMethodIds: ["qris"], evidence: null },
-  US: { status: "sandbox", providerId: "coinbase", assetId: "base:usdc", paymentMethodIds: ["apple-pay"], evidence: null },
+  AR: { status: "in-build", providerId: "ripio", assetId: "base:wars", paymentMethodIds: ["bank_transfer"] },
+  BR: { status: "in-build", providerId: "ripio", assetId: "base:wbrl", paymentMethodIds: ["pix"] },
+  CO: { status: "in-build", providerId: "ripio", assetId: "base:wcop", paymentMethodIds: ["bank_transfer", "breb", "r2p_bancolombia", "r2p_nequi"] },
+  ID: { status: "in-build", providerId: "idrx", assetId: "base:idrx", paymentMethodIds: ["qris"] },
+  US: { status: "sandbox", providerId: "coinbase", assetId: "base:usdc", paymentMethodIds: ["apple-pay"] },
 };
 
 /** @public exercised by config/coverage.test.ts */
@@ -226,7 +223,7 @@ export const coverageRegistry: readonly CoverageRecord[] = countrySnapshotJson.r
       status: workstreams.length > 0 ? "priority" : top100CountryCodes.has(country.countryCode) ? "deferred" : "not-scoped",
       workstreams,
     },
-    homeRoute: configured ? homeRoutes[countryCode] ?? { status: "none", providerId: null, assetId: null, paymentMethodIds: [], evidence: null } : { status: "none", providerId: null, assetId: null, paymentMethodIds: [], evidence: null },
+    homeRoute: configured ? homeRoutes[countryCode] ?? { status: "none", providerId: null, assetId: null, paymentMethodIds: [] } : { status: "none", providerId: null, assetId: null, paymentMethodIds: [] },
     quoteObservation: null,
   };
 });
@@ -256,11 +253,11 @@ function csvCell(value: string | number | null) {
 }
 
 export function coverageCsv(records: readonly CoverageRecord[] = coverageRegistry) {
-  const header = ["country_code", "country", "currencies", "configured_in_home", "candidate_asset", "candidate_issuer", "issuer_route_status", "issuer_rail", "issuer_evidence_checked_at", "issuer_evidence_url", "portfolio_status", "portfolio_route_ids", "portfolio_route_currencies", "portfolio_route_assets", "portfolio_route_providers", "portfolio_route_issue_numbers", "portfolio_route_issue_urls", "portfolio_route_stages", "home_route_status", "home_provider_id", "home_asset_id", "home_payment_method_ids", "home_live_checked_at", "quote_observed_at", "quote_spread_bps", "quote_fee_summary", "quote_source_url", "gdp_current_usd", "gdp_year"];
+  const header = ["country_code", "country", "currencies", "configured_in_home", "candidate_asset", "candidate_issuer", "issuer_route_status", "issuer_rail", "issuer_evidence_checked_at", "issuer_evidence_url", "portfolio_status", "portfolio_route_ids", "portfolio_route_currencies", "portfolio_route_assets", "portfolio_route_providers", "portfolio_route_issue_numbers", "portfolio_route_issue_urls", "portfolio_route_stages", "home_route_status", "home_provider_id", "home_asset_id", "home_payment_method_ids", "quote_observed_at", "quote_spread_bps", "quote_fee_summary", "quote_source_url", "gdp_current_usd", "gdp_year"];
   const rows = sortCoverage(records, "alphabetical").map((record) => {
     const region = record.configuredInHome ? presentationRegions[record.countryCode as CountryCode] : null;
     const routes = record.portfolio.workstreams;
-    return [record.countryCode, record.countryName, record.currencyCodes.join("|"), record.configuredInHome ? "true" : "false", region?.candidateAsset?.symbol ?? "", region?.candidateAsset?.issuer ?? "", record.issuerRoute.status, record.issuerRoute.rail, record.issuerRoute.evidence?.checkedAt ?? "", record.issuerRoute.evidence?.url ?? "", record.portfolio.status, routes.map((route) => route.routeId).join("|"), routes.map((route) => route.currencyCode).join("|"), routes.map((route) => route.assetSymbol).join("|"), routes.map((route) => route.provider).join("|"), routes.map((route) => route.issueNumber).join("|"), routes.map((route) => route.issueUrl).join("|"), routes.map((route) => route.stage).join("|"), record.homeRoute.status, record.homeRoute.providerId ?? "", record.homeRoute.assetId ?? "", record.homeRoute.paymentMethodIds.join("|"), record.homeRoute.evidence?.checkedAt ?? "", record.quoteObservation?.quotedAt ?? "", record.quoteObservation?.spreadBps ?? null, record.quoteObservation?.feeSummary ?? "", record.quoteObservation?.sourceUrl ?? "", coverageGdpSnapshot.rows[record.countryCode] ?? null, coverageGdpSnapshot.year].map(csvCell).join(",");
+    return [record.countryCode, record.countryName, record.currencyCodes.join("|"), record.configuredInHome ? "true" : "false", region?.candidateAsset?.symbol ?? "", region?.candidateAsset?.issuer ?? "", record.issuerRoute.status, record.issuerRoute.rail, record.issuerRoute.evidence?.checkedAt ?? "", record.issuerRoute.evidence?.url ?? "", record.portfolio.status, routes.map((route) => route.routeId).join("|"), routes.map((route) => route.currencyCode).join("|"), routes.map((route) => route.assetSymbol).join("|"), routes.map((route) => route.provider).join("|"), routes.map((route) => route.issueNumber).join("|"), routes.map((route) => route.issueUrl).join("|"), routes.map((route) => route.stage).join("|"), record.homeRoute.status, record.homeRoute.providerId ?? "", record.homeRoute.assetId ?? "", record.homeRoute.paymentMethodIds.join("|"), record.quoteObservation?.quotedAt ?? "", record.quoteObservation?.spreadBps ?? null, record.quoteObservation?.feeSummary ?? "", record.quoteObservation?.sourceUrl ?? "", coverageGdpSnapshot.rows[record.countryCode] ?? null, coverageGdpSnapshot.year].map(csvCell).join(",");
   });
   return `${header.join(",")}\n${rows.join("\n")}\n`;
 }

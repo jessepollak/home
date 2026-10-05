@@ -125,7 +125,7 @@ Money must be able to return to usable cash and leave Home. Savings, collateral,
 
 Validate catalog identities and parameters across the full scope. Use proportional end-to-end checks for distinct provider/protocol paths and meaningful edge cases. One successful sample does not establish catalog coverage; identical integrations do not need duplicated full test suites.
 
-Live capability claims need live evidence under the existing approval rules. Sandboxes and fixtures support development. Mark unproven or blocked paths explicitly rather than treating a screen or adapter as a finished product.
+A capability that ships through review is available; it is not described as unproven or production unverified pending a separate funded-proof run. Jesse's real-money use of Home is the evidence, sandboxes and fixtures support development, and blocked paths stay explicit. Live or funded actions still follow the [verification ladder](operating-manual.md#verification-ladder)'s authorization.
 
 These proofs establish readiness for operator pilots. External operator adoption then tests the business thesis.
 

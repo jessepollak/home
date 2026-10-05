@@ -24,7 +24,7 @@ Process, not authorization. Nothing here grants credentials, payments, deploymen
 | `qris` | `base:idrx` | hosted-final | IDRX production | Not run |
 | `bank-va-mandiri`, `bank-va-bri` | `base:idrx` | any | IDRX production | Parked off the live binding: closed VAs accept transfers only from a bank account registered on the ordering IDRX account; with one operator key every Home user pays as the operator and is rejected |
 
-The `ID` registry claim in [`apps/web/config/coverage.ts`](../../../../config/coverage.ts) is `in-build`. It moves to `live` only with dated hosted-final funded evidence.
+The `ID` registry claim in [`apps/web/config/coverage.ts`](../../../../config/coverage.ts) is `in-build`; the registry `status` is the single statement of route availability.
 
 ### Sandbox and write hazard
 
@@ -72,7 +72,7 @@ Use one open order per test Base Account. All orders sit under one operator acco
 
 ### Current claim
 
-**September 18, 2026:** `in-build` for ID, matching [`apps/web/config/coverage.ts`](../../../../config/coverage.ts). Local development against IDRX production completed 2026-09-14 on the #417 branch with the provider-hosted QRIS checkout; one order reached `received`. No hosted-final funded order has run, and no hosted Home acceptance is claimed.
+**September 18, 2026:** `in-build` for ID, matching [`apps/web/config/coverage.ts`](../../../../config/coverage.ts). Local development against IDRX production completed 2026-09-14 on the #417 branch with the provider-hosted QRIS checkout; one order reached `received`.
 
 ## Confirmed against the IDRX production API (2026-09-14)
 
