@@ -244,9 +244,11 @@ export const ManyHoldingsFocusReturn: Story = { args: { snapshot: manyHoldingsSn
   await userEvent.click(target);
   await expect(canvas.getByText("Your balance")).toBeVisible();
   await userEvent.click(within(canvasElement).getByRole("button", { name: "Back" }));
-  await expect(within(canvas.getByRole("region", { name: "Your investments" })).getAllByRole("listitem").length).toBeGreaterThanOrEqual(45);
-  await waitFor(() => expect(canvasElement.ownerDocument.activeElement).toBe(canvas.getByRole("button", { description: `Open ${rows[44]!.holding.name}` })));
-  await expect(canvas.getByRole("region", { name: "Your investments" }).querySelector(`[data-holding-key="${CSS.escape(key)}"]`)).toBeInTheDocument();
+  const list = () => within(canvas.getByRole("region", { name: "Your investments" })).getAllByRole("listitem");
+  await waitFor(() => expect(list().length).toBeGreaterThanOrEqual(45));
+  const returned = list()[44]!;
+  await waitFor(() => expect(returned.querySelector("button")).toHaveFocus());
+  await expect(returned.querySelector(`[data-holding-key="${CSS.escape(key)}"]`)).toBeInTheDocument();
 } };
 export const DuplicateNamesFocusReturn: Story = { args: { snapshot: duplicateNamesSnapshot }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, duplicateNamesSnapshot); const canvas = screen(canvasElement); const second = canvas.getAllByRole("button", { description: "Open Twin token" })[1]!; await userEvent.click(second); await expect(canvas.getByText("Your balance")).toBeVisible(); await userEvent.click(within(canvasElement).getByRole("button", { name: "Back" })); await waitFor(() => expect(canvasElement.ownerDocument.activeElement).toBe(canvas.getAllByRole("button", { description: "Open Twin token" })[1])); } };
 export const RefreshFailed: Story = { args: { refreshFailed: true }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, fundedSnapshot); await expect(screen(canvasElement).getByText("Couldn't refresh")).toBeVisible(); await userEvent.click(screen(canvasElement).getByRole("button", { name: "Try again" })); await expect(onRetry).toHaveBeenCalledOnce(); } };
