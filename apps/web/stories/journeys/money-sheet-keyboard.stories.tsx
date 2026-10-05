@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import type { queries } from "storybook/test";
 import { Button } from "@/components/ui/button";
 import { SendDialog } from "@/client/transfers/send-dialog";
@@ -111,14 +112,14 @@ async function openAmount(screen: Screen) {
   await userEvent.click(trigger);
   const dialog = await screen.findByRole("dialog", { name: "Send" });
   const amount = within(dialog).getByRole("textbox", { name: "Amount" });
-  await waitFor(() => expect(amount).toHaveFocus());
+  await waitForReady(() => expect(amount).toHaveFocus());
   const popup = dialog.closest("[data-money-sheet]");
   if (!(popup instanceof HTMLElement)) throw new Error("Money sheet popup missing");
   return { trigger, dialog, amount, popup };
 }
 
 async function expectSheetAt(popup: HTMLElement, bottom: number) {
-  await waitFor(() => expect(Math.abs(popup.getBoundingClientRect().bottom - bottom)).toBeLessThanOrEqual(1));
+  await waitForReady(() => expect(Math.abs(popup.getBoundingClientRect().bottom - bottom)).toBeLessThanOrEqual(1));
 }
 
 export const SendAmount: Story = {};
@@ -133,7 +134,7 @@ export const KeyboardCloseOneTap: Story = {
     const keyboardBottom = keyboardViewport.offsetTop + keyboardViewport.height;
     await expectSheetAt(popup, keyboardBottom);
     const continueButton = within(dialog).getByRole("button", { name: "Continue" });
-    await waitFor(() => expect(continueButton.getBoundingClientRect().bottom).toBeLessThanOrEqual(keyboardBottom + 1));
+    await waitForReady(() => expect(continueButton.getBoundingClientRect().bottom).toBeLessThanOrEqual(keyboardBottom + 1));
     const close = within(dialog).getByRole("button", { name: "Close send dialog" });
     const pointerRects: DOMRect[] = [];
     const clickRects: DOMRect[] = [];
@@ -155,8 +156,8 @@ export const KeyboardCloseOneTap: Story = {
     await expect(clickRects).toHaveLength(1);
     await expect(Math.abs(pointerRects[0].top - clickRects[0].top)).toBeLessThanOrEqual(1);
     await expect(Math.abs(pointerRects[0].bottom - clickRects[0].bottom)).toBeLessThanOrEqual(1);
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Send" })).not.toBeInTheDocument());
-    await waitFor(() => expect(trigger).toHaveFocus());
+    await waitForReady(() => expect(screen.queryByRole("dialog", { name: "Send" })).not.toBeInTheDocument());
+    await waitForReady(() => expect(trigger).toHaveFocus());
   },
 };
 
@@ -172,8 +173,8 @@ export const KeyboardDoneThenReopen: Story = {
     setKeyboardHeight(window.innerHeight);
     await expectSheetAt(popup, window.innerHeight);
     await userEvent.click(within(dialog).getByRole("button", { name: "Close send dialog" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Send" })).not.toBeInTheDocument());
-    await waitFor(() => expect(trigger).toHaveFocus());
+    await waitForReady(() => expect(screen.queryByRole("dialog", { name: "Send" })).not.toBeInTheDocument());
+    await waitForReady(() => expect(trigger).toHaveFocus());
     const reopened = await openAmount(screen);
     await expect(reopened.amount).toHaveValue("");
     await expectSheetAt(reopened.popup, window.innerHeight);
@@ -194,6 +195,6 @@ export const ExactAmountSubmission: Story = {
     await userEvent.type(recipient, RECIPIENT);
     await userEvent.tab();
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(journey.prepares).toEqual([{ kind: "send", params: { assetId: "usdc", recipient: RECIPIENT, amountBaseUnits: "12345678" } }]));
+    await waitForReady(() => expect(journey.prepares).toEqual([{ kind: "send", params: { assetId: "usdc", recipient: RECIPIENT, amountBaseUnits: "12345678" } }]));
   },
 };

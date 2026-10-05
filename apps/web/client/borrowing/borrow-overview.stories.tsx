@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef, useState } from "react";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient, type AccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
@@ -581,7 +582,7 @@ export const NotHeldBuy: Story = {
     const assets = within(await openAssetPicker(canvasElement, "See supported assets"));
     for (const name of ["Bitcoin", "XRP", "Staked ETH", "Dogecoin", "Cardano"]) {
       const buy = await assets.findByRole("button", { name: `Buy ${name}` });
-      await waitFor(() => expect(buy).toBeEnabled());
+      await waitForReady(() => expect(buy).toBeEnabled());
     }
   },
 };
@@ -669,9 +670,9 @@ export const NoDebtHeldPickerOpen: Story = {
     await userEvent.click(picker.getByRole("button", { description: "Borrow against Cardano" }));
     const management = within(await body.findByRole("dialog", { name: "Cardano" }));
     await expect(management.getByText("Borrow up to")).toBeVisible();
-    await waitFor(() => expect(body.queryByRole("dialog", { name: "Choose an asset" })).toBeNull());
+    await waitForReady(() => expect(body.queryByRole("dialog", { name: "Choose an asset" })).toBeNull());
     await userEvent.click(management.getByRole("button", { name: "Close Cardano details" }));
-    await waitFor(() => expect(cta).toHaveFocus());
+    await waitForReady(() => expect(cta).toHaveFocus());
   },
 };
 export const EmptyNoCollateral: Story = {
@@ -688,7 +689,7 @@ export const ImageMarksLoaded: Story = {
   args: { fixture: only(), assetMarkResolution: { images: collateralMarkImages, pending: false } },
   play: async ({ canvasElement }) => {
     const picker = await openAssetPicker(canvasElement, "See supported assets");
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(assetMarks(picker)).toHaveLength(5);
       for (const mark of assetMarks(picker)) await expect(mark).toHaveAttribute("data-mark", "image");
     });
@@ -708,7 +709,7 @@ export const BrokenImageMarks: Story = {
   args: { fixture: only(), assetMarkResolution: { images: Object.fromEntries(markets.map((market) => [market.collateralToken.id, `/asset-marks/missing-${market.collateralToken.id}.svg`])) } },
   play: async ({ canvasElement }) => {
     const picker = await openAssetPicker(canvasElement, "See supported assets");
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(assetMarks(picker)).toHaveLength(5);
       for (const mark of assetMarks(picker)) await expect(mark).toHaveAttribute("data-mark", "brand");
     });

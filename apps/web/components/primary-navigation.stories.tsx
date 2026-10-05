@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { PrimaryNavigation } from "./primary-navigation";
 
 const account = { status: "ready" as const, ownerKey: "owner.base.eth", address: null, disabled: false };
@@ -23,7 +24,7 @@ export const Expanded: Story = {
     const toggle = canvas.getByRole("button", { name: "Sidebar" });
     if (toggle.getAttribute("aria-expanded") === "false") await userEvent.click(toggle);
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await waitFor(() => expect(rail.getBoundingClientRect().width).toBe(240));
+    await waitForReady(() => expect(rail.getBoundingClientRect().width).toBe(240));
     for (const name of ["Home", "Invest", "Sidebar", "Account settings"]) {
       const button = name === "Home" ? within(canvas.getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name }) : canvas.getByRole("button", { name });
       await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
@@ -45,7 +46,7 @@ export const Collapsed: Story = {
     if (toggle.getAttribute("aria-expanded") === "false") await userEvent.click(toggle);
     await userEvent.click(toggle);
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await waitFor(() => expect(canvasElement.querySelector("#desktop-rail")!.getBoundingClientRect().width).toBe(64));
+    await waitForReady(() => expect(canvasElement.querySelector("#desktop-rail")!.getBoundingClientRect().width).toBe(64));
     await expect(within(canvas.getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
     await expect(canvas.getByRole("button", { name: "Account settings" })).toBeVisible();
     await expect(toggle).toHaveFocus();

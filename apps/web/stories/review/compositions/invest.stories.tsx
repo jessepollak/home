@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { http, HttpResponse } from "msw";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { InvestExperience } from "@/client/invest/invest-experience";
 import { InvestPageContent } from "@/client/home/shell-pages";
 import { getHomeQueryClient } from "@/client/query/query-client";
@@ -64,7 +65,7 @@ export const Invest: Story = {
     await userEvent.type(input, "BTC");
     await expect(await screen.findByRole("button", { name: /Bitcoin/ })).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Close search" }));
-    await waitFor(() => expect(opener).toHaveFocus());
+    await waitForReady(() => expect(opener).toHaveFocus());
     await expect(canvas.getByRole("heading", { name: "Stocks" })).toBeVisible();
   },
 };

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import {
   Select,
   SelectContent,
@@ -40,7 +41,7 @@ export const Dark: Story = {
     await userEvent.click(within(canvasElement).getByRole("combobox", { name: "Asset" }));
     const popup = await within(canvasElement.ownerDocument.body).findByRole("listbox");
     await expect(canvasElement.contains(popup)).toBe(false);
-    await waitFor(() => expect(popup).toBeVisible());
+    await waitForReady(() => expect(popup).toBeVisible());
   },
 };
 
@@ -63,10 +64,10 @@ export const LongListFallback: Story = {
     const trigger = within(canvasElement).getByRole("combobox", { name: "Asset" });
     await userEvent.click(trigger);
     const list = await within(canvasElement.ownerDocument.body).findByRole("listbox");
-    await waitFor(() => expect(list).toBeVisible());
+    await waitForReady(() => expect(list).toBeVisible());
     const last = within(list).getByRole("option", { name: "Asset 40" });
     last.scrollIntoView({ block: "nearest" });
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(list.scrollTop).toBeGreaterThan(0);
       await expect(last.getBoundingClientRect().bottom).toBeLessThanOrEqual(list.getBoundingClientRect().bottom + 1);
     });

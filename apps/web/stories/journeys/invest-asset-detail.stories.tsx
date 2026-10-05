@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { investMarketHandlers } from "./explorations/invest-market.fixtures";
 import { AccountWalletClientProvider } from "@/client/account/cdp-client";
 import { AssetDetailScreen } from "@/client/invest/asset-detail-screen";
@@ -55,7 +56,7 @@ async function openAndReturn(canvasElement: HTMLElement, name: RegExp) {
   await expect(await canvas.findByRole("group", { name: /1 week price history/, hidden: false }, { timeout: 5000 })).toBeVisible();
   await expect(await within(canvas.getByRole("region", { name: "Bitcoin" })).findByText("0.01234 cbBTC")).toBeVisible();
   await userEvent.click(canvas.getByRole("button", { name: "Back" }));
-  await waitFor(() => expect(opener).toHaveFocus());
+  await waitForReady(() => expect(opener).toHaveFocus());
   await expect(canvas.queryByRole("group", { name: /price history/ })).not.toBeInTheDocument();
 }
 export const DiscoverToDetail: Story = { play: async ({ canvasElement }) => openAndReturn(canvasElement, /Bitcoin/i) };

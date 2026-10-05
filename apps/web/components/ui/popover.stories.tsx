@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { Button } from "./button";
 import { Popover, PopoverContent, PopoverDescription, PopoverTrigger } from "./popover";
 
@@ -29,6 +30,6 @@ export const Default: Story = {
   play: async ({ canvasElement }) => {
     await userEvent.click(within(canvasElement).getByRole("button", { name: "Details" }));
     const body = within(canvasElement.ownerDocument.body);
-    await waitFor(() => expect(body.getByText("Some balances are unavailable")).toBeVisible());
+    await waitForReady(() => expect(body.getByText("Some balances are unavailable")).toBeVisible());
   },
 };

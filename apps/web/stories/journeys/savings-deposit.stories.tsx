@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { CashExperience } from "@/client/cash/cash-experience";
 import { shellContentFrameClassName } from "@/components/shell-layout";
@@ -140,7 +141,7 @@ export const Deposit: Story = {
     await expect(await screen.findByRole("heading", { name: "Deposited $25.00 to Save" })).toBeVisible();
     await expect(screen.getByRole("dialog", { name: "Deposit" })).toBeVisible();
     await fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitForReady(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await expect(journey.dispatched).toHaveLength(1);
     await expect(journey.dispatched[0]?.metadata).toMatchObject({
       product: "savings",

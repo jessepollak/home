@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, useRef, useState } from "react";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
@@ -175,8 +176,8 @@ function entranceAnimations(svg: SVGSVGElement) {
 
 async function assertAnimation(svg: SVGSVGElement) {
   await expect(svg).toHaveAttribute("aria-hidden", "true");
-  await waitFor(() => expect(svg).toHaveAttribute("data-state", "playing"));
-  await waitFor(() => expect(entranceAnimations(svg).length).toBeGreaterThan(0));
+  await waitForReady(() => expect(svg).toHaveAttribute("data-state", "playing"));
+  await waitForReady(() => expect(entranceAnimations(svg).length).toBeGreaterThan(0));
   const animations = entranceAnimations(svg);
   const entry = animations.map((animation) => {
     const effect = animation.effect as KeyframeEffect;
@@ -221,7 +222,7 @@ async function assertReplay(canvasElement: HTMLElement) {
   await userEvent.click(canvas.getByRole("button", { name: "Replay" }));
   const fresh = illustrationIn(canvasElement);
   await expect(fresh).not.toBe(svg);
-  await waitFor(() => expect(entranceAnimations(fresh).length).toBeGreaterThan(0));
+  await waitForReady(() => expect(entranceAnimations(fresh).length).toBeGreaterThan(0));
   const replayed = entranceAnimations(fresh);
   await expect(replayed.some((animation) => original.includes(animation))).toBe(false);
   await Promise.all(replayed.map((animation) => animation.finished));
@@ -272,7 +273,7 @@ export const CardReducedMotion: Story = {
     await expect(svg).toHaveAttribute("aria-hidden", "true");
     await expect(svg.getAnimations({ subtree: true })).toHaveLength(0);
     await userEvent.click(canvas.getByRole("button", { name: "Replay" }));
-    await waitFor(() => expect(illustrationIn(canvasElement)).not.toBe(svg));
+    await waitForReady(() => expect(illustrationIn(canvasElement)).not.toBe(svg));
     await expect(illustrationIn(canvasElement)).toHaveAttribute("data-state", "idle");
     await expect(illustrationIn(canvasElement).getAnimations({ subtree: true })).toHaveLength(0);
   },
@@ -295,7 +296,7 @@ export const FeatureIntroSheet: Story = {
     const dialog = await within(document.body).findByRole("dialog");
     await expect(within(dialog).getByRole("heading", { name: "Get the Home Card" })).toBeVisible();
     const svg = illustrationIn(dialog);
-    await waitFor(() => expect(svg).toHaveAttribute("data-state", "playing"));
+    await waitForReady(() => expect(svg).toHaveAttribute("data-state", "playing"));
     await assertAnimation(svg);
   },
 };

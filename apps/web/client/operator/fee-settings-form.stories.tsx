@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { HttpResponse, http } from "msw";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { FeeSettingsForm, type FeeSettingsState } from "./fee-settings-form";
 
 const destination = "0x52908400098527886e0f7030069857d2e4169ee7";
@@ -98,7 +99,7 @@ export const Conflict: Story = {
     await userEvent.type(bps, "80");
     await userEvent.click(canvas.getByRole("button", { name: "Save" }));
     await expect(await canvas.findByText("Settings changed")).toBeVisible();
-    await waitFor(() => expect(bps).toHaveValue("120"));
+    await waitForReady(() => expect(bps).toHaveValue("120"));
   },
 };
 
@@ -115,6 +116,6 @@ export const SaveError: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Save" }));
     const alert = await canvas.findByRole("alert");
     await expect(alert).toHaveTextContent("Settings are unavailable right now. Try again in a moment.");
-    await waitFor(() => expect(canvas.getByRole("button", { name: "Save" })).toHaveFocus());
+    await waitForReady(() => expect(canvas.getByRole("button", { name: "Save" })).toHaveFocus());
   },
 };

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { ArrowUpFromLine, Banknote, CircleDollarSign, Coins, CreditCard, Lock, LockOpen, Percent, ReceiptText, ShieldCheck, Store } from "lucide-react";
 import { Button } from "./button";
 import { FeatureIntro, FeatureIntroSheet, FeatureIntroSkeleton } from "./feature-intro";
@@ -166,7 +167,7 @@ async function playSheet(canvasElement: HTMLElement) {
   let dialog = await body.findByRole("dialog", { name: card.headline });
   await expect(within(dialog).getByRole("heading", { name: card.headline })).toBeVisible();
   await userEvent.click(within(dialog).getByRole("button", { name: "Not now" }));
-  await waitFor(() => expect(body.queryByRole("dialog", { name: card.headline })).not.toBeInTheDocument());
+  await waitForReady(() => expect(body.queryByRole("dialog", { name: card.headline })).not.toBeInTheDocument());
   await userEvent.click(canvas.getByRole("button", { name: "Open introduction" }));
   dialog = await body.findByRole("dialog", { name: card.headline });
   await userEvent.click(within(dialog).getByRole("button", { name: "Get your card" }));
@@ -193,7 +194,7 @@ export const SheetPending: Story = {
     await expect(dismiss).toBeEnabled();
     await expect(dismiss.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     await userEvent.click(dismiss);
-    await waitFor(() => expect(body.queryByRole("dialog", { name: card.headline })).not.toBeInTheDocument());
+    await waitForReady(() => expect(body.queryByRole("dialog", { name: card.headline })).not.toBeInTheDocument());
     await expect(actions.notNow).toHaveBeenCalledTimes(1);
   },
 };
@@ -247,7 +248,7 @@ async function playBorrowEntrance({ canvasElement }: { canvasElement: HTMLElemen
   await expect(canvas.getByRole("heading", { name: borrow.headline, level: 2 })).toBeVisible();
   const svg = borrowIllustration(canvasElement);
   await expect(svg).toHaveAttribute("aria-hidden", "true");
-  await waitFor(() => expect(svg.getAnimations({ subtree: true }).length).toBeGreaterThan(0));
+  await waitForReady(() => expect(svg.getAnimations({ subtree: true }).length).toBeGreaterThan(0));
   const animations = svg.getAnimations({ subtree: true });
   const end = Math.max(...animations.map((animation) => {
     const { delay, duration } = animation.effect!.getTiming();
@@ -283,7 +284,7 @@ export const BorrowReducedMotion: Story = {
   play: async ({ canvasElement }) => {
     await expect(within(canvasElement).getByRole("heading", { name: borrow.headline })).toBeVisible();
     const svg = borrowIllustration(canvasElement);
-    await waitFor(() => expect(svg).toHaveAttribute("data-state", "idle"));
+    await waitForReady(() => expect(svg).toHaveAttribute("data-state", "idle"));
     await expect(svg.getAnimations({ subtree: true })).toHaveLength(0);
   },
 };

@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { Button } from "@/components/ui/button";
 import { SupportChat } from "@/client/support/support-chat";
 import { TransferExecutionError } from "@/shared/transfers/types";
@@ -135,7 +136,7 @@ export const HybridHandoff: Story = { args: { scenario: "handoff" }, play: async
 export const OperatorReplyDesktop: Story = { args: { scenario: "reply" }, parameters: { viewport: { defaultViewport: "desktop" } }, play: async ({ canvasElement }) => {
   const dialog = await openChat(canvasElement);
   await userEvent.type(within(dialog).getByRole("textbox", { name: "Message support" }), "Where is my{Shift>}{Enter}{/Shift}order?{Enter}");
-  await waitFor(() => expect(within(dialog).getByText(/Where is my\s+order\?/).textContent).toContain("Where is my\norder?"));
+  await waitForReady(() => expect(within(dialog).getByText(/Where is my\s+order\?/).textContent).toContain("Where is my\norder?"));
   await expect(await within(dialog).findByText("We can help with your order.")).toBeVisible();
   await expect(within(dialog).getByText("Support", { selector: "span" })).toBeVisible();
 } };

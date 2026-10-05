@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useLayoutEffect, type ReactNode } from "react";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { EmailShareSheet } from "./email-share-sheet";
 
 function DocumentDirection({ dir, children }: { dir: "ltr" | "rtl"; children: ReactNode }) {
@@ -35,7 +36,7 @@ export const Default: Story = {
     const close = scope.getByRole("button", { name: "Close" });
     const share = scope.getByRole("button", { name: "Share" });
     const notNow = scope.getByRole("button", { name: "Not now" });
-    await waitFor(() => expect(close).toHaveFocus());
+    await waitForReady(() => expect(close).toHaveFocus());
     await userEvent.tab();
     await expect(share).toHaveFocus();
     await userEvent.tab();

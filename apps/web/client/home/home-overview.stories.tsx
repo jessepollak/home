@@ -1,7 +1,8 @@
 import { parseHash32 } from "@/shared/chain/hex";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Plus } from "lucide-react";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { ActivityPanelView } from "@/client/activity";
 import type { UseActivityResult } from "@/client/activity/use-activity";
 import { Button } from "@/components/ui/button";
@@ -556,8 +557,8 @@ export const ActivityDetailReturn: Story = {
     const dialog = await body.findByRole("dialog");
     await expect(dialog).toBeVisible();
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
-    await waitFor(() => expect(row).toHaveFocus());
+    await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
+    await waitForReady(() => expect(row).toHaveFocus());
     await expect(canvas.getAllByRole("button", { description: /transaction details/ })).toHaveLength(5);
   },
 };
@@ -627,11 +628,11 @@ async function openHeaderStatus(canvasElement: HTMLElement) {
 }
 
 async function expectStatusRetry(canvasElement: HTMLElement, detail: HTMLElement, onRetry: () => void) {
-  await waitFor(() => expect(within(detail).getByRole("button", { name: "Retry" })).toBeVisible());
+  await waitForReady(() => expect(within(detail).getByRole("button", { name: "Retry" })).toBeVisible());
   await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
   await expect(onRetry).toHaveBeenCalledTimes(1);
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(within(canvasElement.ownerDocument.body).queryByRole("dialog", { name: "Status" })).toBeNull());
+  await waitForReady(() => expect(within(canvasElement.ownerDocument.body).queryByRole("dialog", { name: "Status" })).toBeNull());
 }
 
 export const PartialBalances: Story = {
@@ -753,17 +754,17 @@ export const BalancesUnavailable: Story = {
     await userEvent.click(cashRetry);
     await expect(args.onRetry).toHaveBeenCalledTimes(1);
     await userEvent.click(canvas.getByRole("button", { name: "Balances are unavailable" }));
-    const detail = await waitFor(() => {
+    const detail = await waitForReady(() => {
       const node = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-home-status-detail]");
       if (!node) throw new Error("status detail not open");
       return node;
     });
     await expect(detail.textContent).toContain("Balances are unavailable");
-    await waitFor(() => expect(within(detail).getByRole("button", { name: "Retry" })).toBeVisible());
+    await waitForReady(() => expect(within(detail).getByRole("button", { name: "Retry" })).toBeVisible());
     await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
     await expect(args.onRetry).toHaveBeenCalled();
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-home-status-detail]")).toBeNull());
+    await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-home-status-detail]")).toBeNull());
     await expect(canvasElement.querySelector("[data-home-total-status]")).toBeNull();
   },
 };
@@ -838,7 +839,7 @@ export const NoCountry: Story = {
     const message = "Choose a country in Account to set how money is shown";
     await expect(canvas.queryByRole("button", { name: /^Retry .* balance$/ })).toBeNull();
     await userEvent.click(canvas.getByRole("button", { name: message }));
-    const detail = await waitFor(() => {
+    const detail = await waitForReady(() => {
       const node = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-home-status-detail]");
       if (!node) throw new Error("status detail not open");
       return node;
@@ -847,7 +848,7 @@ export const NoCountry: Story = {
     await userEvent.click(within(detail).getByRole("button", { name: "Open Account" }));
     await expect(args.onOpenAccount).toHaveBeenCalled();
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-home-status-detail]")).toBeNull());
+    await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-home-status-detail]")).toBeNull());
   },
 };
 
@@ -881,7 +882,7 @@ export const Interrupted: Story = {
     await userEvent.click(canvas.getByRole("button", { name: message }));
     const detail = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Status" });
     await expect(detail.textContent).toContain(message);
-    await waitFor(() => expect(within(detail).getByRole("button", { name: "Retry" })).toBeVisible());
+    await waitForReady(() => expect(within(detail).getByRole("button", { name: "Retry" })).toBeVisible());
     await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
     await expect(args.onRetry).toHaveBeenCalled();
   },

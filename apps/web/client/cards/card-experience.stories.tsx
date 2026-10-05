@@ -1,6 +1,7 @@
 import { useCallback, useId, useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { http, HttpResponse } from "msw";
 import { Toaster } from "@/components/ui/toast";
 import type { CardsResponse, CardState } from "@/shared/cards/contract";
@@ -176,7 +177,7 @@ export const NotEnrolled: Story = {
     await expectSpendingHidden(canvasElement);
     actions.onOpenVerification.mockClear();
     await userEvent.click(within(canvasElement).getByRole("button", { name: "Get your card" }));
-    await waitFor(() => expect(actions.onOpenVerification).toHaveBeenCalledWith(kycUrl));
+    await waitForReady(() => expect(actions.onOpenVerification).toHaveBeenCalledWith(kycUrl));
   },
 };
 export const VerificationRequired: Story = {
@@ -187,7 +188,7 @@ export const VerificationRequired: Story = {
     await expect(canvas.getByText("Verify your identity")).toBeVisible();
     actions.onOpenVerification.mockClear();
     await userEvent.click(canvas.getByRole("button", { name: "Verify" }));
-    await waitFor(() => expect(actions.onOpenVerification).toHaveBeenCalledTimes(1));
+    await waitForReady(() => expect(actions.onOpenVerification).toHaveBeenCalledTimes(1));
   },
 };
 export const VerificationPending: Story = {
@@ -362,7 +363,7 @@ export const SpendingReady: Story = {
   play: async ({ canvasElement }) => {
     await userEvent.click(within(canvasElement).getByRole("button", { name: "Turn off" }));
     const dialog = within(await within(document.body).findByRole("dialog"));
-    await waitFor(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
+    await waitForReady(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
     await expect(dialog.getByText("Card purchases from Cash")).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Turn off" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
   },
@@ -378,7 +379,7 @@ export const SpendingAfterCancel: Story = {
     await expect(canvas.queryByRole("button", { name: "Change" })).toBeNull();
     await userEvent.click(canvas.getByRole("button", { name: "Turn off" }));
     const dialog = within(await within(document.body).findByRole("dialog"));
-    await waitFor(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
+    await waitForReady(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
     await expect(dialog.getByRole("button", { name: "Turn off" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
   },
 };
@@ -394,7 +395,7 @@ export const RetiredPermissionAfterCancel: Story = {
     await expect(canvas.queryByText("Available to spend")).toBeNull();
     await userEvent.click(canvas.getByRole("button", { name: /^Remove old card program/ }));
     const dialog = within(await within(document.body).findByRole("dialog"));
-    await waitFor(() => expect(dialog.getByText(retiredSpender)).toBeVisible());
+    await waitForReady(() => expect(dialog.getByText(retiredSpender)).toBeVisible());
     await expect(dialog.getByRole("button", { name: "Turn off" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
   },
 };
@@ -405,7 +406,7 @@ export const SpendingNotSet: Story = {
     const dialog = within(await within(document.body).findByRole("dialog"));
     await userEvent.type(dialog.getByRole("textbox"), "25");
     await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
+    await waitForReady(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
     await expect(dialog.getByText("Card purchases from Cash")).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Set limit" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
   },
@@ -421,7 +422,7 @@ export const RetiredPermission: Story = {
     await expect(canvas.getByRole("button", { name: "Remove old card program 0x4444…444444" })).toBeVisible();
     await userEvent.click(canvas.getByRole("button", { name: "Remove old card program 0x3333…333333" }));
     const dialog = within(await within(document.body).findByRole("dialog"));
-    await waitFor(() => expect(dialog.getByText(retiredSpender)).toBeVisible());
+    await waitForReady(() => expect(dialog.getByText(retiredSpender)).toBeVisible());
     await expect(dialog.getByText("Card purchases from Cash")).toBeVisible();
   },
 };

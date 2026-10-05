@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { CopyableValue } from "./copyable-value";
 
 const ADDRESS = "0x2211d1d0020daea8039e46cf1367962070d77da9";
@@ -39,7 +40,7 @@ async function expectReveal(canvasElement: HTMLElement) {
   await expect(bounds.left).toBeGreaterThanOrEqual(0);
   await expect(bounds.right).toBeLessThanOrEqual(window.innerWidth);
   await expect(popover.scrollWidth).toBeLessThanOrEqual(popover.clientWidth + 1);
-  await waitFor(() => expect(within(popover).getByRole("button", { name: "Copy address" })).toBeVisible());
+  await waitForReady(() => expect(within(popover).getByRole("button", { name: "Copy address" })).toBeVisible());
 }
 
 const meta = {

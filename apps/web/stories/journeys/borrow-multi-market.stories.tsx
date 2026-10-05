@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { HttpResponse, http } from "msw";
 import { BorrowExperience } from "@/client/borrowing/borrowing-experience";
 import { shellContentFrameClassName } from "@/components/shell-layout";
@@ -63,7 +64,7 @@ export const MultiMarketOverview: Story = {
     await expect(await borrow.findByRole("textbox", { name: "Amount" })).toBeVisible();
     await expect(screen.getAllByRole("dialog")).toHaveLength(1);
     await userEvent.click(borrow.getByRole("button", { name: "Close Borrow action" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitForReady(() => expect(screen.queryByRole("dialog")).toBeNull());
   },
 };
 

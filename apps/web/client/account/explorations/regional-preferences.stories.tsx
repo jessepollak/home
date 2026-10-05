@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { RegionalPreferencesProposal } from "./regional-preferences";
 
 const meta = {
@@ -29,7 +30,7 @@ export const FirstUseAlignedDefaults: Story = {
 export const CurrencyPickerOpen: Story = { args: { initialCurrencyOpen: true }, play: async ({ canvasElement }) => {
   const page = within(canvasElement.ownerDocument.body);
   const trigger = within(canvasElement).getByRole("combobox", { name: "Display currency" });
-  await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+  await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
   await expect(await page.findByRole("option", { name: "Country default (Brazilian real)" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("option", { name: "US dollar" })).toHaveAttribute("aria-selected", "false");
   await expect(page.getByRole("option", { name: "Nigerian naira" })).toBeInTheDocument();
@@ -42,32 +43,32 @@ export const CountryChangePreservesExplicitChoices: Story = {
     const page = within(canvasElement.ownerDocument.body);
     const trigger = canvas.getByRole("combobox", { name: "Display currency" });
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
     await userEvent.click(await page.findByRole("option", { name: "US dollar" }));
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       await expect(page.queryByRole("listbox")).toBeNull();
     });
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
     await expect(await page.findByRole("option", { name: "US dollar" })).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{Escape}");
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       await expect(page.queryByRole("listbox")).toBeNull();
     });
     await userEvent.click(canvas.getByRole("button", { name: /Country What's available/ }));
     await userEvent.click(await page.findByRole("button", { name: "Nigeria" }));
-    await waitFor(() => expect(page.queryByRole("dialog")).toBeNull());
+    await waitForReady(() => expect(page.queryByRole("dialog")).toBeNull());
     await expect(trigger).toHaveTextContent("US dollar");
     await expect(canvas.getByText("Chosen by you", { exact: true })).toBeVisible();
     await expect(canvas.getByRole("button", { name: /English · Country default/ })).toBeVisible();
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
     await expect(await page.findByRole("option", { name: "Country default (Nigerian naira)" })).toBeInTheDocument();
     await expect(page.queryByRole("option", { name: "Nigerian naira" })).toBeNull();
     await userEvent.keyboard("{Escape}");
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       await expect(page.queryByRole("listbox")).toBeNull();
     });
@@ -79,16 +80,16 @@ export const ExplicitCurrencyMatchesNewCountryDefault: Story = {
     const page = within(canvasElement.ownerDocument.body);
     const trigger = canvas.getByRole("combobox", { name: "Display currency" });
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
     await userEvent.click(await page.findByRole("option", { name: "Nigerian naira" }));
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
     await userEvent.click(canvas.getByRole("button", { name: /Country What's available/ }));
     await userEvent.click(await page.findByRole("button", { name: "Nigeria" }));
-    await waitFor(() => expect(page.queryByRole("dialog")).toBeNull());
+    await waitForReady(() => expect(page.queryByRole("dialog")).toBeNull());
     await expect(trigger).toHaveTextContent("Nigerian naira");
     await expect(canvas.getByText("Chosen by you", { exact: true })).toBeVisible();
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
     await expect(await page.findByRole("option", { name: "Nigerian naira" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("option", { name: "Country default (Nigerian naira)" })).toHaveAttribute("aria-selected", "false");
   },
@@ -99,32 +100,32 @@ export const ReturnToCountryDefault: Story = {
     const page = within(canvasElement.ownerDocument.body);
     const trigger = canvas.getByRole("combobox", { name: "Display currency" });
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
     await userEvent.click(await page.findByRole("option", { name: "US dollar" }));
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       await expect(page.queryByRole("listbox")).toBeNull();
     });
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
     await expect(await page.findByRole("option", { name: "Country default (Brazilian real)" })).toBeInTheDocument();
     await userEvent.click(page.getByRole("option", { name: "Country default (Brazilian real)" }));
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       await expect(page.queryByRole("listbox")).toBeNull();
     });
     await expect(within(trigger.closest("li")!).getByText("Country default", { exact: true })).toBeVisible();
     await userEvent.click(canvas.getByRole("button", { name: /Country What's available/ }));
     await userEvent.click(await page.findByRole("button", { name: "Indonesia" }));
-    await waitFor(() => expect(page.queryByRole("dialog")).toBeNull());
+    await waitForReady(() => expect(page.queryByRole("dialog")).toBeNull());
     await expect(trigger).toHaveTextContent("Rupiah");
     await expect(within(trigger.closest("li")!).getByText("Country default", { exact: true })).toBeVisible();
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
     await expect(await page.findByRole("option", { name: "Country default (Rupiah)" })).toBeInTheDocument();
     await expect(page.queryByRole("option", { name: "Rupiah" })).toBeNull();
     await userEvent.keyboard("{Escape}");
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       await expect(page.queryByRole("listbox")).toBeNull();
     });
@@ -169,7 +170,7 @@ export const Rtl: Story = {
     await expect(lastLine.width).toBeLessThan(lines[0].width);
     await expect(Math.abs(title.getBoundingClientRect().right - lastLine.right)).toBeLessThanOrEqual(2);
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+    await waitForReady(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
     const option = await within(canvasElement.ownerDocument.body).findByRole("option", { name: "Country default (Brazilian real)" });
     await expect(option).toHaveAttribute("aria-selected", "true");
     const indicator = option.querySelector<HTMLElement>('[data-slot="select-item-indicator"]')!;

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, type ComponentProps, type ReactNode } from "react";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { CopyableValue } from "@/components/copyable-value";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { MoneyConfirmSummary, moneyConfirmFromRow } from "./confirm-summary";
@@ -95,7 +96,7 @@ async function checkFit(canvasElement: HTMLElement, value: string) {
   const frameElement = getFrame(canvasElement);
   const headline = getHeadline(frameElement);
   await expect(headline.textContent).toBe(value);
-  await waitFor(async () => {
+  await waitForReady(async () => {
     await expect(headline.scrollWidth).toBeLessThanOrEqual(headline.clientWidth + 1);
     await expect(frameElement.scrollWidth).toBeLessThanOrEqual(frameElement.clientWidth + 1);
   });
@@ -104,7 +105,7 @@ async function checkFit(canvasElement: HTMLElement, value: string) {
 
 async function checkFallback(canvasElement: HTMLElement, value: string) {
   const headline = await checkFit(canvasElement, value);
-  await waitFor(async () => {
+  await waitForReady(async () => {
     const number = headline.querySelector('[data-slot="confirm-amount-number"]');
     const unit = headline.querySelector('[data-slot="confirm-amount-unit"]');
     if (!(number instanceof HTMLElement) || !(unit instanceof HTMLElement)) throw new Error("Missing fallback lines");
@@ -135,7 +136,7 @@ export const LargeWholeMobile: Story = {
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => {
     const headline = await checkFit(canvasElement, "$12,345,678,901");
-    await waitFor(async () => { await expect(renderedWidth(headline)).toBeLessThan(heroWidth(headline) - 1); });
+    await waitForReady(async () => { await expect(renderedWidth(headline)).toBeLessThan(heroWidth(headline) - 1); });
   },
 };
 
@@ -216,10 +217,10 @@ export const ResizeRefit: Story = {
     const headline = await checkFit(canvasElement, "$12,345,678,901");
     const wideWidth = renderedWidth(headline);
     frameElement.style.width = "320px";
-    await waitFor(async () => { await expect(renderedWidth(headline)).toBeLessThan(wideWidth - 1); });
+    await waitForReady(async () => { await expect(renderedWidth(headline)).toBeLessThan(wideWidth - 1); });
     await checkFit(canvasElement, "$12,345,678,901");
     frameElement.style.width = "448px";
-    await waitFor(async () => { await expect(Math.abs(renderedWidth(headline) - wideWidth)).toBeLessThanOrEqual(1); });
+    await waitForReady(async () => { await expect(Math.abs(renderedWidth(headline) - wideWidth)).toBeLessThanOrEqual(1); });
     await checkFit(canvasElement, "$12,345,678,901");
   },
 };

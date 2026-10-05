@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ExpirySchedulerContext, type ExpiryScheduler } from "@/client/actions/expiry";
@@ -194,7 +195,7 @@ export const BuyReviewLongAmount: Story = { args: { scene: "sheet", initialState
   if (!amount) throw new Error("Trade amount not found");
   await expect(amount).toHaveTextContent("$123,456,789,012.12");
   await expect(within(sheet).getByRole("button", { name: "Buy $123,456,789,012.12" })).toBeVisible();
-  await waitFor(() => expect(amount.scrollWidth).toBeLessThanOrEqual(amount.clientWidth));
+  await waitForReady(() => expect(amount.scrollWidth).toBeLessThanOrEqual(amount.clientWidth));
 } };
 export const BuyReviewDesktop: Story = { ...BuyReview, globals: { viewport: { value: "desktop" } } };
 export const SellPartialReview: Story = { args: { scene: "sheet", side: "sell", initialState: { step: { name: "review", quote: sellPartialQuote }, amount: "0.005" } }, play: reviewPlay("0.005 cbBTC", "≈ $546.95", "Sell 0.005 cbBTC", "fixture-sell-partial") };
@@ -207,7 +208,7 @@ export const BuyReviewDetailsOpen: Story = { args: BuyReview.args, play: async (
   await userEvent.click(details);
   await expect(details).toHaveAttribute("aria-expanded", "true");
   for (const text of ["250 USDC", "0.00226984 cbBTC", "1 cbBTC = 109,589.04 USDC", "0.5%", "12:04:30 PM UTC", "Up to 0.05 USDC", "Base", "0x3333"]) await expect(sheet).toHaveTextContent(text);
-  for (const label of ["You pay", "Minimum received", "Rate", "Max slippage", "Quote valid until", "Network", "From"]) await waitFor(() => expect(dialog.getByText(label)).toBeVisible());
+  for (const label of ["You pay", "Minimum received", "Rate", "Max slippage", "Quote valid until", "Network", "From"]) await waitForReady(() => expect(dialog.getByText(label)).toBeVisible());
   await expect(dialog.getByText("Network").nextElementSibling).toHaveTextContent("Base");
   await expect(dialog.getAllByText("Network fee")).toHaveLength(2);
   await userEvent.click(details);
@@ -243,9 +244,9 @@ function toastPlay(cta: string, message: string, role: "status" | "alert", trigg
     await userEvent.click(within(canvasElement).getByRole("button", { name: trigger }));
     const dialog = within(await body.findByRole("dialog", { name: "Confirm" }));
     await userEvent.click(dialog.getByRole("button", { name: cta }));
-    await waitFor(() => expect(body.queryByRole("dialog", { name: "Confirm" })).not.toBeInTheDocument());
+    await waitForReady(() => expect(body.queryByRole("dialog", { name: "Confirm" })).not.toBeInTheDocument());
     await expectToast(canvasElement.ownerDocument, message, role);
-    await waitFor(() => expect(within(canvasElement).getByRole("button", { name: trigger })).toHaveFocus());
+    await waitForReady(() => expect(within(canvasElement).getByRole("button", { name: trigger })).toHaveFocus());
   };
 }
 export const ConfirmedToast: Story = { args: { ...BuyReview.args, scene: "entry" }, play: toastPlay("Buy $250.00", "Bought 0.00228190 cbBTC", "status") };
@@ -285,7 +286,7 @@ export const ExecutionUnavailable: Story = { args: { ...BuyReview.args, executeE
   await expect(dialog.getByRole("button", { name: "Buy $250.00" })).toBeEnabled();
   await expect(dialog.getAllByRole("button", { name: "Back" })[0]).toBeEnabled();
   await userEvent.click(dialog.getByRole("button", { name: "Buy $250.00" }));
-  await waitFor(() => expect(body.queryByRole("dialog", { name: "Confirm" })).not.toBeInTheDocument());
+  await waitForReady(() => expect(body.queryByRole("dialog", { name: "Confirm" })).not.toBeInTheDocument());
   await expectToast(canvasElement.ownerDocument, "Bought 0.00228190 cbBTC");
 } };
 export const ExecutionStaleSession: Story = { args: { ...BuyReview.args, executeError: "stale-session" }, play: async ({ canvasElement }) => {
@@ -316,7 +317,7 @@ export const ExecutionRejected: Story = { args: { ...BuyReview.args, executeErro
 } };
 export const ExecutionErrorExpires: Story = { args: { scene: "sheet", initialState: { step: { name: "execution-error", quote: expiredQuote, error: "unavailable" }, amount: "250" } }, play: async ({ canvasElement }) => {
   const sheet = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Confirm" });
-  await waitFor(() => expect(within(sheet).getByRole("alert")).toHaveTextContent("This quote expired."));
+  await waitForReady(() => expect(within(sheet).getByRole("alert")).toHaveTextContent("This quote expired."));
   await expect(within(sheet).getByRole("button", { name: "Get new quote" })).toBeVisible();
 } };
 function createManualScheduler(start: number): ExpiryScheduler & { advance(ms: number): void } {
@@ -363,7 +364,7 @@ export const QuoteExpiresWhileOpen: Story = { args: { scene: "sheet" }, beforeEa
   const scheduler = expiryScheduler;
   if (!scheduler) throw new Error("Expiry scheduler not initialized");
   const expiredAt = Date.parse(fixtureValidUntil) + 1;
-  await waitFor(async () => {
+  await waitForReady(async () => {
     scheduler.advance(Math.max(0, expiredAt - scheduler.now()));
     await expect(dialog().getByRole("alert")).toHaveTextContent("This quote expired.");
   });
@@ -404,7 +405,7 @@ export const BuyJourney: Story = { play: async ({ canvasElement }) => {
   await userEvent.type(dialog.getByRole("textbox", { name: "Amount" }), "250");
   await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
   dialog = within(await body.findByRole("dialog", { name: "Confirm" }));
-  await waitFor(() => expect(dialog.getByText("≈ 0.00228125 cbBTC")).toBeVisible());
+  await waitForReady(() => expect(dialog.getByText("≈ 0.00228125 cbBTC")).toBeVisible());
   await expect(dialog.getAllByRole("button", { name: "Back" })[0]).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Buy $250.00" })).toBeVisible();
   await userEvent.click(dialog.getByRole("button", { name: "Details" }));
@@ -416,9 +417,9 @@ export const BuyJourney: Story = { play: async ({ canvasElement }) => {
   dialog = within(await body.findByRole("dialog", { name: "Confirm" }));
   await expect(dialog.getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "false");
   await userEvent.click(dialog.getByRole("button", { name: "Buy $250.00" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await expectToast(canvasElement.ownerDocument, "Bought 0.00228190 cbBTC");
-  await waitFor(() => expect(within(canvasElement).getByRole("button", { name: "Buy" })).toHaveFocus());
+  await waitForReady(() => expect(within(canvasElement).getByRole("button", { name: "Buy" })).toHaveFocus());
 } };
 
 export const SellMaxJourney: Story = { play: async ({ canvasElement }) => {
@@ -433,7 +434,7 @@ export const SellMaxJourney: Story = { play: async ({ canvasElement }) => {
   await expect(review).toHaveTextContent("≈ $1,350.49");
   await expect(review).toHaveTextContent("Sell all your Bitcoin");
   await userEvent.click(dialog.getByRole("button", { name: "Sell all Bitcoin" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await expectToast(canvasElement.ownerDocument, "Sold all your Bitcoin for $1,350.82");
 } };
 export const BackCloseReopen: Story = { play: async ({ canvasElement }) => {
@@ -449,12 +450,12 @@ export const BackCloseReopen: Story = { play: async ({ canvasElement }) => {
   let amountSheet = await body.findByRole("dialog", { name: "Buy Bitcoin" });
   await expect(amountSheet.querySelector("[data-primary-amount]")).toHaveTextContent("$250");
   await userEvent.click(within(amountSheet).getByRole("button", { name: "Close" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await userEvent.click(within(canvasElement).getByRole("button", { name: "Buy" }));
   amountSheet = await body.findByRole("dialog", { name: "Buy Bitcoin" });
   await expect(amountSheet.querySelector("[data-primary-amount]")).toHaveTextContent("$0");
   await userEvent.click(within(amountSheet).getByRole("button", { name: "Close" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await userEvent.click(within(canvasElement).getByRole("button", { name: "Sell" }));
   const sellSheet = await body.findByRole("dialog", { name: "Sell Bitcoin" });
   await expect(sellSheet.querySelector("[data-primary-amount]")).toHaveTextContent("0 cbBTC");
@@ -462,7 +463,7 @@ export const BackCloseReopen: Story = { play: async ({ canvasElement }) => {
   await userEvent.click(within(sellSheet).getByRole("button", { name: "Continue" }));
   const review = await body.findByRole("dialog", { name: "Confirm" });
   await userEvent.click(within(review).getByRole("button", { name: "Sell all Bitcoin" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await expectToast(canvasElement.ownerDocument, "Sold all your Bitcoin for $1,350.82");
 } };
 export const LateQuoteAfterClose: Story = { args: { deferQuotes: true }, play: async ({ canvasElement }) => {
@@ -474,7 +475,7 @@ export const LateQuoteAfterClose: Story = { args: { deferQuotes: true }, play: a
   await userEvent.click(buy.getByRole("button", { name: "Continue" }));
   await expect(buy.getByRole("button", { name: "Getting quote…" })).toBeDisabled();
   await userEvent.click(buy.getByRole("button", { name: "Close" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await userEvent.click(canvas.getByRole("button", { name: "Resolve pending quote" }));
   await userEvent.click(canvas.getByRole("button", { name: "Sell" }));
   const sell = await body.findByRole("dialog", { name: "Sell Bitcoin" });
@@ -484,7 +485,7 @@ export const LateQuoteAfterClose: Story = { args: { deferQuotes: true }, play: a
   await userEvent.click(within(sell).getByRole("button", { name: "Continue" }));
   const review = await body.findByRole("dialog", { name: "Confirm" });
   await userEvent.click(within(review).getByRole("button", { name: "Sell all Bitcoin" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await expectToast(canvasElement.ownerDocument, "Sold all your Bitcoin for $1,350.82");
 } };
 export const WalletRejectedRetry: Story = { args: { rejectFirst: true }, play: async ({ canvasElement }) => {
@@ -501,7 +502,7 @@ export const WalletRejectedRetry: Story = { args: { rejectFirst: true }, play: a
   await expect(within(review).getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "true");
   await expect(review).toHaveTextContent("≈ 0.00228125 cbBTC");
   await userEvent.click(within(review).getByRole("button", { name: "Buy $250.00" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await expectToast(canvasElement.ownerDocument, "Bought 0.00228190 cbBTC");
 } };
 export const QuoteExpiredRefresh: Story = { args: QuoteExpired.args, play: async ({ canvasElement }) => {
@@ -515,7 +516,7 @@ export const QuoteExpiredRefresh: Story = { args: QuoteExpired.args, play: async
   await expect(review).toHaveTextContent("≈ 0.00228125 cbBTC");
   await expect(review).not.toHaveTextContent("This quote expired.");
   await userEvent.click(within(review).getByRole("button", { name: "Buy $250.00" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await expectToast(canvasElement.ownerDocument, "Bought 0.00228190 cbBTC");
 } };
 export const InterruptedTransition: Story = { play: async ({ canvasElement }) => {
@@ -531,7 +532,7 @@ export const InterruptedTransition: Story = { play: async ({ canvasElement }) =>
   await expect(final).toHaveTextContent("≈ 0.00228125 cbBTC");
   await expect(body.getAllByRole("dialog")).toHaveLength(1);
   await userEvent.click(within(final).getByRole("button", { name: "Buy $250.00" }));
-  await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await expectToast(canvasElement.ownerDocument, "Bought 0.00228190 cbBTC");
 } };
 export const ReducedMotion: Story = { ...BuyJourney, args: { reducedMotion: true }, play: async (context) => {
@@ -542,9 +543,9 @@ export const ReducedMotion: Story = { ...BuyJourney, args: { reducedMotion: true
   await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
   dialog = within(await body.findByRole("dialog", { name: "Confirm" }));
   await userEvent.click(dialog.getByRole("button", { name: "Details" }));
-  await waitFor(() => expect(dialog.getByText("Minimum received")).toBeVisible());
+  await waitForReady(() => expect(dialog.getByText("Minimum received")).toBeVisible());
   await userEvent.click(dialog.getByRole("button", { name: "Buy $250.00" }));
-  await waitFor(() => expect(context.canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(context.canvasElement.ownerDocument.querySelector("[data-money-sheet]")).not.toBeInTheDocument());
   await expectToast(context.canvasElement.ownerDocument, "Bought 0.00228190 cbBTC");
 } };
 export const MotionReview: Story = {};
@@ -561,6 +562,6 @@ export const RtlReview: Story = { ...BuyReview, decorators: [(Story) => <RtlDocu
   await BuyReview.play?.(context);
   const dialog = within(await within(context.canvasElement.ownerDocument.body).findByRole("dialog", { name: "Confirm" }));
   await userEvent.click(dialog.getByRole("button", { name: "Details" }));
-  await waitFor(() => expect(dialog.getByText("Minimum received")).toBeVisible());
+  await waitForReady(() => expect(dialog.getByText("Minimum received")).toBeVisible());
   await expect(context.canvasElement.ownerDocument.documentElement).toHaveAttribute("dir", "rtl");
 } };

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import borrowOverviewStories from "@/client/borrowing/borrow-overview.stories";
 const BorrowStorySurface = borrowOverviewStories.component;
 import { VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
@@ -24,7 +25,7 @@ async function openRepay(canvasElement: HTMLElement) {
   await userEvent.click(within(management).getByRole("button", { name: "Repay" }));
   const money = await screen.findByRole("dialog", { name: "Repay" });
   await expect(screen.getAllByRole("dialog")).toHaveLength(1);
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Bitcoin" })).toBeNull());
+  await waitForReady(() => expect(screen.queryByRole("dialog", { name: "Bitcoin" })).toBeNull());
   return { row, money, screen };
 }
 async function prepareRepay(canvasElement: HTMLElement) {
@@ -42,9 +43,9 @@ export const RepayReviewCancelBack: Story = {
     await userEvent.click(within(money).getByRole("button", { name: "Back" }));
     const management = await screen.findByRole("dialog", { name: "Bitcoin" });
     await expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    await waitFor(() => expect(within(management).getByRole("button", { name: "Repay" })).toHaveFocus());
+    await waitForReady(() => expect(within(management).getByRole("button", { name: "Repay" })).toHaveFocus());
     await userEvent.click(within(management).getByRole("button", { name: "Close Bitcoin details" }));
-    await waitFor(() => expect(canvasElement.ownerDocument.activeElement).toBe(row));
+    await waitForReady(() => expect(canvasElement.ownerDocument.activeElement).toBe(row));
   },
 };
 export const RepaySuccessUpdates: Story = {
@@ -94,7 +95,7 @@ export const ZeroDebtFullWithdrawReturnsAsset: Story = {
     await userEvent.click(money.getByRole("button", { name: "Continue" }));
     await userEvent.click(await money.findByRole("button", { name: "Confirm action" }));
     await userEvent.click(await money.findByRole("button", { name: "Done" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Withdraw collateral" })).toBeNull());
+    await waitForReady(() => expect(screen.queryByRole("dialog", { name: "Withdraw collateral" })).toBeNull());
     await expect(screen.queryByRole("dialog", { name: "XRP" })).toBeNull();
     await expect(loans.queryByRole("button", { description: "Manage XRP loan" })).toBeNull();
     const assets = within(screen.getByRole("region", { name: "Assets you can borrow against" }));
@@ -154,7 +155,7 @@ export const CollateralBorrowEntryBack: Story = {
     const returned = await screen.findByRole("dialog", { name: "Cardano" });
     await expect(within(returned).getByRole("button", { name: "Borrow" })).toHaveFocus();
     await userEvent.click(within(returned).getByRole("button", { name: "Close Cardano details" }));
-    await waitFor(() => expect(row).toHaveFocus());
+    await waitForReady(() => expect(row).toHaveFocus());
   },
 };
 export const NotHeldRowsInert: Story = {

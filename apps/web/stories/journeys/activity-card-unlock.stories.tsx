@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useMemo, useRef } from "react";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { AccountWalletContext, type AccountWalletClient } from "@/client/account/cdp-client";
 import type { FetchActivity } from "@/client/activity";
 import { ConnectedActivityPanel } from "@/client/home/activity-panel";
@@ -116,17 +117,15 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const loadedSheetGuard = { timeout: 10_000 };
-
 async function openDecline(canvasElement: HTMLElement, ownerKey: string, cards: CardsResponse) {
-  await waitFor(() => expect(getHomeQueryClient().getQueryData(ownerQueryKey(ownerKey, "cards"))).toEqual(cards));
+  await waitForReady(() => expect(getHomeQueryClient().getQueryData(ownerQueryKey(ownerKey, "cards"))).toEqual(cards));
   const screen = within(canvasElement.ownerDocument.body);
   await userEvent.click(await within(canvasElement).findByRole("button", { name: /^Fixture Market/ }));
-  await waitFor(async () => {
+  await waitForReady(async () => {
     const dialog = screen.getByRole("dialog");
     await expect(within(dialog).getByRole("alert")).toHaveTextContent("Declined because your card was locked");
     await expect(within(dialog).getByRole("alert")).toHaveTextContent("Nothing was charged.");
-  }, loadedSheetGuard);
+  });
   return { screen, dialog: within(screen.getByRole("dialog")) };
 }
 
@@ -143,7 +142,7 @@ export const Active: Story = {
     await expect(dialog.queryByRole("button", { name: "Unlock card" })).toBeNull();
     await expect(dialog.queryByRole("button", { name: "Add money" })).toBeNull();
     await userEvent.click(dialog.getByRole("button", { name: "Close Fixture Market details" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitForReady(() => expect(screen.queryByRole("dialog")).toBeNull());
     await expect(within(canvasElement).getByRole("button", { name: /^Fixture Market/ })).toBeVisible();
   },
 };
@@ -153,11 +152,11 @@ export const RefetchFailed: Story = {
     const { screen, dialog } = await openDecline(canvasElement, args.ownerKey, frozenCards);
     await expect(dialog.getByRole("button", { name: "Unlock card" })).toBeVisible();
     await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(args.ownerKey, "cards"), exact: true });
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(dialog.queryByRole("button", { name: "Unlock card" })).toBeNull();
       await expect(screen.getByRole("dialog")).toBeVisible();
       await expect(dialog.getByRole("alert")).toHaveTextContent("Declined because your card was locked");
       await expect(dialog.getByRole("alert")).toHaveTextContent("Nothing was charged.");
-    }, loadedSheetGuard);
+    });
   },
 };

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, useRef, useState } from "react";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { PORTFOLIO_USDC_ASSET_KEY, assetKeyForErc20 } from "@/config/portfolio-assets";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -357,7 +358,7 @@ export const MixedChronology: Story = {
     })).toBeNull();
     await userEvent.click(within(canvasElement.ownerDocument.body)
       .getByRole("button", { name: "Close Sent to alex.base.eth details" }));
-    await waitFor(() => expect(row).toHaveFocus());
+    await waitForReady(() => expect(row).toHaveFocus());
   },
 };
 export const Deduplicated: Story = {
@@ -549,7 +550,7 @@ export const DetailLongExactAmount: Story = {
     const unit = dialog.querySelector<HTMLElement>('[data-slot="activity-amount-unit"]');
     if (!number || !scroll || !unit) throw new Error("Missing split amount headline");
     await expect(unit).toHaveTextContent("LONGSYMBOLTOKEN");
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(scroll).toHaveAttribute("tabindex", "0");
       await expect(scroll.scrollWidth).toBeGreaterThan(scroll.clientWidth);
     });
@@ -641,11 +642,11 @@ export const ConsecutiveTransfersMobile: Story = {
     const children = within(list).getAllByRole("button", { description: "View Received details" });
     await expect(children).toHaveLength(4);
     const child = children[0]!;
-    await waitFor(() => expect(child).toBeVisible());
+    await waitForReady(() => expect(child).toBeVisible());
     await userEvent.click(child);
     await expect(await screen.findByRole("dialog", { name: "Received" })).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Close Received details" }));
-    await waitFor(() => expect(child).toHaveFocus());
+    await waitForReady(() => expect(child).toHaveFocus());
     summary.focus();
     await userEvent.keyboard(" ");
     await expect(summary).toHaveAttribute("aria-expanded", "false");

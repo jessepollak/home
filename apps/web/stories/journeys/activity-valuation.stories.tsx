@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { ConnectedActivityPanel } from "@/client/home/activity-panel";
 import { shellContentFrameClassName } from "@/components/shell-layout";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -265,7 +266,7 @@ export const Priced: Story = {
     await expect(within(thinRow).queryByText(/\$/)).toBeNull();
 
     await userEvent.click(receivedRow);
-    await waitFor(() => expect(within(screen.getByRole("dialog", { name: "Received" })).getByText("+$12.34")).toBeVisible());
+    await waitForReady(() => expect(within(screen.getByRole("dialog", { name: "Received" })).getByText("+$12.34")).toBeVisible());
     const dialog = screen.getByRole("dialog", { name: "Received" });
     await expect(within(dialog).getByText("+$12.34")).toBeVisible();
     await expect(dialog.querySelector('[data-slot="activity-amount-number"]')).toHaveTextContent("+5,678.00");

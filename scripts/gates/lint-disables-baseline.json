@@ -117,12 +117,16 @@
     },
     "apps/web/server/scheduling/after-schedule.ts": {
       "home/no-silent-catch": 1
-    },
-    "apps/web/tests/browser/navigation-geometry.pw.ts": {
-      "home/no-real-waits": 1
     }
   },
   "exceptions": [
+    {
+      "path": "apps/web/tests/browser/navigation-geometry.pw.ts",
+      "rule": "home/no-real-waits",
+      "count": 1,
+      "issue": "#2053",
+      "reason": "CDP Input.dispatchMouseEvent timestamps are read by the browser's real input pipeline, which no page clock controls; the shared real timeline is what makes the two immediate taps simultaneous."
+    },
     {
       "path": "apps/web/gmail.test.ts",
       "rule": "home/no-source-reads",
