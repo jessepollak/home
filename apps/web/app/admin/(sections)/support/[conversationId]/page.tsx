@@ -2,6 +2,8 @@ import { OperatorSupportInbox } from "@/client/operator-support/operator-support
 import { authorizedOperatorAddress, OperatorSection } from "../../../section-content";
 import { readOperatorPageDecision } from "@/server/operator/page";
 
+export const instant = false;
+
 export default async function SupportConversationPage({ params }: { params: Promise<{ conversationId: string }> }) {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);

@@ -7,6 +7,8 @@ import { parseActivityPage } from "../../../shared/activity/contract";
 import { parseActivityOrders } from "../../../shared/activity/contract-orders";
 import { sessionBody } from "../fixtures/bodies";
 import { parseAddress } from "../../../shared/chain/hex";
+import { parseOperatorSupportConversationResponse, parseOperatorSupportListResponse, parseOperatorSupportSummary } from "../../../shared/support/contract";
+import { operatorSupportFixtureConversationId, operatorSupportFixtureRoutes } from "./operator-support-fixture";
 import { assertFundingProvidersResponse, readProviderBindings } from "../../../shared/funding/contracts/providers";
 import { isRecord } from "../../../shared/guards";
 
@@ -19,6 +21,22 @@ test("Activity query and bare fixtures cannot shadow the owner-fenced orders rou
     smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } })).toEqual([]);
   expect(matching("/api/activity?to=now&currency=USD")).toHaveLength(1);
   expect(matching("/api/activity")).toHaveLength(1);
+});
+
+test("operator support fixtures parse with the shared response contracts", () => {
+  for (const [route, body] of operatorSupportFixtureRoutes()) {
+    if (route.endsWith("/summary")) expect(parseOperatorSupportSummary(body)).not.toBeNull();
+    else if (route.endsWith("/conversations?**")) expect(parseOperatorSupportListResponse(body)).not.toBeNull();
+    else if (route.endsWith("/read")) expect(body).toEqual({});
+    else {
+      const detail = parseOperatorSupportConversationResponse(body);
+      expect(detail).not.toBeNull();
+      expect(detail?.conversation.id).toBe(operatorSupportFixtureConversationId);
+      expect(detail?.conversation.messages[0]).toMatchObject({
+        authorType: "customer", authorOperator: null, body: "My funding order needs help",
+      });
+    }
+  }
 });
 
 test.each(["onramp", "offramp"] as const)("funding provider fixtures match only the requested %s direction", (direction) => {

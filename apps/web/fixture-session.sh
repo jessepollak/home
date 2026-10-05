@@ -27,7 +27,8 @@ cleanup() { rm -f "$routes"; }
 fail() { browser_command close >/dev/null 2>&1 || true; rm -f "$init"; }
 trap cleanup EXIT
 trap fail ERR
-printf '%s\n' 'sessionStorage.setItem("home:playwright-smoke:signed-in","1");localStorage.setItem("home.country.v2","US");' > "$init"
+operator_token=$(env -i HOME="$HOME" PATH="$PATH" bun -e 'import {fixtureOperatorAddress, homeSessionToken} from "./tests/browser/fixtures/session.ts"; process.stdout.write(homeSessionToken(fixtureOperatorAddress));')
+printf 'try{if(location.hostname==="127.0.0.1"||location.hostname==="localhost"){document.cookie="home-session=;path=/;Max-Age=0;SameSite=Lax";document.cookie="home-session=%s;path=/admin;SameSite=Lax";document.cookie="home-session=%s;path=/api/admin;SameSite=Lax";}}catch{};sessionStorage.setItem("home:playwright-smoke:signed-in","1");localStorage.setItem("home.country.v2","US");\n' "$operator_token" "$operator_token" > "$init"
 chmod 600 "$init"
 ready='(() => { if (!window.__homeFixtureSession) { window.__homeFixtureSession = fetch("/api/session").then((response) => { window.__homeFixtureSessionStatus = response.status; }, () => { window.__homeFixtureSessionStatus = 0; }); } return window.__homeFixtureSessionStatus === 200 && Boolean(document.querySelector("[data-hydrated]")) && sessionStorage.getItem("home:playwright-smoke:signed-in") === "1" && !location.search.includes("account=signin"); })()'
 stage_fixture_session() {
@@ -38,7 +39,7 @@ stage_fixture_session() {
     sleep 1
   done
   [[ $started == true ]] || return 1
-  env -i HOME="$HOME" PATH="$PATH" HOME_FIXTURE_PREPARE="$prepare" bun -e 'import {fixtureRoutes} from "./tests/browser/feature-map/fixtures.ts"; const activityWindowEnd = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString(); console.log(JSON.stringify(fixtureRoutes({activityWindowEnd, prepare: process.env.HOME_FIXTURE_PREPARE as "send" | "savings-deposit" | "savings-withdraw"}).map(([pattern, body]) => ["network", "route", pattern, "--body", JSON.stringify(body)])));' > "$routes" || return 1
+  env -i HOME="$HOME" PATH="$PATH" HOME_FIXTURE_PREPARE="$prepare" bun -e 'import {fixtureRoutes} from "./tests/browser/feature-map/fixtures.ts"; import {operatorSupportFixtureRoutes} from "./tests/browser/feature-map/operator-support-fixture.ts"; const activityWindowEnd = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString(); console.log(JSON.stringify([...fixtureRoutes({activityWindowEnd, prepare: process.env.HOME_FIXTURE_PREPARE as "send" | "savings-deposit" | "savings-withdraw"}), ...operatorSupportFixtureRoutes()].map(([pattern, body]) => ["network", "route", pattern, "--body", JSON.stringify(body)])));' > "$routes" || return 1
   browser_command batch --bail < "$routes" >/dev/null || return 1
   browser_command open "http://127.0.0.1:${HOME_FIXTURE_PORT:-3199}/home" >/dev/null || return 1
 }
