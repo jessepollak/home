@@ -21,7 +21,7 @@ When the pre-change baseline materially improves judgment, use a paired comparis
 |---|---|---|---|
 | Save review — 390×844 CSS px | `story:journeys-savings-deposit--deposit` | GitHub screenshot attachment of the PR base | GitHub screenshot attachment of the current PR head |
 
-When Before adds no information, use current-head evidence only instead of filling empty comparison cells:
+For a new surface, or for additional states where Before adds no information, use current-head evidence only instead of filling empty comparison cells:
 
 | State + viewport | Board | Evidence |
 |---|---|---|
