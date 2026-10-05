@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import type { queries } from "storybook/test";
 import { SendDialog } from "@/client/transfers/send-dialog";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
@@ -180,7 +181,7 @@ export const PreparingReview: Story = {
     await enterRecipient(screen, RECIPIENT);
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
     const continueButton = screen.getByRole("button", { name: "Continue" });
-    await waitFor(() => expect(continueButton).toHaveAttribute("aria-busy", "true"));
+    await waitForReady(() => expect(continueButton).toHaveAttribute("aria-busy", "true"));
     await expect(continueButton).toHaveAttribute("aria-disabled", "true");
     await expect(screen.getByRole("dialog", { name: "Send" })).toBeVisible();
     await expect(screen.getByRole("textbox", { name: "To" })).toBeVisible();
@@ -200,7 +201,7 @@ export const ContinueToReview: Story = {
     const reveal = within(to).getByRole("button", { name: `Show full address ${formatAddress(RECIPIENT)}` });
     await expect(reveal).toBeVisible();
     await userEvent.click(reveal);
-    await waitFor(() => expect(screen.getByLabelText(`Full address ${RECIPIENT}`)).toBeVisible());
+    await waitForReady(() => expect(screen.getByLabelText(`Full address ${RECIPIENT}`)).toBeVisible());
     await userEvent.keyboard("{Escape}");
     await expect(within(dialog).getByRole("button", { name: "Send $1.00" })).toHaveAttribute("data-money-action-id", ACTION_ID);
     await expect(journey.prepares).toEqual([{ kind: "send", params: { assetId: "usdc", recipient: RECIPIENT, amountBaseUnits: "1000000" } }]);
@@ -222,7 +223,7 @@ export const BackAndClose: Story = {
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
     await expect(screen.getByRole("textbox", { name: "To" })).toHaveValue("0x2211…d77DA9");
     await userEvent.click(screen.getByRole("button", { name: "Close send dialog" }));
-    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    await waitForReady(() => expect(close).toHaveBeenCalledTimes(1));
   },
 };
 

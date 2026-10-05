@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import {
   MoneyConfirmSummary,
   moneyConfirmFromRow,
@@ -63,7 +64,7 @@ async function expectReviewAddress(canvasElement: HTMLElement) {
   await expect(bounds.left).toBeGreaterThanOrEqual(0);
   await expect(bounds.right).toBeLessThanOrEqual(window.innerWidth);
   await expect(popover.scrollWidth).toBeLessThanOrEqual(popover.clientWidth + 1);
-  await waitFor(() => expect(within(popover).getByRole("button", { name: "Copy address" })).toBeVisible());
+  await waitForReady(() => expect(within(popover).getByRole("button", { name: "Copy address" })).toBeVisible());
 }
 
 const meta = {

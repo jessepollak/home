@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef } from "react";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { OperatorSupportInbox } from "@/client/operator-support/operator-support-inbox";
 import { SupportAssistantSettings } from "@/client/operator-support/assistant-settings";
 import { SupportConflictError, type OperatorSupportTransport } from "@/client/operator-support/api";
@@ -132,12 +133,12 @@ export const PollRevalidatesDeeperRows: Story = { ...paginationStory, play: asyn
   const canvas = await loadPages(canvasElement, 2);
   refreshPhase = true;
   pollInbox();
-  await waitFor(() => expect(canvas.queryByRole("link", { name: /Customer page 2/ })).toBeNull());
+  await waitForReady(() => expect(canvas.queryByRole("link", { name: /Customer page 2/ })).toBeNull());
   await expect(canvas.getByRole("link", { name: /Customer page 1/ })).toHaveTextContent("Refreshed preview");
   await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
   await canvas.findByRole("link", { name: /Customer page 3/ });
   pollInbox();
-  await waitFor(() => expect(requestedPages.slice(-3)).toEqual(["open:1", "open:2", "open:3"]));
+  await waitForReady(() => expect(requestedPages.slice(-3)).toEqual(["open:1", "open:2", "open:3"]));
   await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
   await canvas.findByRole("link", { name: /Customer page 4/ });
   await expect(canvas.queryByRole("button", { name: "Load more" })).toBeNull();
@@ -150,7 +151,7 @@ export const FailedDeepPollIsAtomic: Story = { ...paginationStory, render: () =>
   for (const page of [1, 2, 3]) await expect(canvas.getByRole("link", { name: new RegExp(`Customer page ${page}`) })).toHaveTextContent("Original preview");
   refreshPhase = false;
   await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
-  await waitFor(() => expect(canvas.queryByRole("alert")).toBeNull());
+  await waitForReady(() => expect(canvas.queryByRole("alert")).toBeNull());
 } };
 export const CursorCycleRetainsRows: Story = { ...paginationStory, render: () => <PaginatedInbox scenario="cycle" />, play: async ({ canvasElement }) => {
   const canvas = await loadPages(canvasElement, 3);
@@ -164,18 +165,18 @@ export const CursorCycleRetainsRows: Story = { ...paginationStory, render: () =>
 export const VisibilityFencesInterleavedLoad: Story = { ...paginationStory, render: () => <PaginatedInbox scenario="race" />, play: async ({ canvasElement }) => {
   const canvas = await loadPages(canvasElement, 1);
   await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
-  await waitFor(() => expect(heldPage).not.toBeNull());
+  await waitForReady(() => expect(heldPage).not.toBeNull());
   pollInbox();
   await expect(requestedPages).toEqual(["open:1", "open:2"]);
   refreshPhase = true;
   document.dispatchEvent(new Event("visibilitychange"));
-  await waitFor(() => expect(heldRefresh).not.toBeNull());
+  await waitForReady(() => expect(heldRefresh).not.toBeNull());
   heldPage?.();
-  await waitFor(() => expect(canvas.queryByRole("link", { name: /Customer page 2/ })).toBeNull());
+  await waitForReady(() => expect(canvas.queryByRole("link", { name: /Customer page 2/ })).toBeNull());
   pollInbox();
   await expect(requestedPages).toEqual(["open:1", "open:2", "open:1"]);
   heldRefresh?.();
-  await waitFor(() => expect(canvas.getByRole("link", { name: /Customer page 1/ })).toHaveTextContent("Refreshed preview"));
+  await waitForReady(() => expect(canvas.getByRole("link", { name: /Customer page 1/ })).toHaveTextContent("Refreshed preview"));
   await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
   await canvas.findByRole("link", { name: /Customer page 2/ });
   await expect(requestedPages).toEqual(["open:1", "open:2", "open:1", "open:2"]);
@@ -186,7 +187,7 @@ export const SlowDepthPollPublishesAtomically: Story = { ...paginationStory, ren
   refreshPhase = true;
   pollInbox();
   for (let page = 1; page <= 20; page++) {
-    await waitFor(() => expect(heldRefresh).not.toBeNull());
+    await waitForReady(() => expect(heldRefresh).not.toBeNull());
     await expect(requestedPages.slice(count)).toEqual(Array.from({ length: page }, (_, index) => `open:${index + 1}`));
     pollInbox();
     await expect(requestedPages.length).toBe(count + page);
@@ -196,7 +197,7 @@ export const SlowDepthPollPublishesAtomically: Story = { ...paginationStory, ren
     heldRefresh = null;
     release?.();
   }
-  await waitFor(() => expect(canvas.queryByRole("link", { name: /Customer page 2\b/ })).toBeNull());
+  await waitForReady(() => expect(canvas.queryByRole("link", { name: /Customer page 2\b/ })).toBeNull());
   await expect(canvas.getAllByRole("link")).toHaveLength(19);
   for (const link of canvas.getAllByRole("link")) await expect(link).toHaveTextContent("Refreshed preview");
   refreshPhase = false;
@@ -204,17 +205,17 @@ export const SlowDepthPollPublishesAtomically: Story = { ...paginationStory, ren
   await canvas.findByRole("link", { name: /Customer page 21/ });
   await expect(requestedPages.at(-1)).toBe("open:21");
   pollInbox();
-  await waitFor(() => expect(requestedPages.length).toBe(count + 42));
+  await waitForReady(() => expect(requestedPages.length).toBe(count + 42));
   await expect(requestedPages.slice(count + 21)).toEqual(Array.from({ length: 21 }, (_, index) => `open:${index + 1}`));
 } };
 export const FilterRoundTripFencesLoad: Story = { ...paginationStory, render: () => <PaginatedInbox scenario="race" />, play: async ({ canvasElement }) => {
   const canvas = await loadPages(canvasElement, 1);
   await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
-  await waitFor(() => expect(heldPage).not.toBeNull());
+  await waitForReady(() => expect(heldPage).not.toBeNull());
   await userEvent.click(canvas.getByRole("button", { name: "Resolved" }));
   await canvas.findByText("No resolved conversations.");
   await userEvent.click(canvas.getByRole("button", { name: "Open" }));
   await canvas.findByRole("link", { name: /Customer page 1/ });
   heldPage?.();
-  await waitFor(() => expect(canvas.queryByRole("link", { name: /Customer page 2/ })).toBeNull());
+  await waitForReady(() => expect(canvas.queryByRole("link", { name: /Customer page 2/ })).toBeNull());
 } };

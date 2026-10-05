@@ -1,3 +1,9 @@
+import { configure } from "storybook/test";
+import { STORY_READY_BUDGET_MS } from "../tests/helpers/story-readiness";
+
+// The shared budget applies to findBy* and bare waitFor defaults too.
+configure({ asyncUtilTimeout: STORY_READY_BUDGET_MS });
+
 // Base UI holds a closing popup in the DOM until its exit animation finishes, so every
 // story that closes a sheet waits on the browser's animation clock rather than on the
 // state change. On a loaded runner that clock is the slowest thing in the suite: a

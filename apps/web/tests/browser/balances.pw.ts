@@ -12,7 +12,7 @@ import { homeSummaryCookieName, encodeHomeSummaryCookie } from "../../shared/bal
 import { dataOwnerKey } from "../../shared/account/data-owner";
 import { presentHomeBalances } from "../../shared/balances/present";
 import { balancesSnapshot } from "./fixtures/balances";
-import { expectNavigation } from "./fixtures/navigation-budget";
+import { expectNavigation, expectReady } from "./fixtures/navigation-budget";
 
 declare global { interface Window { cachedMoneyTexts?: string[][] } }
 
@@ -20,7 +20,6 @@ declare global { interface Window { cachedMoneyTexts?: string[][] } }
 // together, so the persisted paint may take twice the machine's own shell paint, never less than the tier.
 const BALANCES_PAINTED_BUDGET_MS = 3_500;
 const BALANCES_PAINTED_LOAD_FACTOR = 2;
-const BALANCES_PAINTED_WAIT_MS = 15_000;
 
 async function visibleBalanceRowLayout(page: Page) {
   const rows = page.getByRole("region", { name: "Your money", exact: true }).locator('[data-kind="balance"]');
@@ -38,9 +37,9 @@ async function visibleBalanceRowLayout(page: Page) {
 }
 
 async function expectBalancesPaintedWithinBudget(page: Page) {
-  await expect.poll(
+  await expectReady(
     () => page.evaluate(() => performance.getEntriesByName("balances:painted", "mark").length),
-    { message: "the persisted balances paint mark", timeout: BALANCES_PAINTED_WAIT_MS },
+    "the persisted balances paint mark",
   ).toBeGreaterThan(0);
   const paint = await page.evaluate(() => ({
     balances: performance.getEntriesByName("balances:painted", "mark")[0]!.startTime,

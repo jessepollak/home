@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { ArrowRight, Banknote, Wallet } from "lucide-react";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { MoneyConfirmSummary, moneyConfirmFromRow } from "@/client/money-modal/confirm-summary";
 import { MoneyModalBody } from "@/client/money-modal/money-modal";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -109,7 +110,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 const checkDepositCopy = async (expected: string) => {
-  const dialog = await waitFor(() => within(document.body).getByRole("dialog", { name: "Add money" }));
+  const dialog = await waitForReady(() => within(document.body).getByRole("dialog", { name: "Add money" }));
   await expect(within(dialog).getByText(expected)).toBeVisible();
   const methodCopy = dialog.querySelectorAll<HTMLElement>("[data-slot=finance-row-body] [data-slot=item-title], [data-slot=finance-row-body] [data-slot=item-description]");
   await expect(methodCopy.length).toBeGreaterThan(0);
@@ -134,7 +135,7 @@ export const CashOutUs: Story = { args: { title: "Cash out", methods: [
 const unavailableStory = (regionId: "BR" | "NG" | "ID"): Story => ({
   args: { title: "Cash out", methods: [] }, render: () => <UnavailableSheet regionId={regionId} />,
   play: async () => {
-    const dialog = await waitFor(() => within(document.body).getByRole("dialog", { name: "Cash out" }));
+    const dialog = await waitForReady(() => within(document.body).getByRole("dialog", { name: "Cash out" }));
     await expect(within(dialog).getByText(`Cash out to ${presentationRegions[regionId].currency.name} isn't available yet`)).toBeVisible();
     await expect(within(dialog).getByText("You can still send USDC to any wallet.")).toBeVisible();
   },
@@ -144,7 +145,7 @@ export const CashOutUnavailableBrazil: Story = unavailableStory("BR");
 export const CashOutUnavailableIndonesia: Story = unavailableStory("ID");
 export const CashOutReviewDesktop: Story = { args: { title: "Cash out", methods: [] }, render: () => <ReviewDesktop />,
   play: async () => {
-    const dialog = await waitFor(() => within(document.body).getByRole("dialog", { name: "Review cash out" }));
+    const dialog = await waitForReady(() => within(document.body).getByRole("dialog", { name: "Review cash out" }));
     await expect(within(dialog).getByText("Provider").nextElementSibling).toHaveTextContent("Peer");
     await expect(within(dialog).getByText("Payout app").nextElementSibling).toHaveTextContent("Zelle");
     await expect(within(dialog).getByText("Payout handle")).toBeVisible();

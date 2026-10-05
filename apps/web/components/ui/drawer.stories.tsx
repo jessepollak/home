@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { AppDrawer, MoneyModalBody, MoneyModalFooter, MoneyModalHeader } from "@/client/money-modal";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { Button } from "./button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from "./drawer";
 
@@ -79,7 +80,7 @@ async function expectMoneyDialogGeometry(canvasElement: HTMLElement, width: numb
   await expect(view.innerWidth).toBe(width);
   await expect(view.innerHeight).toBe(height);
   const dialog = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Send" });
-  await waitFor(async () => {
+  await waitForReady(async () => {
     const rect = dialog.getBoundingClientRect();
     await expect(rect.width).toBeLessThanOrEqual(480);
     await expect(rect.width).toBeGreaterThan(0);

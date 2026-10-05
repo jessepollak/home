@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { HomeMoneySummary } from "@/client/home/home-overview";
 import { AccountWalletClientProvider } from "@/client/account/cdp-client";
 import { ShellHeader } from "@/client/home/shell-chrome";
@@ -60,12 +61,12 @@ async function walk({ canvasElement }: { canvasElement: HTMLElement }) {
   await expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   await userEvent.click(row);
   await expect(screen.getByText("Your balance")).toBeVisible();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Buy" })).toBeEnabled());
+  await waitForReady(() => expect(screen.getByRole("button", { name: "Buy" })).toBeEnabled());
   await expect(screen.getByRole("button", { name: "Sell" })).toBeEnabled();
   await userEvent.click(within(canvasElement.querySelector("main")!).getByRole("button", { name: "Back" }));
-  await waitFor(() => expect(screen.getByRole("button", { description: "Open Bitcoin" })).toHaveFocus());
+  await waitForReady(() => expect(screen.getByRole("button", { description: "Open Bitcoin" })).toHaveFocus());
   await userEvent.click(screen.getByRole("button", { name: "Back" }));
-  await waitFor(() => expect(screen.getByRole("button", { description: "Open Investments" })).toHaveFocus());
+  await waitForReady(() => expect(screen.getByRole("button", { description: "Open Investments" })).toHaveFocus());
 }
 export const HomeToHoldings: Story = { play: walk };
 export const HomeToHoldingsDesktop: Story = { parameters: { viewport: { defaultViewport: "desktop" } }, play: walk };

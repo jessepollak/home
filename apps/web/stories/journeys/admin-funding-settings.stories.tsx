@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { HttpResponse, http } from "msw";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { FundingSettings, FundingSettingsUnavailable } from "@/client/admin/funding-settings";
 import type { FundingCorridorView, FundingOfferingView } from "@/shared/funding/offering";
 import { isRecord } from "@/shared/guards";
@@ -206,7 +207,7 @@ export const ConfirmSaves: Story = {
   play: async ({ canvasElement }) => {
     const canvas = await reviewRipioOnramp(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(canvas.getByRole("status")).toHaveTextContent("Saved."));
+    await waitForReady(() => expect(canvas.getByRole("status")).toHaveTextContent("Saved."));
   },
 };
 
@@ -229,7 +230,7 @@ export const ConflictError: Story = {
   play: async ({ canvasElement }) => {
     const canvas = await reviewRipioOnramp(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(canvas.getByText("Someone else changed these settings")).toBeVisible());
+    await waitForReady(() => expect(canvas.getByText("Someone else changed these settings")).toBeVisible());
     await expect(canvas.getByRole("button", { name: "Review and save" })).toBeDisabled();
   },
 };
@@ -242,7 +243,7 @@ export const SaveUnavailable: Story = {
   play: async ({ canvasElement }) => {
     const canvas = await reviewRipioOnramp(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(canvas.getByRole("alert")).toHaveTextContent("Settings can't be saved right now."));
+    await waitForReady(() => expect(canvas.getByRole("alert")).toHaveTextContent("Settings can't be saved right now."));
   },
 };
 

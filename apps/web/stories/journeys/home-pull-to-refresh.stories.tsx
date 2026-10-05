@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef, useState } from "react";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { HomeOverview, HomeSectionHeading } from "@/client/home/home-overview";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -108,13 +109,13 @@ export const RefreshAndRetry: Story = {
     const canvas = within(canvasElement);
     canvas.getByRole("button", { name: "Refresh Home" }).focus();
     await userEvent.keyboard("{Enter}");
-    await waitFor(() => expect(canvas.getByRole("status")).toHaveTextContent("Refreshing Home"));
+    await waitForReady(() => expect(canvas.getByRole("status")).toHaveTextContent("Refreshing Home"));
     finishRefresh?.();
-    await waitFor(() => expect(canvas.getByRole("alert")).toHaveTextContent("Couldn't refresh Home."));
+    await waitForReady(() => expect(canvas.getByRole("alert")).toHaveTextContent("Couldn't refresh Home."));
     await userEvent.click(canvas.getByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(canvas.getByRole("status")).toHaveTextContent("Refreshing Home"));
+    await waitForReady(() => expect(canvas.getByRole("status")).toHaveTextContent("Refreshing Home"));
     finishRefresh?.();
-    await waitFor(() => expect(canvas.getByRole("status")).toHaveTextContent("Home updated"));
+    await waitForReady(() => expect(canvas.getByRole("status")).toHaveTextContent("Home updated"));
     await expect(canvas.queryByRole("alert")).not.toBeInTheDocument();
   },
 };

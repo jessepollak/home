@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, screen, userEvent, waitFor, within } from "storybook/test";
+import { expect, screen, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { Combobox, ComboboxCollection, ComboboxContent, ComboboxEmpty, ComboboxGroup, ComboboxGroupLabel, ComboboxInput, ComboboxItem, ComboboxList } from "./combobox";
 
 type CurrencyOption = {
@@ -43,14 +44,14 @@ export const Default: Story = {
     const canvas = within(canvasElement);
     const input = canvas.getByRole("combobox", { name: "Currency" });
     await userEvent.click(canvas.getByRole("button", { name: "Currency options" }));
-    await waitFor(() => expect(screen.getByRole("option", { name: "Euro" })).toBeVisible());
+    await waitForReady(() => expect(screen.getByRole("option", { name: "Euro" })).toBeVisible());
     await expect(input).toHaveFocus();
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+    await waitForReady(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
     const group = canvasElement.querySelector("[data-slot=input-group]");
     if (!(group instanceof HTMLElement)) throw new Error("Missing combobox input group");
     await userEvent.click(group);
-    await waitFor(() => expect(screen.getByRole("option", { name: "Euro" })).toBeVisible());
+    await waitForReady(() => expect(screen.getByRole("option", { name: "Euro" })).toBeVisible());
     await expect(input).toHaveFocus();
     await userEvent.keyboard("{ArrowDown}{Enter}");
     await expect(input).toHaveValue("Euro");

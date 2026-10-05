@@ -1,6 +1,7 @@
 import { useState, type ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { AppChromeProvider } from "@/components/app-chrome";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { PrimaryNavigation } from "@/components/primary-navigation";
@@ -200,7 +201,7 @@ async function verifyExitOnlyNavigation(canvasElement: HTMLElement) {
   const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]");
   if (!pill) throw new Error("Expected the navigation pill to be mounted.");
   await expect(pill).toBeVisible();
-  await waitFor(async () => {
+  await waitForReady(async () => {
     const tab = home.getBoundingClientRect();
     const rect = pill.getBoundingClientRect();
     await expect(Math.abs(rect.left - tab.left)).toBeLessThanOrEqual(2);
@@ -212,11 +213,11 @@ async function verifyExitOnlyNavigation(canvasElement: HTMLElement) {
 async function verifySelectionGeometry(nav: HTMLElement, selected: "Home" | "Card" | "Invest") {
   const button = within(nav).getByRole("button", { name: selected });
   await expect(button).toHaveAttribute("aria-current", "page");
-  await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
-  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "ready"));
+  await waitForReady(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
+  await waitForReady(() => expect(nav).toHaveAttribute("data-lens", "ready"));
   const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]")!;
   const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
-  await waitFor(async () => {
+  await waitForReady(async () => {
     const tab = button.getBoundingClientRect();
     for (const selection of [pill, lens]) {
       const rect = selection.getBoundingClientRect();
@@ -230,11 +231,11 @@ async function verifySelectionGeometry(nav: HTMLElement, selected: "Home" | "Car
 async function verifyLens(canvasElement: HTMLElement) {
   const nav = await verifyNav(canvasElement, "Home");
   await new Promise<void>((resolve) => { requestIdleCallback(() => resolve(), { timeout: 2_000 }); });
-  const lens = await waitFor(() => {
+  const lens = await waitForReady(() => {
     const element = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]');
     if (!element) throw new Error("The navigation lens has not mounted");
     return element;
-  }, { timeout: 2_000 });
+  });
   await expect(lens).toHaveAttribute("aria-hidden", "true");
   await expect(lens).toHaveAttribute("inert");
   const unselected = nav.querySelector<HTMLElement>('[data-navigation-lens-layer="unselected"]')!;
@@ -250,21 +251,21 @@ async function verifyLens(canvasElement: HTMLElement) {
   home.dispatchEvent(new PointerEvent("pointerdown", pointer));
   await expect(nav).toHaveAttribute("data-lens-pressed");
   home.dispatchEvent(new PointerEvent("pointerup", pointer));
-  await waitFor(() => expect(nav).not.toHaveAttribute("data-lens-pressed"));
+  await waitForReady(() => expect(nav).not.toHaveAttribute("data-lens-pressed"));
   const swallow = (event: Event) => event.stopPropagation();
   home.addEventListener("pointerup", swallow);
   home.dispatchEvent(new PointerEvent("pointerdown", pointer));
   await expect(nav).toHaveAttribute("data-lens-pressed");
   home.dispatchEvent(new PointerEvent("pointerup", pointer));
   home.removeEventListener("pointerup", swallow);
-  await waitFor(() => expect(nav).not.toHaveAttribute("data-lens-pressed"));
+  await waitForReady(() => expect(nav).not.toHaveAttribute("data-lens-pressed"));
   home.dispatchEvent(new PointerEvent("pointerdown", pointer));
   await expect(nav).toHaveAttribute("data-lens-pressed");
   window.dispatchEvent(new Event("blur"));
   await expect(nav).not.toHaveAttribute("data-lens-pressed");
   await userEvent.click(home);
   await expect(home).toHaveAttribute("aria-current", "page");
-  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "ready"));
+  await waitForReady(() => expect(nav).toHaveAttribute("data-lens", "ready"));
 }
 async function verifyNoLens(canvasElement: HTMLElement) {
   const nav = await verifyNav(canvasElement, "Home");
@@ -314,8 +315,8 @@ async function openMoneySheet(canvasElement: HTMLElement) {
   const cash = within(canvasElement).getByRole("main");
   await userEvent.click(await within(await within(cash).findByRole("region", { name: "Savings" })).findByRole("button", { name: /^US dollar/ }));
   const savingsRegion = within(cash).getByRole("region", { name: "Your savings" });
-  await waitFor(() => expect(savingsRegion).not.toHaveAttribute("aria-busy"));
-  await waitFor(() => expect(within(savingsRegion).queryAllByText("Loading rate")).toHaveLength(0));
+  await waitForReady(() => expect(savingsRegion).not.toHaveAttribute("aria-busy"));
+  await waitForReady(() => expect(within(savingsRegion).queryAllByText("Loading rate")).toHaveLength(0));
   const manage = await within(cash).findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" });
   manage.focus();
   await fireEvent.click(manage);
@@ -328,7 +329,7 @@ async function openMoneySheet(canvasElement: HTMLElement) {
   await expect(dialog.contains(canvasElement.ownerDocument.activeElement)).toBe(true);
   const nav = canvasElement.querySelector<HTMLElement>('nav[aria-label="Main navigation"]')!;
   await expect(within(canvasElement.ownerDocument.body).queryByRole("navigation", { name: "Main navigation" })).not.toBeInTheDocument();
-  await waitFor(async () => {
+  await waitForReady(async () => {
     const sheet = dialog.getBoundingClientRect();
     const capsule = nav.getBoundingClientRect();
     await expect(sheet.top).toBeLessThan(capsule.top);
@@ -350,7 +351,7 @@ async function showBusyContent(canvasElement: HTMLElement) {
   const amount = row.querySelector<HTMLElement>("[data-slot='money-ticker']")!;
   const label = within(nav).getByRole("button", { name: "Invest" }).querySelector<HTMLElement>("span span")!;
   window.scrollBy(0, amount.getBoundingClientRect().top - label.getBoundingClientRect().top);
-  await waitFor(async () => {
+  await waitForReady(async () => {
     const avatarRect = avatar.getBoundingClientRect();
     const amountRect = amount.getBoundingClientRect();
     const labelRect = label.getBoundingClientRect();
@@ -405,7 +406,7 @@ export const ActionToast: Story = { args: { actionToast: true }, play: async ({ 
   const visibleToast = await within(canvasElement.ownerDocument.body).findByText("Deposited $25.00");
   const toastBox = visibleToast.closest<HTMLElement>('[data-slot="toast"]')!;
   await expect(visibleToast).toHaveTextContent("Deposited $25.00");
-  await waitFor(() => expect(toastBox.getBoundingClientRect().bottom).toBeLessThanOrEqual(nav.getBoundingClientRect().top));
+  await waitForReady(() => expect(toastBox.getBoundingClientRect().bottom).toBeLessThanOrEqual(nav.getBoundingClientRect().top));
 } };
 export const RapidTaps: Story = { play: async ({ canvasElement }) => { await verifyRapidTabs(canvasElement); } };
 function centerOf(element: Element) {
@@ -417,7 +418,7 @@ function touch(type: string, target: Element, point: { x: number; y: number }) {
 }
 async function verifyLensOver(lens: HTMLElement, tab: HTMLElement, lifted: boolean) {
   const body = lens.querySelector<HTMLElement>("[data-navigation-lens-body]")!;
-  await waitFor(async () => {
+  await waitForReady(async () => {
     await expect(Math.abs(centerOf(lens).x - centerOf(tab).x)).toBeLessThanOrEqual(1);
     const size = body.getBoundingClientRect();
     const rest = tab.getBoundingClientRect();
@@ -451,7 +452,7 @@ export const PressAndDrag: Story = { play: async ({ canvasElement }) => {
   await verifyLensOver(lens, invest, true);
   await expect(home).toHaveAttribute("aria-current", "page");
   touch("pointerup", home, centerOf(invest));
-  await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
+  await waitForReady(() => expect(invest).toHaveAttribute("aria-current", "page"));
   await verifyLensOver(lens, invest, false);
 
   touch("pointerdown", invest, centerOf(invest));
@@ -486,9 +487,9 @@ export const ThreeTabs: Story = { args: { cards: true }, play: async ({ canvasEl
   const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
   for (const [tab, index] of [[card!, 1], [invest!, 2]] as const) {
     await userEvent.hover(tab);
-    await waitFor(() => expect(lensHovered(nav)).toEqual([index]));
+    await waitForReady(() => expect(lensHovered(nav)).toEqual([index]));
     await userEvent.unhover(tab);
-    await waitFor(() => expect(lensHovered(nav)).toEqual([]));
+    await waitForReady(() => expect(lensHovered(nav)).toEqual([]));
   }
   await userEvent.hover(home!);
   await expect(lensHovered(nav)).toEqual([]);
@@ -507,19 +508,19 @@ export const ThreeTabs: Story = { args: { cards: true }, play: async ({ canvasEl
   touch("pointermove", home!, centerOf(invest!));
   await verifyLensOver(lens, invest!, true);
   touch("pointerup", home!, centerOf(invest!));
-  await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
+  await waitForReady(() => expect(invest).toHaveAttribute("aria-current", "page"));
   await verifySelectionGeometry(nav, "Invest");
 
   touch("pointerdown", invest!, centerOf(invest!));
   touch("pointermove", invest!, centerOf(card!));
   await verifyLensOver(lens, card!, true);
   touch("pointerup", invest!, centerOf(card!));
-  await waitFor(() => expect(card).toHaveAttribute("aria-current", "page"));
+  await waitForReady(() => expect(card).toHaveAttribute("aria-current", "page"));
   await verifySelectionGeometry(nav, "Card");
   await userEvent.hover(home!);
-  await waitFor(() => expect(lensHovered(nav)).toEqual([0]));
+  await waitForReady(() => expect(lensHovered(nav)).toEqual([0]));
   await userEvent.hover(card!);
-  await waitFor(() => expect(lensHovered(nav)).toEqual([]));
+  await waitForReady(() => expect(lensHovered(nav)).toEqual([]));
   await userEvent.unhover(card!);
 } };
 export const ScrollDuringDrag: Story = { play: async ({ canvasElement }) => {
@@ -529,10 +530,10 @@ export const ScrollDuringDrag: Story = { play: async ({ canvasElement }) => {
   const invest = within(nav).getByRole("button", { name: "Invest" });
   touch("pointerdown", home, centerOf(home));
   window.scrollTo(0, document.documentElement.scrollHeight);
-  await waitFor(() => expect(window.scrollY).toBeGreaterThan(0));
+  await waitForReady(() => expect(window.scrollY).toBeGreaterThan(0));
   touch("pointermove", home, centerOf(invest));
   touch("pointerup", home, centerOf(invest));
-  await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
+  await waitForReady(() => expect(invest).toHaveAttribute("aria-current", "page"));
   await verifySelectionGeometry(nav, "Invest");
 } };
 export const MultiTouchCancelsDrag: Story = { play: async ({ canvasElement }) => {
@@ -552,9 +553,9 @@ export const UnconfirmedRelease: Story = { play: async ({ canvasElement }) => {
   const invest = within(nav).getByRole("button", { name: "Invest" });
   touch("pointerdown", invest, centerOf(invest));
   const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
-  await waitFor(() => expect(Math.abs(centerOf(lens).x - centerOf(invest).x)).toBeLessThanOrEqual(2));
+  await waitForReady(() => expect(Math.abs(centerOf(lens).x - centerOf(invest).x)).toBeLessThanOrEqual(2));
   touch("pointerup", invest, { x: centerOf(invest).x, y: nav.getBoundingClientRect().top + 1 });
-  await waitFor(() => expect(Math.abs(centerOf(lens).x - centerOf(within(nav).getByRole("button", { name: "Home" })).x)).toBeLessThanOrEqual(2), { timeout: 1_500 });
+  await waitForReady(() => expect(Math.abs(centerOf(lens).x - centerOf(within(nav).getByRole("button", { name: "Home" })).x)).toBeLessThanOrEqual(2));
   await expect(within(nav).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
 } };
 export const NavigationDuringPress: Story = { args: { initialPanel: "invest" }, play: async ({ canvasElement }) => {
@@ -581,21 +582,21 @@ export const NavigationAtPressStart: Story = { args: { initialPanel: "invest" },
   const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
   touch("pointerdown", invest, centerOf(invest));
   home.click();
-  await waitFor(() => expect(home).toHaveAttribute("aria-current", "page"));
-  await waitFor(() => expect(nav).not.toHaveAttribute("data-lens-pressed"));
+  await waitForReady(() => expect(home).toHaveAttribute("aria-current", "page"));
+  await waitForReady(() => expect(nav).not.toHaveAttribute("data-lens-pressed"));
   await verifyLensOver(lens, home, false);
   touch("pointerup", invest, centerOf(invest));
   await verifySelectionGeometry(nav, "Home");
 } };
 export const InterruptedMotion: Story = { render: (args) => <MotionSwitchShell {...args} />, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
-  await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
-  await waitFor(() => expect(nav).toHaveAttribute("data-lens", "ready"));
+  await waitForReady(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
+  await waitForReady(() => expect(nav).toHaveAttribute("data-lens", "ready"));
   const invest = within(nav).getByRole("button", { name: "Invest" });
   const toggle = within(canvasElement).getByRole("button", { name: "Toggle reduced motion" });
   const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
   invest.click();
-  await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
+  await waitForReady(() => expect(invest).toHaveAttribute("aria-current", "page"));
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   toggle.click();
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -629,12 +630,12 @@ export const AccountKeyboard: Story = { args: { initialPanel: "account" }, play:
 
     Object.defineProperty(viewport, "height", { configurable: true, get: () => window.innerHeight - 300 });
     viewport.dispatchEvent(new Event("resize"));
-    await waitFor(() => expect(nav).toHaveAttribute("inert"));
+    await waitForReady(() => expect(nav).toHaveAttribute("inert"));
     await expect(nav).toHaveAttribute("aria-hidden", "true");
 
     restoreHeight();
     await expect(field).toHaveFocus();
-    await waitFor(() => expect(nav).not.toHaveAttribute("inert"));
+    await waitForReady(() => expect(nav).not.toHaveAttribute("inert"));
     await expect(nav).not.toHaveAttribute("aria-hidden");
     await expect(nav).toBeVisible();
   } finally {
@@ -653,7 +654,7 @@ async function verifyReducedMotion(canvasElement: HTMLElement) {
   const nav = await verifyNav(canvasElement, "Home");
   const invest = within(nav).getByRole("button", { name: "Invest" });
   invest.click();
-  await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
+  await waitForReady(() => expect(invest).toHaveAttribute("aria-current", "page"));
   await verifySelectionGeometry(nav, "Invest");
   const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
   const body = lens.querySelector<HTMLElement>("[data-navigation-lens-body]")!;
@@ -676,7 +677,7 @@ export const TransparencyReduced: Story = { beforeEach: withTransparencySwitch, 
   await verifySelectionGeometry(nav, "Home");
   const content = [...nav.querySelectorAll<HTMLElement>(":scope > button > span")];
   const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]")!;
-  await waitFor(async () => {
+  await waitForReady(async () => {
     for (const element of [...content, pill]) await expect(element).not.toBeVisible();
   });
   const restored = new Promise<HTMLElement[]>((resolve) => {

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { Button } from "./button";
 import { Combobox, ComboboxInput, ComboboxItem, ComboboxList } from "./combobox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./dialog";
@@ -62,7 +63,7 @@ export const Default: Story = {
     const body = within(canvasElement.ownerDocument.body);
     const dialog = await body.findByRole("dialog", { name: "Keyboard shortcuts" });
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    await waitForReady(() => expect(dialog).not.toBeInTheDocument());
   },
 };
 
@@ -73,8 +74,8 @@ export const Command: Story = {
     await userEvent.click(within(canvasElement).getByRole("button", { name: "Open palette" }));
     const body = within(canvasElement.ownerDocument.body);
     const input = await body.findByRole("combobox", { name: "Search commands" });
-    await waitFor(() => expect(input).toHaveFocus());
+    await waitForReady(() => expect(input).toHaveFocus());
     await userEvent.keyboard("next");
-    await waitFor(() => expect(body.getByRole("option", { name: /Next frame/ })).toHaveAttribute("data-highlighted"));
+    await waitForReady(() => expect(body.getByRole("option", { name: /Next frame/ })).toHaveAttribute("data-highlighted"));
   },
 };

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { FundingExperienceForWallet } from "@/client/funding/funding-experience";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
@@ -107,7 +108,7 @@ export const PartialCustomerRetry: Story = {
     await expect(customerReads).toBe(1);
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     await expect(await screen.findByRole("heading", { name: "Set up Ripio" })).toBeVisible();
-    await waitFor(() => expect(steps.filter((step) => step === "order")).toHaveLength(1));
+    await waitForReady(() => expect(steps.filter((step) => step === "order")).toHaveLength(1));
     await expect(customerReads).toBe(2);
   },
 };

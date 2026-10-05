@@ -64,6 +64,58 @@ describe("no-real-waits", () => {
     expect(results.fixture3).toHaveLength(0);
   }, budgetMs);
 
+  it("rejects the bare story focus wait from 5738d2c5e", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.stories.tsx", code: `await waitFor(() => expect(canvasElement.ownerDocument.activeElement).toBe(button));` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture1[0].message).toContain("waitForReady");
+  }, budgetMs);
+
+  it("rejects the bare story pagination wait from 60d7c7545 at the inline timeout boundary", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.stories.tsx", code: `await waitFor(async () => { await expect(items()).toHaveLength(40); }, { timeout: 2_000 });` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture1[0].message).toContain("waitForReady");
+  }, budgetMs);
+
+  it("accepts shared story readiness waits", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.stories.tsx", code: `await waitForReady(() => expect(items()).toHaveLength(40));` },
+    });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
+
+  it("keeps Testing Library waitFor available to unit tests", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `waitFor(() => expect(x).toBe(1));` },
+    });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects the direct Playwright route-arrival assertion from 664320101", async () => {
+    const results = await lint({
+      fixture1: `await expect(page).toHaveURL(/\\/cash$/, { timeout: 10_000 });`,
+    });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture1[0].message).toContain("expectNavigation");
+  }, budgetMs);
+
+  it("accepts shared Playwright navigation assertions", async () => {
+    const results = await lint({
+      fixture1: `await expectNavigation(page, /\\/cash$/);`,
+    });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
+
+  it("accepts negative Playwright URL assertions", async () => {
+    const results = await lint({
+      fixture1: `await expect(page).not.toHaveURL(/\\/admin/);`,
+    });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
+
   const rejectedClocks = [
     ["Date.now call", "Date.now();", 1],
     ["Date call", "Date();", 1],

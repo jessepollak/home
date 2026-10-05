@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
   test(`sheet activation and history focus at ${viewport.width}px`, async ({ page }) => {
@@ -31,7 +32,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await unrelated.focus();
     await expect(unrelated).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/home$/);
+    await expectNavigation(page, /\/home$/);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await stage.focus();
     await page.goForward();
@@ -63,7 +64,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(homeOpener).toBeFocused();
     await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash / }).click();
-    await expect(page).toHaveURL("/cash");
+    await expectNavigation(page, "/cash");
     const opener = page.getByRole("button", { name: "Add money", exact: true });
     const stage = page.locator("#navigation-panel");
     await stage.focus();

@@ -1,6 +1,7 @@
 import { useLayoutEffect } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { http, HttpResponse } from "msw";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { PresentationQuoteProvider, PresentationRegionProvider } from "@/client/invest/presentation-quote";
@@ -371,17 +372,17 @@ export const ErrorRetry: Story = { parameters: { msw: { handlers: [historyHandle
 export const KeyboardScrub: Story = { play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   const chart = await canvas.findByRole("group", { name: /1 week price history/ }, chartWait);
-  await waitFor(() => expect(canvasElement.querySelectorAll('[data-layer-state="ready"]').length).toBe(4), chartWait);
+  await waitForReady(() => expect(canvasElement.querySelectorAll('[data-layer-state="ready"]').length).toBe(4));
   chart.focus();
   await expect(chart).toHaveFocus();
   await userEvent.keyboard("{End}");
   const point = historyResponse("cbbtc", "1W").points.at(-1)!;
   const time = formatPresentationDate(Date.parse(point.time), { regionId: "US", style: "activity-short" });
-  await waitFor(() => expect(canvasElement.querySelector("[data-scrub-readout]")?.textContent).toBe(time), chartWait);
+  await waitForReady(() => expect(canvasElement.querySelector("[data-scrub-readout]")?.textContent).toBe(time));
   const value = formatPresentationPrice(point.value, "USD", "US");
   await expect(canvas.getByText(value!)).toBeVisible();
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(canvasElement.querySelector("[data-scrub-readout]")).not.toBeInTheDocument());
+  await waitForReady(() => expect(canvasElement.querySelector("[data-scrub-readout]")).not.toBeInTheDocument());
 } };
 export const TouchScrub: Story = { play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
@@ -411,7 +412,7 @@ export const RapidRange: Story = { parameters: { msw: { handlers: [historyHandle
     await expect(await canvas.findByRole("group", { name: /1 week price history/ }, chartWait)).toBeVisible();
     await expect(canvas.queryByText(/% · past year/)).not.toBeInTheDocument();
     historyControl.release();
-    await waitFor(() => expect(canvas.queryByText(/% · past year/)).not.toBeInTheDocument(), chartWait);
+    await waitForReady(() => expect(canvas.queryByText(/% · past year/)).not.toBeInTheDocument());
     await expect(canvasElement.querySelector('[data-layer-range="1Y"][data-layer-state="shown"]')).not.toBeInTheDocument();
   },
 };
@@ -437,15 +438,15 @@ export const TradeBarScroll: Story = { args: { reducedMotion: false },
     const barState = () => canvasElement.querySelector<HTMLElement>("[data-state]")?.getAttribute("data-state");
     const viewport = canvasElement.querySelector<HTMLElement>("[data-scroll-viewport]")!;
     await canvas.findByRole("group", { name: /1 week price history/ }, chartWait);
-    const scrollBetween = (from: number, to: number, state: "shown" | "hidden") => waitFor(async () => {
+    const scrollBetween = (from: number, to: number, state: "shown" | "hidden") => waitForReady(async () => {
       viewport.scrollTop = from;
       viewport.dispatchEvent(new Event("scroll"));
       viewport.scrollTop = to;
       viewport.dispatchEvent(new Event("scroll"));
       await expect(barState()).toBe(state);
-    }, chartWait);
+    });
     await scrollBetween(0, 120, "hidden");
-    await waitFor(async () => { viewport.dispatchEvent(new Event("scrollend")); await expect(barState()).toBe("shown"); }, chartWait);
+    await waitForReady(async () => { viewport.dispatchEvent(new Event("scrollend")); await expect(barState()).toBe("shown"); });
     await scrollBetween(120, 260, "hidden");
     await scrollBetween(260, 240, "shown");
   },

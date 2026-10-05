@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { CashExperience } from "@/client/cash/cash-experience";
 import {
   HomeShellRoutingProvider,
@@ -152,14 +153,14 @@ async function openSavings(canvasElement: HTMLElement) {
   if (!(main instanceof HTMLElement)) throw new Error("The story surface is missing its main element.");
   const screen = within(main);
   const savings = await screen.findByRole("region", { name: "Your savings" });
-  await waitFor(() => expect(savings).not.toHaveAttribute("aria-busy"));
+  await waitForReady(() => expect(savings).not.toHaveAttribute("aria-busy"));
   return screen;
 }
 
 async function assertRoutedDepositCleared({ canvasElement }: { canvasElement: HTMLElement }) {
   await openSavings(canvasElement);
   const screen = within(canvasElement.ownerDocument.body);
-  await waitFor(() => expect(routeCalls).toContain("clear:replace"));
+  await waitForReady(() => expect(routeCalls).toContain("clear:replace"));
   await expect(screen.queryByRole("dialog", { name: "Deposit" })).toBeNull();
   await expect(screen.queryByRole("textbox", { name: "Amount" })).toBeNull();
   await expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1);
@@ -195,12 +196,12 @@ export const AmountJourneyAccountChange: Story = {
     await screen.findByRole("textbox", { name: "Amount" });
     await expect(screen.getByRole("dialog", { name: "Deposit" })).toBeVisible();
     await fireEvent.click(switchAccount);
-    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Amount" })).toBeNull());
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Deposit" })).toBeNull());
+    await waitForReady(() => expect(screen.queryByRole("textbox", { name: "Amount" })).toBeNull());
+    await waitForReady(() => expect(screen.queryByRole("dialog", { name: "Deposit" })).toBeNull());
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => { requestAnimationFrame(() => resolve()); });
     });
-    await waitFor(async () => {
+    await waitForReady(async () => {
       await expect(screen.queryByRole("textbox", { name: "Amount" })).toBeNull();
       await expect(screen.queryByRole("dialog", { name: "Deposit" })).toBeNull();
     });
@@ -214,7 +215,7 @@ export const ManagementJourneyAccountChange: Story = {
     const savings = await openSavings(canvasElement);
     const held = within(savings.getByRole("region", { name: "Your savings" }));
     const row = await held.findByRole("button", { description: "Manage Gauntlet USDC Prime" });
-    await waitFor(() => expect(held.queryAllByText("Loading rate")).toHaveLength(0));
+    await waitForReady(() => expect(held.queryAllByText("Loading rate")).toHaveLength(0));
     row.focus();
     await fireEvent.click(row);
     const screen = within(canvasElement.ownerDocument.body);
@@ -223,6 +224,6 @@ export const ManagementJourneyAccountChange: Story = {
     await fireEvent.click(within(tray).getByRole("button", { name: "Deposit more" }));
     await screen.findByRole("textbox", { name: "Amount" });
     await fireEvent.click(switchAccount);
-    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Amount" })).toBeNull());
+    await waitForReady(() => expect(screen.queryByRole("textbox", { name: "Amount" })).toBeNull());
   },
 };

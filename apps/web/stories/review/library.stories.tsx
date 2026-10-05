@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { readReviewBuild, type ReviewBuild, type StoryIndexEntry } from "./explorations/board/review-build";
 import { LibraryView } from "./explorations/library/library";
 import { specimens } from "./explorations/library/overview/specimens";
@@ -87,7 +88,7 @@ export const Workspace: Story = {
     await userEvent.keyboard("{Enter}");
     await expect(canvas.queryByRole("form")).not.toBeInTheDocument();
     await userEvent.click(canvas.getByRole("button", { name: "Dark" }));
-    await waitFor(() => expect(search(canvasElement).get("theme")).toBe("dark"));
+    await waitForReady(() => expect(search(canvasElement).get("theme")).toBe("dark"));
     await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
     await expect(await canvas.findByRole("button", { name: "Destructive" })).toBeVisible();
 
@@ -130,7 +131,7 @@ export const Workspace: Story = {
     await expect(annotate).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(canvas.getByRole("button", { name: "Light" }));
     await expect(canvas.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(search(canvasElement).get("theme")).toBe("light"));
+    await waitForReady(() => expect(search(canvasElement).get("theme")).toBe("light"));
   },
 };
 
@@ -174,10 +175,10 @@ export const Overview: Story = {
     await expect(search(canvasElement).get("story")).toBe("ui-button--default");
     await expect(navigation.length).toBe(historyLength + 1);
     navigation.back();
-    await waitFor(() => expect(canvas.getByRole("main", { name: "Library overview" })).toBeVisible());
+    await waitForReady(() => expect(canvas.getByRole("main", { name: "Library overview" })).toBeVisible());
     await expect(search(canvasElement).has("component")).toBe(false);
     navigation.forward();
-    await waitFor(() => expect(canvas.getByRole("main", { name: "Button preview" })).toBeVisible());
+    await waitForReady(() => expect(canvas.getByRole("main", { name: "Button preview" })).toBeVisible());
     await expect(await canvas.findByRole("form", { name: "Button · Default props" })).toBeVisible();
     await expect(search(canvasElement).get("story")).toBe("ui-button--default");
 
@@ -233,12 +234,12 @@ export const Compositions: Story = {
     if (!window) throw new Error("Library window is missing");
     const historyLength = window.history.length;
     await userEvent.click(canvas.getByRole("button", { name: "Dark" }));
-    await waitFor(() => expect(search(canvasElement).get("theme")).toBe("dark"));
+    await waitForReady(() => expect(search(canvasElement).get("theme")).toBe("dark"));
     await userEvent.click(canvas.getByRole("option", { name: /^Button,/ }));
     await canvas.findByRole("main", { name: "Button preview" });
     await canvas.findByRole("heading", { name: "Default" }, { timeout: INITIAL_MODULE_TIMEOUT });
     await userEvent.click(section(canvas, "Default"));
-    await waitFor(() => expect(search(canvasElement).get("story")).toBe("ui-button--default"));
+    await waitForReady(() => expect(search(canvasElement).get("story")).toBe("ui-button--default"));
     await userEvent.click(canvas.getByRole("option", { name: "Compositions, 5 screens · 8 states" }));
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
     await expect(within(surface).getByRole("heading", { name: "Compositions", level: 2 })).toBeVisible();
@@ -269,7 +270,7 @@ export const Compositions: Story = {
     await expect(await canvas.findByRole("form", { name: "Button · Default props" })).toBeVisible();
     window.history.forward();
     await canvas.findByRole("main", { name: "Library compositions" });
-    await waitFor(() => expect(search(canvasElement).get("story")).toBe("compositions-card-onboarding--card-onboarding"));
+    await waitForReady(() => expect(search(canvasElement).get("story")).toBe("compositions-card-onboarding--card-onboarding"));
     await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
     await expect(search(canvasElement).get("theme")).toBe("dark");
   },
@@ -355,7 +356,7 @@ export const Foundations: Story = {
     await userEvent.click(within(surface).getAllByRole("button", { name: /^Play / })[0]);
     const motionSheet = within(surface).getByRole("region", { name: "Motion reference" });
     motionSheet.scrollTop = motionSheet.scrollHeight;
-    await waitFor(() => expect(motionSheet.scrollTop).toBeGreaterThan(0));
+    await waitForReady(() => expect(motionSheet.scrollTop).toBeGreaterThan(0));
 
     await userEvent.click(within(foundations).getByRole("option", { name: /^Type, / }));
     await expect(within(surface).getByRole("region", { name: "Type reference" }).scrollTop).toBe(0);

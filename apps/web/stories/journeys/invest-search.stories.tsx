@@ -4,7 +4,8 @@ import type { ShellSearchContentProps } from "@/client/home/home-types";
 import { flushSync } from "react-dom";
 import { AnimatePresence } from "motion/react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { http, HttpResponse } from "msw";
 import { AssetSearch } from "@/client/invest/asset-search";
 import { investSearchOptions } from "@/client/invest/use-invest-search";
@@ -134,7 +135,7 @@ export const CachedErrorRestoration: Story = {
     await expect(rows).toHaveLength(24);
     const scroll = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-asset-search-scroll]");
     if (!scroll) throw new globalThis.Error("Expected search scroll container");
-    await waitFor(() => expect(scroll.scrollTop).toBe(70));
+    await waitForReady(() => expect(scroll.scrollTop).toBe(70));
     await expect(screen.getByRole("button", { name: /^Orbit 2 / })).toHaveFocus();
     await expect(query.state.status).toBe("error");
     await expect(query.state.fetchStatus).toBe("idle");
@@ -164,7 +165,7 @@ export const AvailabilityRevoked: Story = {
     await userEvent.type(input, "ORB");
     await screen.findAllByRole("button", { name: /Orbit/ });
     canvasElement.ownerDocument.defaultView?.dispatchEvent(new Event("search-story-unavailable"));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search assets" })).not.toBeInTheDocument());
+    await waitForReady(() => expect(screen.queryByRole("dialog", { name: "Search assets" })).not.toBeInTheDocument());
     await expect(screen.queryByRole("button", { name: "Search assets" })).not.toBeInTheDocument();
     const rail = canvasElement.ownerDocument.querySelector("#desktop-rail");
     if (!rail) throw new globalThis.Error("Expected retained desktop rail");
@@ -180,7 +181,7 @@ export const OwnerChanged: Story = {
     await screen.findAllByRole("button", { name: /Orbit/ });
     const surface = screen.getByRole("dialog", { name: "Search assets" });
     canvasElement.ownerDocument.defaultView?.dispatchEvent(new Event("search-story-owner-change"));
-    await waitFor(() => expect(surface).not.toBeInTheDocument());
+    await waitForReady(() => expect(surface).not.toBeInTheDocument());
     await expect(await screen.findByRole("dialog", { name: "Search assets" })).toHaveFocus();
     await expect(screen.getByRole("textbox", { name: "Search assets" })).not.toHaveFocus();
   },

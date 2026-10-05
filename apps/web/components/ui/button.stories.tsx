@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
-import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { Button } from "./button";
 
 const meta = {
@@ -127,7 +128,7 @@ export const PressFeedback: Story = {
     const status = () => canvas.getByRole("status");
     const activations = () => Number((status().textContent ?? "").replace(/\D/g, ""));
     const expectActivations = async (expected: number) => {
-      await waitFor(() => expect(activations()).toBe(expected));
+      await waitForReady(() => expect(activations()).toBe(expected));
     };
 
     for (const [name, count] of [

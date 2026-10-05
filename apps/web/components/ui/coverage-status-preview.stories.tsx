@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { CoverageStatusPreview } from "./coverage-status-preview";
 
 const meta = {
@@ -44,6 +45,6 @@ export const HoverOpen: Story = {
   play: async ({ canvasElement }) => {
     await userEvent.hover(within(canvasElement).getByRole("button"));
     const body = within(canvasElement.ownerDocument.body);
-    await waitFor(() => expect(body.getByRole("heading", { name: "Brazil stablecoin candidate" })).toBeVisible());
+    await waitForReady(() => expect(body.getByRole("heading", { name: "Brazil stablecoin candidate" })).toBeVisible());
   },
 };

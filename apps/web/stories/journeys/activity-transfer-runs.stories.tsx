@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { ActivityPanelView } from "@/client/activity";
 import { activity, transfers, pendingSend, longTransfers } from "./explorations/activity-transfer-runs.fixtures";
 
@@ -45,11 +46,11 @@ export const HomeFeedMobile: Story = {
     const children = within(recent).getAllByRole("button", { description: "View received USDC transaction details" });
     await expect(children).toHaveLength(4);
     await userEvent.click(children[0]!);
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Received" }).querySelector('[data-money-step="loading"]')).toBeNull());
+    await waitForReady(() => expect(screen.getByRole("dialog", { name: "Received" }).querySelector('[data-money-step="loading"]')).toBeNull());
     const dialog = screen.getByRole("dialog", { name: "Received" });
     await expect(dialog).toBeVisible();
     await userEvent.click(within(dialog).getByRole("button", { name: "Close Received details" }));
-    await waitFor(() => expect(within(recent).getAllByRole("button", { description: "View received USDC transaction details" })[0]).toHaveFocus());
+    await waitForReady(() => expect(within(recent).getAllByRole("button", { description: "View received USDC transaction details" })[0]).toHaveFocus());
     summary.focus();
     await userEvent.keyboard(" ");
     await expect(summary).toHaveAttribute("aria-expanded", "false");

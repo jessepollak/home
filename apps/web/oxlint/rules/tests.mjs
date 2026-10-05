@@ -404,10 +404,13 @@ export const noRealWaits = {
       browserSleep: "Playwright tests must not use waitForTimeout; wait for a locator or poll an observable condition",
       wallClock: "tests must not read the wall clock; inject a clock or pin a fixed time",
       wait: "tests must not wait longer than 2000ms with an inline timeout; a named guard object is a deliberate hang budget",
+      storyWait: "stories must wait through waitForReady from tests/helpers/story-readiness instead of a bare waitFor",
+      playwrightUrl: "Playwright route-arrival assertions must use expectNavigation from tests/browser/fixtures/navigation-budget",
     },
   },
   create(context) {
     const playwright = /\.pw\.(?:ts|tsx)$/u.test(String(context.filename ?? ""));
+    const story = /\.stories\.[^/]+$/u.test(String(context.filename ?? "").replaceAll("\\", "/"));
     const clockReads = [];
     const pinCandidates = [];
     const subtractions = [];
@@ -609,6 +612,14 @@ export const noRealWaits = {
       },
       CallExpression(node) {
         const callee = node.callee;
+        if (story && callee.type === "Identifier" && callee.name === "waitFor") {
+          context.report({ node, messageId: "storyWait" });
+        }
+        if (playwright && callee.type === "MemberExpression" && memberName(callee) === "toHaveURL"
+          && callee.object.type === "CallExpression" && callee.object.callee.type === "Identifier"
+          && callee.object.callee.name === "expect") {
+          context.report({ node, messageId: "playwrightUrl" });
+        }
         if (clockContextKind(callee, context.sourceCode)) {
           const registration = [...node.arguments].reverse().map((argument) => {
             const resolved = clockFunction(argument, context.sourceCode);

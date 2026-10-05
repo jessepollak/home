@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import {
   ActivityLedger,
   type ActivityLedgerItem,
@@ -131,14 +132,14 @@ export const PendingToDetailAndBack: Story = {
     await expect(await screen.findByRole("dialog")).toBeVisible();
     await expect(screen.getByRole("button", { name: "Continue payment" })).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Close Add money details" }));
-    await waitFor(() => expect(fundingRow).toHaveFocus());
+    await waitForReady(() => expect(fundingRow).toHaveFocus());
     const transferRow = within(pending).getByRole("button", {
       description: /View Sent to alex.base.eth details/,
     });
     await userEvent.click(transferRow);
     await expect(await screen.findByRole("dialog")).toBeVisible();
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(transferRow).toHaveFocus());
+    await waitForReady(() => expect(transferRow).toHaveFocus());
   },
 };
 export const ReloadRestoresPending: Story = {
@@ -149,7 +150,7 @@ export const ReloadRestoresPending: Story = {
     await expect(firstRow()).toHaveTextContent("Add money");
     await expect(firstRow()).toHaveAccessibleName(/Action needed/);
     await userEvent.click(screen.getByRole("button", { name: "Reload fixture" }));
-    await waitFor(() => expect(firstRow()).toHaveAccessibleName(/Action needed/));
+    await waitForReady(() => expect(firstRow()).toHaveAccessibleName(/Action needed/));
     await expect(firstRow()).toHaveTextContent("Add money");
     await expect(screen.queryByRole("dialog")).toBeNull();
   },

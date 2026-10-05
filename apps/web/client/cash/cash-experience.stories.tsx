@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { HttpResponse, http } from "msw";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { canonicalUsdcAsset } from "@/config/portfolio-assets";
@@ -301,15 +302,15 @@ const savingsRow = (canvasElement: HTMLElement) => within(within(canvasElement).
 const detail = (canvasElement: HTMLElement) => within(canvasElement.querySelector("main")!);
 const vaultRow = (region: HTMLElement, name: string) => within(region).getByText(name).closest("li")!;
 async function openSavings(canvasElement: HTMLElement) {
-  await waitFor(() => expect(within(canvasElement).getByRole("region", { name: "Savings" })).not.toHaveAttribute("aria-busy"));
+  await waitForReady(() => expect(within(canvasElement).getByRole("region", { name: "Savings" })).not.toHaveAttribute("aria-busy"));
   await userEvent.click(savingsRow(canvasElement));
   return detail(canvasElement);
 }
 const manageRow = (screen: ReturnType<typeof detail>, name: string) => within(screen.getByRole("region", { name: "Your savings" })).getByRole("button", { name: new RegExp(`^${name}`), description: `Manage ${name}` });
 async function settledRow(canvasElement: HTMLElement, name: string) {
   const region = detail(canvasElement).getByRole("region", { name: "Your savings" });
-  await waitFor(() => expect(region).not.toHaveAttribute("aria-busy"));
-  await waitFor(() => expect(within(region).queryAllByText("Loading rate")).toHaveLength(0));
+  await waitForReady(() => expect(region).not.toHaveAttribute("aria-busy"));
+  await waitForReady(() => expect(within(region).queryAllByText("Loading rate")).toHaveLength(0));
   const row = manageRow(detail(canvasElement), name);
   row.focus();
   return row;
@@ -318,7 +319,7 @@ async function openTray(canvasElement: HTMLElement, name: string) {
   await fireEvent.click(await settledRow(canvasElement, name));
   const body = within(canvasElement.ownerDocument.body);
   const tray = within(await body.findByRole("dialog", { name }, { timeout: 10_000 }));
-  await waitFor(() => expect(tray.getByText("Saved")).toBeVisible());
+  await waitForReady(() => expect(tray.getByText("Saved")).toBeVisible());
   return tray;
 }
 async function openAction(canvasElement: HTMLElement, name: string, action: "Deposit more" | "Withdraw") {
@@ -393,7 +394,7 @@ export const ProviderAddressCasing: Story = { parameters: { msw: { handlers: [ht
 export const HomeRowParity: Story = { args: { homeParity: true }, play: async ({ canvasElement }) => {
   const cash = await within(canvasElement).findByRole("button", { description: "Open Cash" });
   await expect(cash.textContent).toContain("$1,234.00");
-  await waitFor(() => expect(cash.textContent).toContain("4.08% APY"));
+  await waitForReady(() => expect(cash.textContent).toContain("4.08% APY"));
   await expect(await within(within(canvasElement).getByLabelText("Cash balance")).findByText("4.08% APY")).toBeVisible();
   const summary = summarizeSavingsPortfolio({ supportedVaultAddresses: MORPHO_V1_CANDIDATE_ADDRESSES, requiredAsset: metadata.asset, candidates: metadata.candidates, positions: selectVaultPositions(fundedSnapshot), metadataFetchedAt: TIME, nowMs: NOW });
   if (summary.apy.status !== "available") throw new Error("Expected available weighted savings rate");
@@ -615,7 +616,7 @@ export const Recovery: Story = { beforeEach() { recoveryRequests = 0; }, paramet
   await expect(tray.getByRole("button", { name: "Withdraw" })).toBeEnabled();
   await userEvent.click(tray.getByRole("button", { name: "Close Gauntlet USDC Prime details" }));
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-  await waitFor(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toHaveAccessibleName(/4\.10% APY/));
+  await waitForReady(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toHaveAccessibleName(/4\.10% APY/));
   await expect(manageRow(screen, "Gauntlet USDC Prime")).toBeEnabled();
   await expect(within(screen.getByRole("region", { name: "More ways to save" })).getByRole("button", { name: /^Spark USDC Vault/, description: "Deposit to Spark USDC Vault" })).toBeVisible();
 } };
@@ -633,9 +634,9 @@ export const DepositJourney: Story = { play: async ({ canvasElement }) => {
   await userEvent.click(within(confirm).getByRole("button", { name: "Deposit $25.00" }));
   await expect(await body.findByRole("heading", { name: "Depositing $25.00 to Save" })).toBeVisible();
   await userEvent.click(body.getByRole("button", { name: "Done" }));
-  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
   await expect(journey.executed).toHaveLength(1);
-  await waitFor(() => expect(opener).toHaveFocus());
+  await waitForReady(() => expect(opener).toHaveFocus());
 } };
 export const WithdrawLimitedAvailability: Story = {
   args: {
@@ -683,7 +684,7 @@ export const WithdrawPendingSurvivesBalanceFailure: Story = { args: { pendingExe
   await userEvent.click(submit);
   await expect(submit).toHaveAttribute("aria-busy", "true");
   snapshotChanges.dispatchEvent(new Event("failed"));
-  await waitFor(() => expect(screen.getByLabelText("Balance unavailable")).toBeVisible());
+  await waitForReady(() => expect(screen.getByLabelText("Balance unavailable")).toBeVisible());
   await expect(body.getByRole("dialog", { name: "Confirm" })).toBe(confirm);
   await expect(submit).toHaveAttribute("aria-busy", "true");
   await expect(body.getByRole("button", { name: "Close withdraw dialog" })).toBeDisabled();
@@ -702,7 +703,7 @@ export const DepositResultSurvivesBalanceUnavailable: Story = { args: { initialV
   await expect(body.getByRole("heading", { name: "Depositing $25.00 to Save" })).toBeVisible();
   await expect(journey.executed).toHaveLength(1);
   await fireEvent.click(body.getByRole("button", { name: "Done" }));
-  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
   await expect(manageRow(screen, "Gauntlet USDC Prime")).toBeVisible();
 } };
 export const DepositPendingSurvivesBalanceUnavailable: Story = { args: { pendingExecution: true, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
@@ -732,7 +733,7 @@ export const EarningsTicking: Story = { args: { ticking: true }, play: async ({ 
   const hero = within(canvasElement).getByLabelText("Cash balance");
   await expect(hero.textContent).toContain("$1,234.00");
   earnings.dispatchEvent(new Event("advance"));
-  await waitFor(() => expect(hero.textContent).toMatch(/\$1,234\.\d{6}/));
+  await waitForReady(() => expect(hero.textContent).toMatch(/\$1,234\.\d{6}/));
   await expect(hero.textContent).not.toContain("$1,234.000000");
 } };
 export const SavingsDetail: Story = { args: { initialView: "savings" }, play: async ({ canvasElement }) => {
@@ -748,7 +749,7 @@ export const SavingsDetail: Story = { args: { initialView: "savings" }, play: as
     const tray = await openTray(canvasElement, name);
     await expect(tray.getByText("Saved")).toBeVisible();
     await userEvent.click(tray.getByRole("button", { name: `Close ${name} details` }));
-    await waitFor(() => expect(manageRow(screen, name)).toHaveFocus());
+    await waitForReady(() => expect(manageRow(screen, name)).toHaveFocus());
   }
   await expect(within(screen.getByRole("region", { name: "More ways to save" })).getByRole("button", { name: /^Spark USDC Vault/, description: "Deposit to Spark USDC Vault" })).toBeVisible();
   await assertButtonHeights(canvasElement, canvasElement.getBoundingClientRect().width >= 800);
@@ -836,7 +837,7 @@ export const SavingsFirstUseNoCash: Story = { args: { snapshot: emptySnapshot, i
   await expect(within(options).queryByRole("button", { description: /Deposit to/ })).toBeNull();
   await userEvent.click(within(options).getByRole("button", { name: "Add money" }));
   await expect(addMoney).toHaveBeenCalledTimes(1);
-  await waitFor(() => expect(within(canvasElement.ownerDocument.body).queryByRole("dialog")).toBeNull());
+  await waitForReady(() => expect(within(canvasElement.ownerDocument.body).queryByRole("dialog")).toBeNull());
 } };
 export const SavingsFirstUsePickerCashUnavailable: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
@@ -932,9 +933,9 @@ export const CashSavingsPendingWhileSavePaused: Story = { args: { snapshot: cash
   await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
   const confirm = await body.findByRole("dialog", { name: "Confirm" });
   await userEvent.click(within(confirm).getByRole("button", { name: "Deposit $25.00" }));
-  await waitFor(() => expect(journey.executed).toHaveLength(1));
+  await waitForReady(() => expect(journey.executed).toHaveLength(1));
   await userEvent.click(body.getByRole("button", { name: "Done" }));
-  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
   await expect(await within(screen.getByLabelText("Savings balance")).findByRole("img", { name: "$25.00" })).toBeVisible();
   snapshotChanges.dispatchEvent(new Event("save-exit-only"));
   await userEvent.click(within(canvasElement).getByRole("button", { name: "Back" }));
@@ -945,7 +946,7 @@ export const CashSavingsPendingWhileSavePaused: Story = { args: { snapshot: cash
   await expect(within(row).getByRole("img", { name: "$25.00" })).toBeVisible();
   await expect(savings.queryByRole("img", { name: "$0.00" })).toBeNull();
   snapshotChanges.dispatchEvent(new Event("empty"));
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Currencies" })).toBeNull());
+  await waitForReady(() => expect(screen.queryByRole("region", { name: "Currencies" })).toBeNull());
   await expect(screen.getByRole("region", { name: "Savings" })).toBeVisible();
   await expect(within(row).getByText("Pending")).toBeVisible();
   await expect(within(row).getByRole("img", { name: "$25.00" })).toBeVisible();
@@ -958,10 +959,10 @@ export const CashSavingsPendingWhileSavePaused: Story = { args: { snapshot: cash
 export const CurrencyZeroBalanceUpdated: Story = { args: { snapshot: savingsOnlySnapshot, snapshotToggle: true }, play: async ({ canvasElement }) => {
   const body = within(canvasElement.ownerDocument.body);
   await userEvent.click(within(within(canvasElement).getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^US dollar/ }));
-  await waitFor(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByText("Add money to get started")).toBeVisible());
+  await waitForReady(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByText("Add money to get started")).toBeVisible());
   const dialog = body.getByRole("dialog", { name: "US dollar" });
   snapshotChanges.dispatchEvent(new Event("funded"));
-  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Save" })).toBeVisible());
+  await waitForReady(() => expect(within(dialog).getByRole("button", { name: "Save" })).toBeVisible());
   await expect(within(dialog).getByRole("button", { name: "Convert" })).toBeVisible();
   await expect(within(dialog).getByRole("img", { name: "$234.00" })).toBeVisible();
   await expect(within(dialog).queryByRole("button", { name: "Add money" })).toBeNull();
@@ -971,10 +972,10 @@ export const CurrencyZeroBalanceUpdated: Story = { args: { snapshot: savingsOnly
 export const CurrencyZeroBalanceFailure: Story = { args: { snapshot: savingsOnlySnapshot, snapshotToggle: true }, play: async ({ canvasElement }) => {
   const body = within(canvasElement.ownerDocument.body);
   await userEvent.click(within(within(canvasElement).getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^US dollar/ }));
-  await waitFor(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByText("Add money to get started")).toBeVisible());
+  await waitForReady(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByText("Add money to get started")).toBeVisible());
   const dialog = body.getByRole("dialog", { name: "US dollar" });
   snapshotChanges.dispatchEvent(new Event("failed"));
-  await waitFor(() => expect(within(dialog).queryByText("Add money to get started")).toBeNull());
+  await waitForReady(() => expect(within(dialog).queryByText("Add money to get started")).toBeNull());
   await expect(within(dialog).queryByRole("button", { name: "Add money" })).toBeNull();
   await expect(within(dialog).getByText("Balance may be out of date.")).toBeVisible();
   await expect(journey.prepared).toHaveLength(0);
@@ -983,10 +984,10 @@ export const CurrencyZeroBalanceFailure: Story = { args: { snapshot: savingsOnly
 export const CurrencySaveFirstDepositPending: Story = { args: { snapshot: cashOnlySnapshot }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
   const body = within(canvasElement.ownerDocument.body);
-  await waitFor(() => expect(screen.getByRole("region", { name: "Savings" })).not.toHaveAttribute("aria-busy"));
+  await waitForReady(() => expect(screen.getByRole("region", { name: "Savings" })).not.toHaveAttribute("aria-busy"));
   const currencies = screen.getByRole("region", { name: "Currencies" });
   await userEvent.click(within(currencies).getByRole("button", { name: /^US dollar/ }));
-  const save = await waitFor(() => within(body.getByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Save" }));
+  const save = await waitForReady(() => within(body.getByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Save" }));
   await userEvent.click(save);
   const deposit = within(await body.findByRole("dialog", { name: "Deposit" }));
   await userEvent.type(await deposit.findByRole("textbox", { name: "Amount" }), "25");
@@ -994,9 +995,9 @@ export const CurrencySaveFirstDepositPending: Story = { args: { snapshot: cashOn
   const confirm = within(await body.findByRole("dialog", { name: "Confirm" }));
   await expect(journey.prepared).toEqual([{ endpoint: "savings-deposit", input: { kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "25000000" } }]);
   await userEvent.click(confirm.getByRole("button", { name: "Deposit $25.00" }));
-  await waitFor(() => expect(journey.executed).toHaveLength(1));
+  await waitForReady(() => expect(journey.executed).toHaveLength(1));
   await userEvent.click(await body.findByRole("button", { name: "Done" }));
-  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
   await openSavings(canvasElement);
   const pendingSavings = within(await screen.findByRole("region", { name: "Your savings" }));
   await expect(pendingSavings.getByText("Gauntlet USDC Prime")).toBeVisible();
@@ -1019,9 +1020,9 @@ export const SavingsFirstDepositTransition: Story = { args: { snapshot: cashOnly
   const confirm = await body.findByRole("dialog", { name: "Confirm" });
   await expect(within(confirm).getByText("Gauntlet USDC Prime")).toBeVisible();
   await userEvent.click(within(confirm).getByRole("button", { name: "Deposit $25.00" }));
-  await waitFor(() => expect(journey.executed).toHaveLength(1));
+  await waitForReady(() => expect(journey.executed).toHaveLength(1));
   await userEvent.click(body.getByRole("button", { name: "Done" }));
-  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
   await expect(await within(screen.getByLabelText("Savings balance")).findByRole("img", { name: "$25.00" })).toBeVisible();
   const pendingSavings = within(screen.getByRole("region", { name: "Your savings" }));
   await expect(pendingSavings.getByText("Gauntlet USDC Prime")).toBeVisible();
@@ -1096,7 +1097,7 @@ export const SavingsDetailBackFocus: Story = { args: { initialView: "savings" },
   const canvas = within(canvasElement);
   await expect(canvas.getByRole("heading", { name: "Savings", level: 1 })).toBeVisible();
   await userEvent.click(canvas.getByRole("button", { name: "Back" }));
-  await waitFor(() => expect(savingsRow(canvasElement)).toHaveFocus());
+  await waitForReady(() => expect(savingsRow(canvasElement)).toHaveFocus());
   await expect(canvas.getByRole("heading", { name: "Cash", level: 1 })).toBeVisible();
 } };
 export const SavingsDetailDepositClosesWhenBalanceUnreadable: Story = { args: { initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
@@ -1105,11 +1106,11 @@ export const SavingsDetailDepositClosesWhenBalanceUnreadable: Story = { args: { 
   await openAction(canvasElement, "Gauntlet USDC Prime", "Deposit more");
   await expect(await body.findByRole("dialog", { name: "Deposit" })).toBeVisible();
   snapshotChanges.dispatchEvent(new Event("unavailable"));
-  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
   await expect(manageRow(screen, "Gauntlet USDC Prime")).toBeVisible();
-  await waitFor(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toHaveFocus());
+  await waitForReady(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toHaveFocus());
   snapshotChanges.dispatchEvent(new Event("funded"));
-  await waitFor(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toBeEnabled());
+  await waitForReady(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toBeEnabled());
 } };
 export const SavingsDetailDepositClosesWhenBalancesFail: Story = { args: { initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
@@ -1117,11 +1118,11 @@ export const SavingsDetailDepositClosesWhenBalancesFail: Story = { args: { initi
   await openAction(canvasElement, "Gauntlet USDC Prime", "Deposit more");
   await expect(await body.findByRole("dialog", { name: "Deposit" })).toBeVisible();
   snapshotChanges.dispatchEvent(new Event("failed"));
-  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
   await expect(screen.getByLabelText("Balance unavailable")).toBeVisible();
-  await waitFor(() => expect(within(canvasElement).getByRole("button", { name: "Back" })).toHaveFocus());
+  await waitForReady(() => expect(within(canvasElement).getByRole("button", { name: "Back" })).toHaveFocus());
   snapshotChanges.dispatchEvent(new Event("funded"));
-  await waitFor(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toBeEnabled());
+  await waitForReady(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toBeEnabled());
 } };
 export const SavingsDetailWithdrawClosesWhenBalancesFail: Story = { args: { snapshot: usdcUnavailableSnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
@@ -1129,9 +1130,9 @@ export const SavingsDetailWithdrawClosesWhenBalancesFail: Story = { args: { snap
   await openAction(canvasElement, "Gauntlet USDC Prime", "Withdraw");
   await expect(await body.findByRole("dialog", { name: "Withdraw" })).toBeVisible();
   snapshotChanges.dispatchEvent(new Event("failed"));
-  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
   await expect(screen.getByLabelText("Balance unavailable")).toBeVisible();
-  await waitFor(() => expect(within(canvasElement).getByRole("button", { name: "Back" })).toHaveFocus());
+  await waitForReady(() => expect(within(canvasElement).getByRole("button", { name: "Back" })).toHaveFocus());
 } };
 
 const pendingUsSnapshot = withCashUnitPrice(fundedSnapshot);

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef } from "react";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { PullToRefreshAction, PullToRefreshIndicator, usePullToRefresh, type PullToRefreshPhase } from "./pull-to-refresh";
 
 function Preview({ phase }: { phase: PullToRefreshPhase }) {
@@ -106,9 +107,9 @@ export const KeyboardFocus: Story = {
       width: indicator.getBoundingClientRect().width,
       height: indicator.getBoundingClientRect().height,
     });
-    await waitFor(() => expect(action.getBoundingClientRect().bottom).toBeLessThan(firstRow.getBoundingClientRect().top));
+    await waitForReady(() => expect(action.getBoundingClientRect().bottom).toBeLessThan(firstRow.getBoundingClientRect().top));
     action.blur();
-    await waitFor(() => expect(new DOMMatrixReadOnly(content.style.transform).m42).toBe(0));
+    await waitForReady(() => expect(new DOMMatrixReadOnly(content.style.transform).m42).toBe(0));
   },
 };
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { CardScreen } from "@/client/cards/card-experience";
 import { PrimaryNavigation } from "@/components/primary-navigation";
 import { shellContentFrameClassName, shellNavigationClearanceClassName } from "@/components/shell-layout";
@@ -51,16 +52,16 @@ export const GetLockAndUnlock: Story = {
     await expect(canvas.getByRole("button", { name: "Card", current: "page" })).toBeVisible();
     actions.onOpenVerification.mockClear();
     await userEvent.click(canvas.getByRole("button", { name: "Get your card" }));
-    await waitFor(() => expect(actions.onOpenVerification).toHaveBeenCalledWith(kycUrl));
+    await waitForReady(() => expect(actions.onOpenVerification).toHaveBeenCalledWith(kycUrl));
     await userEvent.click(await canvas.findByRole("button", { name: "Create your card" }));
     const toggle = await canvas.findByRole("switch", { name: "Lock card" });
     await expect(toggle).not.toBeChecked();
     await userEvent.click(toggle);
     await expect(await body.findByText("Card locked")).toBeVisible();
-    await waitFor(() => expect(canvas.getByRole("switch", { name: "Lock card" })).toBeChecked());
+    await waitForReady(() => expect(canvas.getByRole("switch", { name: "Lock card" })).toBeChecked());
     await expect(canvas.getByRole("img", { name: "Virtual card ending 4821, locked" })).toBeVisible();
     await userEvent.click(canvas.getByRole("switch", { name: "Lock card" }));
     await expect(await body.findByText("Card unlocked")).toBeVisible();
-    await waitFor(() => expect(canvas.getByRole("switch", { name: "Lock card" })).not.toBeChecked());
+    await waitForReady(() => expect(canvas.getByRole("switch", { name: "Lock card" })).not.toBeChecked());
   },
 };

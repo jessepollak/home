@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import { expect, screen, userEvent, waitFor, within } from "storybook/test";
+import { expect, screen, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { MoneyAssetPicker, type MoneyAssetOption } from "@/client/money-modal/amount";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import { PORTFOLIO_NATIVE_ASSET_KEY, PORTFOLIO_USDC_ASSET_KEY, assetKeyForErc20 } from "@/config/portfolio-assets";
@@ -62,7 +63,7 @@ function HeaderStory() {
 }
 
 async function assertSelectorFlags(root: HTMLElement, expected: number) {
-  await waitFor(async () => {
+  await waitForReady(async () => {
     const flags = root.querySelectorAll<HTMLElement>('[data-presentation="selector"][data-mark="flag"]');
     await expect(flags.length).toBe(expected);
     for (const flag of flags) {
@@ -114,7 +115,7 @@ export const Header: Story = {
     await assertSelectorFlags(canvasElement, 3);
     await userEvent.click(canvas.getByRole("combobox", { name: "Asset" }));
     const list = await screen.findByRole("listbox");
-    await waitFor(async () => {
+    await waitForReady(async () => {
       for (const code of ["USD", "EUR", "GBP", "CHF"]) {
         await expect(within(list).getByRole("option", { name: code })).toBeVisible();
       }
