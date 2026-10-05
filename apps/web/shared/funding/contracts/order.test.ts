@@ -26,6 +26,13 @@ test("accepts a full order through the summary, order reader and resolution read
   expect(readResolveFundingOrderResponse(response(fullOrder))).toEqual(response(fullOrder));
 });
 
+test("accepts an order with a decimal quote total through every order reader", () => {
+  const order = { ...fullOrder, quote: { ...fullOrder.quote, fiatAmount: "1.01", enteredFiatAmount: "1" } };
+  expect(isFundingOrderSummary(order)).toBe(true);
+  expect(readFundingOrder(response(order))).toBe(order);
+  expect(readResolveFundingOrderResponse(response(order))).toEqual(response(order));
+});
+
 test("accepts minimal legacy orders, nullable fields, zero atomic amounts and string fees", () => {
   const minimal = { id: "id", providerId: "provider", state: "pending", fiatAmount: "0", providerStatus: null, instructions: null };
   expect(isFundingOrderSummary(minimal)).toBe(true);
@@ -79,6 +86,8 @@ test.each([
   ["feesKnown", { feesKnown: "true" }],
   ["undefined feesKnown", { feesKnown: undefined }],
   ["fiatAmount", { fiatAmount: 1 }],
+  ["numeric enteredFiatAmount", { enteredFiatAmount: 1.01 }],
+  ["invalid enteredFiatAmount", { enteredFiatAmount: "abc" }],
   ["tokenAmountAtomic", { tokenAmountAtomic: undefined }],
   ["expiresAt", { expiresAt: null }],
   ["fees", { fees: "oops" }],

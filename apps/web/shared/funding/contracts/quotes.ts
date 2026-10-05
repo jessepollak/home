@@ -2,9 +2,12 @@ import * as z from "zod/mini";
 
 export const FUNDING_QUOTE_VERSION = 1 as const;
 
+const fiatAmountPattern = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
+
 export const fundingQuoteSchema = z.object({
   providerQuoteId: z.optional(z.string()),
   fiatAmount: z.string(),
+  enteredFiatAmount: z.optional(z.string().check(z.regex(fiatAmountPattern))),
   tokenAmountAtomic: z.string(),
   fees: z.array(z.object({ label: z.string(), amount: z.string(), currency: z.string() })),
   feesKnown: z.optional(z.boolean()),
