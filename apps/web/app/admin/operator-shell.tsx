@@ -7,7 +7,7 @@ import { ArrowLeft, Menu } from "lucide-react";
 import { AddressText } from "@/components/address-text";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import { RailNavItem } from "@/components/ui/rail-nav";
+import { RailNav, RailNavItem } from "@/components/ui/rail-nav";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { brand } from "@/config/brand";
@@ -17,7 +17,7 @@ import { operatorNavigation } from "@/config/operator-navigation";
 
 function SectionLinks({ pathname, sectionRoute, onNavigate, supportUnread }: { pathname: string; sectionRoute: boolean; onNavigate?: (href: string) => void; supportUnread: number }) {
   return (
-    <nav aria-label="Operator sections" className="grid gap-1">
+    <RailNav aria-label="Operator sections" className="grid gap-1">
       {operatorNavigation.map((item, index) => (
         <div key={item.id}>
           {index > 0 && item.group !== operatorNavigation[index - 1].group && <Separator className="my-3" />}
@@ -31,7 +31,7 @@ function SectionLinks({ pathname, sectionRoute, onNavigate, supportUnread }: { p
           />
         </div>
       ))}
-    </nav>
+    </RailNav>
   );
 }
 

@@ -16,6 +16,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Expanded: Story = {
+  parameters: { library: { render: "frame" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const rail = canvasElement.querySelector<HTMLElement>("#desktop-rail")!;
@@ -37,6 +38,7 @@ export const Expanded: Story = {
 };
 
 export const Collapsed: Story = {
+  parameters: { library: { render: "frame" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const toggle = canvas.getByRole("button", { name: "Sidebar" });

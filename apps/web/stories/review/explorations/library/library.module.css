@@ -1,0 +1,419 @@
+.library {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 6px;
+  padding: 10px 10px 10px 0;
+  color: var(--foreground);
+  background: var(--muted);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 13px;
+  --library-subtle: color-mix(in oklab, var(--muted-foreground) 82%, var(--foreground));
+  --library-gutter: 40px;
+  --library-max: 1160px;
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 6px 0 10px;
+}
+.sidebarHeader {
+  padding: 6px 10px 8px;
+}
+.sidebarHeader h2 {
+  margin: 0;
+  color: var(--library-subtle);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.sidebarHeader p {
+  margin: 2px 0 0;
+  color: var(--library-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.group[data-lead] {
+  margin-bottom: 8px;
+}
+.group[data-fill] {
+  flex: 1;
+  margin-top: 10px;
+}
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin: 0;
+  padding: 1px 2px 10px;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+.row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 48px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 12px;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 120ms ease-out;
+}
+@media (hover: hover) {
+  .row:hover {
+    background: color-mix(in oklab, var(--card) 55%, transparent);
+  }
+}
+.row[aria-selected="true"] {
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgb(0 0 0 / 5%);
+}
+.row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.tile {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.tile svg {
+  width: 16px;
+  height: 16px;
+}
+.row[aria-selected="true"] .tile {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.rowText {
+  margin-inline-start: 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rowTitle, .rowKind {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rowTitle {
+  font-weight: 550;
+  line-height: 18px;
+}
+.rowKind {
+  color: var(--library-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  margin-inline-start: 10px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+.surface {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+}
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 64px;
+  padding: 12px var(--library-gutter);
+}
+.pickers {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.pickerLabel {
+  color: var(--muted-foreground);
+}
+.propsBar {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 24px;
+  margin: 0;
+  color: var(--muted-foreground);
+}
+.propField {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.propSelect, .propInput {
+  font-size: 13px;
+  color: var(--foreground);
+}
+.propSelect {
+  min-width: 112px;
+}
+.propInput {
+  width: 136px;
+}
+.stage {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+.device {
+  position: relative;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 32px var(--library-gutter) 72px;
+  border-top: 1px solid var(--border);
+  color: var(--foreground);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  transition: outline-color 120ms ease-out;
+}
+.device[data-annotating] {
+  outline-color: var(--primary);
+}
+.surfaceHeading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  max-width: var(--library-max);
+  margin: 0;
+}
+.surfaceTitle {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 28px;
+  letter-spacing: -.01em;
+}
+.surfaceCount {
+  margin: 0;
+  color: var(--library-subtle);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.device > .surfaceHeading {
+  margin-bottom: 24px;
+}
+.sheet {
+  max-width: var(--library-max);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  align-items: start;
+  gap: 24px;
+}
+.section {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  scroll-margin-block-start: 24px;
+}
+.section[data-span="row"] {
+  grid-column: 1 / -1;
+}
+.section::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: 5;
+  border-radius: 20px;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px transparent;
+  transition: box-shadow 120ms ease-out;
+}
+.section[data-focused]::after {
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.sectionToggle {
+  margin-inline: -8px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  cursor: pointer;
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+@media (hover: hover) {
+  .sectionToggle:hover {
+    color: var(--foreground);
+    background: var(--muted);
+  }
+}
+.sectionToggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+}
+.sectionToggle[aria-pressed="true"] {
+  color: var(--primary);
+}
+.sectionNote {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+.sectionStage {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+  min-height: 120px;
+  padding: 24px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+}
+.sectionStage[data-layout="frame"] {
+  padding: 16px;
+}
+.sectionStage[data-layout="fullscreen"] {
+  display: block;
+  padding: 0;
+}
+.sectionBody {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  min-height: 56px;
+}
+.sectionBody[data-layout="fullscreen"] {
+  display: block;
+}
+.frameSlot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+.sectionOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: 12px;
+  cursor: default;
+}
+.sectionOverlay:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.sectionMessage, .framePending {
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 20px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.sectionMessage {
+  min-height: 100%;
+}
+.framePending {
+  background: var(--muted);
+}
+.hiddenThemes {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.unusedComponents {
+  max-width: var(--library-max);
+  margin: -12px 0 24px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 18px;
+}
+.unusedComponents a {
+  color: var(--foreground);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, var(--foreground) 35%, transparent);
+  text-underline-offset: 3px;
+}
+.viewportCaption {
+  flex: none;
+  margin: 8px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.viewportCaption a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+.annotate {
+  grid-column: 3;
+  justify-self: end;
+}
+.annotate[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+@media (prefers-reduced-motion: reduce) {
+  .row, .device, .section::after, .sectionToggle {
+    transition: none;
+  }
+}

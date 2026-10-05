@@ -54,16 +54,18 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Reveal390: Story = {
+  parameters: { library: { render: "frame" } },
   play: async ({ canvasElement }) => { await expectReveal(canvasElement); },
 };
 
 export const Reveal320: Story = {
   args: { width: 320 },
-  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  parameters: { viewport: { defaultViewport: "smallMobile" }, library: { render: "frame" } },
   play: async ({ canvasElement }) => { await expectReveal(canvasElement); },
 };
 
 export const EnlargedText: Story = {
+  parameters: { library: { render: "frame" } },
   beforeEach: () => {
     const previousFontSize = document.documentElement.style.fontSize;
     document.documentElement.style.fontSize = "200%";

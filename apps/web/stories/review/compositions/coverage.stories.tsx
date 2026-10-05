@@ -1,0 +1,37 @@
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { isValidElement } from "react";
+import { expect, within } from "storybook/test";
+import CoveragePage from "@/app/coverage/page";
+import { coverageRegistry } from "@/config/coverage";
+
+type CoverageArgs = { search: string; issuer: string; priority: string; home: string; sort: string };
+const meta = {
+  id: "compositions-coverage",
+  title: "Compositions/Coverage",
+  args: { search: "", issuer: "", priority: "", home: "", sort: "gdp" },
+  loaders: [async ({ args }: { args: CoverageArgs }) => ({ page: await CoveragePage({
+    params: Promise.resolve({}),
+    searchParams: Promise.resolve({ q: args.search, issuer: args.issuer, priority: args.priority, home: args.home, sort: args.sort }),
+  }) })],
+  render: (_args, { loaded }: { loaded: Record<string, unknown> }) => {
+    if (!isValidElement(loaded.page)) throw new Error("Coverage page did not return content");
+    return loaded.page;
+  },
+  parameters: {
+    layout: "fullscreen",
+    a11y: { test: "error" },
+    library: { render: "frame", order: 4 },
+    viewport: { viewports: { desktop1440: { name: "1440 × 900", styles: { width: "1440px", height: "900px" } } }, defaultViewport: "desktop1440" },
+  },
+} satisfies Meta<CoverageArgs>;
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Coverage: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("heading", { name: "Local money coverage" })).toBeVisible();
+    await expect(canvas.getByText(`Showing ${coverageRegistry.length} of ${coverageRegistry.length} countries and territories.`)).toBeVisible();
+    await expect(canvas.getByRole("link", { name: "Download CSV" })).toBeVisible();
+  },
+};

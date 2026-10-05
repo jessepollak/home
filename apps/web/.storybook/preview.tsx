@@ -11,6 +11,7 @@ import {
 import "@/app/globals.css";
 import { bridgeFramedKeyboard } from "./framed-keyboard";
 import { rejectUnexpectedStoryRequest } from "./request-guard";
+import { applyTheme } from "./theme";
 
 const disposeKeyboardBridge = bridgeFramedKeyboard();
 import.meta.hot?.dispose(() => disposeKeyboardBridge?.());
@@ -30,7 +31,7 @@ const preview: Preview = {
   initialGlobals: { theme: "light" },
   decorators: [
     (Story, context) => {
-      document.documentElement.classList.toggle("dark", context.globals.theme === "dark");
+      applyTheme(document, context.globals.theme);
       document.body.style.backgroundColor = "var(--background)";
       const story = (
         <PresentationRegionProvider regionId="GLOBAL">
@@ -63,7 +64,7 @@ const preview: Preview = {
     getHomeQueryClient().clear();
     return () => {
       getHomeQueryClient().clear();
-      document.documentElement.classList.remove("dark");
+      applyTheme(document, "light");
     };
   },
   parameters: {

@@ -86,7 +86,6 @@
       "react-hooks/incompatible-library": 1
     },
     "apps/web/components/ui/input-group.tsx": {
-      "jsx-a11y/click-events-have-key-events": 1,
       "jsx-a11y/no-noninteractive-element-interactions": 1
     },
     "apps/web/instrumentation-client.ts": {
@@ -165,6 +164,20 @@
       "count": 1,
       "issue": "#1755",
       "reason": "Recovery-named callees now need a provable binding; the retention-failure catch calls the caller-injected onUnavailable reporter, and every caller passes an emitServerEvent callback."
+    },
+    {
+      "path": "apps/web/stories/review/explorations/library/foundations/foundations.tsx",
+      "rule": "jsx-a11y/no-noninteractive-tabindex",
+      "count": 1,
+      "issue": "#1632",
+      "reason": "Foundations reference scroll regions have no focusable content; axe scrollable-region-focusable requires keyboard focus"
+    },
+    {
+      "path": "apps/web/stories/review/explorations/library/overview/overview.tsx",
+      "rule": "jsx-a11y/no-noninteractive-tabindex",
+      "count": 1,
+      "issue": "#1632",
+      "reason": "Foundations reference scroll regions have no focusable content; axe scrollable-region-focusable requires keyboard focus"
     }
   ]
 }

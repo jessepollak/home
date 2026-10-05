@@ -2,6 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { createLoadQueue } from "./load-queue";
 import type { Point } from "./camera";
 import type { Positioned } from "./layout";
+import { startRenderDeadline } from "./render-deadline";
 
 export type Metric = {
   id: string;
@@ -63,7 +64,7 @@ export function createFrameStore(
   };
   const queue = createLoadQueue(positions.map((position) => ({ id: position.id, ...position.rect })));
   const listeners = new Set<() => void>();
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const timers = new Map<string, () => void>();
   let snapshot = { metrics, loaded: new Set<string>() };
   const publish = () => {
     snapshot = { metrics: { ...metrics, frames: [...metrics.frames] }, loaded: new Set(snapshot.loaded) };
@@ -85,7 +86,7 @@ export function createFrameStore(
     const metric = metrics.frames.find((entry) => entry.id === id);
     if (!metric || ["rendered", "errored"].includes(metric.status)) return;
     const timer = timers.get(id);
-    if (timer !== undefined) clock.cancel(timer);
+    timer?.();
     timers.delete(id);
     if (unload) {
       const loaded = new Set(snapshot.loaded);
@@ -112,8 +113,8 @@ export function createFrameStore(
       for (const id of next) {
         queue.claim(id);
         mark(id, { status: "loading", loadStartAt: clock.now() });
-        timers.set(id, clock.schedule(
-          () => finish(id, "errored", "Story did not finish rendering in 20 s", true), 20_000,
+        timers.set(id, startRenderDeadline(
+          (error) => finish(id, "errored", error, true), clock,
         ));
       }
       snapshot = { ...snapshot, loaded: new Set([...snapshot.loaded, ...next]) };
@@ -125,7 +126,7 @@ export function createFrameStore(
       const metric = metrics.frames[index];
       if (!metric || ["queued", "rendered", "errored"].includes(metric.status)) return;
       const timer = timers.get(id);
-      if (timer !== undefined) clock.cancel(timer);
+      timer?.();
       timers.delete(id);
       metrics.frames[index] = { ...metric, status: "queued", loadStartAt: undefined, loadedAt: undefined };
       snapshot = { ...snapshot, loaded: new Set([...snapshot.loaded].filter((entry) => entry !== id)) };

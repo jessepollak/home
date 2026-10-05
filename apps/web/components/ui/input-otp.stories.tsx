@@ -52,6 +52,7 @@ export const Empty: Story = {
     await expect(canvasElement.querySelectorAll('[data-slot="input-otp-slot"]')).toHaveLength(6);
     for (const [index, slot] of Array.from(canvasElement.querySelectorAll('[data-slot="input-otp-slot"]')).entries()) {
       await expect(slot).toHaveTextContent(String(index + 1));
+      await expect(slot.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     }
     await userEvent.clear(input);
     await userEvent.paste("012-345");

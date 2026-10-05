@@ -1,0 +1,378 @@
+.surface {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  color: var(--foreground);
+  --foundation-subtle: color-mix(in oklab, var(--muted-foreground) 82%, var(--foreground));
+}
+.sheet {
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.article {
+  max-width: calc(var(--library-max) + 2 * var(--library-gutter));
+  margin: 0;
+  padding: 32px var(--library-gutter) 72px;
+}
+.summary {
+  max-width: 72ch;
+  margin: 6px 0 0;
+  color: var(--foundation-subtle);
+  font-size: 13px;
+  line-height: 20px;
+}
+.summaryLine {
+  display: block;
+}
+.summary code, .note code, .numeralCard code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.note {
+  margin: 12px 0 0;
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+.callout {
+  margin: 20px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--muted);
+  font-size: 13px;
+}
+.section {
+  margin-top: 36px;
+}
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.sectionCount {
+  color: var(--foundation-subtle);
+  font-weight: 450;
+  font-variant-numeric: tabular-nums;
+}
+.meta {
+  display: block;
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.colorTable, .scaleTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.colorTable thead th, .scaleTable thead th {
+  padding: 0 12px 8px 0;
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: start;
+}
+.colorTable thead th:first-child {
+  width: 30%;
+}
+.colorTable tbody tr, .scaleTable tbody tr {
+  border-top: 1px solid var(--border);
+}
+.colorTable th, .colorTable td, .scaleTable th, .scaleTable td {
+  padding: 12px 12px 12px 0;
+  vertical-align: middle;
+  text-align: start;
+}
+.tokenCell {
+  font-weight: 400;
+}
+.tokenName {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.tokenRule {
+  display: block;
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.swatchCell {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.swatchPlate {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid;
+  border-radius: 10px;
+}
+.swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px rgb(127 127 127 / 18%);
+}
+.swatchText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.hex {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.ratios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  font-weight: 500;
+}
+.verdict svg {
+  width: 14px;
+  height: 14px;
+}
+.verdict[data-verdict="fail"] {
+  color: var(--destructive);
+  font-weight: 600;
+}
+.scaleTable thead th:nth-child(1) {
+  width: 24%;
+}
+.scaleTable thead th:nth-child(2), .scaleTable thead th:nth-child(3) {
+  width: 14%;
+}
+.scaleTable th[scope="row"] {
+  font-weight: 400;
+}
+.scaleTable code, .tile code, .chipList code, .stackRow code, .easing code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.numeric {
+  font-variant-numeric: tabular-nums;
+}
+.specimen {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.stackList {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+.stackRow {
+  display: grid;
+  grid-template-columns: 24% minmax(0, 1fr);
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.stackRow dd {
+  margin: 0;
+}
+.stackSpecimen {
+  display: block;
+  font-size: 20px;
+  line-height: 28px;
+}
+.tileGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.tileSpecimen {
+  font-size: 32px;
+  line-height: 40px;
+}
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chipList li {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.numeralGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.numeralCard {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.numeralCard figcaption {
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+.numeralPair {
+  display: flex;
+  gap: 40px;
+}
+.amounts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 20px;
+  line-height: 28px;
+}
+.amounts[data-tabular] {
+  font-variant-numeric: tabular-nums;
+}
+.monoSpecimen {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.radiusBox {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+}
+.spaceBar {
+  display: inline-block;
+  margin-inline-end: 12px;
+  vertical-align: -1px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+.easing {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.easing code {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.spacingTable thead th:nth-child(1) {
+  width: 24%;
+}
+.spacingTable thead th:nth-child(2) {
+  width: 14%;
+}
+.spacingTable thead th:nth-child(3) {
+  width: auto;
+}
+.motionTable thead th:nth-child(1), .motionTable thead th:nth-child(2) {
+  width: 32%;
+}
+.motionTable thead th:nth-child(3) {
+  width: 36%;
+}
+.easingTable thead th:first-child {
+  width: 60%;
+}
+.motionTable code, .occurrences, .stackRow code {
+  overflow-wrap: anywhere;
+}
+.occurrences {
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+.curve {
+  flex: none;
+  width: 40px;
+  height: 56px;
+  overflow: visible;
+}
+.curveGuide {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.curveLine {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.demo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.track {
+  position: relative;
+  flex: 1;
+  min-width: 72px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--muted);
+  container-type: inline-size;
+}
+.puck {
+  position: absolute;
+  inset-block: 3px;
+  inset-inline-start: 3px;
+  width: 14px;
+  border-radius: 999px;
+  background: var(--primary);
+  transition-property: translate;
+}
+.track[data-played] .puck {
+  translate: calc(100cqw - 20px) 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .puck {
+    transition: none;
+  }
+}

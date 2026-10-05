@@ -8,8 +8,9 @@ import { PrimaryNavigation } from "@/components/primary-navigation";
 import { Button } from "@/components/ui/button";
 import { AccountSettings } from "@/client/account/account-settings";
 import type { AppearancePreference } from "@/shared/appearance/preference";
+import { accountAppearanceAddress, createInviteFetcher, type InviteState } from "./explorations/account-appearance-fixture";
 
-function AccountAppearanceJourney({ inviteState = "loaded" }: { inviteState?: "loaded" | "loading" | "unavailable" | "error" }) {
+function AccountAppearanceJourney({ inviteState = "loaded" }: { inviteState?: InviteState }) {
   const [appearancePreference, setAppearancePreference] = useState<AppearancePreference>("light");
   return (
     <main className="mx-auto w-full max-w-160 p-4">
@@ -19,14 +20,9 @@ function AccountAppearanceJourney({ inviteState = "loaded" }: { inviteState?: "l
         resolutionSource="persisted"
         preferenceMessage=""
         isPreferenceReady
-        accountAddress="0x1111111111111111111111111111111111111111"
+        accountAddress={accountAppearanceAddress}
         accountOwnerKey={`appearance-story-${inviteState}`}
-        fetchAccountResource={async () => {
-          if (inviteState === "loading") return new Promise<unknown>(() => {});
-          if (inviteState === "unavailable") throw Object.assign(new Error("unavailable"), { status: 403 });
-          if (inviteState === "error") throw new Error("network");
-          return { version: 1, code: "abcdefghjk" };
-        }}
+        fetchAccountResource={createInviteFetcher(inviteState)}
         showSmallBalances={false}
         onShowSmallBalancesChange={() => {}}
         appearancePreference={appearancePreference}

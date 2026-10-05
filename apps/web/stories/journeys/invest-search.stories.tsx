@@ -14,6 +14,8 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { parseInvestSearchResponse } from "@/shared/invest/contracts/search";
 import { unavailableMarketData } from "@/shared/invest/invest-market";
 import { searchFixture } from "@/tests/browser/feature-map/search-fixtures";
+import { investMarketHandlers } from "./explorations/invest-market.fixtures";
+import { investSearchHandler } from "./explorations/invest-search.fixtures";
 
 function InvestSearchJourney() {
   const [open, setOpen] = useState(false);
@@ -67,8 +69,8 @@ const meta = {
   title: "Journeys/Invest Search", component: InvestSearchJourney,
   beforeEach: () => { window.history.replaceState(null, "", window.location.href); getHomeQueryClient().clear(); },
   parameters: { layout: "fullscreen", msw: { handlers: [
-    http.get("/api/invest/search", ({ request }) => { const query = new URL(request.url).searchParams.get("q") ?? ""; return query === "unavailable" ? new HttpResponse(null, { status: 503 }) : HttpResponse.json(searchFixture(query)); }),
-    http.get("/api/market-prices/history", () => HttpResponse.json({ version: 1, provider: "codex", assetId: "base:0x1111111111111111111111111111111111111111", range: "1W", currency: "USD", fetchedAt: null, status: "empty", points: [] })),
+    investSearchHandler,
+    ...investMarketHandlers,
   ] } },
 } satisfies Meta<typeof InvestSearchJourney>;
 export default meta;

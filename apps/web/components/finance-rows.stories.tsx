@@ -101,6 +101,7 @@ export const Activity: Story = {
 };
 
 export const Disclosure: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => <DisclosureRows />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

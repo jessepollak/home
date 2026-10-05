@@ -15,10 +15,19 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/client/",
   "/components/",
   "/config/",
+  "/lib/",
   "/shared/",
+  "/stories/",
+  "/.storybook/",
 ] as const;
 
-const STORYBOOK_RUNTIME_EXACT_PATHS = ["/vite-inject-mocker-entry.js"] as const;
+const STORYBOOK_RUNTIME_EXACT_PATHS = [
+  "/vite-inject-mocker-entry.js",
+  "/app/coverage/page.tsx",
+  "/app/admin/operator-shell.tsx",
+  "/tests/helpers/pin-clock.ts",
+  "/tests/browser/feature-map/search-fixtures.ts",
+] as const;
 
 export function isStorybookRuntimeRequest(request: Request, storybookOrigin: string): boolean {
   const url = new URL(request.url);
@@ -26,6 +35,7 @@ export function isStorybookRuntimeRequest(request: Request, storybookOrigin: str
   if (request.method !== "GET" && request.method !== "HEAD") return false;
 
   return STORYBOOK_RUNTIME_EXACT_PATHS.some((path) => url.pathname === path) ||
+    /^\/tests\/browser\/fixtures\/(?:[\w-]+\/)*[\w-]+\.(?:ts|tsx|js|mjs)$/.test(url.pathname) ||
     STORYBOOK_RUNTIME_PATHS.some((path) => url.pathname.startsWith(path));
 }
 
@@ -39,8 +49,17 @@ export function isVercelToolbarRequest(request: Request, storybookOrigin: string
     VERCEL_TOOLBAR_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
 }
 
+const ASSET_IMAGE_HOSTS = ["token-media.defined.fi", "media.thegrid.id"] as const;
+
+function isAssetImageRequest(request: Request): boolean {
+  const url = new URL(request.url);
+  return url.protocol === "https:" && (request.method === "GET" || request.method === "HEAD") &&
+    ASSET_IMAGE_HOSTS.some((host) => url.hostname === host) && /\.(?:png|jpe?g|webp|svg)$/.test(url.pathname);
+}
+
 export function rejectUnexpectedStoryRequest(request: Request, storybookOrigin: string): void {
-  if (isStorybookRuntimeRequest(request, storybookOrigin) || isVercelToolbarRequest(request, storybookOrigin)) return;
+  if (isStorybookRuntimeRequest(request, storybookOrigin) || isVercelToolbarRequest(request, storybookOrigin) ||
+    isAssetImageRequest(request)) return;
 
   throw new Error(
     `[Storybook request guard] Unexpected ${request.method} request to ${request.url}. `

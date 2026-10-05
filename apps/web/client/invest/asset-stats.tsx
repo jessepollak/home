@@ -67,7 +67,7 @@ export function formatStatUsd(value: ExactDecimal, regionId: ReturnType<typeof u
   return formatTrimmedChartPrice(`${significant}e${exponent}`, { regionId });
 }
 
-export function AssetStats({ asset, market, clock }: { asset: InvestAsset; market: MarketDataState; clock: ChartClock }) {
+export function AssetStats({ asset, market, clock, headingLevel = 3 }: { asset: InvestAsset; market: MarketDataState; clock: ChartClock; headingLevel?: 2 | 3 }) {
   const day = usePriceHistory(asset.id, "1D", { speculative: true });
   const year = usePriceHistory(asset.id, "1Y", { speculative: true });
   const stats = useMarketStats(asset.id, asset.category !== "stock");
@@ -85,8 +85,9 @@ export function AssetStats({ asset, market, clock }: { asset: InvestAsset; marke
   ];
   if (!tiles.length && !hasRow(day, 86400000) && !hasRow(year, 7 * 86400000)) return null;
   const heading = quote.valueCurrency && quote.valueCurrency !== "USD" ? "Stats · USD" : "Stats";
+  const Heading = headingLevel === 2 ? "h2" : "h3";
   return <section aria-label={heading} className="space-y-2">
-    <h3 className="text-sm font-semibold">{heading}</h3>
+    <Heading className="text-sm font-semibold">{heading}</Heading>
     <div className="divide-y"><RangeStat history={day} day={day} range="1D" now={clock.value} snapshotPrice={snapshotPrice} />
       <RangeStat history={year} day={day} range="1Y" now={clock.value} snapshotPrice={snapshotPrice} /></div>
     {tiles.length ? <div className="grid grid-cols-2 gap-2 max-[22rem]:grid-cols-1">

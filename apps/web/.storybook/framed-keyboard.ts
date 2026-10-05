@@ -1,10 +1,14 @@
+function isFrameElement(element: Element | null, frameWindow: Window): element is HTMLElement {
+  return "HTMLElement" in frameWindow && typeof frameWindow.HTMLElement === "function" && element instanceof frameWindow.HTMLElement;
+}
+
 function sameOriginFrames(): HTMLElement[] | null {
   const frames: HTMLElement[] = [];
   let current: Window = window;
   try {
     while (current !== current.top) {
       const element = current.frameElement;
-      if (!(element instanceof current.parent.HTMLElement)) return null;
+      if (!isFrameElement(element, current.parent)) return null;
       frames.unshift(element);
       current = current.parent;
     }
@@ -67,7 +71,7 @@ export function bridgeFramedKeyboard(): (() => void) | undefined {
     for (const parent of parents) parent.removeEventListener("scroll", forward, { capture: true });
     window.removeEventListener("pagehide", onPageHide);
     if (originalHeight) Object.defineProperty(viewport, "height", originalHeight);
-    else delete (viewport as Partial<VisualViewport>).height;
+    else Reflect.deleteProperty(viewport, "height");
     disposeBridge = undefined;
   };
   const onPageHide = (event: PageTransitionEvent) => {
