@@ -1,12 +1,14 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 export type OperatorConfig =
   | { kind: "absent" }
   | { kind: "misconfigured" }
   | { kind: "configured"; addresses: ReadonlySet<`0x${string}`> };
 
 export function readOperatorConfig(
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = serverEnvironment(),
 ): OperatorConfig {
   const raw = env.HOME_OPERATOR_ADDRESSES;
   if (raw === undefined || /^[ \t\n\r\f\v]*$/.test(raw)) return { kind: "absent" };

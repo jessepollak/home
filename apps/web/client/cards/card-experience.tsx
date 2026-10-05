@@ -237,7 +237,7 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
   const issued = state === "active" || state === "frozen" || state === "restricted";
   const live = cards.status === "ready" ? cards.response.cards.filter((item) => item.status !== "canceled").reverse() : [];
   const spendingSection = <CardSpending key={generation} spending={spending ?? { status: "loading" }}
-    visible={Boolean(spending) && state !== null && state !== "unavailable"} variant={issued && live.length > 0 ? "full" : "revoke-only"}
+    visible={Boolean(spending) && cards.status === "ready" && state !== "unavailable" && cards.response.cards.length > 0} variant={issued && live.length > 0 ? "full" : "revoke-only"}
     canSet={state === "active" || state === "frozen"} commands={spendingCommands} onRefresh={onSpendingRetry} />;
 
   if (cards.status === "loading") {

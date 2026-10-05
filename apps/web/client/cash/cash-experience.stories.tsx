@@ -955,6 +955,55 @@ export const CashSavingsPendingWhileSavePaused: Story = { args: { snapshot: cash
   await expect(pendingSavings.getByRole("img", { name: "$25.00" })).toBeVisible();
   await expect(screen.queryByRole("region", { name: "More ways to save" })).toBeNull();
 } };
+export const CurrencyZeroBalanceUpdated: Story = { args: { snapshot: savingsOnlySnapshot, snapshotToggle: true }, play: async ({ canvasElement }) => {
+  const body = within(canvasElement.ownerDocument.body);
+  await userEvent.click(within(within(canvasElement).getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^US dollar/ }));
+  await waitFor(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByText("Add money to get started")).toBeVisible());
+  const dialog = body.getByRole("dialog", { name: "US dollar" });
+  snapshotChanges.dispatchEvent(new Event("funded"));
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Save" })).toBeVisible());
+  await expect(within(dialog).getByRole("button", { name: "Convert" })).toBeVisible();
+  await expect(within(dialog).getByRole("img", { name: "$234.00" })).toBeVisible();
+  await expect(within(dialog).queryByRole("button", { name: "Add money" })).toBeNull();
+  await expect(journey.prepared).toHaveLength(0);
+  await expect(journey.executed).toHaveLength(0);
+} };
+export const CurrencyZeroBalanceFailure: Story = { args: { snapshot: savingsOnlySnapshot, snapshotToggle: true }, play: async ({ canvasElement }) => {
+  const body = within(canvasElement.ownerDocument.body);
+  await userEvent.click(within(within(canvasElement).getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^US dollar/ }));
+  await waitFor(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByText("Add money to get started")).toBeVisible());
+  const dialog = body.getByRole("dialog", { name: "US dollar" });
+  snapshotChanges.dispatchEvent(new Event("failed"));
+  await waitFor(() => expect(within(dialog).queryByText("Add money to get started")).toBeNull());
+  await expect(within(dialog).queryByRole("button", { name: "Add money" })).toBeNull();
+  await expect(within(dialog).getByText("Balance may be out of date.")).toBeVisible();
+  await expect(journey.prepared).toHaveLength(0);
+  await expect(journey.executed).toHaveLength(0);
+} };
+export const CurrencySaveFirstDepositPending: Story = { args: { snapshot: cashOnlySnapshot }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  const body = within(canvasElement.ownerDocument.body);
+  await waitFor(() => expect(screen.getByRole("region", { name: "Savings" })).not.toHaveAttribute("aria-busy"));
+  const currencies = screen.getByRole("region", { name: "Currencies" });
+  await userEvent.click(within(currencies).getByRole("button", { name: /^US dollar/ }));
+  const save = await waitFor(() => within(body.getByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Save" }));
+  await userEvent.click(save);
+  const deposit = within(await body.findByRole("dialog", { name: "Deposit" }));
+  await userEvent.type(await deposit.findByRole("textbox", { name: "Amount" }), "25");
+  await userEvent.click(deposit.getByRole("button", { name: "Continue" }));
+  const confirm = within(await body.findByRole("dialog", { name: "Confirm" }));
+  await expect(journey.prepared).toEqual([{ endpoint: "savings-deposit", input: { kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "25000000" } }]);
+  await userEvent.click(confirm.getByRole("button", { name: "Deposit $25.00" }));
+  await waitFor(() => expect(journey.executed).toHaveLength(1));
+  await userEvent.click(await body.findByRole("button", { name: "Done" }));
+  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await openSavings(canvasElement);
+  const pendingSavings = within(await screen.findByRole("region", { name: "Your savings" }));
+  await expect(pendingSavings.getByText("Gauntlet USDC Prime")).toBeVisible();
+  await expect(pendingSavings.getByText("Pending")).toBeVisible();
+  await expect(pendingSavings.getByRole("img", { name: "$25.00" })).toBeVisible();
+  await expect(pendingSavings.queryByRole("button", { name: /Gauntlet/ })).toBeNull();
+} };
 export const SavingsFirstDepositTransition: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
   const body = within(canvasElement.ownerDocument.body);

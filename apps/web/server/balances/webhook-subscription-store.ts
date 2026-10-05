@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { envelopeKeyVersion, resolveSecretKeyring, sealSecret, type SecretKeyring } from "@/server/secrets/at-rest";
 import { webhookSecretAad } from "./webhook-secret";
@@ -162,7 +164,7 @@ export class MemoryWebhookSubscriptionStore implements WebhookSubscriptionStore 
 
 let runtimeStore: WebhookSubscriptionStore | null = null;
 export function getWebhookSubscriptionStore(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>> = serverEnvironment(),
 ): WebhookSubscriptionStore {
   if (runtimeStore) return runtimeStore;
   const resolved = resolveSecretKeyring(env);

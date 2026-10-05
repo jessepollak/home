@@ -5,7 +5,7 @@ import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authoriz
 import { privateError, privateJson } from "@/server/http/private-response";
 import { isRegionOffered } from "@/server/operator-settings/regions";
 import { readCountryPreference, writeCountryPreference } from "./country";
-import { readJson } from "@/shared/http/read-json";
+import { readJsonBody } from "@/server/http/request";
 
 export function createCountryPreferenceReadHandler(dependencies: {
   authorize: SessionAuthorizer;
@@ -31,7 +31,8 @@ export function createCountryPreferenceHandler(dependencies: {
   return async function PUT(request: Request): Promise<Response> {
     const session = await authorizeSession(request, dependencies.authorize);
     if (session instanceof Response) return session;
-    const input = parseCountryPreferenceRequest(await readJson(request).catch(() => null));
+    const result = await readJsonBody(request, { maxBytes: 64 * 1024 });
+    const input = parseCountryPreferenceRequest(result.kind === "ok" ? result.value : null);
     if (!input) return privateError("COUNTRY_PREFERENCE_INVALID", "Choose a supported country.", 400);
     try {
       if (!await (dependencies.regionOffered ?? isRegionOffered)(input.regionId)) {

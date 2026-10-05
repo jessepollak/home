@@ -6,6 +6,7 @@ import { parseOperatorSettingsErrorResponse } from "@/shared/operator-settings/c
 import { createOperatorApiHandler } from "@/server/operator/api";
 import { readOperatorConfig } from "@/server/operator/config";
 import { createAuditListHandler, createSettingsDomainHandlers, createSettingsListHandler } from "@/server/operator-settings/handlers";
+import { OperatorSettingsStore } from "@/server/operator-settings/store";
 
 const operator = "0x1111111111111111111111111111111111111111" as const;
 const customer = "0x2222222222222222222222222222222222222222" as const;
@@ -19,6 +20,34 @@ const request = (path: string, body?: unknown) => new Request(`https://home.test
   method: "PUT",
   headers: { origin: "https://home.test", "content-type": "application/json" },
   body: JSON.stringify(body),
+});
+
+test.each(["oversized", "content-length", "invalid-length", "malformed", "invalid-utf8", "empty", "aborted", "wrong-type", "missing-type"])("settings PUT rejects %s bodies before data access", async (failure) => {
+  let queries = 0;
+  const store = new OperatorSettingsStore({
+    query: async () => { queries++; throw new Error("invalid request reached database"); },
+    transaction: async () => { queries++; throw new Error("invalid request reached transaction"); },
+  });
+  const { PUT } = createSettingsDomainHandlers({
+    authorize: async () => session(operator),
+    config: () => readOperatorConfig({ HOME_OPERATOR_ADDRESSES: operator }),
+    store: () => store,
+  });
+  const body = JSON.stringify({ version: 1, expectedRevision: 0, operator, value: store.registry.support?.defaults });
+  const headers = new Headers({ origin: "https://home.test" });
+  if (failure !== "missing-type") headers.set("content-type", failure === "wrong-type" ? "text/plain" : "application/json");
+  if (failure === "content-length") headers.set("content-length", "16385");
+  if (failure === "invalid-length") headers.set("content-length", "invalid");
+  const input = new Request("https://home.test/api/admin/settings/support", {
+    method: "PUT", headers,
+    signal: failure === "aborted" ? AbortSignal.abort() : undefined,
+    body: failure === "oversized" ? " ".repeat(16_384) + body : failure === "malformed" ? "{" : failure === "invalid-utf8" ? new Uint8Array([0x22, 0xff, 0x22]) : failure === "empty" ? undefined : new TextEncoder().encode(body),
+  });
+  const response = await PUT(input, context);
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: { code: "INVALID_REQUEST" } });
+  expect(queries).toBe(0);
+  expect(input.body?.locked ?? false).toBe(false);
 });
 
 test("operator authorization precedes malformed-body parsing and settings or audit data access", async () => {

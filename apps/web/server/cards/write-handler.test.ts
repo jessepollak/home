@@ -25,6 +25,47 @@ describe("card POST route contracts and owner fence", () => {
     expect((await handlers.enrollment(forwarded)).status).toBe(200);
     expect(seen.at(-1)).toBe("owner-id:http://localhost/card?return=verification");
   });
+  test("all writes map malformed, oversized and aborted bodies to the same invalid request", async () => {
+    let calls = 0;
+    const handlers = createCardWriteHandlers({ authorize: async () => session,
+      customer: async () => { calls++; return { id: "owner-id" }; },
+      service: () => ({ enroll: async () => "https://bridge.withpersona.com/inquiry",
+        issue: async () => ({ id: "ic_123", status: "active" as const }), freeze: async () => "ic_123" }) });
+    for (const handle of [handlers.enrollment, handlers.issue, (input: Request) => handlers.freeze(input, "ic_123", true)]) {
+      const controller = new AbortController();
+      let cancelled = false;
+      const aborted = new Request(request(), { signal: controller.signal,
+        body: new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } }) });
+      const pending = handle(aborted);
+      controller.abort();
+      const cases = [
+        await pending,
+        ...await Promise.all(["{", "[]", "{}".padEnd(1025, " "), "€".repeat(1025)].map((body) => handle(new Request(request(), { body })))),
+        await handle(request({ "content-type": "text/plain" })),
+        await handle(new Request(request(), { body: new Uint8Array([0xff]) })),
+        await handle(new Request(request(), { body: new ReadableStream<Uint8Array>({ start(stream) { stream.error(new Error("read failed")); } }) })),
+      ];
+      for (const response of cases) {
+        expect(response.status).toBe(400);
+        expect(parseCardWriteError(await response.json())?.error.code).toBe("INVALID_CARD_REQUEST");
+      }
+      expect(cancelled).toBe(true);
+      expect(aborted.body?.locked).toBe(false);
+    }
+    expect(calls).toBe(0);
+  });
+
+  test("retains 1024-character boundary and ignores legacy unchecked length headers", async () => {
+    const handlers = createCardWriteHandlers({ authorize: async () => session, customer: async () => ({ id: "owner-id" }),
+      service: () => ({ enroll: async () => "https://bridge.withpersona.com/inquiry",
+        issue: async () => ({ id: "ic_123", status: "active" as const }), freeze: async () => "ic_123" }) });
+    for (const length of ["invalid", "1000000"]) {
+      const response = await handlers.issue(new Request(request({ "content-length": length }), { body: "{}".padEnd(1024, " ") }));
+      expect(response.status).toBe(200);
+      expect(parseCardWriteResponse(await response.json())?.card.id).toBe("ic_123");
+    }
+  });
+
   test("no provider calls without auth, owner, same-origin JSON, or valid card ID", async () => {
     let writes = 0;
     const deps = { customer: async () => ({ id: "owner-id" }), service: () => ({ enroll: async () => { writes++; return "https://bridge.withpersona.com/inquiry"; },

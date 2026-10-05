@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getAddress, isAddress } from "viem";
 import { readBridgeConfig, type BridgeConfig } from "../bridge/config";
 
@@ -15,7 +17,7 @@ function lowercaseAddress(value: string): `0x${string}` | null {
   return isAddress(lowercase) ? lowercase : null;
 }
 
-export function readCardSpenderBlocklist(env: Readonly<Record<string, string | undefined>> = process.env): ReadonlySet<`0x${string}`> {
+export function readCardSpenderBlocklist(env: Readonly<Record<string, string | undefined>> = serverEnvironment()): ReadonlySet<`0x${string}`> {
   const values = [env.BRIDGE_PROGRAM_SPENDER, ...((env.BRIDGE_PROGRAM_RETIRED_SPENDERS ?? "").split(","))];
   return new Set(values.flatMap((value) => {
     const address = value ? lowercaseAddress(value.trim()) : null;
@@ -23,7 +25,7 @@ export function readCardSpenderBlocklist(env: Readonly<Record<string, string | u
   }));
 }
 
-export function readCardAllowanceRegistry(env: Readonly<Record<string, string | undefined>> = process.env): CardAllowanceRegistry | null {
+export function readCardAllowanceRegistry(env: Readonly<Record<string, string | undefined>> = serverEnvironment()): CardAllowanceRegistry | null {
   const bridge = readBridgeConfig(env);
   if (!bridge) return null;
   const raw = env.BRIDGE_PROGRAM_RETIRED_SPENDERS;

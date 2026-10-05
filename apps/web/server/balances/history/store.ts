@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readDatabaseUrl } from "@/server/config/env";
+
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import type { FiatCurrencyCode } from "@/config/regions";
 import type {
@@ -372,7 +374,7 @@ let runtimeStore: HistoryStore | null = null;
 
 export function getHistoryStore(): HistoryStore | null {
   if (runtimeStore) return runtimeStore;
-  if (!process.env.DATABASE_URL?.trim()) return null;
+  if (!readDatabaseUrl()) return null;
   runtimeStore = new PostgresHistoryStore(getSqlExecutor());
   return runtimeStore;
 }

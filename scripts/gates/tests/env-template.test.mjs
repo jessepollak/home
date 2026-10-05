@@ -30,7 +30,6 @@ const PLATFORM_ALLOWLIST = [
   "VERCEL_GIT_PULL_REQUEST_ID", // Vercel-owned PR number, linked from Storybook review boards
   "VERCEL_GIT_REPO_OWNER", // Vercel-owned repository owner for Storybook review links
   "VERCEL_GIT_REPO_SLUG", // Vercel-owned repository name for Storybook review links
-  "VERCEL_PROJECT_PRODUCTION_URL", // Vercel-owned production deployment hostname
   "VERCEL_URL", // Vercel-owned unique deployment hostname for Storybook review links
 ];
 

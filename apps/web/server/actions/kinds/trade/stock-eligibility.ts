@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { privateJson } from "@/server/http/private-response";
 import { readRequestIsoCountry } from "@/server/region/request-country";
@@ -10,7 +12,7 @@ import { TradePreparationError } from "./permit2";
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-export function readTrustedEdgeCountry(request: Request, env: Env = process.env): string | null {
+export function readTrustedEdgeCountry(request: Request, env: Env = serverEnvironment()): string | null {
   return env.VERCEL === "1" || env.HOME_TRUST_EDGE_COUNTRY_HEADER === "true" ? readRequestIsoCountry(request.headers) : null;
 }
 

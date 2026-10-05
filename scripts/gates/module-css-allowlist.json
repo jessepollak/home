@@ -26,5 +26,9 @@
   {
     "path": "apps/web/components/ui/borrow-illustration.module.css",
     "reason": "The SVG illustration has state-driven stroke-draw keyframes and view-box-relative tilt geometry."
+  },
+  {
+    "path": "apps/web/components/ui/add-cash-illustration.module.css",
+    "reason": "The owned SVG illustration needs scoped stroke-draw and plane-entry keyframes, view-box-relative coin motion, RAF-ready pausing, and a reduced-motion static final state."
   }
 ]

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqualBytes } from "@/server/http/hmac";
 import type { CreateOrderResult, OrderIntent, ProviderContext } from "@/shared/funding/provider-contract";
 import { openSecret, resolveSecretKeyring, sealSecret, type SecretAad } from "@/server/secrets/at-rest";
 import type { FundingUserTokenKey, FundingProviderUserTokenStore } from "./user-token-store";
@@ -18,7 +18,7 @@ export function userTokenAad(binding: FundingUserTokenBinding): SecretAad { retu
 const REJECTION_CLEAR_ATTEMPTS = 3;
 function sameToken(left: string, right: string): boolean {
   const a = Buffer.from(left, "utf8"), b = Buffer.from(right, "utf8");
-  return a.length === b.length && timingSafeEqual(a, b);
+  return timingSafeEqualBytes(a, b);
 }
 export class FundingUserTokenVault {
   private readonly keyring: ReturnType<typeof resolveSecretKeyring>;

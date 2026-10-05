@@ -206,7 +206,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
   });
 }
 
-test("settings links to money in and out", { tag: "@smoke" }, async ({ page, context }) => {
+test("settings links to operator editors, including Products without a database", { tag: "@smoke" }, async ({ page, context }) => {
   await setSession(context, admin);
   await page.goto("/admin/settings");
   await expect(page.locator("[data-operator-ready=true]")).toBeVisible();
@@ -214,6 +214,15 @@ test("settings links to money in and out", { tag: "@smoke" }, async ({ page, con
   // A first dev-server navigation compiles this authenticated route on demand.
   await expectNavigation(page, /\/admin\/settings\/funding$/);
   await expect(page.getByRole("heading", { name: "Money in and out", exact: true })).toBeVisible();
+  await page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: "Settings", exact: true }).click();
+  await expectNavigation(page, /\/admin\/settings$/);
+  await page.getByRole("link", { name: /Products and markets/ }).click();
+  await expectNavigation(page, /\/admin\/settings\/products$/);
+  await expect(page.getByRole("heading", { name: "Products and markets", exact: true })).toBeVisible();
+  await expect(page.getByText("Settings could not load.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save settings", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByText("Settings could not load.", { exact: true })).toBeVisible();
 });
 
 test("no Home session redirects to sign-in, while deployment access runs first", async ({ page, context }) => {

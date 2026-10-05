@@ -29,6 +29,12 @@
       "kind": "assertion",
       "count": 1,
       "reason": "The fixture transport parses its own request body and casts it to the message shape it echoes back"
+    },
+    {
+      "path": "apps/web/server/cdp/auth.test.ts",
+      "kind": "assertion",
+      "count": 1,
+      "reason": "Intentionally malformed SDK return fixture exercises rejection of a non-string token the SDK type forbids."
     }
   ]
 }

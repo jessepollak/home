@@ -1,5 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { createRipioClient, RipioProviderError, sameRipioDecimal } from "./client";
+import { fixtureFetch } from "@/tests/helpers/fetch";
+import { parseJson } from "@/tests/helpers/read-json";
+import type { ProviderContext } from "@/shared/funding/provider-contract";
+import { createProviderContext } from "../../core/provider-context";
+import { createRipioClient as createClient, RipioProviderError, sameRipioDecimal } from "./client";
+import { ripioManifest } from "./manifest";
+
+function createRipioClient(country: "AR" | "BR", options: {
+  env: Record<string, string>;
+  fetchImplementation: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  now?: () => number;
+}) {
+  const ctx = createProviderContext({
+    manifest: ripioManifest,
+    region: country,
+    paymentMethodId: country === "AR" ? "bank_transfer" : "pix",
+    env: { ...options.env, [`RIPIO_WEBHOOK_SECRET_${country}`]: "synthetic-webhook-secret" },
+    fetchImplementation: fixtureFetch(options.fetchImplementation),
+  });
+  return createClient(country, { env: options.env, request: ctx.request, now: options.now });
+}
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const CUSTOMER = "22222222-2222-4222-8222-222222222222";
@@ -55,7 +75,152 @@ function productionTransaction(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const checksumAddress = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed" as const;
+const lowercaseAddress = "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed" as const;
+const invalidChecksumAddress = "0x5AAeb6053F3E94C9b9A09f33669435E7Ef1BeAed" as const;
+
+describe("Ripio branded provider ingress", () => {
+  test.each([
+    [lowercaseAddress, checksumAddress],
+    [checksumAddress, lowercaseAddress],
+  ] as const)("normalizes deposit echoes while preserving quote and onramp wire fields for %s", async (destination, depositAddress) => {
+    const bodies: unknown[] = [];
+    const client = createRipioClient("AR", { env, fetchImplementation: async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/oauth2/token/") return token();
+      if (path.includes("Networks")) return arCatalog();
+      if (init?.body) bodies.push(parseJson(String(init.body)));
+      if (path === "/api/v1/quotes/") return Response.json({ quoteId: QUOTE, customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", finalFromAmount: "2100", toAmount: "2100", finalToAmount: "2100", rate: "1", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
+      const transaction = productionTransaction({ externalRef: EXTERNAL, depositAddress, txnHash: `0x${"AB".repeat(32)}` });
+      return Response.json(init?.method === "POST" ? { transaction, fiatPaymentInstructions: { cvu: "1234567890123456789012" } } : transaction);
+    } });
+    await client.createQuote({ country: "AR", customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination });
+    const binding = { ...expectedBinding, destination };
+    expect(await client.createOnramp({ ...binding, fiatAmount: "2100" })).toMatchObject({ destination: lowercaseAddress, txnHash: `0x${"ab".repeat(32)}` });
+    expect(await client.getTransaction(ID, binding)).toMatchObject({ destination: lowercaseAddress, txnHash: `0x${"ab".repeat(32)}` });
+    expect(bodies).toEqual([
+      { customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer" },
+      { customerId: CUSTOMER, quoteId: QUOTE, depositAddress: destination, externalRef: EXTERNAL },
+    ]);
+  });
+
+  test.each([invalidChecksumAddress, "0x1234", "0xgggggggggggggggggggggggggggggggggggggggg"] as const)("rejects invalid destination %s before quote or create I/O", async (destination) => {
+    let calls = 0;
+    const client = createRipioClient("AR", { env, fetchImplementation: async () => { calls += 1; return token(); } });
+    await expect(client.createQuote({ country: "AR", customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination })).rejects.toMatchObject({ code: "invalid-request" });
+    await expect(client.createOnramp({ ...expectedBinding, destination, fiatAmount: "2100" })).rejects.toMatchObject({ code: "invalid-request" });
+    expect(calls).toBe(0);
+  });
+
+  test.each([
+    ...[invalidChecksumAddress, "0x1234", `0x${"g".repeat(40)}`].map((depositAddress) => ({ depositAddress })),
+    ...["0x1234", `0x${"g".repeat(64)}`, `0X${"AB".repeat(32)}`, 42].map((txnHash) => ({ txnHash })),
+  ])("fails malformed transaction fields closed at create and retrieval: %j", async (overrides) => {
+    const client = createRipioClient("AR", { env, fetchImplementation: async (input, init) => {
+      if (new URL(String(input)).pathname === "/oauth2/token/") return token();
+      const transaction = productionTransaction(overrides);
+      return Response.json(init?.method === "POST" ? { transaction, fiatPaymentInstructions: { cvu: "1234567890123456789012" } } : transaction);
+    } });
+    await expect(client.createOnramp({ ...expectedBinding, fiatAmount: "2100" })).rejects.toMatchObject({ code: "ambiguous-create" });
+    await expect(client.getTransaction(ID, expectedBinding)).rejects.toMatchObject({ code: "invalid-response" });
+  });
+});
+
 describe("Ripio production REST client", () => {
+  test.each(["transport", "timeout", "aborted"] as const)("keeps token %s unavailable for reads and creates", async (kind) => {
+    const request: ProviderContext["request"] = async (_input, options) => {
+      expect(options).toMatchObject({ maxBytes: 64 * 1024, maxHeaderBytes: 16 * 1024, responseType: "json" });
+      expect(options.errorBodyMaxBytes).toBeUndefined();
+      return { ok: false, kind };
+    };
+    const client = createClient("AR", { env, request });
+    await expect(client.getDepositNetworks()).rejects.toMatchObject({ code: "unavailable", status: null });
+    await expect(client.createCustomer({ email: "person@example.com" })).rejects.toMatchObject({ code: "unavailable", status: null });
+  });
+
+  test.each(["transport", "timeout", "aborted"] as const)("maps request %s to unavailable for reads and ambiguous for creates", async (kind) => {
+    const bounded = createProviderContext({
+      manifest: ripioManifest, region: "AR", paymentMethodId: "bank_transfer",
+      env: { ...env, RIPIO_WEBHOOK_SECRET_AR: "synthetic-webhook-secret" },
+      fetchImplementation: fixtureFetch(async () => token()),
+    }).request;
+    let tokenCalls = 0;
+    let requestCalls = 0;
+    const request: ProviderContext["request"] = async (input, options) => {
+      expect(options).toMatchObject({ maxBytes: 64 * 1024, maxHeaderBytes: 16 * 1024, responseType: "json" });
+      expect(options.errorBodyMaxBytes).toBeUndefined();
+      if (new URL(input).pathname === "/oauth2/token/") {
+        tokenCalls += 1;
+        return bounded(input, options);
+      }
+      requestCalls += 1;
+      return { ok: false, kind };
+    };
+    const client = createClient("AR", { env, request });
+    await expect(client.getDepositNetworks()).rejects.toMatchObject({ code: "unavailable", status: null });
+    await expect(client.createCustomer({ email: "person@example.com" })).rejects.toMatchObject({ code: "ambiguous-create", status: null });
+    expect(tokenCalls).toBe(1);
+    expect(requestCalls).toBe(2);
+  });
+
+  test.each(["oversized", "invalid"] as const)("maps a %s success-body failure without status to invalid-response", async (kind) => {
+    const tokenFailure: ProviderContext["request"] = async () => ({ ok: false, kind });
+    await expect(createClient("AR", { env, request: tokenFailure }).getDepositNetworks()).rejects.toMatchObject({ code: "invalid-response", status: null });
+    const client = createRipioClient("AR", { env, fetchImplementation: async (input) => {
+      if (new URL(String(input)).pathname === "/oauth2/token/") return token();
+      return new Response(kind === "oversized" ? "x".repeat(65 * 1024) : "not-json");
+    } });
+    await expect(client.getDepositNetworks()).rejects.toMatchObject({ code: "invalid-response", status: null });
+    await expect(client.createCustomer({ email: "person@example.com" })).rejects.toMatchObject({ code: "ambiguous-create", status: null });
+  });
+
+  test("keeps token caching, expiry cap and one-minute refresh margin unchanged", async () => {
+    let now = 0;
+    let tokenPosts = 0;
+    const client = createRipioClient("AR", { env, now: () => now, fetchImplementation: async (input) => {
+      if (new URL(String(input)).pathname !== "/oauth2/token/") return Response.json([]);
+      tokenPosts += 1;
+      return Response.json({ access_token: "provider-access-token", expires_in: 72_000 });
+    } });
+    await client.getDepositNetworks();
+    await client.getWithdrawalNetworks();
+    now = 36_000_000 - 60_001;
+    await client.getDepositNetworks();
+    expect(tokenPosts).toBe(1);
+    now += 1;
+    await client.getDepositNetworks();
+    expect(tokenPosts).toBe(2);
+  });
+
+  test.each([401, 403])("clears the cached token after request HTTP %s without reading the error body", async (status) => {
+    let tokenPosts = 0;
+    let requestCalls = 0;
+    let bodyReads = 0;
+    const client = createRipioClient("AR", { env, fetchImplementation: async (input) => {
+      if (new URL(String(input)).pathname === "/oauth2/token/") {
+        tokenPosts += 1;
+        return token();
+      }
+      requestCalls += 1;
+      if (requestCalls > 1) return Response.json([]);
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(controller) { bodyReads += 1; controller.enqueue(new Uint8Array([1])); },
+      }, { highWaterMark: 0 }), { status, headers: { "x-oversized": "x".repeat(17 * 1024) } });
+    } });
+    await expect(client.getDepositNetworks()).rejects.toMatchObject({ code: "unauthorized", status });
+    await client.getDepositNetworks();
+    expect(tokenPosts).toBe(2);
+    expect(bodyReads).toBe(0);
+  });
+
+  test.each([401, 403, 400, 429, 503])("maps token HTTP %s by status without reading the error body", async (status) => {
+    let reads = 0;
+    const client = createRipioClient("AR", { env, fetchImplementation: async () => new Response(new ReadableStream<Uint8Array>({
+      pull(controller) { reads += 1; controller.enqueue(new Uint8Array([1])); },
+    }, { highWaterMark: 0 }), { status }) });
+    await expect(client.getDepositNetworks()).rejects.toMatchObject({ code: status === 401 || status === 403 ? "unauthorized" : "unavailable", status });
+    expect(reads).toBe(0);
+  });
   test("uses only the exact country credential pair and production host", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const client = createRipioClient("AR", {
@@ -108,7 +273,7 @@ describe("Ripio production REST client", () => {
         call += 1;
         if (call === 1) return token();
         if (call === 2 || call === 3) return arCatalog();
-        quoteBody = JSON.parse(String(init?.body));
+        quoteBody = parseJson(String(init?.body));
         return Response.json({ quoteId: QUOTE, customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", finalFromAmount: "2100", toAmount: "2100", finalToAmount: "2100", rate: "1", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
       },
     });

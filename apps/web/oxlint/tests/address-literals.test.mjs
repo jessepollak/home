@@ -148,7 +148,7 @@ describe("no-address-literal-regex", () => {
       { code: await readFile(path.join(appsWebDir, entry), "utf8"), path: entry },
     ])));
     // This count may only go down; lower it in the same change that deletes an entry.
-    expect(addressLiteralExceptions.size).toBe(50);
+    expect(addressLiteralExceptions.size).toBe(47);
     const findings = await lintFixtures(fixtures, { rule: "no-address-literal-regex", options: { allow: [] } });
     for (const [entry, count] of addressLiteralExceptions) {
       expect(findings[entry], `Update or delete the address-literal exception for ${entry}`).toHaveLength(count);

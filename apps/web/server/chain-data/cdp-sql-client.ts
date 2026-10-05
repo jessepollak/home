@@ -1,8 +1,9 @@
 import "server-only";
 
-import { generateJwt } from "@coinbase/cdp-sdk/auth";
+import { CdpAuthError, signCdpRequest } from "@/server/cdp/auth";
+import { readCdpCredentials, serverEnvironment } from "@/server/config/env";
 import { isRecord, isUnknownArray } from "@/shared/guards";
-import { readJson } from "@/shared/http/read-json";
+import { createUpstreamDeadline, upstreamRequest } from "@/server/http/upstream";
 import { ChainDataError } from "./errors";
 import { readSqlRejection } from "./cdp-sql-rejection";
 import type {
@@ -44,26 +45,37 @@ export type CdpSqlHttpTransportOptions = {
 };
 
 export function createCdpSqlAuthFromEnv(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>> = serverEnvironment(),
 ): CdpSqlAuth {
   const mode = env.CDP_SQL_AUTH_MODE?.trim() || defaultCdpSqlAuthMode(env);
   if (mode === "signed-jwt") {
-    const apiKeyId = env.CDP_API_KEY_ID?.trim();
-    const apiKeySecret = env.CDP_API_KEY_SECRET?.trim();
-    if (!apiKeyId || !apiKeySecret) {
+    const credentials = readCdpCredentials(env);
+    if (credentials.status !== "complete") {
       throw new ChainDataError(
         "not-configured",
         "CDP SQL signed-jwt auth requires CDP_API_KEY_ID and CDP_API_KEY_SECRET.",
       );
     }
+    const authEnv = { CDP_API_KEY_ID: credentials.apiKeyId, CDP_API_KEY_SECRET: credentials.apiKeySecret };
     return {
       mode: "signed-jwt",
-      generateBearerToken: (request) =>
-        generateJwt({
-          apiKeyId,
-          apiKeySecret,
-          ...request,
-        }),
+      async generateBearerToken(request) {
+        try {
+          return (await signCdpRequest({
+            env: authEnv,
+            method: request.requestMethod,
+            host: request.requestHost,
+            path: request.requestPath,
+          })).token;
+        } catch (error) {
+          if (error instanceof CdpAuthError && error.code === "malformed-token") {
+            throw new ChainDataError("not-configured", error.tokenIssue === "missing"
+              ? "CDP SQL bearer token is missing."
+              : "CDP SQL bearer token is malformed.");
+          }
+          throw error;
+        }
+      },
     };
   }
   if (mode !== "client-api-key") {
@@ -87,7 +99,7 @@ function defaultCdpSqlAuthMode(
   env: Readonly<Record<string, string | undefined>>,
 ): "client-api-key" | "signed-jwt" {
   if (env.CDP_SQL_CLIENT_API_KEY?.trim()) return "client-api-key";
-  if (env.CDP_API_KEY_ID?.trim() || env.CDP_API_KEY_SECRET?.trim()) return "signed-jwt";
+  if (readCdpCredentials(env).status !== "unset") return "signed-jwt";
   return "client-api-key";
 }
 
@@ -145,18 +157,15 @@ export function createCdpSqlHttpTransport({
         );
       }
       throwIfRequestAborted(request.signal);
-      const controller = new AbortController();
-      const onAbort = () => controller.abort(request.signal?.reason);
-      request.signal?.addEventListener("abort", onAbort, { once: true });
-      const timeout = setTimeout(
-        () => controller.abort("cdp-sql-timeout"),
-        timeoutMs,
-      );
-
-      try {
-        const headerName = ["author", "ization"].join("");
-        const bearerValue = ["Bear", "er ", bearerToken].join("");
-        const response = await fetchImplementation(CDP_SQL_ENDPOINT, {
+      const deadline = createUpstreamDeadline({ timeoutMs, signal: request.signal });
+      const headerName = ["author", "ization"].join("");
+      const bearerValue = ["Bear", "er ", bearerToken].join("");
+      const result = await upstreamRequest(CDP_SQL_ENDPOINT, {
+        deadline,
+        maxBytes: 4 * 1024 * 1024,
+        errorBodyMaxBytes: 8_192,
+        fetchImpl: fetchImplementation,
+        init: {
           method: "POST",
           headers: {
             accept: "application/json",
@@ -167,36 +176,35 @@ export function createCdpSqlHttpTransport({
             sql: request.sql,
             ...(request.cache ? { cache: request.cache } : {}),
           }),
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          if (response.status === 400) {
-            throw new ChainDataError("upstream-error", "CDP SQL rejected the query.", {
-              status: 400,
-              ...await readSqlRejection(response, controller.signal),
-            });
+        },
+        parse: (payload) => {
+          const envelope = parseCdpSqlResponseEnvelope(payload);
+          if (!envelope) {
+            throw new ChainDataError(
+              "invalid-response",
+              "CDP SQL returned an invalid response envelope.",
+            );
           }
-          throw responseError(response);
+          return envelope;
+        },
+      });
+      if (result.ok) return result.value;
+      if (result.kind === "http") {
+        if (result.status === 400) {
+          throw new ChainDataError("upstream-error", "CDP SQL rejected the query.", {
+            status: 400,
+            ...readSqlRejection(result.body),
+          });
         }
-        const payload: unknown = await readJson(response);
-        const envelope = parseCdpSqlResponseEnvelope(payload);
-        if (!envelope) {
-          throw new ChainDataError(
-            "invalid-response",
-            "CDP SQL returned an invalid response envelope.",
-          );
-        }
-        return envelope;
-      } catch (error) {
-        if (error instanceof ChainDataError) throw error;
-        if (controller.signal.aborted) {
-          throw new ChainDataError("timed-out", "CDP SQL request timed out.");
-        }
-        throw new ChainDataError("upstream-error", "CDP SQL request failed.");
-      } finally {
-        clearTimeout(timeout);
-        request.signal?.removeEventListener("abort", onAbort);
+        throw responseError(result.status, result.headers);
       }
+      if (result.kind === "timeout" || result.kind === "aborted") {
+        throw new ChainDataError("timed-out", "CDP SQL request timed out.");
+      }
+      if (result.kind === "oversized" || result.kind === "invalid") {
+        throw new ChainDataError("invalid-response", "CDP SQL returned an invalid response envelope.");
+      }
+      throw new ChainDataError("upstream-error", "CDP SQL request failed.");
     },
   };
 }
@@ -225,8 +233,7 @@ async function resolveBearerToken(auth: CdpSqlAuth): Promise<string> {
   return token;
 }
 
-function responseError(response: Response): ChainDataError {
-  const status = response.status;
+function responseError(status: number, headers: Headers): ChainDataError {
   if (status === 401 || status === 403) {
     return new ChainDataError(
       "unauthorized",
@@ -252,7 +259,7 @@ function responseError(response: Response): ChainDataError {
       "CDP SQL rate limit was reached; the caller must back off.",
       {
         status,
-        retryAfterMs: parseRetryAfter(response.headers.get("retry-after")),
+        retryAfterMs: parseRetryAfter(headers.get("retry-after")),
       },
     );
   }

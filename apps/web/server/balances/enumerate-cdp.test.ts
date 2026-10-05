@@ -528,6 +528,73 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(await failure).toMatchObject({ code, detail, pagesRead: 0 });
   });
 
+  test.each([
+    { name: "oversized", laterPage: false, detail: "oversized-body" },
+    { name: "oversized", laterPage: true, detail: "oversized-body" },
+    { name: "truncated", laterPage: false, detail: "malformed-json" },
+    { name: "truncated", laterPage: true, detail: "malformed-json" },
+  ])("rejects a $name success body with earlier inventory: $laterPage", async ({ name, laterPage, detail }) => {
+    const payload = JSON.stringify({ balances: [token(IDRX, "2")] });
+    let calls = 0;
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async () => {
+        calls += 1;
+        if (laterPage && calls === 1) {
+          return Response.json({ balances: [token(USDC, "1")], nextPageToken: "page-two" });
+        }
+        return name === "oversized"
+          ? new Response(payload + " ".repeat(1024 * 1024))
+          : new Response(payload, {
+            headers: { "content-length": String(new TextEncoder().encode(payload).byteLength + 1) },
+          });
+      },
+    });
+
+    await expect(client.listBalances({ address: ADDRESS })).rejects.toMatchObject({
+      code: "invalid-response",
+      detail,
+      pagesRead: laterPage ? 1 : 0,
+    });
+    expect(calls).toBe(laterPage ? 2 : 1);
+  });
+
+  test("rejects a first page when its inventory deadline expires during the body read", async () => {
+    let now = 0;
+    let calls = 0;
+    const scheduledDelays: number[] = [];
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      clock: {
+        now: () => now,
+        timeout: (ms) => {
+          scheduledDelays.push(ms);
+          return new AbortController().signal;
+        },
+      },
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(new ReadableStream<Uint8Array>({
+          pull(controller) {
+            now = 4_000;
+            controller.enqueue(new TextEncoder().encode(JSON.stringify({ balances: [token(USDC, "1")] })));
+            controller.close();
+          },
+        }, { highWaterMark: 0 }));
+      },
+    });
+
+    await expect(client.listBalances({ address: ADDRESS })).rejects.toMatchObject({
+      code: "timed-out",
+      detail: "page-ceiling",
+      pagesRead: 0,
+    });
+    expect(calls).toBe(1);
+    expect(scheduledDelays).toEqual([4_000]);
+  });
+
   test("fails the whole enumeration with one page read when page two has a malformed amount", async () => {
     let calls = 0;
     const client = createCdpTokenBalancesClient({

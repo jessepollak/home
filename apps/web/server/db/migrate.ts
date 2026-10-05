@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getSqlExecutor, type SqlExecutor } from "./sql";
@@ -12,7 +14,7 @@ type Migration = {
   path: string;
 };
 
-const decision = migrationGateDecision(process.env);
+const decision = migrationGateDecision(serverEnvironment());
 if (!decision.run) {
   console.log(
     decision.reason === "database-unset"

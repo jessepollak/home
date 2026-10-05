@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import { createBoundedCache } from "@/server/cache/bounded";
 
 import { CODEX_CACHE_TTL_MS, CODEX_REQUEST_TIMEOUT_MS } from "./config";
@@ -160,7 +162,7 @@ export function getCodexMarketHistory(
   range: string,
   options: { speculative?: boolean } = {},
 ): Promise<MarketPriceHistoryResponse> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!sharedReader || sharedKey !== apiKey) {
     sharedKey = apiKey;
     sharedReader = createCodexMarketHistoryReader({ apiKey });

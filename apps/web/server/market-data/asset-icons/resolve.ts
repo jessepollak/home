@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import { cryptoAssets, memeAssets, stockAssets } from "@/config/invest-assets";
 import { readCodexTokenImages, contractKey } from "../codex/token-images";
 import type { FetchLike } from "../codex/execute";
@@ -56,7 +58,7 @@ let sharedResolver: ReturnType<typeof createAssetIconResolver> | null = null;
 let sharedKey: string | undefined;
 
 export function getResolvedAssetIcons(): Promise<AssetIconMap> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!sharedResolver || sharedKey !== apiKey) {
     sharedKey = apiKey;
     sharedResolver = createAssetIconResolver({ apiKey });

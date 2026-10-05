@@ -82,12 +82,12 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
 
       const apiOrigin = options.provider.manifest.onramp?.apiOrigins[0];
       if (!apiOrigin) throw new Error("Conformance requires an API origin.");
-      const allowedUrl = new URL("/conformance", apiOrigin);
-      await ctx.fetch(allowedUrl, { redirect: "follow" });
+      const allowedUrl = new URL("/conformance", apiOrigin).href;
+      expect(await ctx.request(allowedUrl, { maxBytes: 1024 })).toEqual({ ok: false, kind: "http", status: 302 });
       expect(redirectMode).toBe("manual");
       expect(outboundCalls).toBe(1);
 
-      await expect(ctx.fetch("https://evil.example/conformance")).rejects.toBeInstanceOf(
+      await expect(ctx.request("https://evil.example/conformance", { maxBytes: 1024 })).rejects.toBeInstanceOf(
         FundingProviderFetchError,
       );
       expect(outboundCalls).toBe(1);
@@ -105,9 +105,10 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
       });
       const alreadyAborted = new AbortController();
       alreadyAborted.abort();
-      await expect(abortedCtx.fetch(allowedUrl, {
+      expect(await abortedCtx.request(allowedUrl, {
         signal: alreadyAborted.signal,
-      })).rejects.toBeInstanceOf(FundingProviderFetchError);
+        maxBytes: 1024,
+      })).toEqual({ ok: false, kind: "aborted" });
       expect(abortedCalls).toBe(0);
 
       const timeoutCtx = createProviderContext({
@@ -119,9 +120,7 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
         fetchImplementation: (async () =>
           new Promise<Response>(() => undefined)) as unknown as typeof fetch,
       });
-      await expect(timeoutCtx.fetch(allowedUrl)).rejects.toBeInstanceOf(
-        FundingProviderFetchError,
-      );
+      expect(await timeoutCtx.request(allowedUrl, { maxBytes: 1024 })).toEqual({ ok: false, kind: "timeout" });
     });
 
     test("binds the core destination, reference policy, asset, and exact atomic amount", async () => {

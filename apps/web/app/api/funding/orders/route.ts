@@ -2,7 +2,7 @@ import { authorizeFundingSession, getFundingCore } from "@/server/funding/core/r
 import {
   handleFundingOpenOrderGet,
   handleFundingOrderPost,
-} from "./handler";
+} from "@/server/funding/handlers/orders";
 
 
 const postDependencies = {

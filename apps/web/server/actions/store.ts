@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readDatabaseUrl } from "@/server/config/env";
+
 import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
@@ -648,7 +650,7 @@ export function ownerFromActionKey(key: string): MoneyActionOwner | null {
 
 export function getActionsStore(): ActionsStore {
   if (runtimeStore) return runtimeStore;
-  const url = process.env.DATABASE_URL?.trim();
+  const url = readDatabaseUrl();
   if (!url) throw new Error("DATABASE_URL is required for actions");
   runtimeStore = new ActionsStore(createPostgresSqlExecutor(url));
   return runtimeStore;

@@ -1,5 +1,5 @@
 import { authorizeFundingSession, getFundingCore } from "@/server/funding/core/runtime";
-import { handleFundingOrderResolutionPost } from "../../handler";
+import { handleFundingOrderResolutionPost } from "@/server/funding/handlers/orders";
 
 
 const dependencies = {

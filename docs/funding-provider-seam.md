@@ -65,7 +65,7 @@ export type FundingProviderManifest = {
     paymentMethods: ReadonlyArray<{ id: string; label: string }>;
     env: ReadonlyArray<string>;       // credentials required; provider is inert until all are set
   }>;
-  apiOrigins: ReadonlyArray<string>;  // ctx.fetch refuses other hosts
+  apiOrigins: ReadonlyArray<string>;  // ctx.request refuses other hosts
   redirectOrigins?: ReadonlyArray<string>;
   sandbox?: boolean;
   reference: "home" | "provider";     // who assigns the order reference (Ripio: home; IDRX: provider)
@@ -90,8 +90,25 @@ export type ProviderContext = {
   binding: { region: CountryCode; asset: FundingAsset; paymentMethod: { id: string; label: string } };
   env: Readonly<Record<string, string>>;   // only the manifest's declared variables
   sandbox: boolean;
-  fetch: typeof fetch;                     // origin allowlist, redirect: "manual", timeout
+  request: <T = unknown>(input: string, options: ProviderRequestOptions<T>) => Promise<ProviderRequestResult<T>>;
 };
+
+export type ProviderRequestOptions<T = unknown> = {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  headers?: Readonly<Record<string, string>>;
+  body?: string;
+  signal?: AbortSignal;
+  maxBytes: number;
+  maxHeaderBytes?: number;
+  errorBodyMaxBytes?: number;
+  responseType?: "json" | "text";
+  parse?: (value: unknown) => T;
+};
+
+export type ProviderRequestResult<T> =
+  | { ok: true; status: number; value: T }
+  | { ok: false; kind: "http"; status: number; body?: Uint8Array }
+  | { ok: false; kind: "aborted" | "timeout" | "transport" | "oversized" | "invalid" };
 
 export type QuoteIntent = { destination: `0x${string}`; fiatAmount: string; returnUrl: string; customerRef?: string };
 export type Quote = { providerQuoteId?: string; fiatAmount: string; enteredFiatAmount?: string; tokenAmountAtomic: string; fees: Array<{ label: string; amount: string; currency: string }>; expiresAt: string };
@@ -184,7 +201,34 @@ How the ports fit: Ripio is `reference: "home"`, `quotes: true`, an email-create
 
 **Storage.** One table, `funding_orders`, Postgres, with the instruction JSON inline and owner-scoped reads. Instructions are the provider's receiving details; they are deleted from the row when the order reaches a terminal state. Responses are `private, no-store`. When `DATABASE_URL` is not configured, the provider-list route returns no external methods, so Add money remains available through From another wallet only; configured-store failures remain retryable service errors.
 
-**Adapters are trusted code.** They run in-process and are reviewed like any server change. `ctx.fetch` and `ctx.env` keep them honest, not sandboxed; adapters use raw HTTP through `ctx.fetch`, not provider SDKs.
+**Adapters are trusted code.** They run in-process and are reviewed like any server change. `ctx.request` and `ctx.env` keep them honest, not sandboxed; adapters use raw HTTP through `ctx.request`, not provider SDKs (except the deliberate Peer deviation above). The core enforces the origin allowlist, manual redirects, deadline, and response byte bounds. Every request requires `maxBytes` for successful response bodies; the optional `maxHeaderBytes` bounds headers only for successful responses. HTTP error bodies are discarded unless `errorBodyMaxBytes` is provided, in which case they are bounded by that limit. Adapters handle the typed `ProviderRequestResult<T>` rather than reading an unbounded `Response` body. A parser validates the provider payload before the adapter uses `value`:
+
+```ts
+import type { ProviderContext, ProviderRequestResult } from "@/shared/funding/provider-contract";
+
+async function readProviderStatus(ctx: ProviderContext, url: string): Promise<string> {
+  const result: ProviderRequestResult<{ status: string }> = await ctx.request(url, {
+    method: "GET",
+    maxBytes: 64 * 1024,
+    maxHeaderBytes: 1024,
+    responseType: "json",
+    parse(value) {
+      if (typeof value !== "object" || value === null
+        || !("status" in value) || typeof value.status !== "string") {
+        throw new Error("Invalid provider status.");
+      }
+      return { status: value.status };
+    },
+  });
+  if (!result.ok) {
+    if (result.kind === "http") throw new Error(`Provider returned HTTP ${result.status}.`);
+    throw new Error(`Provider request failed: ${result.kind}.`);
+  }
+  return result.value.status;
+}
+```
+
+Adapters map failures to their port's safe outcome: an uncertain create stays `ambiguous` and must not be retried; an uncertain status read stays `unknown`. The example above is a read, not a create/retry template.
 
 ## UI
 
@@ -225,7 +269,7 @@ Order matters only where noted; everything else can run in parallel under the [d
 
 Cut after review to keep the first version small. Each is a follow-up if a real need appears.
 
-- Live-proof JSON, `verify-proof`, `enablement-check`, separate merge/enable gates — record risk-bounded live evidence in the PR/runbook when it is safe and operator-authorized, not in new machinery.
+- Live-proof JSON, `verify-proof`, `enablement-check`, separate merge/enable gates — not built; a route's registry `status` is its availability statement, and live or funded actions still need the [verification ladder](operating-manual.md#verification-ladder)'s authorization.
 - Template generator, `sync-providers`, status generator — copy a reference adapter; one line in `index.ts`.
 - Rollout registry and eligibility allowlists — credentials connect a corridor, and the operator offers it from **Money in and out**. An allowlist is a one-variable follow-up if hosted Home needs it.
 - Webhook inbox and cross-binding recovery — unmatched webhooks are logged; status polling covers the gap.
@@ -298,7 +342,7 @@ Provider-owned customer identity is separate from `funding_orders`. A provider o
 
 Migration `007_funding_provider_customers.sql` reconciles legacy non-null order customer references as `pending`: an order proves identity binding, not verification. Existing order references remain immutable snapshots, but runtime customer lookup no longer scans orders. Owner-scoped customer GET performs at most one Ripio status read for each pending-started row on that query. Exact `COMPLETED` promotes by CAS to `verified`; exact `FAILED` promotes by CAS to `rejected`; every other status, 404, malformed/contradictory response, and HTTP/transport uncertainty preserves pending. Status refresh is read-only at the provider and never issues a write. Quote creation still requires stored `verified` state.
 
-A provider-rejected or dispatch-ambiguous customer setup is terminal in the customer flow and is never retried automatically. An operator must reconcile the durable row with the provider and explicitly restart setup through a separately reviewed recovery process. Ripio follows the public documentation as the implemented contract; production behavior remains unverified and requires separately authorized acceptance. No live acceptance is claimed. If merged independently, PR #614 supersedes PR #603's code while preserving exact head `74db447b` and its contributor attribution in branch ancestry.
+A provider-rejected or dispatch-ambiguous customer setup is terminal in the customer flow and is never retried automatically. An operator must reconcile the durable row with the provider and explicitly restart setup through a separately reviewed recovery process. Ripio follows the public documentation as the implemented contract. Any live or funded provider action still needs separately authorized acceptance. If merged independently, PR #614 supersedes PR #603's code while preserving exact head `74db447b` and its contributor attribution in branch ancestry.
 
 ## Coinbase reusable user credential (#573)
 

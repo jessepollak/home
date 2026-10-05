@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readDatabaseUrl } from "@/server/config/env";
+
 import { after } from "next/server";
 import { isInviteCode } from "@/shared/invites/contract";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
@@ -168,7 +170,7 @@ export class CustomerResolver {
 let runtimeResolver: CustomerResolver | null = null;
 
 export function getCustomerResolver(): CustomerResolver | null {
-  if (!process.env.DATABASE_URL?.trim()) return null;
+  if (!readDatabaseUrl()) return null;
   return runtimeResolver ??= new CustomerResolver(getSqlExecutor());
 }
 

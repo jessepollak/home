@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import type { BalancesCoverage } from "@/shared/balances/types";
 import type { BorrowRead, ReadHolding } from "./types";
@@ -95,7 +97,7 @@ export class PostgresBalanceSnapshotStore implements BalanceSnapshotStore {
 
 let runtimeStore: BalanceSnapshotStore | null = null;
 export function getBalanceSnapshotStore(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>> = serverEnvironment(),
 ): BalanceSnapshotStore {
   if (runtimeStore) return runtimeStore;
   runtimeStore = env.DATABASE_URL?.trim()

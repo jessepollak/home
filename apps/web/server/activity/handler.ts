@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readHomeSessionSecret } from "@/server/config/env";
+
 import { createHmac } from "node:crypto";
 
 import {
@@ -104,7 +106,7 @@ export function createActivityHandler(dependencies: {
       requestPage: activityRequest.cursor === null ? "first" as const : "cursor" as const,
       windowEndAgeSeconds: Math.max(0, Math.floor((requestedAt.getTime() - Date.parse(activityRequest.to)) / 1000)),
       windowEndAlignment: Date.parse(activityRequest.to) % 1000 === 0 ? "whole-second" as const : "sub-second" as const,
-      ...requestFingerprint(session, activityRequest, dependencies.diagnosticKey ?? process.env.HOME_SESSION_SECRET),
+      ...requestFingerprint(session, activityRequest, dependencies.diagnosticKey ?? readHomeSessionSecret()),
     };
     const cardWindow = {
       from: new Date(Date.parse(activityRequest.to) - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString(),

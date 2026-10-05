@@ -35,7 +35,6 @@ const rows: CoverageTableRow[] = [
       provider: "Coinbase",
       asset: "USDC",
       paymentMethods: ["ACH"],
-      evidence: { proofRef: "hosted-production-2026-09-10", checkedAt: "2026-09-10" },
     },
     quote: {
       quotedAt: "2026-09-10T12:00:00.000Z",
@@ -43,7 +42,6 @@ const rows: CoverageTableRow[] = [
       feeSummary: "No Home fee recorded",
       sourceUrl: "https://example.com/quote-observation",
     },
-    registryCheckedAt: "2026-09-10",
   },
   {
     countryCode: "BR",
@@ -55,9 +53,8 @@ const rows: CoverageTableRow[] = [
     stablecoin: { candidate: null },
     portfolio: { status: "deferred", workstreams: [] },
     issuer: { status: "not-researched", rail: "Not recorded", audience: "Not researched", evidence: null },
-    home: { status: "none", provider: null, asset: null, paymentMethods: [], evidence: null },
+    home: { status: "none", provider: null, asset: null, paymentMethods: [] },
     quote: null,
-    registryCheckedAt: "2026-09-10",
   },
 ];
 

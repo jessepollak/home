@@ -1,10 +1,17 @@
 import { createHmac } from "node:crypto";
+import { fixtureFetch } from "@/tests/helpers/fetch";
+import { parseJson } from "@/tests/helpers/read-json";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createProviderContext } from "../../core/provider-context";
 import { describeFundingAdapter } from "../../core/testing/describeFundingAdapter";
 import { ripioProvider } from "./adapter";
 import { ripioManifest } from "./manifest";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
+
+const onramp = ripioProvider.onramp;
+if (!onramp?.createQuote || !onramp.customer) throw new Error("Ripio fixture requires quotes and customer APIs.");
+const createQuote = onramp.createQuote;
+const customer = onramp.customer;
 
 const env = { RIPIO_CLIENT_ID_AR: "client", RIPIO_CLIENT_SECRET_AR: "secret", RIPIO_WEBHOOK_SECRET_AR: "w".repeat(32) };
 function context(fetchImplementation: typeof fetch) { return createProviderContext({ manifest: ripioManifest, region: "AR", paymentMethodId: "bank_transfer", env, fetchImplementation }); }
@@ -33,6 +40,14 @@ describeFundingAdapter({
 });
 
 describe("Ripio funding adapter", () => {
+  test("normalizes checksum-valid status destinations and uppercase transaction hashes", async () => {
+    const ctx = context(fixtureFetch(async (input) => new URL(String(input)).pathname === "/oauth2/token/"
+      ? tokenResponse()
+      : Response.json({ ...transaction("COMPLETED"), depositAddress: "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", txnHash: `0x${"AB".repeat(32)}` })));
+    expect(await onramp.getOrder({ homeOrderId, providerOrderId, providerQuoteId: quoteId, customerRef, transactionType: "MINT", chainId: ctx.binding.asset.chainId, tokenAddress: ctx.binding.asset.address, destination: "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", expectedTokenAmountAtomic: intent.quote.tokenAmountAtomic, tokenDecimals: 18 }, ctx))
+      .toEqual({ state: "sent", providerStatus: "COMPLETED", transactionHash: `0x${"ab".repeat(32)}` });
+  });
+
   test("declares independently configured country bindings", () => {
     expect(ripioManifest.onramp.reference).toBe("home");
     expect(ripioManifest.onramp.quotes).toBe(true);
@@ -65,7 +80,10 @@ describe("Ripio funding adapter", () => {
 
     expect(result).toEqual({ outcome: "ambiguous" });
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toEqual({
+    const line = lines[0];
+    if (line === undefined) throw new Error("Expected the transport diagnostic.");
+    const durationMatcher: unknown = expect.any(Number);
+    expect<unknown>(parseJson(line)).toEqual({
       schema: "home.observability.v2",
       route: "/funding/providers/ripio",
       level: "error",
@@ -74,7 +92,7 @@ describe("Ripio funding adapter", () => {
       outcome: "unavailable",
       provider: "ripio",
       region: "AR",
-      durationMs: expect.any(Number),
+      durationMs: durationMatcher,
     });
     expect(lines[0]).not.toContain(homeOrderId);
     expect(lines[0]).not.toContain(customerRef);
@@ -97,14 +115,16 @@ describe("Ripio funding adapter", () => {
       return new Response('{"quoteId":', { status: 200 });
     }) as unknown as typeof fetch);
 
-    await expect(ripioProvider.onramp!.createQuote!({
+    await expect(createQuote({
       destination: intent.destination,
       fiatAmount: intent.fiatAmount,
       returnUrl: intent.returnUrl,
       customerRef: intent.customerRef,
     }, ctx)).rejects.toMatchObject({ code: "ambiguous-create" });
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toMatchObject({
+    const line = lines[0];
+    if (line === undefined) throw new Error("Expected the quote diagnostic.");
+    expect(parseJson(line)).toMatchObject({
       kind: "funding-order",
       code: "PROVIDER_INVALID_RESPONSE",
       outcome: "failed",
@@ -118,18 +138,18 @@ describe("Ripio funding adapter", () => {
       const ctx = context((async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
         ? tokenResponse()
         : Response.json({ customerId: customerRef, status: providerStatus })) as unknown as typeof fetch);
-      await expect(ripioProvider.onramp!.customer!.getStatus({ customerRef }, ctx)).resolves.toBe(expected);
+      await expect(customer.getStatus({ customerRef }, ctx)).resolves.toBe(expected);
     }
     const mismatched = context((async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
       ? tokenResponse()
       : Response.json({ customerId: homeOrderId, status: "COMPLETED", createdAt: "2026-09-18T00:00:00.000Z" })) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.customer!.getStatus({ customerRef }, mismatched)).rejects.toMatchObject({ code: "invalid-response" });
+    await expect(customer.getStatus({ customerRef }, mismatched)).rejects.toMatchObject({ code: "invalid-response" });
   });
 
   test("never asks the provider to price a quote without a verified customer", async () => {
     let calls = 0;
     const ctx = context((async () => { calls += 1; return tokenResponse(); }) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.createQuote!({
+    await expect(createQuote({
       destination: intent.destination,
       fiatAmount: intent.fiatAmount,
       returnUrl: intent.returnUrl,
@@ -138,16 +158,16 @@ describe("Ripio funding adapter", () => {
   });
 
   test("accepts terms from the address the request was observed on", async () => {
-    const bodies: Array<Record<string, unknown>> = [];
+    const bodies: unknown[] = [];
     const ctx = context((async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
       if (path === "/oauth2/token/") return tokenResponse();
-      if (init?.body) bodies.push(JSON.parse(String(init.body)));
+      if (init?.body) bodies.push(parseJson(String(init.body)));
       if (path === "/api/v1/termsAndConditions/") return Response.json({ termsId: quoteId });
       if (path.endsWith("/kyc/")) return Response.json({ providerUrl: "https://kyc.ripio.com/start?token=synthetic" });
       return Response.json({});
     }) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, clientIp: "203.0.113.7", redirectUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toMatchObject({ outcome: "created" });
+    await expect(customer.startVerification({ customerRef, clientIp: "203.0.113.7", redirectUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toMatchObject({ outcome: "created" });
     expect(bodies).toContainEqual({ termsId: quoteId, ipAddress: "203.0.113.7" });
     expect(bodies).toContainEqual({ redirectUrl: "https://home.example/fund?return=verification" });
   });
@@ -177,7 +197,7 @@ describe("Ripio funding adapter", () => {
   test("never accepts terms for a request with no observable client address", async () => {
     let calls = 0;
     const ctx = context((async () => { calls += 1; return tokenResponse(); }) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, redirectUrl: "https://home.example/fund?return=verification" }, ctx))
+    await expect(customer.startVerification({ customerRef, redirectUrl: "https://home.example/fund?return=verification" }, ctx))
       .resolves.toEqual({ outcome: "rejected" });
     expect(calls).toBe(0);
   });
@@ -189,7 +209,7 @@ describe("Ripio funding adapter", () => {
       if (path.includes("Networks")) return Response.json([{ network_name: "BASE", assets: [{ name: "wARS", contract_address: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d" }] }]);
       return Response.json({ quoteId, customerId: customerRef, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "1000.00000000", finalFromAmount: "1000.00000000", toAmount: "1000.00000000", finalToAmount: "1000.00000000", rate: "1.00000000", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
     }) as unknown as typeof fetch);
-    const quote = await ripioProvider.onramp!.createQuote!({
+    const quote = await createQuote({
       destination: intent.destination,
       fiatAmount: "1000",
       returnUrl: intent.returnUrl,
@@ -360,7 +380,7 @@ describe("Ripio funding adapter", () => {
     }
   });
 
-  test("reuses one OAuth token across operations for the same country and client", async () => {
+  test("reuses one OAuth token across distinct contexts sharing the same country, client and transport", async () => {
     let tokenPosts = 0;
     const sharedFetch = (async (input: RequestInfo | URL) => {
       const path = new URL(String(input)).pathname;
@@ -374,9 +394,31 @@ describe("Ripio funding adapter", () => {
     const input = { homeOrderId, providerOrderId, providerQuoteId: quoteId, customerRef, transactionType: "MINT" as const, chainId: 8453 as const, tokenAddress: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d" as const, destination: intent.destination, fiatAmount: "1000", expectedTokenAmountAtomic: intent.quote.tokenAmountAtomic, tokenDecimals: 18 };
     const first = createProviderContext({ manifest: ripioManifest, region: "AR", paymentMethodId: "bank_transfer", env: memoEnv, fetchImplementation: sharedFetch });
     const second = createProviderContext({ manifest: ripioManifest, region: "AR", paymentMethodId: "bank_transfer", env: memoEnv, fetchImplementation: sharedFetch });
-    await ripioProvider.onramp!.getOrder!(input, first);
-    await ripioProvider.onramp!.getOrder!(input, second);
+    expect(first.request).not.toBe(second.request);
+    await expect(ripioProvider.onramp!.getOrder!(input, first)).resolves.toMatchObject({ state: "awaiting-payment" });
+    await expect(ripioProvider.onramp!.getOrder!(input, second)).resolves.toMatchObject({ state: "awaiting-payment" });
     expect(tokenPosts).toBe(1);
+  });
+
+  test.each(["{not-json", "null", "{}", JSON.stringify({ eventType: "ONRAMP_PAYMENT_RECEIVED", issueDatetime: "2026-09-12T00:00:00.000Z", transactionObject: { transactionId: "not-a-uuid" } })])("rejects a correctly signed malformed webhook: %s", (body) => {
+    const raw = new TextEncoder().encode(body);
+    const signature = createHmac("sha256", env.RIPIO_WEBHOOK_SECRET_AR).update(raw).digest("hex");
+    expect(ripioProvider.onramp!.verifyWebhook!(raw, new Headers({ "http-x-wh-signature-256": signature }), context(fetch))).toBeNull();
+  });
+
+  test.each([null, "invalid", "a".repeat(63), "g".repeat(64)])("rejects a missing or malformed webhook signature: %s", (signature) => {
+    const raw = new TextEncoder().encode(JSON.stringify({ eventType: "ONRAMP_PAYMENT_RECEIVED", issueDatetime: "2026-09-12T00:00:00.000Z", transactionObject: { transactionId: providerOrderId } }));
+    const headers = new Headers(signature === null ? {} : { "http-x-wh-signature-256": signature });
+    expect(ripioProvider.onramp!.verifyWebhook!(raw, headers, context(fetch))).toBeNull();
+  });
+
+  test("replayed webhooks retain the signed provider order reference", () => {
+    const raw = new TextEncoder().encode(JSON.stringify({ eventType: "ONRAMP_PAYMENT_RECEIVED", issueDatetime: "2026-09-12T00:00:00.000Z", transactionObject: { transactionId: providerOrderId } }));
+    const signature = createHmac("sha256", env.RIPIO_WEBHOOK_SECRET_AR).update(raw).digest("hex");
+    const headers = new Headers({ "http-x-wh-signature-256": `sha256=${signature.toUpperCase()}` });
+    const ctx = context(fetch);
+    expect(ripioProvider.onramp!.verifyWebhook!(raw, headers, ctx)).toEqual({ providerOrderId });
+    expect(ripioProvider.onramp!.verifyWebhook!(raw, headers, ctx)).toEqual({ providerOrderId });
   });
 
   test("verifies webhooks only with the selected country secret", () => {

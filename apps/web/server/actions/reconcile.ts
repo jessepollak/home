@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readBaseAccountStatusRpcUrl } from "@/server/config/env";
+
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
 import type { ActionRow } from "./store";
 import { createUserOperationLogLookup, type UserOperationLogResolution } from "./user-operation-log";
@@ -47,7 +49,7 @@ export function createActionHandleResolver(
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) {
     throw new Error("The Base Account status timeout must be 1-10000ms.");
   }
-  const configuredUrl = (options.walletRpcUrl ?? process.env.BASE_ACCOUNT_STATUS_RPC_URL)?.trim() || DEFAULT_STATUS_RPC_URL;
+  const configuredUrl = (options.walletRpcUrl ?? readBaseAccountStatusRpcUrl())?.trim() || DEFAULT_STATUS_RPC_URL;
   let rpcUrl: string | null = null;
   const now = options.now ?? Date.now;
   let circuitOpenUntil = 0;

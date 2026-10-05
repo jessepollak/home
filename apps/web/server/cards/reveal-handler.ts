@@ -5,6 +5,7 @@ import { requestOrigin } from "@/server/auth/signed-cookie";
 import { resolveCustomer } from "@/server/customers/resolve";
 import { getSqlExecutor } from "@/server/db/sql";
 import { privateJson, withPrivateHeaders } from "@/server/http/private-response";
+import { readBoundedRequestText } from "@/server/http/request";
 import { CARDS_CONTRACT_VERSION, parseCardEphemeralKeyRequest, parseCardEphemeralKeyResponse, type CardWriteErrorCode } from "@/shared/cards/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createBridgeClient } from "./bridge/client";
@@ -34,8 +35,8 @@ export function createCardRevealHandler(deps: {
     if (!/^ic_[A-Za-z0-9]+$/.test(cardId)) return failure("CARD_NOT_FOUND", 404);
     let body: ReturnType<typeof parseCardEphemeralKeyRequest>;
     try {
-      const text = await request.text();
-      body = text.length <= 1024 ? parseCardEphemeralKeyRequest(JSON.parse(text)) : null;
+      const result = await readBoundedRequestText(request, { maxBytes: 3072, fatal: false, ignoreContentLength: true });
+      body = result.kind === "ok" && result.text.length <= 1024 ? parseCardEphemeralKeyRequest(JSON.parse(result.text)) : null;
     } catch { return failure("INVALID_CARD_REQUEST", 400); }
     if (!body) return failure("INVALID_CARD_REQUEST", 400);
     try {

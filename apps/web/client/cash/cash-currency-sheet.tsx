@@ -11,6 +11,7 @@ import { CurrencyMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
+import { AddCashIllustration } from "@/components/ui/add-cash-illustration";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
@@ -98,7 +99,9 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
   const sourceBalance = sourceHolding?.balance.status === "ready" ? sourceHolding.balance.baseUnits : null;
   const usdcBalance = snapshot.holdings.find((holding) => holding.id === "usdc")?.balance;
   const usdcBaseUnits = !balanceStale && usdcBalance?.status === "ready" ? usdcBalance.baseUnits : null;
-  const canSave = source.code === "USD" && best !== null && usdcBaseUnits !== null;
+  const canSave = source.code === "USD" && best !== null && usdcBaseUnits !== null && BigInt(usdcBaseUnits) > BigInt(0);
+  const fundingNux = source.code === "USD" && usdcBaseUnits === "0" && snapshot.stale !== true &&
+    snapshot.coverage.registry === "complete" && snapshot.totals.cash.status === "complete" && sourceHolding?.cashValue?.status === "priced";
   const row = cashHoldings(snapshot).find((item) => item.currency === source.code && item.holding);
   const depth = entry.kind === "currency" ? 1 : 0;
 
@@ -155,18 +158,21 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
     {step === "currency" ? <MoneyModalStep step="currency" depth={0}>
       <MoneyModalHeader title={source.name} titleId={titleId} closeLabel="Close currency details" />
       <MoneyModalBody hasFooter className="gap-4 pt-4">
-        <div className="flex flex-col items-center gap-2 py-2 text-center">
+        {fundingNux ? <Empty>
+          <div className="mx-auto w-full max-w-60"><AddCashIllustration /></div>
+          <EmptyHeader><EmptyTitle>Add money to get started</EmptyTitle></EmptyHeader>
+        </Empty> : <div className="flex flex-col items-center gap-2 py-2 text-center">
           <CurrencyMark currency={source.code} symbol={source.symbol} />
           <p className="text-4xl font-semibold tabular-nums"><MoneyTicker animated={false} align="start" reserveDigits={false} value={row?.value ?? "Unavailable"} /></p>
           <p className="text-sm text-muted-foreground">{source.symbol}{row?.usdValue ? ` · ≈ ${row.usdValue}` : row?.usdUnavailable ? " · USD value unavailable" : ""}</p>
           {balanceStale ? <p className="text-sm text-muted-foreground">Balance may be out of date.</p> : null}
-        </div>
+        </div>}
       </MoneyModalBody>
-      <MoneyModalActions><div className={canSave ? "grid grid-cols-2 gap-2" : ""}>
+      <MoneyModalActions>{fundingNux ? <Button className="min-h-11 w-full" onClick={() => { addMoneyAfterClose.current = true; onCancel(); }}>Add money</Button> : <div className={canSave ? "grid grid-cols-2 gap-2" : ""}>
         {source.convertOffered ? <Button className="min-h-11 w-full" onPointerDown={() => void TradeStep.preload()} onClick={convert}>Convert</Button>
           : <p className="text-center text-sm text-muted-foreground">{CASH_CONVERSION_UNAVAILABLE_REASON}</p>}
         {canSave ? <Button variant="secondary" className="min-h-11 w-full" onPointerDown={() => void SavingsStep.preload()} onClick={() => { setSaveCandidate(best); setStep("save"); void SavingsStep.preload(); }}>Save</Button> : null}
-      </div></MoneyModalActions>
+      </div>}</MoneyModalActions>
     </MoneyModalStep> : null}
     {step === "destination" ? <MoneyModalStep step="destination" depth={depth}>
       <MoneyModalHeader title="Convert to" titleId={titleId} closeLabel="Close conversion" onBack={entry.kind === "currency" ? () => setStep("currency") : undefined} />

@@ -8,6 +8,7 @@ import { FundingCore } from "./service";
 import { MemoryFundingOrderStore } from "./store";
 import { MemoryFundingProviderUserTokenStore, type FundingProviderUserTokenStore } from "./user-token-store";
 import { rotateUserTokens } from "./user-token-rotation";
+import { forwardingUserTokenStore } from "./testing/user-token-store";
 
 const address = "0x1111111111111111111111111111111111111111" as const;
 const session: VerifiedAccountSession = { user: { subject: "owner" }, accountProvider: "base-account", smartAccount: { address, chainId: 8453 } };
@@ -23,10 +24,8 @@ function setup(options: { env?: typeof environment; tokenStore?: MemoryFundingPr
   let outcome: "created" | "ambiguous" | "rejected" | "pre-dispatch-rejected" = "created";
   const tokenStore = options.tokenStore ?? new MemoryFundingProviderUserTokenStore();
   const orderStore = new MemoryFundingOrderStore();
-  const store = options.failComplete ? new Proxy(orderStore, { get(target, property) {
-    if (property === "completeDispatch") return async () => { throw new Error("complete failed"); };
-    const value = Reflect.get(target, property, target); return typeof value === "function" ? value.bind(target) : value;
-  } }) : orderStore;
+  if (options.failComplete) orderStore.completeDispatch = async () => { throw new Error("complete failed"); };
+  const store = orderStore;
   const provider: FundingProvider = { manifest: { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "US", assetId: "base:usdc", currency: "USD", directions: { onramp: { paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }], env: ["FIXTURE_KEY"] } } }] }, onramp: {
     async createOrder() { throw new Error("generic dispatch must not be called"); },
     async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
@@ -139,14 +138,12 @@ test("capture loses a compare-and-swap race without overwriting the winner", asy
   const fixture = setup({ tokenStore: store });
   expect(await fixture.seed(binding, "first-token")).toBe(true);
   const winner = setup({ tokenStore: store });
-  const racing: FundingProviderUserTokenStore = new Proxy(store, { get(target, property) {
-    if (property === "putIfEnvelope") return async (...args: Parameters<FundingProviderUserTokenStore["putIfEnvelope"]>) => {
+  const racing = forwardingUserTokenStore(store, {
+    putIfEnvelope: async (...args) => {
       await winner.seed(binding, "winner-token");
       return store.putIfEnvelope(...args);
-    };
-    const value = Reflect.get(target, property, target);
-    return typeof value === "function" ? value.bind(target) : value;
-  } });
+    },
+  });
   const diagnostics: string[] = [];
   const vault = new FundingUserTokenVault({ store: racing, env: environment, now: () => new Date("2026-09-18T00:00:00.000Z"), diagnose: (code) => { diagnostics.push(code); } });
   expect(await vault.capture(binding, "loser-token", (await store.get(binding))!.envelope)).toBe(false);
@@ -228,14 +225,12 @@ test("expiration compare-delete cannot remove a concurrent replacement", async (
   const old = (await store.get(binding))!.envelope;
   const now = new Date(start.getTime() + USER_TOKEN_LOCAL_REUSE_MS);
   const latest = new FundingUserTokenVault({ store, env: environment, now: () => now, diagnose: () => undefined });
-  const concurrent: FundingProviderUserTokenStore = new Proxy(store, { get(target, property) {
-    if (property === "deleteIfEnvelope") return async () => {
+  const concurrent = forwardingUserTokenStore(store, {
+    deleteIfEnvelope: async () => {
       await captureCurrent(latest, store, binding, "replacement-token");
       return store.deleteIfEnvelope(binding, old);
-    };
-    const value = Reflect.get(target, property, target);
-    return typeof value === "function" ? value.bind(target) : value;
-  } });
+    },
+  });
   const vault = new FundingUserTokenVault({ store: concurrent, env: environment, now: () => now, diagnose: () => undefined });
   expect(await vault.read(binding)).toBeNull();
   expect((await latest.read(binding))?.token).toBe("replacement-token");
@@ -268,14 +263,12 @@ test("rejection cleanup still clears the rejected token after a concurrent key-r
   const now = new Date("2026-09-18T00:00:00.000Z");
   await inner.putIfEnvelope(binding, null, { destination: binding.destination, envelope: sealSecret(previousRing.keyring, "rejected-token", userTokenAad(binding)), returnedAt: now.toISOString(), updatedAt: now.toISOString() });
   let raced = false;
-  const racing = new Proxy(inner, { get(target, property) {
-    if (property === "deleteIfEnvelope") return async (key: FundingUserTokenBinding, envelope: string) => {
-      if (!raced) { raced = true; expect(await rotateUserTokens(target, activeRing.keyring, () => now)).toEqual({ rotated: 1, unreadable: 0, skippedConcurrent: 0 }); }
-      return target.deleteIfEnvelope(key, envelope);
-    };
-    const value = Reflect.get(target, property, target);
-    return typeof value === "function" ? value.bind(target) : value;
-  } });
+  const racing = forwardingUserTokenStore(inner, {
+    deleteIfEnvelope: async (key, envelope) => {
+      if (!raced) { raced = true; expect(await rotateUserTokens(inner, activeRing.keyring, () => now)).toEqual({ rotated: 1, unreadable: 0, skippedConcurrent: 0 }); }
+      return inner.deleteIfEnvelope(key, envelope);
+    },
+  });
   const diagnostics: string[] = [];
   const vault = new FundingUserTokenVault({ store: racing, env: rotatedEnv, now: () => now, diagnose: (code) => diagnostics.push(code) });
   const stored = (await vault.read(binding))!;
