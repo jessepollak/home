@@ -63,12 +63,13 @@ test("activity fixtures parse with all card purchase statuses and common decline
   const body = routes.find(([route]) => route === "**/api/activity")?.[1];
   if (!isRecord(body) || !("window" in body) || !isRecord(body.window) || typeof body.window.to !== "string") throw new Error("Missing activity fixture");
   expect(routes.find(([route]) => route === "**/api/activity?**")?.[1]).toBe(body);
-  expect(body.window.to).toBe(new Date(Math.floor(FIXED_NOW / 60_000) * 60_000).toISOString());
+  const windowEnd = new Date(Math.floor(FIXED_NOW / 60_000) * 60_000).toISOString();
   const address = parseAddress(sessionBody.smartAccount.address);
   if (!address) throw new Error("Invalid fixture smart account address");
   const session = { user: sessionBody.user, accountProvider: "cdp-embedded" as const,
     smartAccount: { address, chainId: 8453 as const } };
-  const page = parseActivityPage(body, session, body.window.to, "USD");
+  const page = parseActivityPage(body, session, windowEnd, "USD");
+  expect(page.window.to).toBe(windowEnd);
   expect(page.cards?.status).toBe("ready");
   expect(page.cards?.rows.map((row) => row.status)).toEqual([
     "pending", "declined", "declined", "completed", "reversed", "refunded",

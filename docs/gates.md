@@ -38,7 +38,7 @@ The full check suite also covers:
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
 - `bun run gates` (the repository gate unit tests above, including commit provenance, plus all verification-tool Bun tests under `scripts/verify/`; also run inside `bun check`)
-- disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences), run against CI's PostgreSQL 14 service
+- disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences), run against CI's PostgreSQL 14 service; the same job also runs `test:browser-products` for real operator settings/audit persistence in an isolated schema ([local prerequisite and coverage](browser-validation.md#operator-products-persistence))
 - unit-test runtime budgets (per-test and summed per-file JUnit timings, with a checked-in outlier allowlist)
 - performance budgets (separate, non-required workflow: production fixture, structural gates, and report-only timings)
 - production warm navigation (separate, non-required workflow on `main` push and manual dispatch; zero document/RSC requests for warmed Home/Cash/Invest taps)

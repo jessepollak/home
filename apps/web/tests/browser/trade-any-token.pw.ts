@@ -10,6 +10,39 @@ async function warmTradeStep(page: Page, label: "Buy" | "Sell") {
   await expect(page.locator("[data-money-sheet]")).toHaveCount(0);
 }
 
+async function tapAndExpectAmountFocus(page: Page, label: "Buy" | "Sell") {
+  await page.evaluate((label) => {
+    const state = window as Window & { tradeTapFocus?: string };
+    state.tradeTapFocus = "waiting";
+    let started = false;
+    const finish = (result: "focused" | "interrupted") => {
+      state.tradeTapFocus = result;
+      window.removeEventListener("click", onClick, true);
+      window.removeEventListener("pointerdown", interrupt, true);
+      window.removeEventListener("keydown", interrupt, true);
+      document.removeEventListener("focusin", record, true);
+    };
+    const interrupt = () => finish("interrupted");
+    const record = () => {
+      if (document.activeElement?.matches('[data-money-sheet] [data-money-amount-input][aria-label="Amount"]')) finish("focused");
+    };
+    const onClick = (event: MouseEvent) => {
+      if (started) return interrupt();
+      if (!(event.target instanceof Element) || event.target.closest("button")?.textContent?.trim() !== label) return;
+      started = true;
+      state.tradeTapFocus = "pending";
+      window.addEventListener("pointerdown", interrupt, true);
+      window.addEventListener("keydown", interrupt, true);
+      document.addEventListener("focusin", record, true);
+      record();
+    };
+    window.addEventListener("click", onClick, true);
+  }, label);
+  await page.getByRole("button", { name: label, exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Amount" })).toBeFocused();
+  await expect.poll(() => page.evaluate(() => (window as Window & { tradeTapFocus?: string }).tradeTapFocus)).toBe("focused");
+}
+
 test("exact Base address has an identity and can review partial and full DEGEN sells", { tag: "@smoke" }, async ({ page }) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);
@@ -61,18 +94,8 @@ test("Buy and Sell focus Amount during the tap at 390px", async ({ page }) => {
   await page.goto(`/invest/${degenAssetId}`);
   await expect(page.getByRole("button", { name: "Buy", exact: true })).toBeEnabled();
   await warmTradeStep(page, "Buy");
-  await page.evaluate(() => {
-    const state = window as Window & { tradeTapFocus?: Record<string, string | null> };
-    state.tradeTapFocus = {};
-    window.addEventListener("click", (event) => {
-      const label = (event.target as Element).closest("button")?.textContent?.trim();
-      if (label === "Buy" || label === "Sell") state.tradeTapFocus![label] = document.activeElement?.getAttribute("aria-label") ?? null;
-    });
-  });
   for (const label of ["Buy", "Sell"] as const) {
-    await page.getByRole("button", { name: label, exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "Amount" })).toBeFocused();
-    expect(await page.evaluate((key) => (window as Window & { tradeTapFocus?: Record<string, string | null> }).tradeTapFocus?.[key], label)).toBe("Amount");
+    await tapAndExpectAmountFocus(page, label);
     await page.getByRole("button", { name: "Close trade dialog" }).click();
     await expect(page.locator("[data-money-sheet]")).toHaveCount(0);
   }
@@ -118,11 +141,5 @@ test("buy-blocked availability still allows a DEGEN sell", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Buy", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Sell", exact: true })).toBeEnabled();
   await warmTradeStep(page, "Sell");
-  await page.evaluate(() => {
-    const state = window as Window & { sellTapFocus?: string | null };
-    window.addEventListener("click", () => { state.sellTapFocus ??= document.activeElement?.getAttribute("aria-label") ?? null; });
-  });
-  await page.getByRole("button", { name: "Sell", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "Amount" })).toBeFocused();
-  expect(await page.evaluate(() => (window as Window & { sellTapFocus?: string | null }).sellTapFocus)).toBe("Amount");
+  await tapAndExpectAmountFocus(page, "Sell");
 });
