@@ -7,7 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { useNestedAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
@@ -20,7 +19,10 @@ import {
 } from "@/shared/invest/contracts/market-price-history";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
 import { resolveTradeAsset } from "@/shared/trading/assets";
-import { INVEST_SETTINGS_DEFAULTS, isInvestAssetVisible, type InvestSettings } from "@/shared/operator-settings/invest";
+import { INVEST_SETTINGS_DEFAULTS, type InvestSettings } from "@/shared/operator-settings/invest";
+import { browserHomeQueryClient, publicQueryKey, useHomeQueryClient } from "@/client/query/query-client";
+import { normalizeInvestSearchQuery, type InvestSearchPage } from "@/shared/invest/contracts/search";
+import { isRecord } from "@/shared/guards";
 import {
   getDiscoverAsset,
   getDiscoverShelf,
@@ -43,7 +45,6 @@ import {
   type InvestView,
 } from "./invest-location";
 import { resetHostScroll } from "./reset-host-scroll";
-import { useInvestSearch } from "./use-invest-search";
 import { useResolvedAsset } from "./use-resolved-asset";
 
 export type { InvestView };
@@ -51,38 +52,6 @@ export type { InvestView };
 const EMPTY_MEME_ASSETS: readonly InvestAsset[] = [];
 
 const investDetailFromStateKey = "investDetailFrom";
-const searchQueryKey = "investSearchQuery";
-const searchScrollKey = "investSearchScrollTop";
-
-function historySearchState(): { query: string; scrollTop: number } {
-  if (typeof window === "undefined") return { query: "", scrollTop: 0 };
-  const state: unknown = window.history.state;
-  const record = state && typeof state === "object"
-    ? state as Record<string, unknown>
-    : {};
-  return {
-    query: typeof record[searchQueryKey] === "string" ? record[searchQueryKey] : "",
-    scrollTop: typeof record[searchScrollKey] === "number" ? record[searchScrollKey] : 0,
-  };
-}
-
-function subscribeToSavedQuery(): () => void {
-  return () => {};
-}
-
-function readSavedQuery(): string {
-  return historySearchState().query;
-}
-
-function readServerSavedQuery(): string {
-  return "";
-}
-
-function saveHistoryQuery(query: string): void {
-  if (typeof window === "undefined") return;
-  if (historySearchState().query === query) return;
-  window.history.replaceState({ ...window.history.state, [searchQueryKey]: query }, "");
-}
 
 export type InvestExperienceProps = {
   stockMarket?: MarketDataState;
@@ -112,18 +81,17 @@ export function InvestExperience({
   investVisibility = INVEST_SETTINGS_DEFAULTS,
 }: InvestExperienceProps = {}) {
   const routing = useOptionalHomeShellRouting();
-  const [view, setView] = useState<InvestView>(() =>
+  const [localView, setView] = useState<InvestView>(() =>
     routing?.state.location.panel === "invest"
       ? investViewFromLocation(routing.state.location)
       : initialView ?? { screen: "hub" },
   );
+  const searchDetailOrigin = routing?.getSearchDetailOrigin?.();
+  const view = useMemo(() => localView.screen === "detail" && searchDetailOrigin?.assetId === localView.assetId
+    ? { ...localView, from: "search" as const } : localView, [localView, searchDetailOrigin]);
   const displayView = view.screen === "category" &&
     !hasVisibleShelf(view.shelfId, memeAssets, investVisibility)
     ? ({ screen: "hub" } as const) : view;
-  const savedQuery = useSyncExternalStore(subscribeToSavedQuery, readSavedQuery, readServerSavedQuery);
-  const [editedQuery, setQuery] = useState<string | null>(null);
-  const query = editedQuery ?? savedQuery;
-  const [composing, setComposing] = useState(false);
   const [appliedPopRevision, setAppliedPopRevision] = useState(routing?.popRevision ?? 0);
   const [inAppChildDepth, setInAppChildDepth] = useState(0);
   const [appliedRootRevision, setAppliedRootRevision] = useState(routing?.rootRequest?.revision ?? 0);
@@ -131,14 +99,12 @@ export function InvestExperience({
     setAppliedRootRevision(routing.rootRequest.revision);
     if (routing.rootRequest.panel === "invest") {
       setView({ screen: "hub" });
-      setQuery("");
       setInAppChildDepth(0);
     }
   }
   if (routing && appliedPopRevision !== routing.popRevision) {
     setAppliedPopRevision(routing.popRevision);
     if (routing.state.location.panel === "invest") {
-      setQuery(historySearchState().query);
       setView((previous) => {
         const next = investViewFromLocation(routing.state.location);
         if (next.screen === "detail") {
@@ -146,7 +112,7 @@ export function InvestExperience({
           const from = state && typeof state === "object"
             ? (state as Record<string, unknown>)[investDetailFromStateKey]
             : null;
-          if (from === "hub") return next;
+          if (from === "hub" || from === "search") return { ...next, from };
           if (typeof from === "string") {
             const shelf = getDiscoverShelf(from);
             if (shelf) return { ...next, from: shelf.id };
@@ -160,11 +126,25 @@ export function InvestExperience({
       setInAppChildDepth((depth) => Math.max(0, depth - 1));
     }
   }
-  const search = useInvestSearch(query, composing);
-  const visibleResults = useMemo(() => search.results.filter(({ asset }) => isInvestAssetVisible(investVisibility, asset)), [search.results, investVisibility]);
-  const visibleSearch = { ...search, results: visibleResults };
-  const searchedAssets = useMemo(() => search.results.map((result) => result.asset), [search.results]);
-  const knownAssets = useMemo(() => [...memeAssets, ...searchedAssets], [memeAssets, searchedAssets]);
+  const routedAsset = routing?.state.location.asset;
+  const [appliedAsset, setAppliedAsset] = useState(routedAsset);
+  if (appliedAsset !== routedAsset) {
+    setAppliedAsset(routedAsset);
+    if (routing?.state.location.panel === "invest") setView(investViewFromLocation(routing.state.location));
+  }
+  useEffect(() => {
+    if (view.screen === "detail") routing?.finalizeSearchDetailOrigin?.(view.assetId);
+  }, [view, routing]);
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const historyState: unknown = typeof window === "undefined" ? null : window.history.state;
+  const detailQuery = view.screen === "detail" && searchDetailOrigin?.assetId === view.assetId
+    ? normalizeInvestSearchQuery(searchDetailOrigin.query)
+    : isRecord(historyState) && typeof historyState.assetSearchDetailQuery === "string"
+      ? normalizeInvestSearchQuery(historyState.assetSearchDetailQuery) : null;
+  const cachedSearchPages = view.screen === "detail" && view.from === "search" && detailQuery
+    ? queryClient.getQueriesData<{ pages: InvestSearchPage[] }>({ queryKey: publicQueryKey("invest-search", "/api/invest/search", detailQuery) })
+      .flatMap(([, data]) => data?.pages ?? []) : [];
+  const knownAssets = [...memeAssets, ...cachedSearchPages.flatMap((page) => page.results.map(({ asset }) => asset))];
   const detailIdentity = view.screen === "detail"
     ? resolveMarketPriceAssetIdentity(view.assetId)
     : null;
@@ -177,26 +157,23 @@ export function InvestExperience({
     : null;
   const detail = useResolvedAsset(detailAssetId);
   const resolvedDetail = detail.asset;
-  const catalog = useMemo(() => [...knownAssets, ...(resolvedDetail ? [resolvedDetail] : [])], [knownAssets, resolvedDetail]);
+  const catalog = [...knownAssets, ...(resolvedDetail ? [resolvedDetail] : [])];
   const hostRef = useRef<HTMLDivElement>(null);
   const currentViewKey = viewKey(displayView);
   const markets = { stockMarket, memeMarket, cryptoMarket };
   const memeSnapshots = memeMarket.status === "ready" ? memeMarket.snapshots : null;
-  const dynamicSnapshots = useMemo(() => [
+  const dynamicSnapshots = [
     ...(memeSnapshots ?? []),
-    ...search.snapshots,
+    ...cachedSearchPages.flatMap((page) => page.snapshots),
     ...(detail.snapshot ? [detail.snapshot] : []),
-  ], [memeSnapshots, search.snapshots, detail.snapshot]);
+  ];
   const dynamicDetailMarket: MarketDataState =
     memeMarket.status === "loading" && dynamicSnapshots.length === 0
       ? { status: "loading" }
       : { status: "ready", snapshots: dynamicSnapshots };
 
   useLayoutEffect(() => {
-    if (displayView.screen === "hub") {
-      const scrollTop = historySearchState().scrollTop;
-      window.scrollTo(0, scrollTop);
-    } else resetHostScroll(hostRef.current);
+    if (displayView.screen !== "hub") resetHostScroll(hostRef.current);
   }, [currentViewKey, displayView.screen]);
 
   const lastRoutingRef = useRef({ panel: routing?.state.panel ?? null, popRevision: routing?.popRevision ?? 0 });
@@ -215,33 +192,17 @@ export function InvestExperience({
     setInAppChildDepth(0);
   }, [routing]);
 
-  const onHubEntry = displayView.screen === "hub" && (!routing || routing.state.location.panel === "invest");
-  const changeQuery = useCallback((next: string) => {
-    setQuery(next);
-    if (onHubEntry) saveHistoryQuery(next);
-  }, [onHubEntry]);
-
-  const savedRootRevisionRef = useRef(appliedRootRevision);
-  const rootPanel = routing?.rootRequest?.panel ?? null;
-  useEffect(() => {
-    if (savedRootRevisionRef.current === appliedRootRevision) return;
-    savedRootRevisionRef.current = appliedRootRevision;
-    if (rootPanel === "invest") saveHistoryQuery("");
-  }, [appliedRootRevision, rootPanel]);
 
   const go = useCallback((next: InvestView) => {
-    const scrollTop = window.scrollY;
-    window.history.replaceState({ ...window.history.state, [searchQueryKey]: query, [searchScrollKey]: scrollTop }, "");
     setView(next);
     setInAppChildDepth((depth) => depth + 1);
     commitClientUrl(investHref(next), "push", {
       [investDetailFromStateKey]: next.screen === "detail" ? next.from : null,
-      [searchQueryKey]: query,
-      [searchScrollKey]: scrollTop,
     });
-  }, [query]);
+  }, []);
 
   const leaveChild = useCallback((parent: InvestView) => {
+    if (view.screen === "detail" && view.from === "search") { backClientHistory(); return; }
     setView(parent);
     if (inAppChildDepth > 0) {
       backClientHistory();
@@ -250,7 +211,7 @@ export function InvestExperience({
     commitClientUrl(investHref(parent), "replace", {
       [investDetailFromStateKey]: parent.screen === "detail" ? parent.from : null,
     });
-  }, [inAppChildDepth]);
+  }, [inAppChildDepth, view]);
 
   const detailAsset = view.screen === "detail" ? getDiscoverAsset(view.assetId, catalog) : null;
   const exactAsset = view.screen === "detail" && !detailAsset ? resolveTradeAsset(view.assetId) : null;
@@ -280,7 +241,7 @@ export function InvestExperience({
             }
             if (view.screen === "detail") {
               leaveChild(
-                view.from === "hub"
+                view.from === "hub" || view.from === "search"
                   ? { screen: "hub" }
                   : { screen: "category", shelfId: view.from },
               );
@@ -299,11 +260,6 @@ export function InvestExperience({
       memeStatus={memeStatus}
       assetMarkResolution={assetMarkResolution}
       investVisibility={investVisibility}
-      query={query}
-      onQueryChange={changeQuery}
-      composing={composing}
-      onComposingChange={setComposing}
-      search={visibleSearch}
       onSeeAll={(shelfId) => go({ screen: "category", shelfId })}
       onOpenAsset={(asset: InvestAsset) =>
         go({ screen: "detail", assetId: asset.id, from: "hub" })
@@ -340,7 +296,7 @@ export function InvestExperience({
     );
   } else if (view.screen === "detail") {
     const parent =
-      view.from === "hub"
+      view.from === "hub" || view.from === "search"
         ? ({ screen: "hub" } as const)
         : ({ screen: "category", shelfId: view.from } as const);
     if (detailAsset) {

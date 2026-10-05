@@ -1,7 +1,13 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
+
+async function requiredBox(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error("Expected a visible element with a bounding box");
+  return box;
+}
 
 for (const width of [390, 320]) {
   test(`mobile navigation clears the final Home content at ${width}px`, async ({ page }) => {
@@ -16,12 +22,15 @@ for (const width of [390, 320]) {
       window.scrollTo(0, document.documentElement.scrollHeight);
       const lastContent = main.lastElementChild as HTMLElement;
       const { x, y, width, height, top, right, bottom, left } = nav.getBoundingClientRect();
+      const searchControl = [...document.querySelectorAll<HTMLElement>("[data-shell-search-opener]")].find((control) => control.getBoundingClientRect().width > 0);
+      const searchRect = searchControl?.getBoundingClientRect();
       return {
         nav: { x, y, width, height, top, right, bottom, left },
         contentBottom: lastContent.getBoundingClientRect().bottom,
         viewportWidth: window.innerWidth,
         documentWidth: document.documentElement.scrollWidth,
-        position: getComputedStyle(nav).position,
+        position: nav.parentElement ? getComputedStyle(nav.parentElement).position : null,
+        search: searchRect ? { x: searchRect.x, y: searchRect.y, width: searchRect.width, height: searchRect.height, top: searchRect.top, right: searchRect.right, bottom: searchRect.bottom, left: searchRect.left } : null,
         tabHeights: Array.from(nav.querySelectorAll("button"), (button) => button.getBoundingClientRect().height),
       };
     });
@@ -30,7 +39,10 @@ for (const width of [390, 320]) {
     expect(geometry.nav.height).toBe(62);
     expect(geometry.tabHeights).toEqual([54, 54]);
     expect(844 - geometry.nav.bottom).toBe(12);
-    expect(Math.abs(geometry.nav.left + geometry.nav.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+    if (!geometry.search) throw new Error("Expected Search control");
+    expect(geometry.nav.left).toBe(16);
+    expect(width - geometry.search.right).toBe(16);
+    expect(geometry.search.top).toBe(geometry.nav.top);
     expect(geometry.contentBottom).toBeLessThanOrEqual(geometry.nav.top);
     expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
   });
@@ -64,6 +76,87 @@ for (const width of [390, 320]) {
     }
   });
 }
+
+for (const route of ["/home", "/activity"]) {
+  for (const theme of ["light", "dark"]) {
+    test(`usable viewport geometry stays anchored on ${route} in ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await seedSignedInSession(page);
+      await installApiFixtures(page);
+      await page.addInitScript((appearance) => localStorage.setItem("home.appearance.v1", appearance), theme);
+      await page.goto(route);
+      const nav = page.locator('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');
+      await expect(nav).toBeVisible();
+      for (const { height, offsetTop, scale } of [
+        { height: 844, offsetTop: 0, scale: 1 },
+        { height: 800, offsetTop: 0, scale: 1 },
+        { height: 760, offsetTop: 20, scale: 1 },
+        { height: 820, offsetTop: 0, scale: 1 },
+        { height: 790, offsetTop: 24, scale: 1 },
+        { height: 844, offsetTop: 0, scale: 1 },
+      ]) {
+        await page.evaluate((geometry) => {
+          const viewport = window.visualViewport;
+          if (!viewport) throw new Error("Expected a visual viewport");
+          Object.defineProperties(viewport, {
+            height: { configurable: true, value: geometry.height },
+            offsetTop: { configurable: true, value: geometry.offsetTop },
+            scale: { configurable: true, value: geometry.scale },
+          });
+          viewport.dispatchEvent(new Event("resize"));
+          viewport.dispatchEvent(new Event("scroll"));
+        }, { height, offsetTop, scale });
+        await expect.poll(async () => nav.evaluate((element) => {
+          return window.innerHeight - element.getBoundingClientRect().bottom;
+        })).toBe(12);
+      }
+      const backgrounds = await page.evaluate(() => {
+        const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
+        if (!main) throw new Error("Expected authenticated main content");
+        return [document.documentElement, document.body, main].map((element) => getComputedStyle(element).backgroundColor);
+      });
+      expect(backgrounds[0]).toBe(backgrounds[2]);
+      expect(backgrounds[1]).toBe(backgrounds[2]);
+      const clearance = await page.locator("[data-app-main-authenticated]").evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingBottom));
+      expect(clearance).toBe(62 + 12 + 16);
+    });
+  }
+}
+
+test("shared keyboard geometry hides navigation and restores its resting gap without transform lag", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  await page.getByRole("button", { name: "Account", exact: true }).click();
+  const input = page.getByRole("combobox", { name: "Country" });
+  const nav = page.locator('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');
+  await expect(input).toBeVisible();
+  await input.focus();
+  await page.evaluate(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) throw new Error("Expected a visual viewport");
+    Object.defineProperty(viewport, "height", { configurable: true, value: 544 });
+    viewport.dispatchEvent(new Event("resize"));
+  });
+  await expect(page.locator("html")).toHaveAttribute("data-shell-keyboard", "open");
+  await expect(nav).toHaveAttribute("aria-hidden", "true");
+  await expect(nav).toHaveAttribute("inert");
+  await page.evaluate(() => {
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement)) throw new Error("Expected a focused HTML element");
+    activeElement.blur();
+    const viewport = window.visualViewport;
+    if (!viewport) throw new Error("Expected a visual viewport");
+    Object.defineProperty(viewport, "height", { configurable: true, value: 844 });
+    viewport.dispatchEvent(new Event("resize"));
+  });
+  await expect(page.locator("html")).not.toHaveAttribute("data-shell-keyboard");
+  await expect(nav).not.toHaveAttribute("aria-hidden");
+  await expect(nav).not.toHaveAttribute("inert");
+  await expect.poll(async () => nav.evaluate((element) => innerHeight - element.getBoundingClientRect().bottom)).toBe(12);
+  expect(await nav.evaluate((element) => getComputedStyle(element).transitionProperty)).not.toContain("transform");
+});
 
 for (const viewport of [{ width: 1280, height: 800 }, { width: 1024, height: 600 }]) {
   test(`Home money and Activity scroll geometry at ${viewport.width}x${viewport.height}`, async ({ page }) => {
@@ -102,23 +195,21 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1024, height: 600
     await expect(page.getByRole("region", { name: "Activity" })).not.toHaveAttribute("aria-busy", "true");
     await expect(page.getByRole("region", { name: "Activity" }).getByRole("button", { name: /Received/ }).first()).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(300);
-    const beforeMoney = await money.boundingBox();
-    const beforeActivity = await activity.boundingBox();
-    expect(beforeMoney).not.toBeNull();
-    expect(beforeActivity).not.toBeNull();
-    expect(beforeActivity!.x).toBeGreaterThan(beforeMoney!.x + beforeMoney!.width);
+    const beforeMoney = await requiredBox(money);
+    const beforeActivity = await requiredBox(activity);
+    expect(beforeActivity.x).toBeGreaterThan(beforeMoney.x + beforeMoney.width);
     if (viewport.height >= 640) {
-      expect(beforeMoney!.width / beforeActivity!.width).toBeGreaterThan(1.4);
-      expect(beforeMoney!.width / beforeActivity!.width).toBeLessThan(1.6);
-      expect(beforeMoney?.height).toBeGreaterThan(0);
+      expect(beforeMoney.width / beforeActivity.width).toBeGreaterThan(1.4);
+      expect(beforeMoney.width / beforeActivity.width).toBeLessThan(1.6);
+      expect(beforeMoney.height).toBeGreaterThan(0);
     }
     await page.evaluate(() => window.scrollTo(0, 200));
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(190);
     if (viewport.height >= 640) {
-      await expect.poll(async () => beforeActivity!.y - (await activity.boundingBox())!.y).toBeGreaterThan(150);
-      expect(beforeMoney!.y - (await money.boundingBox())!.y).toBeLessThanOrEqual(80);
+      await expect.poll(async () => beforeActivity.y - (await requiredBox(activity)).y).toBeGreaterThan(150);
+      expect(beforeMoney.y - (await requiredBox(money)).y).toBeLessThanOrEqual(80);
     } else {
-      await expect.poll(async () => beforeMoney!.y - (await money.boundingBox())!.y).toBeGreaterThan(150);
+      await expect.poll(async () => beforeMoney.y - (await requiredBox(money)).y).toBeGreaterThan(150);
     }
   });
 }
@@ -130,7 +221,7 @@ test("the capsule covers widths through 1023px and the rail takes over at 1024px
   await page.goto("/home");
   const nav = page.getByRole("navigation", { name: "Main navigation" });
   await expect(nav).toBeVisible();
-  expect(await nav.evaluate((element) => getComputedStyle(element).position)).toBe("fixed");
+  expect(await nav.evaluate((element) => element.parentElement ? getComputedStyle(element.parentElement).position : null)).toBe("fixed");
   expect(await nav.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(192);
   await expect(page.locator("#desktop-rail")).toBeHidden();
   await page.setViewportSize({ width: 1024, height: 768 });
@@ -148,8 +239,8 @@ test("a drag does not swallow two immediate real taps", async ({ page }) => {
   await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
   const home = nav.getByRole("button", { name: "Home" });
   const invest = nav.getByRole("button", { name: "Invest" });
-  const homeBox = (await home.boundingBox())!;
-  const investBox = (await invest.boundingBox())!;
+  const homeBox = await requiredBox(home);
+  const investBox = await requiredBox(invest);
   const center = (box: typeof homeBox) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
   await nav.evaluate((element) => {
     element.setAttribute("data-accepted-taps", "");
@@ -194,8 +285,8 @@ for (const { name, lift, selected } of [
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
     const scrolled = await page.evaluate(() => window.scrollY);
     const windowScroll = await page.evaluate(() => window.scrollY);
-    const homeBox = (await nav.getByRole("button", { name: "Home" }).boundingBox())!;
-    const investBox = (await nav.getByRole("button", { name: "Invest" }).boundingBox())!;
+    const homeBox = await requiredBox(nav.getByRole("button", { name: "Home" }));
+    const investBox = await requiredBox(nav.getByRole("button", { name: "Invest" }));
     const startX = homeBox.x + homeBox.width / 2;
     const startY = homeBox.y + homeBox.height / 2;
     const endX = investBox.x + investBox.width / 2;
@@ -230,7 +321,7 @@ for (const { name, beside, selected } of [
     const nav = page.getByRole("navigation", { name: "Main navigation" });
     await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
     const navBox = (await nav.boundingBox())!;
-    const homeBox = (await nav.getByRole("button", { name: "Home" }).boundingBox())!;
+    const homeBox = await requiredBox(nav.getByRole("button", { name: "Home" }));
     const startX = homeBox.x + homeBox.width / 2;
     const y = homeBox.y + homeBox.height / 2;
     const endX = navBox.x + navBox.width + beside;
@@ -255,7 +346,7 @@ test("a tap released just past its tab edge keeps the lens on the tab the click 
   const nav = page.getByRole("navigation", { name: "Main navigation" });
   const lens = nav.locator('[data-navigation-lens="ready"]');
   await expect(lens).toBeVisible();
-  const investBox = (await nav.getByRole("button", { name: "Invest" }).boundingBox())!;
+  const investBox = await requiredBox(nav.getByRole("button", { name: "Invest" }));
   const startX = investBox.x + investBox.width - 3;
   const y = investBox.y + investBox.height / 2;
   const cdp = await page.context().newCDPSession(page);
@@ -286,7 +377,7 @@ test("a tap whose navigation commits late keeps the lens on the tapped tab", asy
   const lens = nav.locator('[data-navigation-lens="ready"]');
   await expect(lens).toBeVisible();
   const invest = nav.getByRole("button", { name: "Invest" });
-  const investBox = (await invest.boundingBox())!;
+  const investBox = await requiredBox(invest);
   const point = { x: investBox.x + investBox.width / 2, y: investBox.y + investBox.height / 2 };
   await nav.evaluate((element) => {
     element.parentElement!.addEventListener("click", (event) => {
@@ -320,7 +411,7 @@ test("a blur mid-glide drops the lift so keyboard travel lands unlifted on the s
   const nav = page.getByRole("navigation", { name: "Main navigation" });
   await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
   const invest = nav.getByRole("button", { name: "Invest" });
-  const investBox = (await invest.boundingBox())!;
+  const investBox = await requiredBox(invest);
   const point = { x: investBox.x + investBox.width / 2, y: investBox.y + investBox.height / 2 };
   await nav.evaluate((element) => {
     const interrupted = new Promise((resolve) => {
@@ -360,3 +451,97 @@ function settledLensTab(page: Page) {
     return tab?.id ?? null;
   });
 }
+
+async function openDesktopRail(page: Page) {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.addInitScript(() => {
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (keyframes, options) {
+      const animation = animate.call(this, keyframes, options);
+      if (this.matches("#desktop-rail > div, #desktop-rail > div > div, [data-rail-follower]")) animation.pause();
+      return animation;
+    };
+  });
+  await page.goto("/home");
+  await expect(page.locator("#desktop-rail")).toHaveAttribute("data-rail-state", "expanded");
+  await page.evaluate(() => document.fonts.ready);
+}
+
+async function seekRail(page: Page, time: number) {
+  const targets = await page.evaluate((at) => {
+    const running = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect &&
+      animation.effect.target instanceof Element && animation.effect.target.matches("#desktop-rail > div, #desktop-rail > div > div, [data-rail-follower]"));
+    for (const animation of running) animation.currentTime = at;
+    Reflect.set(window, "railMotion", running);
+    const animated = running.map((animation) => animation.effect instanceof KeyframeEffect ? animation.effect.target : null);
+    return { count: running.length, panel: animated.includes(document.querySelector("#desktop-rail > div")),
+      main: animated.includes(document.querySelector("main")), header: animated.includes(document.querySelector("header[data-rail-follower]")) };
+  }, time);
+  expect(targets.count).toBeGreaterThan(0);
+  expect({ panel: targets.panel, main: targets.main, header: targets.header }).toEqual({ panel: true, main: true, header: true });
+}
+
+test("a mid-collapse rail stays within the viewport without releasing the sticky header", async ({ page }) => {
+  await openDesktopRail(page);
+  await page.locator("main").evaluate((element) => { element.style.minHeight = "1600px"; });
+  await page.getByRole("button", { name: "Sidebar" }).click();
+  await seekRail(page, 90);
+  const geometry = await page.evaluate(() => {
+    const width = document.documentElement.scrollWidth;
+    window.scrollTo(100, 0);
+    return { width, viewport: innerWidth, scrollX };
+  });
+  expect(geometry.width).toBeLessThanOrEqual(geometry.viewport);
+  expect(geometry.scrollX).toBe(0);
+  await page.evaluate(() => window.scrollTo(0, 200));
+  await expect.poll(() => page.evaluate(() => ({ scrollY, headerTop: document.querySelector("header[data-rail-follower]")?.getBoundingClientRect().top })))
+    .toEqual({ scrollY: 200, headerTop: 0 });
+  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+  await expect(page.locator("[data-rail-column]")).toHaveCSS("overflow-x", "visible");
+});
+
+test("a fixed overlay opened mid-collapse keeps its final viewport bounds", async ({ page }) => {
+  await openDesktopRail(page);
+  await page.getByRole("button", { name: "Sidebar" }).click();
+  await seekRail(page, 90);
+  await page.getByRole("button", { name: "Search assets", exact: true }).click();
+  const search = page.getByRole("dialog", { name: "Search assets" });
+  await expect(search).toBeVisible();
+  const bounds = () => search.evaluate((element) => {
+    const rail: unknown = Reflect.get(window, "railMotion");
+    for (const animation of document.getAnimations()) if (!Array.isArray(rail) || !rail.includes(animation)) animation.finish();
+    const { x, y, width, height } = element.getBoundingClientRect();
+    return { x, y, width, height };
+  });
+  const during = await bounds();
+  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+  expect(during).toEqual(await bounds());
+});
+
+test("a collapsed state from another tab mid-collapse retargets without a stale transform", async ({ page }) => {
+  await openDesktopRail(page);
+  const rail = page.locator("#desktop-rail");
+  const seam = () => rail.locator(":scope > div").evaluate((panel) => panel.getBoundingClientRect().right);
+  const homeHit = () => page.locator("#home-rail-nav svg").evaluate((icon) => {
+    const box = icon.getBoundingClientRect();
+    return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest("#home-rail-nav") != null;
+  });
+  await page.getByRole("button", { name: "Sidebar" }).click();
+  await seekRail(page, 60);
+  const before = await seam();
+  await page.evaluate(() => {
+    localStorage.setItem("home:sidebar:collapsed", "false");
+    window.dispatchEvent(new StorageEvent("storage", { key: "home:sidebar:collapsed", newValue: "false" }));
+  });
+  await expect(rail).toHaveAttribute("data-rail-state", "expanded");
+  await seekRail(page, 0);
+  expect(Math.abs(await seam() - before)).toBeLessThan(1);
+  expect(await homeHit()).toBe(true);
+  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+  expect(await seam()).toBe(240);
+  expect(await homeHit()).toBe(true);
+  expect(await page.evaluate(() => [...document.querySelectorAll("#desktop-rail div, main"), document.querySelector("main")?.parentElement]
+    .filter((element) => element instanceof HTMLElement && (getComputedStyle(element).transform !== "none" || element.style.overflowX !== "")).length)).toBe(0);
+});

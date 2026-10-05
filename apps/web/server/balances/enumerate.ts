@@ -78,6 +78,7 @@ async function runEnumeration(
         "partial",
         result.pagesRead,
         result.durationMs,
+        listed.detail,
       );
     }
     return result;
@@ -86,7 +87,14 @@ async function runEnumeration(
       ? error.code
       : "upstream-error";
     const durationMs = Date.now() - startedAt;
-    emitEnumerationEvent(log, "unavailable", reason, 0, durationMs);
+    emitEnumerationEvent(
+      log,
+      "unavailable",
+      reason,
+      error instanceof CdpTokenBalancesError ? error.pagesRead : 0,
+      durationMs,
+      error instanceof CdpTokenBalancesError ? error.detail : undefined,
+    );
     return {
       status: "unavailable",
       rows: [],
@@ -105,6 +113,7 @@ function emitEnumerationEvent(
   }>["reason"],
   pageCount: number,
   durationMs: number,
+  detail?: Extract<ObservabilityEvent, { kind: "portfolio-balance-source" }>["detail"],
 ): void {
   observeSafely(() => log({
     kind: "portfolio-balance-source",
@@ -113,6 +122,7 @@ function emitEnumerationEvent(
     stage: "inventory",
     outcome,
     reason,
+    ...(detail === undefined ? {} : { detail }),
     pageCount,
     durationMs,
   }));

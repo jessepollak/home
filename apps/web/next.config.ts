@@ -8,6 +8,7 @@ const reactProfiling = process.env.HOME_PERF_REACT_PROFILING === "1";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  ...(process.env.HOME_PLAYWRIGHT_SMOKE === "1" ? { devIndicators: false as const } : {}),
   experimental: { staleTimes: { dynamic: 300 } },
   ...(reactProfiling ? { reactProductionProfiling: true, distDir: ".next-profiling" } : {}),
   serverExternalPackages: [

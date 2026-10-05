@@ -230,7 +230,7 @@ describe("owner generation fence", () => {
     render(<AccountWalletSessionOwner
       sdk={sdk({ signOut: () => { cleanups += 1; return cleanupResult; } })}
       baseAccountEnabled
-      sessionFetch={async () => Response.json(session("base-account"))}
+      sessionFetch={async () => Response.json({ ...session("base-account"), version: 1 })}
       baseAccountRestorer={async (onInvalidated) => {
         invalidate = () => onInvalidated("account-changed");
         return {
@@ -267,7 +267,7 @@ describe("owner generation fence", () => {
         oldSignal = init?.signal ?? undefined;
         return new Promise<Response>((_resolve, reject) => { rejectOld = reject; });
       }
-      return Response.json(newer);
+      return Response.json({ ...newer, version: 1 });
     };
     const owner = (boundary: AccountWalletSdkBoundary) => <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}><ClientProbe /></AccountWalletSessionOwner>;
     const view = render(owner(sdk()));
@@ -282,7 +282,7 @@ describe("owner generation fence", () => {
   });
   test.each([false, true])("native restore removes the duplicate GET and preserves the wallet address check (mismatch=%s)", async (mismatch) => {
     let reads = 0;
-    const sessionFetch = async () => { reads++; return Response.json(session("base-account")); };
+    const sessionFetch = async () => { reads++; return Response.json({ ...session("base-account"), version: 1 }); };
     const restored = await restoreNativeBaseSession(sessionFetch);
     if (!restored) throw new Error("Expected native restore");
     let disconnected = false;
@@ -308,7 +308,7 @@ describe("owner generation fence", () => {
   });
 
   test("hydrates with a client-only SDK boundary without regenerating the client tree", async () => {
-    const sessionFetch = async () => Response.json(session("cdp-embedded"));
+    const sessionFetch = async () => Response.json({ ...session("cdp-embedded"), version: 1 });
     const owner = (boundary: AccountWalletSdkBoundary) => (
       <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
         <ClientProbe />
@@ -411,7 +411,7 @@ describe("owner generation fence", () => {
     const sessionFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/session") {
-        return verificationLost ? new Response(null, { status: 401 }) : Response.json(activeSession);
+        return verificationLost ? new Response(null, { status: 401 }) : Response.json({ ...activeSession, version: 1 });
       }
       if (path === "/api/actions/prepare") return Response.json(prepared(activeSession));
       if (init?.method === "POST") serverPostsAfterPrepare += 1;
@@ -472,7 +472,7 @@ describe("owner generation fence", () => {
         })}
         sessionFetch={async () => verificationLost
           ? new Response(null, { status: 401 })
-          : Response.json(session("cdp-embedded"))}
+          : Response.json({ ...session("cdp-embedded"), version: 1 })}
       >
         <ClientProbe />
       </AccountWalletSessionOwner>,
@@ -518,14 +518,14 @@ describe("owner generation fence", () => {
     expect(request(1).signal.aborted).toBe(true);
     expect(request(2).signal.aborted).toBe(false);
 
-    await act(async () => { request(1).resolve(Response.json(session("cdp-embedded"))); });
+    await act(async () => { request(1).resolve(Response.json({ ...session("cdp-embedded"), version: 1 })); });
     expect(currentClient().status).toBe("validating");
     expect(currentClient().session).toBeNull();
     expect(currentClient().message).toBeNull();
     expect(currentClient().verification).toBeNull();
 
     await act(async () => {
-      request(2).resolve(Response.json(session("cdp-embedded")));
+      request(2).resolve(Response.json({ ...session("cdp-embedded"), version: 1 }));
       await firstRetry;
       await secondRetry;
     });
@@ -562,7 +562,7 @@ describe("owner generation fence", () => {
         sdk={activeSdk}
         sessionFetch={async (input: RequestInfo | URL) => String(input) === "/api/actions/prepare"
           ? Response.json(prepared(activeSession))
-          : Response.json(activeSession)}
+          : Response.json({ ...activeSession, version: 1 })}
       >
         <ClientProbe />
       </AccountWalletSessionOwner>,
@@ -589,7 +589,7 @@ describe("owner generation fence", () => {
       signOut: () => signOutPending,
     });
     render(
-      <AccountWalletSessionOwner sdk={activeSdk} sessionFetch={async () => Response.json(session("cdp-embedded"))}>
+      <AccountWalletSessionOwner sdk={activeSdk} sessionFetch={async () => Response.json({ ...session("cdp-embedded"), version: 1 })}>
         <ClientProbe />
       </AccountWalletSessionOwner>,
     );
@@ -628,7 +628,7 @@ describe("owner generation fence", () => {
     },
   ] satisfies Array<{ name: string; changes: Partial<AccountWalletSdkBoundary> }>) {
     test(name, async () => {
-      const sessionFetch = async () => Response.json(session("cdp-embedded"));
+      const sessionFetch = async () => Response.json({ ...session("cdp-embedded"), version: 1 });
       const owner = (boundary: AccountWalletSdkBoundary) => (
         <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
           <ClientProbe />
@@ -694,7 +694,7 @@ describe("owner generation fence", () => {
     expect(currentClient().session).toBeNull();
     expect(currentClient().verification).toBeNull();
 
-    await act(async () => { pending[0]!.resolve(Response.json(provisionalSession)); });
+    await act(async () => { pending[0]!.resolve(Response.json({ ...provisionalSession, version: 1 })); });
     expect(currentClient().status).toBe("unavailable");
     expect(currentClient().session).toBeNull();
     expect(currentClient().verification).toBeNull();
@@ -708,7 +708,7 @@ describe("owner generation fence", () => {
     await waitFor(() => expect(pending).toHaveLength(2));
     expect(currentClient().status).toBe("validating");
     expect(pending[1]!.signal.aborted).toBe(false);
-    await act(async () => { pending[1]!.resolve(Response.json(provisionalSession)); });
+    await act(async () => { pending[1]!.resolve(Response.json({ ...provisionalSession, version: 1 })); });
     expect(currentClient().status).toBe("verified");
     expect(currentClient().verification).toBe("server");
     expect(currentClient().message).toBeNull();
@@ -741,7 +741,7 @@ describe("owner generation fence", () => {
             getAccessToken: async () => { tokenReads += 1; return "fixture-token"; },
           })}
           renderSeed={{ session: seededSession, source: "cdp-hint" }}
-          sessionFetch={async () => { sessionReads += 1; return Response.json(seededSession); }}
+          sessionFetch={async () => { sessionReads += 1; return Response.json({ ...seededSession, version: 1 }); }}
         >
           <ClientProbe />
         </AccountWalletSessionOwner>
@@ -807,7 +807,7 @@ describe("owner generation fence", () => {
     act(() => { setError(false); });
     expect(pending).toHaveLength(1);
     expect(pending[0]!.signal.aborted).toBe(false);
-    await act(async () => { pending[0]!.resolve(Response.json(provisionalSession)); });
+    await act(async () => { pending[0]!.resolve(Response.json({ ...provisionalSession, version: 1 })); });
     expect(currentClient().status).toBe("verified");
     expect(currentClient().verification).toBe("server");
   });
@@ -828,7 +828,7 @@ describe("owner generation fence", () => {
     await waitFor(() => expect(finishValidation).toBeDefined());
     expect(currentClient().status).toBe("validating");
 
-    await act(async () => { finishValidation(Response.json(session("cdp-embedded"))); });
+    await act(async () => { finishValidation(Response.json({ ...session("cdp-embedded"), version: 1 })); });
     await waitFor(() => expect(currentClient().status).toBe("verified"));
     expect(currentClient().session).toEqual(session("cdp-embedded"));
   });
@@ -847,19 +847,19 @@ describe("owner generation fence", () => {
     );
     const view = render(owner(sdk()));
     await waitFor(() => expect(finishValidation).toBeDefined());
-    await act(async () => { finishValidation(Response.json(session("cdp-embedded"))); });
+    await act(async () => { finishValidation(Response.json({ ...session("cdp-embedded"), version: 1 })); });
     expect(currentClient().status).toBe("verified");
 
     act(() => { view.rerender(owner(sdk({ ownerKey: OWNER_B }))); });
     expect(currentClient().status).toBe("validating");
     expect(currentClient().session).toBeNull();
     await waitFor(() => expect(fetches).toBe(2));
-    await act(async () => { finishValidation(Response.json(session("cdp-embedded", "subject-b", ADDRESS_B))); });
+    await act(async () => { finishValidation(Response.json({ ...session("cdp-embedded", "subject-b", ADDRESS_B), version: 1 })); });
     expect(currentClient().status).toBe("verified");
   });
 
   test("signs out when the SDK owner disappears without an initialization error", async () => {
-    const sessionFetch = async () => Response.json(session("cdp-embedded"));
+    const sessionFetch = async () => Response.json({ ...session("cdp-embedded"), version: 1 });
     const owner = (boundary: AccountWalletSdkBoundary) => (
       <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
         <ClientProbe />
@@ -875,7 +875,7 @@ describe("owner generation fence", () => {
 
   test("a failed sign-out returns to signed-out when the SDK owner disappears", async () => {
     const failedSignOut = async () => { throw new Error("cleanup failed"); };
-    const sessionFetch = async () => Response.json(session("cdp-embedded"));
+    const sessionFetch = async () => Response.json({ ...session("cdp-embedded"), version: 1 });
     const owner = (boundary: AccountWalletSdkBoundary) => (
       <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
         <ClientProbe />
@@ -904,7 +904,7 @@ describe("owner generation fence", () => {
       signOut: () => signOutPending,
       signInWithEmail: async () => { signInRequests += 1; return { flowId: "email-flow" }; },
     };
-    const sessionFetch = async () => Response.json(session("cdp-embedded"));
+    const sessionFetch = async () => Response.json({ ...session("cdp-embedded"), version: 1 });
     const owner = (boundary: AccountWalletSdkBoundary) => (
       <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
         <ClientProbe />
@@ -934,7 +934,7 @@ describe("owner generation fence", () => {
     const scheduled = new Map<object, () => void>();
     const nativeSetTimeout = globalThis.setTimeout;
     const nativeClearTimeout = globalThis.clearTimeout;
-    globalThis.setTimeout = ((callback: TimerHandler, delay?: number, ...args: unknown[]) => {
+    globalThis.setTimeout = ((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
       if (delay === 3_000 && typeof callback === "function") {
         const id = {};
         scheduled.set(id, () => callback(...args));
@@ -960,7 +960,7 @@ describe("owner generation fence", () => {
       });
       const sessionFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
-        if (path === "/api/session") return Response.json(activeSession);
+        if (path === "/api/session") return Response.json({ ...activeSession, version: 1 });
         if (path === "/api/actions/prepare") return Response.json(prepared(activeSession));
         if (path.endsWith("/confirm")) return Response.json({ calls: prepared(activeSession).calls });
         if (path === "/api/actions") {
@@ -1010,7 +1010,7 @@ describe("owner generation fence", () => {
     const viewRef: { current?: ReturnType<typeof render> } = {};
     const provider = new ProviderFixture();
     const asProvider = provider as unknown as Parameters<typeof restoreWithBaseProvider>[0];
-    const sessionFetch = async () => Response.json(activeSession);
+    const sessionFetch = async () => Response.json({ ...activeSession, version: 1 });
     const owner = (ownerSdk: AccountWalletSdkBoundary) => (
       <AccountWalletSessionOwner
         sdk={ownerSdk}
@@ -1056,7 +1056,7 @@ describe("owner generation fence", () => {
     let dispatches = 0;
     const sessionFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path === "/api/session") return Response.json(activeSession);
+      if (path === "/api/session") return Response.json({ ...activeSession, version: 1 });
       if (path === "/api/actions/prepare") return Response.json(prepared(activeSession));
       if (path.endsWith("/confirm")) {
         confirmPosts += 1;

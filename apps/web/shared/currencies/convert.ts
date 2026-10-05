@@ -15,12 +15,25 @@ function shippedPair(id: string, from: string, to: string): ConvertPairRecord {
   });
 }
 
+function localPair(id: string, from: string, to: string): ConvertPairRecord {
+  return Object.freeze({
+    id, from, to, provider: CONVERT_PROVIDER, regions: "all", status: "verified",
+    verifiedAt: "2026-10-04", evidence: "docs/invest-data.md#ars-brl-and-cop-convert-verification",
+  });
+}
+
 /** @public Published Convert pair inventory; exercised by convert.test.ts and drift.test.ts. */
 export const CONVERT_PAIRS: readonly ConvertPairRecord[] = Object.freeze([
   shippedPair("usdc-eurc", CONVERT_QUOTE_ASSET_ID, "base:eurc"),
   shippedPair("eurc-usdc", "base:eurc", CONVERT_QUOTE_ASSET_ID),
   shippedPair("usdc-idrx", CONVERT_QUOTE_ASSET_ID, "base:idrx"),
   shippedPair("idrx-usdc", "base:idrx", CONVERT_QUOTE_ASSET_ID),
+  localPair("usdc-wars", CONVERT_QUOTE_ASSET_ID, "base:wars"),
+  localPair("wars-usdc", "base:wars", CONVERT_QUOTE_ASSET_ID),
+  localPair("usdc-wbrl", CONVERT_QUOTE_ASSET_ID, "base:wbrl"),
+  localPair("wbrl-usdc", "base:wbrl", CONVERT_QUOTE_ASSET_ID),
+  localPair("usdc-wcop", CONVERT_QUOTE_ASSET_ID, "base:wcop"),
+  localPair("wcop-usdc", "base:wcop", CONVERT_QUOTE_ASSET_ID),
 ]);
 
 type ConvertQuery = { from: string; to: string; regionId?: RegionId; now?: Date };

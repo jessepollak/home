@@ -18,13 +18,16 @@ type PullToRefreshOptions = {
   maxPull?: number;
 };
 
-type Gesture = { x: number; y: number; identifier: number; locked: boolean };
+type Gesture = { x: number; y: number; identifier: number; target: Element; locked: boolean };
 
-function blockedTarget(target: EventTarget | null, owner: HTMLElement): boolean {
+function pullTarget(target: EventTarget | null, owner: HTMLElement): Element | null {
   const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
-  if (!element || !owner.contains(element)) return true;
-  if (element.closest("input, textarea, select, [contenteditable], [data-pull-to-refresh-ignore], [aria-modal='true'], dialog[open]")) return true;
+  if (!element || !owner.contains(element)) return null;
+  if (element.closest("input, textarea, select, [contenteditable], [data-pull-to-refresh-ignore], [aria-modal='true'], dialog[open]")) return null;
+  return element;
+}
 
+function hasScrolledAncestor(element: Element, owner: HTMLElement): boolean {
   for (let node = element.parentElement; node && node !== owner; node = node.parentElement) {
     const style = window.getComputedStyle(node);
     if (/^(auto|scroll|overlay)$/.test(style.overflowY) && node.scrollHeight > node.clientHeight && node.scrollTop > 0) return true;
@@ -170,15 +173,18 @@ export function usePullToRefresh({ scrollRef, scrollElement, contentRef, enabled
       if (phaseRef.current === "pulling" || phaseRef.current === "armed") settle();
     };
     const start = (event: TouchEvent) => {
+      if (!scroll) return;
       if (gesture && event.touches.length !== 1) { abandon(); return; }
-      if (event.touches.length !== 1 || refreshingRef.current || phaseRef.current !== "idle" || scroll!.scrollTop > 0 ||
-          (window.visualViewport?.scale ?? 1) > 1.01 || window.getSelection()?.isCollapsed === false || blockedTarget(event.target, scroll!)) return;
+      if (event.touches.length !== 1 || refreshingRef.current || phaseRef.current !== "idle" || scroll.scrollTop > 0 ||
+          (window.visualViewport?.scale ?? 1) > 1.01 || window.getSelection()?.isCollapsed === false) return;
+      const target = pullTarget(event.target, scroll);
+      if (!target) return;
       const touch = event.touches[0];
-      gesture = { x: touch.clientX, y: touch.clientY, identifier: touch.identifier, locked: false };
+      gesture = { x: touch.clientX, y: touch.clientY, identifier: touch.identifier, target, locked: false };
     };
     const move = (event: TouchEvent) => {
-      if (!gesture) return;
-      if (event.touches.length !== 1 || scroll!.scrollTop > 0 || refreshingRef.current) { abandon(); return; }
+      if (!gesture || !scroll) return;
+      if (event.touches.length !== 1 || scroll.scrollTop > 0 || refreshingRef.current) { abandon(); return; }
       const touch = event.touches[0];
       if (touch.identifier !== gesture.identifier) { abandon(); return; }
       const dx = touch.clientX - gesture.x;
@@ -186,6 +192,7 @@ export function usePullToRefresh({ scrollRef, scrollElement, contentRef, enabled
       if (!gesture.locked) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) <= 8) return;
         if (dy <= 0 || Math.abs(dx) >= dy) { abandon(); return; }
+        if (hasScrolledAncestor(gesture.target, scroll)) { abandon(); return; }
         gesture.locked = true;
       }
       if (dy <= 0) { abandon(); return; }

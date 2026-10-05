@@ -17,9 +17,20 @@ export type InvestmentsContentProps = {
   returnHolding?: AssetKey | null;
 };
 
+export type ShellSearchContentProps = {
+  initialQuery: string;
+  initialScrollTop?: number;
+  initialResultId?: string | null;
+  onInputReady: (input: HTMLInputElement | null) => void;
+  onClose: () => void;
+  onQueryCommit: (query: string) => void;
+  onOpenAsset: (assetId: string, query: string, scrollTop: number) => void;
+};
+
 export type HomeExperienceProps = {
   initialRateLabels?: HomeRateLabels;
   investContent?: ReactNode;
+  searchContent?: (props: ShellSearchContentProps) => ReactNode;
   cardsEnabled?: boolean;
   cashContent?: (props: { view: "cash" | "savings"; onOpenSavings: () => void }) => ReactNode;
   investmentsContent?: (props: InvestmentsContentProps) => ReactNode;

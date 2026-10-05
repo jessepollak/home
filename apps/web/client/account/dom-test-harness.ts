@@ -1,6 +1,7 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { registerDomTestCleanup } from "@/tests/helpers/dom-test-cleanup";
+import { guardAnimationCancellation } from "@/tests/helpers/animation-cancel-guard";
 
 if (typeof window === "undefined") {
   const serverFetchDescriptors = Object.fromEntries(
@@ -19,6 +20,7 @@ if (typeof window === "undefined") {
     },
   });
   (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
+  guardAnimationCancellation();
 
   for (const [name, descriptor] of Object.entries(serverFetchDescriptors)) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);

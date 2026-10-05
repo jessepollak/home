@@ -22,7 +22,7 @@ import {
   savingsVaultsBody,
 } from "../fixtures/bodies";
 import type { TradeDirection } from "../../../shared/trading/contract";
-import type { CardPurchase } from "../../../shared/cards/transactions-contract";
+import { CARD_PURCHASES_VERSION, type CardPurchase } from "../../../shared/cards/transactions-contract";
 import type { ActivityOrdersResponse } from "../../../shared/activity/contract-orders";
 import { FUNDING_ORDER_RESOLUTION_VERSION, type ResolveFundingOrderResponse } from "../../../shared/funding/contracts/order-resolution";
 import { FUNDING_ORDER_CANCELLATION_VERSION, type CancelFundingOrderResponse } from "../../../shared/funding/contracts/order-cancellation";
@@ -58,7 +58,7 @@ export function activityPageFixture(windowEnd: string) {
     currency: "USD",
     window: { from: new Date(Date.parse(windowEnd) - 24 * 60 * 60_000).toISOString(), to: windowEnd },
     transfers: [],
-    cards: { status: "ready", rows: cardPurchasesFixture(windowEnd) },
+    cards: { version: CARD_PURCHASES_VERSION, status: "ready", rows: cardPurchasesFixture(windowEnd) },
     nextCursor: null,
     source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: windowEnd, executionTimeMs: 1, fetchedAt: windowEnd },
   } as const;
@@ -259,6 +259,8 @@ export function fixtureRoutes({
     }],
     ["**/api/basename-profile**", basenameProfileBody],
     [`**/api/invest/asset?assetId=base%3A${nonTrendingAddress}`, assetResolutionFixture(`base:${nonTrendingAddress}`)],
+    ...["0x2222222222222222222222222222222222222222", "0x3333333333333333333333333333333333333333"].map((address) =>
+      [`**/api/invest/asset?assetId=base%3A${address}`, assetResolutionFixture(`base:${address}`)] as const),
     ...[...new Set(["BTC", "Bitcoin", "cbBTC", "AAPL", "Apple", "AAPLc", "ORB", "Orbit", nonTrendingAddress, "nothing-found", "partial"].flatMap((query) => [query, query.toLowerCase()]))].map((query) => [`**/api/invest/search?q=${query}`, searchFixture(query)] as const),
   ] as const;
 }

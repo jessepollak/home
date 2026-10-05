@@ -8,6 +8,7 @@ import {
 } from "@/shared/savings/config";
 import { createUpstreamDeadline, upstreamRequest, type UpstreamDeadline } from "@/server/http/upstream";
 import { parseLosslessJson } from "./lossless-json";
+import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
 import {
   MorphoSchemaError,
   normalizeVaultCandidate,
@@ -171,7 +172,7 @@ async function fetchVaultCandidates(
     );
   }
 
-  return {
+  const result = parseVaultsResult({
     version: MORPHO_API_VERSION,
     chainId: BASE_CHAIN_ID,
     asset: {
@@ -182,7 +183,11 @@ async function fetchVaultCandidates(
     candidates,
     source,
     stale: false,
-  };
+  });
+  if (result === null) {
+    throw new MorphoSchemaError("Normalized Morpho vault data failed validation.");
+  }
+  return result;
 }
 
 async function executeGraphqlWithRetry(

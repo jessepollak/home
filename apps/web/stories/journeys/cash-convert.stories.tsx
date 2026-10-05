@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { CashExperience } from "@/client/cash/cash-experience";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
@@ -16,8 +16,6 @@ import { pinClock } from "@/tests/helpers/pin-clock";
 
 const session: VerifiedAccountSession = { user: { subject: "storybook-cash-convert" }, smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 }, accountProvider: "cdp-embedded" };
 const usd = cashConversionCurrencies.find((currency) => currency.code === "USD")!;
-const eur = cashConversionCurrencies.find((currency) => currency.code === "EUR")!;
-const idr = cashConversionCurrencies.find((currency) => currency.code === "IDR")!;
 const held = buildBalancesSnapshotFixture({ registry: {
   usdc: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
   eurc: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
@@ -37,21 +35,22 @@ const prepared: unknown[] = [];
 
 type Scenario = "eur" | "idr" | "eur-row" | "save" | "empty" | "unavailable" | "no-route" | "expiry" | "back";
 function tradeAction(request: TradeActionParams, expired: boolean, owner: VerifiedAccountSession): PreparedMoneyAction {
-  const traded = request.assetId === eur.tradeAssetId ? eur : idr;
+  const traded = cashConversionCurrencies.find((currency) => currency.tradeAssetId === request.assetId && currency.code !== "USD");
+  if (!traded) throw new Error("Unexpected conversion identity");
   const buy = request.direction === "buy";
   const asset = { id: traded.tradeAssetId, address: traded.address, symbol: traded.symbol, decimals: traded.decimals };
   const cash = { id: "usdc", address: usd.address, symbol: usd.symbol, decimals: 6 };
   const from = buy ? cash : asset;
   const to = buy ? asset : cash;
   const spend = request.amountBaseUnits === "all" ? "15000000" : request.amountBaseUnits;
-  const received = "2000000";
+  const received = (BigInt(2) * BigInt(10) ** BigInt(to.decimals)).toString();
   const expiresAt = new Date(NOW + (expired ? -1000 : 120_000)).toISOString();
   return { id: `synthetic-cash-${traded.code}-${request.direction}`, kind: "trade", title: "Convert", owner: { subject: owner.user.subject, address: owner.smartAccount!.address, chainId: 8453, accountProvider: owner.accountProvider },
     createdAt: new Date(NOW).toISOString(), expiresAt, calls: [], warnings: [], signing: { signer: "base-account", typedData: {} } as PreparedMoneyAction["signing"],
     networkFee: { payment: "usdc", token: usd.address, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "20000", decimals: 6 },
     amounts: [{ assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: spend, direction: "spend" }, { assetId: to.id, symbol: to.symbol, decimals: to.decimals, amountBaseUnits: received, direction: "receive", estimated: true }],
     metadata: { product: "trade", provider: "cdp-swaps", direction: request.direction, network: { name: "Base", chainId: 8453 }, assetId: asset.id, assetName: traded.name,
-      fromAsset: from, toAsset: to, fromAmountBaseUnits: spend, expectedToAmountBaseUnits: received, minimumToAmountBaseUnits: "1980000", slippageBps: 100, fees: [], approval: "permit2-exact",
+      fromAsset: from, toAsset: to, fromAmountBaseUnits: spend, expectedToAmountBaseUnits: received, minimumToAmountBaseUnits: (BigInt(received) * BigInt(99) / BigInt(100)).toString(), slippageBps: 100, fees: [], approval: "permit2-exact",
       quoteBlockNumber: "123", quotedAt: new Date(NOW).toISOString(), permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30), executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30) },
   };
 }
@@ -82,14 +81,14 @@ function Surface({ scenario }: { scenario: Scenario }) {
 const meta = { title: "Journeys/Cash Convert", component: Surface, args: { scenario: "eur" }, beforeEach: () => { prepared.length = 0; return pinClock(now); } } satisfies Meta<typeof Surface>;
 export default meta;
 type Story = StoryObj<typeof meta>;
-const openDestination = async (canvasElement: HTMLElement, target: "Euro" | "Rupiah") => {
+const openDestination = async (canvasElement: HTMLElement, target: string) => {
   await userEvent.click(within(canvasElement).getByRole("button", { name: /^Convert$/ }));
   const body = within(canvasElement.ownerDocument.body);
   const destination = await waitFor(() => within(body.getByRole("dialog", { name: "Convert to" })).getByRole("button", { name: new RegExp(`^${target}`) }));
   await userEvent.click(destination);
   await body.findByRole("textbox", { name: "Amount" });
 };
-const review = async (canvasElement: HTMLElement, target: "Euro" | "Rupiah") => {
+const review = async (canvasElement: HTMLElement, target: string) => {
   await openDestination(canvasElement, target);
   const body = within(canvasElement.ownerDocument.body);
   await userEvent.type(body.getByRole("textbox", { name: "Amount" }), "1");
@@ -99,6 +98,9 @@ const review = async (canvasElement: HTMLElement, target: "Euro" | "Rupiah") => 
   await waitFor(() => expect(body.getByText("You pay")).toBeVisible());
 };
 export const UsdToEurReview: Story = { play: async ({ canvasElement }) => review(canvasElement, "Euro") };
+export const UsdToArsReview: Story = { play: async ({ canvasElement }) => review(canvasElement, "Argentine peso") };
+export const UsdToBrlReview: Story = { play: async ({ canvasElement }) => review(canvasElement, "Brazilian real") };
+export const UsdToCopReview: Story = { play: async ({ canvasElement }) => review(canvasElement, "Colombian peso") };
 export const UsdToIdrReview: Story = { args: { scenario: "idr" }, play: async ({ canvasElement }) => review(canvasElement, "Rupiah") };
 export const EurRowToUsd: Story = { args: { scenario: "eur-row" }, play: async ({ canvasElement }) => {
   await userEvent.click(within(canvasElement).getByRole("button", { name: /^Euro/ }));
@@ -136,17 +138,14 @@ export const NoMatchingDestinations: Story = { play: async ({ canvasElement }) =
   await waitFor(() => expect(picker.getByText("No currencies found for “not-a-currency”.")).toBeVisible());
   await expect(picker.queryByRole("listitem")).toBeNull();
 } };
-export const UnconvertibleDestinations: Story = { play: async ({ canvasElement }) => {
+export const LocalDestinations: Story = { play: async ({ canvasElement }) => {
   await userEvent.click(within(canvasElement).getByRole("button", { name: /^Convert$/ }));
   const body = within(canvasElement.ownerDocument.body);
   const picker = within(await body.findByRole("dialog", { name: "Convert to" }));
   for (const name of ["Argentine peso", "Brazilian real", "Colombian peso"]) {
     const row = picker.getByText(name).closest("li")!;
-    await expect(row).toHaveTextContent(CASH_CONVERSION_UNAVAILABLE_REASON);
-    await expect(within(row).queryByRole("button")).toBeNull();
-    await fireEvent.click(row);
-    await waitFor(() => expect(body.getByRole("dialog", { name: "Convert to" })).toBeVisible());
-    await expect(body.queryByRole("textbox", { name: "Amount" })).toBeNull();
+    await expect(row).not.toHaveTextContent(CASH_CONVERSION_UNAVAILABLE_REASON);
+    await waitFor(() => expect(within(row).getByRole("button")).toBeEnabled());
   }
   await expect(prepared).toHaveLength(0);
 } };
@@ -155,8 +154,8 @@ export const ArgentinePesoDetail: Story = { play: async ({ canvasElement }) => {
   await userEvent.click(row);
   const detail = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Argentine peso" }));
   await waitFor(() => expect(detail.getByRole("img", { name: "$123.45" })).toBeVisible());
-  await waitFor(() => expect(detail.getByText(CASH_CONVERSION_UNAVAILABLE_REASON)).toBeVisible());
-  await expect(detail.queryByRole("button", { name: "Convert" })).toBeNull();
+  await expect(detail.queryByText(CASH_CONVERSION_UNAVAILABLE_REASON)).toBeNull();
+  await waitFor(() => expect(detail.getByRole("button", { name: "Convert" })).toBeEnabled());
 } };
 export const DestinationUnavailable: Story = { args: { scenario: "unavailable" }, play: async ({ canvasElement }) => {
   await userEvent.click(within(canvasElement).getByRole("button", { name: /^Convert$/ }));

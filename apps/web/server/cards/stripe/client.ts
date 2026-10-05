@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isRecord, isStringEnum } from "../response-guards";
 import type { CardJourneyConfig } from "../bridge/journey-config";
 import { readProviderJson } from "../read-provider-json";
 
@@ -12,28 +13,28 @@ export type StripeCard = Readonly<{
 }>;
 
 export function parseStripeCard(value: unknown): StripeCard {
-  if (typeof value !== "object" || !value || Array.isArray(value)) throw new Error("Invalid Stripe card");
-  const card = value as Record<string, unknown>;
+  if (!isRecord(value)) throw new Error("Invalid Stripe card");
+  const card = value;
   const cardholder = typeof card.cardholder === "string" ? card.cardholder :
-    typeof card.cardholder === "object" && card.cardholder !== null && !Array.isArray(card.cardholder)
-      ? (card.cardholder as Record<string, unknown>).id : null;
+    isRecord(card.cardholder)
+      ? card.cardholder.id : null;
   if (typeof card.id !== "string" || !/^ic_[A-Za-z0-9]+$/.test(card.id) ||
       typeof cardholder !== "string" || !/^ich_[A-Za-z0-9]+$/.test(cardholder) ||
-      !["active", "inactive", "canceled"].includes(String(card.status)) ||
+      !isStringEnum(card.status, ["active", "inactive", "canceled"]) ||
       typeof card.last4 !== "string" || !/^\d{4}$/.test(card.last4) ||
-      typeof card.metadata !== "object" || card.metadata === null || Array.isArray(card.metadata) ||
+      !isRecord(card.metadata) ||
       !(Object.prototype.hasOwnProperty.call(card.metadata, "home_freeze")
-        ? (card.metadata as Record<string, unknown>).home_freeze === "customer" : true)) throw new Error("Invalid Stripe card");
-  return { id: card.id, cardholderId: cardholder, status: card.status as StripeCard["status"], last4: card.last4,
-    customerFrozen: (card.metadata as Record<string, unknown>).home_freeze === "customer" };
+        ? card.metadata.home_freeze === "customer" : true)) throw new Error("Invalid Stripe card");
+  return { id: card.id, cardholderId: cardholder, status: card.status, last4: card.last4,
+    customerFrozen: card.metadata.home_freeze === "customer" };
 }
 
 export function parseStripeCardholder(value: unknown): { id: string; status: "active" | "inactive" | "blocked" } {
-  if (typeof value !== "object" || !value || Array.isArray(value)) throw new Error("Invalid Stripe cardholder");
-  const item = value as Record<string, unknown>;
+  if (!isRecord(value)) throw new Error("Invalid Stripe cardholder");
+  const item = value;
   if (typeof item.id !== "string" || !/^ich_[A-Za-z0-9]+$/.test(item.id) ||
-      !["active", "inactive", "blocked"].includes(String(item.status))) throw new Error("Invalid Stripe cardholder");
-  return { id: item.id, status: item.status as "active" | "inactive" | "blocked" };
+      !isStringEnum(item.status, ["active", "inactive", "blocked"])) throw new Error("Invalid Stripe cardholder");
+  return { id: item.id, status: item.status };
 }
 
 export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fetch = fetch) {
@@ -89,8 +90,8 @@ export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fe
     async ephemeralKey(id: string, nonce: string): Promise<string> {
       if (!/^ic_[A-Za-z0-9]+$/.test(id) || !/^[A-Za-z0-9_-]{8,256}$/.test(nonce)) throw new Error("Invalid Stripe ephemeral key request");
       const value = await request("ephemeral_keys", new URLSearchParams({ issuing_card: id, nonce }), undefined, true);
-      if (typeof value !== "object" || !value || Array.isArray(value)) throw new Error("Invalid Stripe ephemeral key response");
-      const secret = (value as Record<string, unknown>).secret;
+      if (!isRecord(value)) throw new Error("Invalid Stripe ephemeral key response");
+      const secret = value.secret;
       if (typeof secret !== "string" || !/^ek_(test|live)_[A-Za-z0-9_-]{10,2048}$/.test(secret) ||
           !secret.startsWith(config.mode === "sandbox" ? "ek_test_" : "ek_live_")) throw new Error("Invalid Stripe ephemeral key response");
       return secret;

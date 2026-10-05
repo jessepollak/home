@@ -137,3 +137,30 @@ describe("funding provider contract parser", () => {
     })).toEqual([]);
   });
 });
+
+
+test("rejects nested or noncanonical off-ramp data without accepting a partial envelope", () => {
+  for (const override of [
+    { assetDecimals: 1.5 }, { assetDecimals: Number.MAX_SAFE_INTEGER + 1 },
+    { paymentMethods: [{ ...offramp.paymentMethods[0], minimumAmountAtomic: "01" }] },
+    { paymentMethods: [{ ...offramp.paymentMethods[0], maximumAmountAtomic: undefined }] },
+    { paymentMethods: [{ ...offramp.paymentMethods[0], platform: null }] },
+    { paymentMethods: [{ ...offramp.paymentMethods[0], estimateSemantics: "guaranteed" }] },
+    { paymentMethods: [{ ...offramp.paymentMethods[0], etaSemantics: "guaranteed" }] },
+    { quotes: true }, { customerSetup: null, kyc: { hosted: true } },
+  ]) {
+    const invalid = { ...offramp, ...override };
+    expect(readProviderBindings({ providers: [invalid, offramp] })).toEqual([{ ...offramp, customerSetup: null }]);
+    expect(() => assertFundingProvidersResponse({ version: 3, direction: "offramp", providers: [offramp, invalid] }, "offramp", "US"))
+      .toThrow("Invalid funding providers response");
+  }
+});
+
+test("on-ramp setup is exact, but payment method metadata and signed safe decimals remain compatible", () => {
+  const onramp = { ...offramp, direction: "onramp" as const, quotes: true, assetDecimals: -1,
+    paymentMethods: [{ id: "bank", label: "Bank", metadata: "retained" }], customerSetup: { hosted: true as const } };
+  expect(readProviderBindings({ providers: [onramp] })).toEqual([{ ...onramp, resumeOnly: false }]);
+  for (const customerSetup of [{ hosted: false }, { hosted: true, fields: [] }, { hosted: true, extra: undefined }]) {
+    expect(readProviderBindings({ providers: [{ ...onramp, customerSetup }] })).toEqual([]);
+  }
+});

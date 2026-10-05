@@ -25,7 +25,7 @@ import { openPanelAfterClose, useOptionalHomeShellRouting } from "./panel-routin
 import { ShimmerRows } from "./panel-shared";
 import { cancellationErrorCopy, cancellationNeedsRefetch, useCancelFundingOrder } from "@/client/funding/cancel-order";
 import { fundingOrderKey } from "@/client/funding/funding-queries";
-import { readFundingOrder } from "@/shared/funding/contracts/order";
+import { readFundingOrderResponse } from "@/shared/funding/contracts/order";
 
 const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
 const EMPTY_ORDERS: readonly ActivityOrder[] = [];
@@ -240,7 +240,7 @@ export function ConnectedActivityPanel({
         setCancelError(cancellationErrorCopy(failure));
         if (cancellationNeedsRefetch(failure)) {
           const value = await wallet.fetchAccountResource(`/api/funding/orders/${encodeURIComponent(order.id)}`).catch(() => null);
-          const refreshed = readFundingOrder(value);
+          const refreshed = readFundingOrderResponse(value);
           if (!current()) return;
           if (refreshed?.id === order.id) queryClient.setQueryData(fundingOrderKey(owner, refreshed), refreshed);
           await refetchOrders();

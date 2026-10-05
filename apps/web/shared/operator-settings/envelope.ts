@@ -1,17 +1,29 @@
-import type { SettingsEntry, SettingsResponse } from "./contract";
+import * as z from "zod/mini";
 
 export const OPERATOR_SETTINGS_CONTRACT_VERSION = 1 as const;
 
+const settingsSchema = z.looseObject({
+  value: z.unknown(),
+  revision: z.number().check(z.refine((value) => Number.isSafeInteger(value) && value >= 0)),
+  source: z.enum(["default", "stored"]),
+  updatedAt: z.nullable(z.string()),
+  updatedBy: z.nullable(z.string()),
+}).check(z.refine((settings) => "value" in settings));
+
+export const settingsEntrySchema = z.looseObject({ domain: z.string(), settings: settingsSchema });
+const settingsResponseSchema = z.looseObject({
+  ...settingsEntrySchema.shape,
+  version: z.literal(OPERATOR_SETTINGS_CONTRACT_VERSION),
+});
+
+export type SettingsEntry<T = unknown> = {
+  domain: z.output<typeof settingsEntrySchema>["domain"];
+  settings: Pick<z.output<typeof settingsSchema>, "revision" | "source" | "updatedAt" | "updatedBy"> & { value: T };
+};
+export type SettingsResponse = z.output<typeof settingsResponseSchema>;
+
 /** @public parses settings responses for future administrator clients */
 export function parseSettingsResponse(value: unknown): SettingsResponse | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const response = value as Record<string, unknown>;
-  if (response.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || typeof response.domain !== "string" || !isSettings(response.settings)) return null;
-  return value as SettingsResponse;
-}
-
-function isSettings(value: unknown): value is SettingsEntry["settings"] {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const settings = value as Record<string, unknown>;
-  return "value" in settings && Number.isSafeInteger(settings.revision) && (settings.revision as number) >= 0 && (settings.source === "default" || settings.source === "stored") && (settings.updatedAt === null || typeof settings.updatedAt === "string") && (settings.updatedBy === null || typeof settings.updatedBy === "string");
+  const result = settingsResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }

@@ -661,6 +661,7 @@ export function useActivity(
     return {
       ...mergedPage,
       cards: {
+        version: snapshot.cards.version,
         status: snapshot.cards.status === "unavailable" || mergedPage.cards?.status === "unavailable"
           ? "unavailable" : "ready",
         rows: snapshot.cards.rows.filter((row) => {

@@ -73,6 +73,18 @@ export type PortfolioBalanceSourceReason =
   | "partial"
   | "read-failed";
 
+const PORTFOLIO_BALANCE_SOURCE_DETAILS = [
+  "malformed-json",
+  "invalid-envelope",
+  "malformed-amount",
+  "amount-out-of-range",
+  "invalid-address",
+  "page-ceiling",
+  "request-aborted",
+  "upstream-status",
+] as const;
+export type PortfolioBalanceSourceDetail = (typeof PORTFOLIO_BALANCE_SOURCE_DETAILS)[number];
+
 export const BALANCES_READ_OUTCOMES = [
   "served-row",
   "registry-only",
@@ -106,6 +118,7 @@ export type BalancesReadDurations = {
   "valuation-store": number;
   "pricing-index"?: number;
   "pricing-compute"?: number;
+  "snapshot-assemble"?: number;
   codex: number;
   coinbase: number;
   "store-write": number;
@@ -232,8 +245,15 @@ export type ObservabilityEvent =
       stage: "inventory";
       outcome: "incomplete" | "unavailable";
       reason: PortfolioBalanceSourceReason;
+      detail?: PortfolioBalanceSourceDetail;
       pageCount?: number;
       durationMs?: number;
+    }
+  | {
+      kind: "balances-response";
+      route: "/api/balances";
+      durationMs: { validate: number; serialize: number };
+      bytes: number;
     }
   | {
       kind: "balances-contract";
@@ -287,6 +307,8 @@ export type ObservabilityEvent =
       sandbox?: boolean;
       ownerHash?: string;
       assistant?: "replied" | "handoff" | "failed" | "discarded";
+      unknownSelectors?: readonly string[];
+      direction?: "buy" | "sell";
       durationMs: number;
     };
 
@@ -403,8 +425,16 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         stage: "inventory";
         outcome: "incomplete" | "unavailable";
         reason: PortfolioBalanceSourceReason;
+        detail?: PortfolioBalanceSourceDetail;
         pageCount: number;
         durationMs: number;
+      }
+    | {
+        level: "info";
+        kind: "balances-response";
+        code: "BALANCES_RESPONSE";
+        durationMs: { validate: number; serialize: number };
+        bytes: number;
       }
     | {
         level: "error";
@@ -461,6 +491,8 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         sandbox?: boolean;
         ownerHash?: string;
         assistant?: "replied" | "handoff" | "failed" | "discarded";
+        unknownSelectors?: string[];
+        direction?: "buy" | "sell";
         durationMs: number;
       }
   );
@@ -625,6 +657,20 @@ export function normalizeObservabilityEvent(
     };
   }
 
+  if (event.kind === "balances-response") {
+    return {
+      ...base,
+      level: "info",
+      kind: event.kind,
+      code: "BALANCES_RESPONSE",
+      durationMs: {
+        validate: boundedInteger(event.durationMs.validate, 60_000),
+        serialize: boundedInteger(event.durationMs.serialize, 60_000),
+      },
+      bytes: boundedInteger(event.bytes, 100_000_000),
+    };
+  }
+
   if (event.kind === "balances-read") {
     const outcome = allowedValue(event.outcome, BALANCES_READ_OUTCOMES, "error");
     return {
@@ -748,6 +794,10 @@ export function normalizeObservabilityEvent(
       ...(typeof event.sandbox === "boolean" ? { sandbox: event.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
       ...(event.kind === "support" && event.assistant && ["replied", "handoff", "failed", "discarded"].includes(event.assistant) ? { assistant: event.assistant } : {}),
+      ...(event.kind === "action-prepare" && code === "TRADE_UNKNOWN_ACTIONS_ADMITTED" ? {
+        unknownSelectors: [...new Set((event.unknownSelectors ?? []).filter((selector) => /^0x[0-9a-f]{8}$/i.test(selector)).map((selector) => selector.toLowerCase()))].slice(0, 7),
+        ...(event.direction === "buy" || event.direction === "sell" ? { direction: event.direction } : {}),
+      } : {}),
       durationMs: boundedInteger(event.durationMs, 60_000),
     };
   }
@@ -772,6 +822,7 @@ export function normalizeObservabilityEvent(
       stage: event.stage,
       outcome: event.outcome,
       reason: event.reason,
+      ...(PORTFOLIO_BALANCE_SOURCE_DETAILS.some((detail) => detail === event.detail) ? { detail: event.detail } : {}),
       pageCount: boundedInteger(event.pageCount ?? 0, 32),
       durationMs: boundedInteger(event.durationMs ?? 0, 60_000),
     };
@@ -823,6 +874,7 @@ function normalizeBalancesReadDurations(
     "valuation-store": boundedInteger(durations["valuation-store"], 60_000),
     ...(durations["pricing-index"] === undefined ? {} : { "pricing-index": boundedInteger(durations["pricing-index"], 60_000) }),
     ...(durations["pricing-compute"] === undefined ? {} : { "pricing-compute": boundedInteger(durations["pricing-compute"], 60_000) }),
+    ...(durations["snapshot-assemble"] === undefined ? {} : { "snapshot-assemble": boundedInteger(durations["snapshot-assemble"], 60_000) }),
     codex: boundedInteger(durations.codex, 60_000),
     coinbase: boundedInteger(durations.coinbase, 60_000),
     "store-write": boundedInteger(durations["store-write"], 60_000),

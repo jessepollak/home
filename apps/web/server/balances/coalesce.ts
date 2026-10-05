@@ -81,7 +81,7 @@ type ObservedResult = {
   outcome: Exclude<BalancesReadOutcome, "error">;
   durationMs: Omit<
     BalancesReadDurations,
-    "price" | "pricing-index" | "pricing-compute" | "valuation-store" | "codex" | "coinbase" | "total"
+    "price" | "pricing-index" | "pricing-compute" | "snapshot-assemble" | "valuation-store" | "codex" | "coinbase" | "total"
   >;
 };
 
@@ -325,6 +325,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         requestStartedAtMs ?? startedAt,
       );
       const priceDuration = Math.max(0, nowMs() - priceStartedAt);
+      const assembleStartedAt = nowMs();
       const snapshot = assembleBalancesSnapshot({
         owner,
         region,
@@ -333,12 +334,14 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         borrow: priced.borrow,
         stale: observed.stale || priced.revalidating,
       });
+      const assembleDuration = Math.max(0, nowMs() - assembleStartedAt);
       emitBalancesRead(log, observed.outcome, {
         ...observed.durationMs,
         price: priceDuration,
         "valuation-store": priced.durationMs.store,
         "pricing-index": priced.durationMs.index,
         "pricing-compute": priced.durationMs.compute,
+        "snapshot-assemble": assembleDuration,
         codex: priced.durationMs.codex,
         coinbase: priced.durationMs.coinbase,
         total: Math.max(0, nowMs() - startedAt),

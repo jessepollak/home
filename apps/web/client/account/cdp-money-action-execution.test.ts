@@ -1,9 +1,9 @@
 import "./dom-test-harness";
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { MfaError } from "@coinbase/cdp-core";
 import type { MutableRefObject } from "react";
-import { executeActionOnce } from "./action-dispatch";
+import { executeActionOnce, type ConfirmedPlan } from "./action-dispatch";
 import {
   normalizeResolutionState,
   pollTransactionResolution,
@@ -15,16 +15,77 @@ import {
 } from "./base-account-connector";
 import type { AuthenticatedTransport } from "./cdp-authenticated-transport";
 import type { OwnerGenerationFence } from "./owner-generation-fence";
-import type { VerifiedAccountSession } from "./session-client";
+import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
 const { render } = await import("@testing-library/react");
-const { createElement } = await import("react");
+const { createElement, useEffect } = await import("react");
 const { useMoneyActionExecution } = await import("./cdp-money-action-execution");
+const { useAuthenticatedTransport } = await import("./cdp-authenticated-transport");
+const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 
 const id = "11111111-1111-4111-8111-111111111111";
 const plan = { calls: [{ to: "0x1111111111111111111111111111111111111111" as const, data: "0x1234" as const, value: "0" }] };
 const transactionHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+
+function requireExecution(holder: { current: ReturnType<typeof useMoneyActionExecution> | null }) {
+  if (!holder.current) throw new Error("Execution probe did not render");
+  return holder.current;
+}
+
+function renderConfirmExecution(confirm: () => Promise<unknown>, dispatchError = new Error("Must not dispatch")) {
+  const session: VerifiedAccountSession = {
+    user: { subject: "subject" },
+    smartAccount: { address: plan.calls[0].to, chainId: 8453 },
+    accountProvider: "cdp-embedded",
+  };
+  const ownerFence: OwnerGenerationFence = {
+    advance: () => 4,
+    capture: () => 4,
+    isCurrent: (generation) => generation === 4,
+    assertCurrent: (generation) => { expect(generation).toBe(4); },
+    updateAuthorizationBoundary: () => {},
+    updateOwnerKey: () => false,
+  };
+  const posts: string[] = [];
+  const unexpectedTransportCall = async () => { throw new Error("Unexpected transport call"); };
+  const transport: AuthenticatedTransport = {
+    fetchAccountResource: async (path, options) => {
+      if (path === `/api/actions/${id}`) return {
+        id, kind: "send", summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+        calls: plan.calls, expiresAt: "2099-01-01T00:00:00.000Z",
+      };
+      if (path === `/api/actions/${id}/confirm`) {
+        expect(options?.method).toBe("POST");
+        posts.push(path);
+        return confirm();
+      }
+      throw new Error(`Unexpected account resource ${path}`);
+    },
+    fetchBalances: unexpectedTransportCall,
+    fetchActivity: unexpectedTransportCall,
+    fetchAccountResponse: unexpectedTransportCall,
+    fetchCountryPreference: unexpectedTransportCall,
+    fetchMoneyActionApi: unexpectedTransportCall,
+    reset: () => {},
+  };
+  let dispatches = 0;
+  const executionRef: { current: ReturnType<typeof useMoneyActionExecution> | null } = { current: null };
+  const baseConnection: MutableRefObject<ConnectedBaseAccount | null> = { current: null };
+  function Probe() {
+    const execution = useMoneyActionExecution({
+      session, status: "verified", verification: "server", ownerKey: "owner", ownerFence,
+      sdkSendUserOperation: async () => { dispatches += 1; throw dispatchError; },
+      sdkGetUserOperation: undefined,
+      baseConnection,
+      transport, signTypedData: async () => "0x12",
+    });
+    useEffect(() => { executionRef.current = execution; }, [execution]);
+    return null;
+  }
+  const view = render(createElement(Probe));
+  return { execution: requireExecution(executionRef), posts, dispatchCount: () => dispatches, unmount: () => view.unmount() };
+}
 
 function fakeClock() {
   let now = 0;
@@ -254,7 +315,7 @@ describe("thin action dispatch", () => {
   test("a lost confirm response retries confirmation without opening a second provider dispatch", async () => {
     let confirms = 0;
     let dispatches = 0;
-    const confirmedPlans = new Map();
+    const confirmedPlans = new Map<string, ConfirmedPlan>();
     const providerDispatches = new Map<string, Promise<string>>();
     const execute = () => executeActionOnce({
       id, generation: 3, fence: { assertCurrent: () => {} }, confirmedPlans, providerDispatches,
@@ -333,7 +394,7 @@ describe("thin action dispatch", () => {
     const fake = fakeClock();
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;
-    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) => fake.clock.setTimer(() => {
+    globalThis.setTimeout = ((callback: () => void, delay?: number) => fake.clock.setTimer(() => {
       if (typeof callback === "function") callback();
     }, delay ?? 0)) as typeof setTimeout;
     globalThis.clearTimeout = ((timer: unknown) => fake.clock.clearTimer(timer)) as typeof clearTimeout;
@@ -457,7 +518,7 @@ describe("thin action dispatch", () => {
     render(createElement(Probe));
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;
-    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) =>
+    globalThis.setTimeout = ((callback: () => void, delay?: number) =>
       fake.clock.setTimer(() => {
         if (typeof callback === "function") callback();
       }, delay ?? 0)) as typeof setTimeout;
@@ -691,6 +752,93 @@ describe("thin action dispatch", () => {
     }
   });
 
+  test("a 410 ACTION_EXPIRED confirm reaches the flow as expired through the real transport without dispatch", async () => {
+    const session: VerifiedAccountSession = {
+      user: { subject: "subject" },
+      smartAccount: { address: plan.calls[0].to, chainId: 8453 },
+      accountProvider: "cdp-embedded",
+    };
+    const ownerFence: OwnerGenerationFence = {
+      advance: () => 4,
+      capture: () => 4,
+      isCurrent: (generation) => generation === 4,
+      assertCurrent: (generation) => { expect(generation).toBe(4); },
+      updateAuthorizationBoundary: () => {},
+      updateOwnerKey: () => false,
+    };
+    const posts: string[] = [];
+    const sessionFetch: SessionFetch = async (path, options) => {
+      if (path === `/api/actions/${id}`) {
+        expect(options?.method).toBe("GET");
+        return Response.json({
+          id, kind: "send", summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+          calls: plan.calls, expiresAt: "2099-01-01T00:00:00.000Z",
+        });
+      }
+      if (path === `/api/actions/${id}/confirm`) {
+        expect(options?.method).toBe("POST");
+        posts.push(path);
+        return new Response(JSON.stringify({ error: { code: "ACTION_EXPIRED", message: "This action expired." } }), {
+          status: 410, headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected account resource ${String(path)}`);
+    };
+    const sdkSendUserOperation = mock(async () => { throw new Error("Must not dispatch"); });
+    const queryClient = new QueryClient();
+    const executionRef: { current: ReturnType<typeof useMoneyActionExecution> | null } = { current: null };
+    const baseConnection: MutableRefObject<ConnectedBaseAccount | null> = { current: null };
+    function Probe() {
+      const transport = useAuthenticatedTransport({
+        session, status: "verified", verification: "server", ownerKey: "owner", ownerFence,
+        getAccessToken: async () => "fixture-access-token", sessionFetch,
+      });
+      const execution = useMoneyActionExecution({
+        session, status: "verified", verification: "server", ownerKey: "owner", ownerFence,
+        sdkSendUserOperation, sdkGetUserOperation: undefined,
+        baseConnection,
+        transport, signTypedData: async () => "0x12",
+      });
+      useEffect(() => { executionRef.current = execution; }, [execution]);
+      return null;
+    }
+    const view = render(createElement(QueryClientProvider, { client: queryClient }, createElement(Probe)));
+    try {
+      const execution = requireExecution(executionRef);
+      const action = await execution.resumeMoneyAction(id);
+      const result = execution.executeMoneyAction(action);
+      await expect(result).rejects.toBeInstanceOf(TransferExecutionError);
+      await expect(result).rejects.toMatchObject({
+        reason: "unavailable", kind: "http", code: "ACTION_EXPIRED", status: 410,
+        serverMessage: "This action expired.",
+      });
+      await expect(result).rejects.not.toMatchObject({ reason: "submission-unknown" });
+      expect(posts).toEqual([`/api/actions/${id}/confirm`]);
+      expect(sdkSendUserOperation).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      queryClient.clear();
+    }
+  });
+
+  test("an ambiguous CDP dispatch failure stays single-shot through the real executor", async () => {
+    const failure = new Error("transport aborted after dispatch began");
+    const harness = renderConfirmExecution(async () => plan, failure);
+    try {
+      const action = await harness.execution.resumeMoneyAction(id);
+      await expect(harness.execution.executeMoneyAction(action)).rejects.toMatchObject({
+        reason: "dispatch-unknown", cause: failure,
+      });
+      await expect(harness.execution.executeMoneyAction(action)).rejects.toMatchObject({
+        reason: "dispatch-unknown", cause: failure,
+      });
+      expect(harness.posts).toEqual([`/api/actions/${id}/confirm`]);
+      expect(harness.dispatchCount()).toBe(1);
+    } finally {
+      harness.unmount();
+    }
+  });
+
   test("addresses the CDP smart account by its checksummed form when sending and polling", async () => {
     const fake = fakeClock();
     const lowercase = "0x7b058c8ea4f394d30047998202f45b3c2a94d196" as const;
@@ -756,7 +904,7 @@ describe("thin action dispatch", () => {
     render(createElement(Probe));
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;
-    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) =>
+    globalThis.setTimeout = ((callback: () => void, delay?: number) =>
       fake.clock.setTimer(() => {
         if (typeof callback === "function") callback();
       }, delay ?? 0)) as typeof setTimeout;
@@ -785,7 +933,7 @@ describe("thin action dispatch", () => {
     let dispatches = 0;
     let handlePosts = 0;
     let recordedHandle: string | null = null;
-    const confirmedPlans = new Map();
+    const confirmedPlans = new Map<string, ConfirmedPlan>();
     const providerDispatches = new Map<string, Promise<string>>();
     const dispatchAttempts = new Map<string, number>();
     const pendingDeclines = new Map<string, Promise<void>>();

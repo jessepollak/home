@@ -131,6 +131,14 @@ describe("shell location", () => {
     expect(parseShellOverlayIntent(new URLSearchParams(`flow=receive&action=${ACTION_ID}`)).actionId).toBeNull();
     expect(parseShellOverlayIntent(new URLSearchParams(`flow=send&action=${ACTION_ID}`)).actionId).toBe(ACTION_ID);
   });
+  test("parses asset search presence, empty values and bounded queries", () => {
+    expect(parseShellOverlayIntent(new URLSearchParams()).search).toBeNull();
+    expect(parseShellOverlayIntent(new URLSearchParams("search=")).search).toBe("");
+    expect(parseShellOverlayIntent({ search: ["eth", "btc"] }).search).toBe("eth");
+    expect(parseShellOverlayIntent({ search: "x".repeat(100) }).search).toBe("x".repeat(64));
+    expect(homeHrefWithOverlays({ search: "eth" })).toBe("/home");
+    expect(legacyShellRedirectHref("/save", { search: "eth" })).toBe("/cash/savings");
+  });
   test("keeps only allowlisted overlay intent on the verified home redirect", () => {
     expect(homeHrefWithOverlays(new URLSearchParams(
       `account=settings&flow=send&action=${ACTION_ID}&return=funding&add-money=1`,

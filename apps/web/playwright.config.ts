@@ -142,7 +142,7 @@ export default defineConfig({
     {
       name: productionNavigation ? "chromium-production-navigation" : "chromium-smoke",
       ...(productionNavigation
-        ? { testMatch: "shell-pages.pw.ts", grep: /production:/ }
+        ? { testMatch: ["shell-pages.pw.ts", "invest-search.pw.ts"], grep: /production:|floating asset search/ }
         : { grep: regression ? undefined : /@smoke/, grepInvert: /production:/ }),
       use: {
         browserName: "chromium",
