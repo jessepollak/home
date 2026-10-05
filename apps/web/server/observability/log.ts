@@ -48,6 +48,8 @@ export function emitServerEvent(
     owner?: { subject: string; accountProvider: string };
     durationMs?: number;
     assistant?: "replied" | "handoff" | "failed" | "discarded";
+    unknownSelectors?: readonly string[];
+    direction?: "buy" | "sell";
   },
 ): ObservabilityLogLine | undefined {
   try {
@@ -67,6 +69,8 @@ export function emitServerEvent(
       ...(typeof fields.sandbox === "boolean" ? { sandbox: fields.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
       ...(fields.assistant ? { assistant: fields.assistant } : {}),
+      ...(fields.unknownSelectors ? { unknownSelectors: fields.unknownSelectors } : {}),
+      ...(fields.direction ? { direction: fields.direction } : {}),
       durationMs: fields.durationMs ?? 0,
     });
   } catch {

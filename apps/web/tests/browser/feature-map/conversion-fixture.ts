@@ -42,18 +42,21 @@ export function preparedConversionFixture({ direction, amountBaseUnits, assetId 
   const asset = (currency: typeof usd) => ({ id: currency.tradeAssetId, address: currency.address, symbol: currency.symbol, decimals: currency.decimals });
   const expiresAt = new Date(FIXED_NOW + 120_000).toISOString();
   const deadline = String(Math.floor(Date.parse(expiresAt) / 1000) + 30);
+  const received = (BigInt(2) * BigInt(10) ** BigInt(to.decimals)).toString();
+  const minimum = (BigInt(received) * BigInt(99) / BigInt(100)).toString();
   return {
     id: "synthetic-cash-convert", kind: "trade", title: "Convert",
     owner: { subject: sessionBody.user.subject, address: sessionBody.smartAccount.address, chainId: 8453, accountProvider: sessionBody.accountProvider },
-    createdAt: new Date(FIXED_NOW).toISOString(), expiresAt, calls: [], warnings: [], signing: { signer: "base-account", typedData: {} },
+    createdAt: new Date(FIXED_NOW).toISOString(), expiresAt,
+    calls: [{ to: "0x3333333333333333333333333333333333333333", data: "0x", value: "0" }], warnings: [], signing: { signer: "base-account", typedData: {} },
     amounts: [
       { assetId: from.tradeAssetId, symbol: from.symbol, decimals: from.decimals, amountBaseUnits, direction: "spend" },
-      { assetId: to.tradeAssetId, symbol: to.symbol, decimals: to.decimals, amountBaseUnits: "2000000", direction: "receive", estimated: true },
+      { assetId: to.tradeAssetId, symbol: to.symbol, decimals: to.decimals, amountBaseUnits: received, direction: "receive", estimated: true },
     ],
     metadata: {
       product: "trade", provider: "cdp-swaps", direction, assetId, assetName: local.name, network: { name: "Base", chainId: 8453 },
       fromAsset: asset(from), toAsset: asset(to), fromAmountBaseUnits: amountBaseUnits,
-      expectedToAmountBaseUnits: "2000000", minimumToAmountBaseUnits: "1980000", slippageBps: 100,
+      expectedToAmountBaseUnits: received, minimumToAmountBaseUnits: minimum, slippageBps: 100,
       fees: [], approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: new Date(FIXED_NOW).toISOString(),
       permitDeadline: deadline, executionDeadline: deadline,
     },

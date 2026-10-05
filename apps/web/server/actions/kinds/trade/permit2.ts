@@ -216,7 +216,7 @@ function assertFields(value: unknown, expected: readonly { name: string; type: s
   }
 }
 
-function parseUint(value: unknown): bigint {
+export function parseUint(value: unknown): bigint {
   if (
     (typeof value !== "string" && typeof value !== "number" && typeof value !== "bigint") ||
     (typeof value === "number" && (!Number.isSafeInteger(value) || value < 0))

@@ -8,6 +8,7 @@ import { parseActivityOrders } from "../../../shared/activity/contract-orders";
 import { sessionBody } from "../fixtures/bodies";
 import { parseAddress } from "../../../shared/chain/hex";
 import { assertFundingProvidersResponse, readProviderBindings } from "../../../shared/funding/contracts/providers";
+import { isRecord } from "../../../shared/guards";
 
 test("Activity query and bare fixtures cannot shadow the owner-fenced orders route", () => {
   const routes = fixtureRoutes();
@@ -42,7 +43,7 @@ test("card spending fixture parses with the shared response contract", () => {
 test("activity fixtures parse with all card purchase statuses and common decline reasons", () => {
   const routes = fixtureRoutes();
   const body = routes.find(([route]) => route === "**/api/activity")?.[1];
-  if (!body || !("window" in body)) throw new Error("Missing activity fixture");
+  if (!isRecord(body) || !("window" in body) || !isRecord(body.window) || typeof body.window.to !== "string") throw new Error("Missing activity fixture");
   expect(routes.find(([route]) => route === "**/api/activity?**")?.[1]).toBe(body);
   expect(body.window.to).toBe(new Date(Math.floor(FIXED_NOW / 60_000) * 60_000).toISOString());
   const address = parseAddress(sessionBody.smartAccount.address);

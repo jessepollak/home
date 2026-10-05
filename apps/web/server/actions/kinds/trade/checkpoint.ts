@@ -34,7 +34,16 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
   try { swapRouter = await readSwapRouter(); } catch { swapRouter = null; }
   const directions = [] as Array<{
     direction: SwapDirection;
+    expectedFromToken: Address;
+    expectedToToken: Address;
     requestedAmount: string;
+    quotedFromToken: Address | null;
+    quotedToToken: Address | null;
+    quotedFromAmount: string | null;
+    quoteIdentityMatches: boolean | null;
+    quoteAmountMatches: boolean | null;
+    quotedToAmount: string | null;
+    minimumToAmount: string | null;
     priceLiquidityAvailable: boolean;
     quoteLiquidityAvailable: boolean;
     permit2Present: boolean;
@@ -125,7 +134,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
           }
         }
         try {
-          validateSwapQuote({ request, quote, now, currentBlockNumber: block, swapRouter });
+          validateSwapQuote({ request, quote, now, currentBlockNumber: block, swapRouter, reportUnknownActions: false });
           executionReadiness = makerFailure ?? "ready";
         } catch (error) {
           executionReadiness = makerFailure ?? (error instanceof TradePreparationError ? error.reason : "provider-unavailable");
@@ -134,7 +143,15 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     }
     directions.push({
       chain: block === null || swapRouter === null ? "unavailable" : "available",
-      direction, requestedAmount: request.fromAmount.toString(), priceLiquidityAvailable,
+      direction, expectedFromToken: providerRequest.fromToken, expectedToToken: providerRequest.toToken,
+      requestedAmount: request.fromAmount.toString(), priceLiquidityAvailable,
+      quotedFromToken: quote.liquidityAvailable ? quote.fromToken : null,
+      quotedToToken: quote.liquidityAvailable ? quote.toToken : null,
+      quotedFromAmount: quote.liquidityAvailable ? quote.fromAmount.toString() : null,
+      quoteIdentityMatches: quote.liquidityAvailable ? quote.fromToken === providerRequest.fromToken && quote.toToken === providerRequest.toToken : null,
+      quoteAmountMatches: quote.liquidityAvailable ? quote.fromAmount === request.fromAmount : null,
+      quotedToAmount: quote.liquidityAvailable ? quote.toAmount.toString() : null,
+      minimumToAmount: quote.liquidityAvailable ? quote.minToAmount.toString() : null,
       quoteLiquidityAvailable: quote.liquidityAvailable,
       permit2Present: quote.liquidityAvailable && quote.permit2 !== null,
       permit2Compatible, permit2Reason, spenderMatchesTarget, targetMatchesRouter, calldataMatches,
