@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { http, HttpResponse } from "msw";
 import { Toaster } from "@/components/ui/toast";
 import type { CardsResponse, CardState } from "@/shared/cards/contract";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
-import { CardScreen, type CardScreenData } from "./card-experience";
-import { CardRefreshError } from "./use-cards";
+import { CardScreen, cardScreenData, type CardScreenData } from "./card-experience";
+import { CardRefreshError, useCards } from "./use-cards";
 import type { CardSpendingData, CardSpendingCommands } from "./card-spending";
 import type { CardAllowancePrepareParams } from "@/shared/cards/allowance-contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
@@ -28,6 +28,17 @@ const otherRetiredSpender = "0x4444444444444444444444444444444444444444";
 const spendingReady: Extract<CardSpendingData, { status: "ready" }> = { status: "ready", response: {
   version: 1, status: "available", setEnabled: true, spender: spendingSpender, walletBaseUnits: "100000000", allowanceBaseUnits: "25000000", availableBaseUnits: "25000000", retired: [], blockNumber: "1", fetchedAt: "2026-09-28T12:00:00.000Z",
 } };
+
+const spendingPermissions: CardSpendingData = { status: "ready", response: {
+  ...spendingReady.response, retired: [{ spender: retiredSpender, allowanceBaseUnits: "10000000" }],
+} };
+
+async function expectSpendingHidden(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement);
+  await expect(canvas.queryByRole("region", { name: "Spending" })).toBeNull();
+  await expect(canvas.queryByRole("button", { name: "Turn off" })).toBeNull();
+  await expect(canvas.queryByRole("button", { name: /^Remove old card program/ })).toBeNull();
+}
 
 function preparedSpending(params: CardAllowancePrepareParams): PreparedMoneyAction {
   return {
@@ -83,6 +94,72 @@ function CardStateStory({ state, initial, refreshFails = false, lockOutcome, wit
   );
 }
 
+const pollAdvance = { advanced: false, listeners: new Set<() => void>() };
+
+function releasePollAdvance() {
+  pollAdvance.advanced = true;
+  for (const listener of pollAdvance.listeners) listener();
+  pollAdvance.listeners.clear();
+}
+
+async function waitForPollAdvance() {
+  if (pollAdvance.advanced) return;
+  await new Promise<void>((resolve) => pollAdvance.listeners.add(resolve));
+}
+
+function PollingCardStory() {
+  const ownerKey = `card-polling-story-${useId()}`;
+  const readCount = useRef(0);
+  const [reads, setReads] = useState(0);
+  const fetchAccountResource = useCallback(async (path: string) => {
+    if (path !== "/api/cards") throw new Error(`Unexpected card story request: ${path}`);
+    readCount.current += 1;
+    setReads(readCount.current);
+    if (readCount.current > 1) await waitForPollAdvance();
+    return cardsBody(readCount.current === 1 ? "verification-pending" : "ready-to-issue");
+  }, []);
+  const { query, refresh, commands } = useCards({ ownerKey, fetchAccountResource, intervalMs: 100 });
+  return (
+    <div className="mx-auto max-w-xl p-4" data-card-reads={reads}>
+      <CardScreen cards={cardScreenData(query)} commands={commands} onRetry={() => void refresh()} onOpenVerification={actions.onOpenVerification} spending={spendingPermissions} spendingCommands={spendingCommands} />
+    </div>
+  );
+}
+
+const transientPoll = { phase: 0, listeners: new Set<() => void>() };
+
+function releaseTransientPoll(phase: number) {
+  transientPoll.phase = phase;
+  for (const listener of transientPoll.listeners) listener();
+  transientPoll.listeners.clear();
+}
+
+async function waitForTransientPoll(phase: number) {
+  if (transientPoll.phase >= phase) return;
+  await new Promise<void>((resolve) => transientPoll.listeners.add(resolve));
+}
+
+function TransientPollingCardStory() {
+  const ownerKey = `card-transient-polling-story-${useId()}`;
+  const readCount = useRef(0);
+  const [reads, setReads] = useState(0);
+  const fetchAccountResource = useCallback(async (path: string) => {
+    if (path !== "/api/cards") throw new Error(`Unexpected card story request: ${path}`);
+    readCount.current += 1;
+    setReads(readCount.current);
+    if (readCount.current === 2) await waitForTransientPoll(1);
+    if (readCount.current > 2) await waitForTransientPoll(2);
+    const state: CardState = readCount.current === 1 ? "verification-pending" : readCount.current === 2 ? "unavailable" : "ready-to-issue";
+    return cardsBody(state);
+  }, []);
+  const { query, refresh, commands } = useCards({ ownerKey, fetchAccountResource, intervalMs: 100 });
+  return (
+    <div className="mx-auto max-w-xl p-4" data-card-reads={reads}>
+      <CardScreen cards={cardScreenData(query)} commands={commands} onRetry={() => void refresh()} onOpenVerification={actions.onOpenVerification} spending={spendingPermissions} spendingCommands={spendingCommands} />
+    </div>
+  );
+}
+
 const meta = {
   id: "client-cards-card-screen",
   title: "Client/Cards/Card screen",
@@ -94,16 +171,18 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const NotEnrolled: Story = {
-  args: { state: "not-enrolled" },
+  args: { state: "not-enrolled", spending: spendingPermissions },
   play: async ({ canvasElement }) => {
+    await expectSpendingHidden(canvasElement);
     actions.onOpenVerification.mockClear();
     await userEvent.click(within(canvasElement).getByRole("button", { name: "Get your card" }));
     await waitFor(() => expect(actions.onOpenVerification).toHaveBeenCalledWith(kycUrl));
   },
 };
 export const VerificationRequired: Story = {
-  args: { state: "verification-required" },
+  args: { state: "verification-required", spending: spendingPermissions },
   play: async ({ canvasElement }) => {
+    await expectSpendingHidden(canvasElement);
     const canvas = within(canvasElement);
     await expect(canvas.getByText("Verify your identity")).toBeVisible();
     actions.onOpenVerification.mockClear();
@@ -112,19 +191,52 @@ export const VerificationRequired: Story = {
   },
 };
 export const VerificationPending: Story = {
-  args: { state: "verification-pending" },
+  args: { state: "verification-pending", spending: spendingPermissions },
   play: async ({ canvasElement }) => {
+    await expectSpendingHidden(canvasElement);
     await expect(within(canvasElement).getByText("Checking your details")).toBeVisible();
     await expect(within(canvasElement).queryByRole("button")).toBeNull();
   },
 };
-export const Ineligible: Story = { args: { state: "ineligible" } };
+export const VerificationAdvancesWithoutReload: Story = {
+  render: () => <PollingCardStory />,
+  play: async ({ canvasElement }) => {
+    pollAdvance.advanced = false;
+    const canvas = within(canvasElement);
+    await expect(await canvas.findByText("Checking your details")).toBeVisible();
+    await expectSpendingHidden(canvasElement);
+    await expect(canvas.queryByRole("button")).toBeNull();
+    releasePollAdvance();
+    await expect(await canvas.findByRole("button", { name: "Create your card" })).toBeVisible();
+    await expectSpendingHidden(canvasElement);
+    await expect(canvasElement.querySelector("[data-card-reads]")).toHaveAttribute("data-card-reads", "2");
+  },
+};
+export const VerificationSurvivesTransientUnavailable: Story = {
+  render: () => <TransientPollingCardStory />,
+  play: async ({ canvasElement }) => {
+    transientPoll.phase = 0;
+    const canvas = within(canvasElement);
+    await expect(await canvas.findByText("Checking your details")).toBeVisible();
+    releaseTransientPoll(1);
+    await expect(await canvas.findByText("Card is unavailable right now")).toBeVisible();
+    releaseTransientPoll(2);
+    await expect(await canvas.findByRole("button", { name: "Create your card" })).toBeVisible();
+    await expect(canvasElement.querySelector("[data-card-reads]")).toHaveAttribute("data-card-reads", "3");
+  },
+};
+export const Ineligible: Story = {
+  args: { state: "ineligible", spending: spendingPermissions },
+  play: async ({ canvasElement }) => expectSpendingHidden(canvasElement),
+};
 export const ReadyToIssue: Story = {
-  args: { state: "ready-to-issue" },
+  args: { state: "ready-to-issue", spending: spendingPermissions },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await expectSpendingHidden(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Create your card" }));
     await expect(await canvas.findByRole("img", { name: "Virtual card ending 4821" })).toBeVisible();
+    await expect(canvas.getByRole("region", { name: "Spending" })).toBeVisible();
   },
 };
 export const Active: Story = {
@@ -169,25 +281,49 @@ export const ActiveWithoutPublishableKey: Story = {
     await expect(within(canvasElement).queryByRole("button", { name: "Card details" })).toBeNull();
   },
 };
-export const Frozen: Story = { args: { state: "frozen" } };
+export const Frozen: Story = {
+  args: { state: "frozen", spending: spendingPermissions },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("region", { name: "Spending" })).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Change" })).toBeEnabled();
+  },
+};
 export const Restricted: Story = {
-  args: { state: "restricted" },
+  args: { state: "restricted", spending: spendingPermissions },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByText("Your card is on hold")).toBeVisible();
     await expect(canvas.getByRole("switch", { name: "Lock card" })).toHaveAttribute("aria-disabled", "true");
     await expect(canvas.queryByRole("button", { name: "Card details" })).toBeNull();
+    await expect(canvas.getByRole("region", { name: "Spending" })).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Change" })).toBeDisabled();
+    await expect(canvas.getByRole("button", { name: "Turn off" })).toBeEnabled();
+    await expect(canvas.getByRole("button", { name: /^Remove old card program/ })).toBeEnabled();
   },
 };
 export const Canceled: Story = { args: { state: "canceled" } };
 export const RestrictedBeforeIssue: Story = {
-  args: { state: "restricted", initial: { ...cardsBody("restricted"), cards: [] } },
+  args: { state: "restricted", initial: { ...cardsBody("restricted"), cards: [] }, spending: spendingPermissions },
   play: async ({ canvasElement }) => {
+    await expectSpendingHidden(canvasElement);
     const canvas = within(canvasElement);
     await expect(canvas.getByText("Your card is on hold")).toBeVisible();
     await expect(canvas.getByText("You can't create a card right now.")).toBeVisible();
     await expect(canvas.queryByRole("button")).toBeNull();
   },
+};
+export const ActiveWithoutCards: Story = {
+  args: { initial: { ...cardsBody("active"), cards: [] }, spending: spendingPermissions },
+  play: async ({ canvasElement }) => expectSpendingHidden(canvasElement),
+};
+export const FrozenWithoutCards: Story = {
+  args: { state: "frozen", initial: { ...cardsBody("frozen"), cards: [] }, spending: spendingPermissions },
+  play: async ({ canvasElement }) => expectSpendingHidden(canvasElement),
+};
+export const CanceledWithoutCards: Story = {
+  args: { state: "canceled", initial: { ...cardsBody("canceled"), cards: [] }, spending: spendingPermissions },
+  play: async ({ canvasElement }) => expectSpendingHidden(canvasElement),
 };
 export const TwoCards: Story = {
   args: { state: "frozen", initial: twoCards },
@@ -243,6 +379,22 @@ export const SpendingAfterCancel: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Turn off" }));
     const dialog = within(await within(document.body).findByRole("dialog"));
     await waitFor(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
+    await expect(dialog.getByRole("button", { name: "Turn off" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
+  },
+};
+export const RetiredPermissionAfterCancel: Story = {
+  args: { state: "canceled", spending: { status: "ready", response: {
+    ...spendingReady.response, allowanceBaseUnits: "0", availableBaseUnits: "0",
+    retired: [{ spender: retiredSpender, allowanceBaseUnits: "10000000" }],
+  } } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("region", { name: "Spending" })).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Turn off" })).toBeNull();
+    await expect(canvas.queryByText("Available to spend")).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: /^Remove old card program/ }));
+    const dialog = within(await within(document.body).findByRole("dialog"));
+    await waitFor(() => expect(dialog.getByText(retiredSpender)).toBeVisible());
     await expect(dialog.getByRole("button", { name: "Turn off" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
   },
 };
