@@ -31,6 +31,10 @@ export class CardRefreshError extends Error {
 
 type ConfirmRead = (response: CardsResponse) => boolean;
 
+export function cardUnlockAvailable(response: CardsResponse | undefined): boolean {
+  return response?.state === "frozen";
+}
+
 export function useCards({ ownerKey, fetchAccountResource, intervalMs }: {
   ownerKey: string | null;
   fetchAccountResource: FetchAccountResource;
