@@ -2,31 +2,24 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
 import { expect, within } from "storybook/test";
 import { CardScreen, type CardScreenData } from "@/client/cards/card-experience";
-import { PrimaryNavigation } from "@/components/primary-navigation";
-import { shellContentFrameClassName, shellNavigationClearanceClassName } from "@/components/shell-layout";
-import { Toaster } from "@/components/ui/toast";
+import { shellDesktopContentClassName } from "@/components/shell-layout";
 import type { CardsResponse, CardState } from "@/shared/cards/contract";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
+import { CompositionShell, compositionShellHandlers } from "../../journeys/explorations/composition-shell";
 
 function CardOnboardingComposition({ initial = "not-enrolled" }: { initial?: Extract<CardState, "not-enrolled" | "active"> }) {
   const [response, setResponse] = useState<CardsResponse>(() => cardsBody(initial));
   const cards: CardScreenData = { status: "ready", response };
-  return (
-    <div className="flex h-svh flex-col bg-muted">
-      <main id="navigation-panel" className={`min-h-0 flex-1 overflow-y-auto ${shellNavigationClearanceClassName}`}>
-        <div className={`${shellContentFrameClassName} py-4`}>
-          <CardScreen cards={cards} onRetry={() => {}} onOpenVerification={() => setResponse(cardsBody("ready-to-issue"))}
-            commands={{
-              enroll: async () => "https://bridge.withpersona.com/verify?inquiry-template-id=itmpl_journey",
-              issue: async () => setResponse(cardsBody("active")),
-              setFrozen: async (_cardId, frozen) => setResponse(cardsBody(frozen ? "frozen" : "active")),
-            }} />
-        </div>
-      </main>
-      <PrimaryNavigation activeNavigation="card" cardsEnabled onNavigate={() => {}} />
-      <Toaster />
+  return <CompositionShell>
+    <div className={shellDesktopContentClassName} data-shell-panel-id="card">
+      <CardScreen cards={cards} onRetry={() => {}} onOpenVerification={() => setResponse(cardsBody("ready-to-issue"))}
+        commands={{
+          enroll: async () => "https://bridge.withpersona.com/verify?inquiry-template-id=itmpl_journey",
+          issue: async () => setResponse(cardsBody("active")),
+          setFrozen: async (_cardId, frozen) => setResponse(cardsBody(frozen ? "frozen" : "active")),
+        }} />
     </div>
-  );
+  </CompositionShell>;
 }
 
 const meta = {
@@ -36,8 +29,10 @@ const meta = {
   parameters: {
     layout: "fullscreen",
     a11y: { test: "error" },
-    library: { render: "frame", order: 3 },
+    library: { render: "frame", order: 2 },
     viewport: { viewports: { phone390: { name: "390 × 844", styles: { width: "390px", height: "844px" } } }, defaultViewport: "phone390" },
+    nextjs: { navigation: { pathname: "/card" } },
+    msw: { handlers: compositionShellHandlers },
   },
 } satisfies Meta<typeof CardOnboardingComposition>;
 export default meta;
@@ -49,4 +44,4 @@ export const CardOnboarding: Story = {
     await expect(within(canvasElement).getByRole("heading", { name: "Spend your Cash with a card" })).toBeVisible();
   },
 };
-export const Active: Story = { args: { initial: "active" } };
+export const Active: Story = { name: "Card Active", args: { initial: "active" } };

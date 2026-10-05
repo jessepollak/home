@@ -21,7 +21,7 @@ const meta = {
     layout: "fullscreen",
     a11y: { test: "error" },
     library: { render: "frame", order: 4 },
-    viewport: { viewports: { desktop1280: { name: "1280 × 800", styles: { width: "1280px", height: "800px" } } }, defaultViewport: "desktop1280" },
+    viewport: { viewports: { desktop1440: { name: "1440 × 900", styles: { width: "1440px", height: "900px" } } }, defaultViewport: "desktop1440" },
   },
 } satisfies Meta<CoverageArgs>;
 export default meta;

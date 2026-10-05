@@ -213,12 +213,12 @@ const compositionsIndex = indexOf([
   ...Object.values(fullOverviewIndex),
   story("compositions-home--home", "Compositions/Home", "Home", "./stories/review/compositions/home.stories.tsx"),
   story("compositions-home--home-loading", "Compositions/Home", "Home Loading", "./stories/review/compositions/home.stories.tsx"),
+  story("compositions-card-onboarding--card-onboarding", "Compositions/Card Onboarding", "Card Onboarding", "./stories/review/compositions/card-onboarding.stories.tsx"),
+  story("compositions-card-onboarding--active", "Compositions/Card Onboarding", "Card Active", "./stories/review/compositions/card-onboarding.stories.tsx"),
   story("compositions-invest--invest", "Compositions/Invest", "Invest", "./stories/review/compositions/invest.stories.tsx"),
   story("compositions-invest--asset-detail", "Compositions/Invest", "Asset Detail", "./stories/review/compositions/invest.stories.tsx"),
-  story("compositions-card-onboarding--card-onboarding", "Compositions/Card Onboarding", "Card Onboarding", "./stories/review/compositions/card-onboarding.stories.tsx"),
-  story("compositions-card-onboarding--active", "Compositions/Card Onboarding", "Active", "./stories/review/compositions/card-onboarding.stories.tsx"),
   story("compositions-coverage--coverage", "Compositions/Coverage", "Coverage", "./stories/review/compositions/coverage.stories.tsx"),
-  story("compositions-operator--operator", "Compositions/Operator", "Operator", "./stories/review/compositions/operator.stories.tsx"),
+  story("compositions-operator--operator", "Compositions/Operator", "Operator Shell", "./stories/review/compositions/operator.stories.tsx"),
 ]);
 
 export const Compositions: Story = {
@@ -243,7 +243,7 @@ export const Compositions: Story = {
     await expect(within(surface).getByText("Compositions · 5 compositions")).toBeVisible();
     await expect(search(canvasElement).get("component")).toBe("compositions");
     await expect(window.history.length).toBe(historyLength + 2);
-    for (const name of ["Home", "Home Loading", "Invest", "Asset Detail", "Card Onboarding", "Active", "Coverage", "Operator"]) {
+    for (const name of ["Home", "Home Loading", "Card Onboarding", "Card Active", "Invest", "Asset Detail", "Coverage", "Operator Shell"]) {
       await expect(await within(surface).findByRole("heading", { name }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
     }
     await userEvent.keyboard("{PageDown}");
@@ -252,8 +252,7 @@ export const Compositions: Story = {
       .toHaveAttribute("width", "390");
     await expect(within(surface).queryByRole("alert")).not.toBeInTheDocument();
     await expect(within(surface).getAllByRole("link", { name: /^390 × 844/ })).toHaveLength(6);
-    await expect(within(surface).getAllByRole("link", { name: /^1280 × 800/ })).toHaveLength(1);
-    await expect(within(surface).getByRole("link", { name: /^1440 × 900/ })).toBeVisible();
+    await expect(within(surface).getAllByRole("link", { name: /^1440 × 900/ })).toHaveLength(2);
     await userEvent.click(section(canvas, "Card Onboarding"));
     await expect(search(canvasElement).get("story")).toBe("compositions-card-onboarding--card-onboarding");
     await expect(window.history.length).toBe(historyLength + 2);
