@@ -86,14 +86,31 @@ test.each([
 });
 
 test.each([
-  ["settled return", withProgress({ state: "returned", settledAt: "2026-09-15T13:00:00Z" })],
+  ["settled return", withProgress({ state: "returned", settledAt: "2026-09-07T19:40:00Z" })],
   ["delivered unconfirmed", withProgress({ state: "delivered", progressConfirmed: false })],
   ["delivered", withProgress({ state: "delivered" })],
-  ["returned", withProgress({ state: "returned" })],
+  ["returned", withProgress({ state: "returned", settledAt: "2026-09-07T20:00:00Z" })],
   ["failed", withProgress({ state: "failed" })],
 ] as const)("omits %s", (_label, operation) => {
   expect(selectPendingCashoutEscrow([operation], snapshot)).toBeNull();
 });
+test.each(([
+  ["after snapshot", "2026-09-07T20:00:01Z", { state: "indeterminate" }],
+  ["at snapshot", "2026-09-07T20:00:00Z", null],
+  ["before snapshot", "2026-09-07T19:59:59Z", null],
+  ["unsettled", null, { state: "indeterminate" }],
+  ["invalid settled time", "invalid", { state: "indeterminate" }],
+] as const).flatMap(([label, settledAt, expected]) => (["no linked withdrawal", "failed linked withdrawal"] as const)
+  .map((withdrawal) => [label, withdrawal, settledAt, expected] as const)))
+("reconciles a provider return %s with %s", (_label, withdrawal, settledAt, expected) => {
+  const returned = withProgress({ state: "returned", returnedAtomic: "50000000", remainingAtomic: "0", settledAt });
+  const operations = [returned, ...(withdrawal === "failed linked withdrawal" ? [withdraw("failed")] : [])];
+  expect(selectPendingCashoutEscrow(operations, snapshot)).toEqual(expected);
+  const known = withProgress({ depositId: "known-escrow" });
+  expect(selectPendingCashoutEscrow([...operations, { ...known, action: { ...known.action, id: "known-cashout" } }], snapshot))
+    .toEqual({ state: "escrow", baseUnits: "50000000", partial: expected !== null });
+});
+
 test("zero remaining is known empty", () => {
   expect(selectPendingCashoutEscrow([withProgress({ remainingAtomic: "0" })], snapshot)).toBeNull();
 });
@@ -122,7 +139,7 @@ test.each([
   ["unknown", { state: "indeterminate" }],
   ["failed", null],
 ] as const)("reconciles a returned deposit with a %s withdrawal", (status, expected) => {
-  const returned = withProgress({ state: "returned", returnedAtomic: "50000000", remainingAtomic: "0" });
+  const returned = withProgress({ state: "returned", returnedAtomic: "50000000", remainingAtomic: "0", settledAt: "2026-09-07T20:00:00Z" });
   expect(selectPendingCashoutEscrow([returned, withdraw(status)], snapshot)).toEqual(expected);
   const known = withProgress({ depositId: "known-escrow" });
   expect(selectPendingCashoutEscrow([returned, withdraw(status), { ...known, action: { ...known.action, id: "known-cashout" } }], snapshot))

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { cashoutProgress, linkedCashoutWithdraw } from "@/client/activity/cash-out-presenter";
 import { getRecentActionsReadSequence, recentActionsQuery, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
-import { useHomeQuery } from "@/client/query/query-client";
+import { browserHomeQueryClient, ownerQueryKey, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BalancesSnapshot } from "@/shared/balances/types";
@@ -13,11 +13,28 @@ import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 const UNREADABLE_ESTIMATE = { state: "unreadable" } as const;
 const INDETERMINATE_ESTIMATE = { state: "indeterminate" } as const;
 const LOADING_ESTIMATE = { state: "loading" } as const;
+const RETURN_SNAPSHOT_MAX_ATTEMPTS = 6;
+const RETURN_SNAPSHOT_RETRY_MS = 30_000;
 
 function withdrawalUnobserved(withdraw: RecentMoneyActionOperation, snapshot: BalancesSnapshot): boolean {
   return withdraw.status !== "confirmed" || (withdraw.receiptBlockNumber !== undefined
     ? BigInt(withdraw.receiptBlockNumber) > BigInt(snapshot.block.number)
     : withdraw.settledAt === undefined);
+}
+
+function returnedOrdersAwaitingSnapshotKeys(operations: readonly RecentMoneyActionOperation[], snapshot: BalancesSnapshot): string[] {
+  const keys: string[] = [];
+  for (const operation of operations) {
+    if (operation.action.kind !== "cash-out") continue;
+    const withdraw = linkedCashoutWithdraw(operation, operations);
+    if (withdraw && withdraw.status !== "failed" || cashoutProgress(operation, withdraw).stage !== "returned") continue;
+    const settledAt = operation.cashout?.settledAt;
+    const settledTime = Date.parse(settledAt ?? "");
+    if (Number.isFinite(settledTime) && settledTime > Number(snapshot.block.timestamp) * 1000) {
+      keys.push(`${operation.action.id}:${settledAt}`);
+    }
+  }
+  return keys;
 }
 
 export function selectPendingCashoutEscrow(operations: readonly RecentMoneyActionOperation[], snapshot: BalancesSnapshot): PendingCashoutEstimate {
@@ -36,6 +53,10 @@ export function selectPendingCashoutEscrow(operations: readonly RecentMoneyActio
     if (!presentation.inProgress) {
       if (!cashout || presentation.stage === "returned" && withdraw && withdraw.status !== "failed" &&
         withdrawalUnobserved(withdraw, snapshot)) indeterminate = true;
+      if (cashout && presentation.stage === "returned" && (!withdraw || withdraw.status === "failed")) {
+        const settledTime = Date.parse(cashout.settledAt ?? "");
+        if (!Number.isFinite(settledTime) || settledTime > Number(snapshot.block.timestamp) * 1000) indeterminate = true;
+      }
       continue;
     }
     if (!cashout?.depositId || !cashout.depositBlockNumber || !/^\d+$/.test(cashout.depositBlockNumber) ||
@@ -60,6 +81,9 @@ export function usePendingCashoutEscrow(
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>,
 ): PendingCashoutEstimate {
   const ownerKey = session?.smartAccount ? dataOwnerKey(session) : null;
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const returnSnapshotAttempts = useRef(new Map<string, { attempts: number; nextAttemptAt: number }>());
+  const [returnSnapshotTick, setReturnSnapshotTick] = useState(0);
   const snapshotKey = ownerKey && snapshot && snapshot.owner.address.toLowerCase() === session?.smartAccount?.address.toLowerCase() &&
     snapshot.owner.chainId === session.smartAccount.chainId
     ? `${ownerKey}:${snapshot.fetchedAt}:${snapshot.block.number}` : null;
@@ -104,6 +128,26 @@ export function usePendingCashoutEscrow(
   const stableEstimate = useMemo(() => selectedState === "escrow" && selectedBaseUnits !== null
     ? { state: "escrow" as const, baseUnits: selectedBaseUnits, partial: selectedPartial }
     : selectedState === "indeterminate" ? INDETERMINATE_ESTIMATE : null, [selectedState, selectedBaseUnits, selectedPartial]);
+  useEffect(() => {
+    if (!ownerKey || !snapshotKey || !snapshot || !confirmed || actionsStatus !== "ready" ||
+      !data || data.truncated || data.incomplete || !stableEstimate) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const awaitingKey of returnedOrdersAwaitingSnapshotKeys(data.operations, snapshot)) {
+      const key = `${ownerKey}:${awaitingKey}`;
+      const attempt = returnSnapshotAttempts.current.get(key);
+      if (attempt && attempt.attempts >= RETURN_SNAPSHOT_MAX_ATTEMPTS) continue;
+      const delay = attempt ? Math.max(0, attempt.nextAttemptAt - Date.now()) : 0;
+      timers.push(setTimeout(() => {
+        returnSnapshotAttempts.current.set(key, {
+          attempts: (attempt?.attempts ?? 0) + 1,
+          nextAttemptAt: Date.now() + RETURN_SNAPSHOT_RETRY_MS,
+        });
+        void queryClient.invalidateQueries({ queryKey: ownerQueryKey(ownerKey, "balances") }, { cancelRefetch: false });
+        setReturnSnapshotTick((tick) => tick + 1);
+      }, delay));
+    }
+    return () => { for (const timer of timers) clearTimeout(timer); };
+  }, [ownerKey, snapshotKey, snapshot, confirmed, actionsStatus, data, stableEstimate, queryClient, returnSnapshotTick]);
   if (!ownerKey) return snapshot === null ? null : LOADING_ESTIMATE;
   if (!snapshotKey) return null;
   if ((failedRead?.key === snapshotKey && readSequence <= failedRead.sequence) || actionsStatus === "error" || (isError && !confirmed)) return UNREADABLE_ESTIMATE;
