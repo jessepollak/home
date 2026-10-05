@@ -5,6 +5,7 @@ import {
   createBaseRpcClient,
   parseRpcQuantity,
 } from "@/server/chain/rpc";
+import { createUpstreamDeadline } from "@/server/http/upstream";
 
 export const TRANSFER_RECEIPT_TIMEOUT_MS = 6_000;
 
@@ -75,18 +76,13 @@ export function createTransferReceiptReader(
     externalSignal?: AbortSignal,
   ): Promise<TransferReceiptStatus> {
     const normalizedHash = normalizeTransactionHash(transactionHash);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const abortFromExternal = () => controller.abort();
-    externalSignal?.addEventListener("abort", abortFromExternal, {
-      once: true,
-    });
+    const deadline = createUpstreamDeadline({ timeoutMs, signal: externalSignal });
 
     try {
       const [chainResponse, receiptResponse, finalizedBlock] = await Promise.all([
-        rpc.request("eth_chainId", [], controller.signal, 1),
-        rpc.request("eth_getTransactionReceipt", [normalizedHash], controller.signal, 2),
-        rpc.request("eth_getBlockByNumber", ["finalized", false], controller.signal, 3),
+        rpc.request("eth_chainId", [], deadline.signal, 1),
+        rpc.request("eth_getTransactionReceipt", [normalizedHash], deadline.signal, 2),
+        rpc.request("eth_getBlockByNumber", ["finalized", false], deadline.signal, 3),
       ]);
       const finalizedNumber = isRecord(finalizedBlock)
         ? readQuantity(finalizedBlock.number, "finalized block number")
@@ -123,7 +119,7 @@ export function createTransferReceiptReader(
       if (receiptStatus !== BigInt(0) && receiptStatus !== BigInt(1)) {
         throw new TransferReceiptRpcError("Base RPC returned an invalid receipt status.");
       }
-      const block = await rpc.request("eth_getBlockByNumber", [receiptResponse.blockNumber, false], controller.signal, 4);
+      const block = await rpc.request("eth_getBlockByNumber", [receiptResponse.blockNumber, false], deadline.signal, 4);
       if (!isRecord(block) || readQuantity(block.number, "block number") !== blockNumber ||
         typeof block.hash !== "string" || !wordPattern.test(block.hash) ||
         block.hash.toLowerCase() !== normalizedReceiptBlockHash) {
@@ -146,14 +142,11 @@ export function createTransferReceiptReader(
     } catch (error) {
       if (error instanceof TransferReceiptRpcError) throw error;
       throw new TransferReceiptRpcError(
-        controller.signal.aborted
+        deadline.signal.aborted
           ? "The Base receipt request timed out or was aborted."
           : "The Base receipt request failed.",
         { cause: error },
       );
-    } finally {
-      clearTimeout(timeout);
-      externalSignal?.removeEventListener("abort", abortFromExternal);
     }
   };
 }

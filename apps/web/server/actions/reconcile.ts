@@ -3,6 +3,7 @@ import "server-only";
 import { readBaseAccountStatusRpcUrl } from "@/server/config/env";
 
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
+import { createUpstreamDeadline } from "@/server/http/upstream";
 import type { ActionRow } from "./store";
 import { createUserOperationLogLookup, type UserOperationLogResolution } from "./user-operation-log";
 
@@ -88,83 +89,71 @@ export function createActionHandleResolver(
       if (currentTime < handleBackoffUntil) return await fallback(row, externalSignal);
       if (handleBackoffUntil) handleBackoffs.delete(handle);
 
-      const controller = new AbortController();
-      const abortFromExternal = () => controller.abort(externalSignal?.reason);
-      externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
-      if (externalSignal?.aborted) abortFromExternal();
-      const timeout = setTimeout(() => {
-        controller.abort(new DOMException("Base Account status request timed out.", "TimeoutError"));
-      }, timeoutMs);
-
+      const deadline = createUpstreamDeadline({ timeoutMs, signal: externalSignal });
+      let response: Response;
       try {
-        let response: Response;
-        try {
-          response = await fetchImpl(rpcUrl, {
-            method: "POST",
-            headers: {
-              accept: "application/json",
-              "content-type": "application/json",
-              "X-Cbw-Sdk-Version": "2.5.10",
-              "X-Cbw-Sdk-Platform": "@base-org/account",
-            },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "wallet_getCallsStatus",
-              params: [handle],
-            }),
-            cache: "no-store",
-            signal: controller.signal,
-          });
-        } catch {
-          if (externalSignal?.aborted) return { status: "unavailable" };
-          circuitOpenUntil = now() + CIRCUIT_BREAKER_MS;
-          backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-          return await fallback(row, externalSignal);
-        }
-
-        if (response.status !== 200) {
-          if (response.status === 429 || response.status >= 500) {
-            circuitOpenUntil = now() + CIRCUIT_BREAKER_MS;
-          }
-          backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-          return await fallback(row, externalSignal);
-        }
-
-        let payload: unknown;
-        try {
-          payload = JSON.parse(await response.text()) as unknown;
-        } catch {
-          backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-          return await fallback(row, externalSignal);
-        }
-
-        if (!isRecord(payload) || payload.jsonrpc !== "2.0" || payload.id !== 1) {
-          backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-          return await fallback(row, externalSignal);
-        }
-        if ("error" in payload) {
-          const error = isRecord(payload.error) ? payload.error : null;
-          const delay = typeof error?.code === "number" && unknownHandleCodes.has(error.code)
-            ? UNKNOWN_HANDLE_BACKOFF_MS
-            : UNAVAILABLE_BACKOFF_MS;
-          backoff(handle, now() + delay);
-          return await fallback(row, externalSignal);
-        }
-
-        const resolution = parseResult(payload.result, handle);
-        if (resolution.status === "unavailable") {
-          backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
-        } else if (resolution.status === "reverted" || resolution.status === "not_submitted") {
-          backoff(handle, now() + UNKNOWN_HANDLE_BACKOFF_MS);
-        } else {
-          handleBackoffs.delete(handle);
-        }
-        return resolution.status === "unavailable" ? await fallback(row, externalSignal) : resolution;
-      } finally {
-        clearTimeout(timeout);
-        externalSignal?.removeEventListener("abort", abortFromExternal);
+        response = await fetchImpl(rpcUrl, {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+            "X-Cbw-Sdk-Version": "2.5.10",
+            "X-Cbw-Sdk-Platform": "@base-org/account",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "wallet_getCallsStatus",
+            params: [handle],
+          }),
+          cache: "no-store",
+          signal: deadline.signal,
+        });
+      } catch {
+        if (externalSignal?.aborted) return { status: "unavailable" };
+        circuitOpenUntil = now() + CIRCUIT_BREAKER_MS;
+        backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
+        return await fallback(row, externalSignal);
       }
+
+      if (response.status !== 200) {
+        if (response.status === 429 || response.status >= 500) {
+          circuitOpenUntil = now() + CIRCUIT_BREAKER_MS;
+        }
+        backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
+        return await fallback(row, externalSignal);
+      }
+
+      let payload: unknown;
+      try {
+        payload = JSON.parse(await response.text()) as unknown;
+      } catch {
+        backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
+        return await fallback(row, externalSignal);
+      }
+
+      if (!isRecord(payload) || payload.jsonrpc !== "2.0" || payload.id !== 1) {
+        backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
+        return await fallback(row, externalSignal);
+      }
+      if ("error" in payload) {
+        const error = isRecord(payload.error) ? payload.error : null;
+        const delay = typeof error?.code === "number" && unknownHandleCodes.has(error.code)
+          ? UNKNOWN_HANDLE_BACKOFF_MS
+          : UNAVAILABLE_BACKOFF_MS;
+        backoff(handle, now() + delay);
+        return await fallback(row, externalSignal);
+      }
+
+      const resolution = parseResult(payload.result, handle);
+      if (resolution.status === "unavailable") {
+        backoff(handle, now() + UNAVAILABLE_BACKOFF_MS);
+      } else if (resolution.status === "reverted" || resolution.status === "not_submitted") {
+        backoff(handle, now() + UNKNOWN_HANDLE_BACKOFF_MS);
+      } else {
+        handleBackoffs.delete(handle);
+      }
+      return resolution.status === "unavailable" ? await fallback(row, externalSignal) : resolution;
     } catch {
       return await fallback(row, externalSignal);
     }

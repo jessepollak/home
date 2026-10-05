@@ -20,6 +20,18 @@ function stalledStore() {
   return { store, reads };
 }
 
+const suppliedDeadlines: ReadonlyArray<readonly [number, number]> = [
+  [-1, 1],
+  [0, 1],
+  [NaN, 1],
+  [Infinity, 1],
+  [-Infinity, 1],
+  [20.5, 20],
+  [45_000, 45_000],
+  [2_147_483_647.5, 1],
+  [2_147_483_648, 1],
+];
+
 describe("funding settings read failures", () => {
   test("rejects a stalled store at the supplied deadline and aborts its signal", async () => {
     const { store, reads } = stalledStore();
@@ -37,6 +49,27 @@ describe("funding settings read failures", () => {
     expect(await failure).toMatchObject({ message: "Funding settings read timed out" });
     expect(reads[0]?.signal?.aborted).toBe(true);
   });
+
+  for (const [timeoutMs, expiresAfterMs] of suppliedDeadlines) {
+    test(`preserves a supplied ${timeoutMs} timeout as a ${expiresAfterMs} ms deadline`, async () => {
+      const { store, reads } = stalledStore();
+      let settled = false;
+      const result = readFundingOffering({ store, providers: [], env: {}, timeoutMs })
+        .finally(() => { settled = true; });
+      const failure = result.catch((error: unknown) => error);
+
+      expect(reads[0]?.timeoutMs).toBe(timeoutMs);
+      expect(settled).toBe(false);
+      if (expiresAfterMs > 1) {
+        jest.advanceTimersByTime(expiresAfterMs - 1);
+        await Promise.resolve();
+        expect(settled).toBe(false);
+      }
+      jest.advanceTimersByTime(expiresAfterMs > 0 ? 1 : 0);
+      expect(reads[0]?.signal?.aborted).toBe(true);
+      expect(await failure).toMatchObject({ message: "Funding settings read timed out" });
+    });
+  }
 
   test("bounds a stalled store with the default timeout and an abort signal", async () => {
     const { store, reads } = stalledStore();

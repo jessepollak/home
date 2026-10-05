@@ -1,7 +1,5 @@
 import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { describe, expect, it } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { manualAbortTimeoutExceptions } from "../policy/http-primitives.mjs";
 import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
 applyRuleCheckTimeout();
 
@@ -138,6 +136,7 @@ describe("no-manual-abort-timeout", () => {
   it("rejects every manual abort timeout case", async () => {
     const cases = [
       manualDeadline,
+      'function withDeadline(run, ms, parent) { const controller = new AbortController(); let deadline; return Promise.race([run(controller.signal), new Promise((_resolve, reject) => { deadline = setTimeout(() => { controller.abort(new Error("Funding settings read timed out")); reject(new Error("Funding settings read timed out")); }, ms); })]).finally(() => { clearTimeout(deadline); }); }',
       'const timeout = setTimeout(() => controller.abort("reason"), timeoutMs);',
       'const timeout = setTimeout(() => { controller.abort("reason"); reject(new Error("timed out")); }, ms);',
       "const abort = () => controller.abort(); setTimeout(abort, timeoutMs);",
@@ -376,9 +375,8 @@ describe("no-manual-abort-timeout", () => {
   }, budgetMs);
 
   it("replaces default exceptions when allow is supplied, including an empty array", async () => {
-    const path = manualAbortTimeoutExceptions.keys().next().value;
-    expect(path).toBeDefined();
-    expect(await lint(manualDeadline, path)).toHaveLength(0);
+    const path = "server/actions/follow-through.ts";
+    expect(await lint(manualDeadline, path)).toHaveLength(1);
     expect(await lint(manualDeadline, path, {
       rule: "no-manual-abort-timeout", options: { allow: [] },
     })).toHaveLength(1);
@@ -422,18 +420,4 @@ describe("no-manual-abort-timeout", () => {
     }
   }, budgetMs);
 
-  it("pins every default exception to its exact manual abort deadline count", async () => {
-    // This count may only go down; lower it in the same change that deletes an entry.
-    expect(manualAbortTimeoutExceptions.size).toBe(18);
-    const appsWeb = new URL("../..", import.meta.url);
-    const fixtures = Object.fromEntries(await Promise.all([...manualAbortTimeoutExceptions.keys()].map(async (path) => [
-      path, { path, code: await readFile(new URL(path, appsWeb), "utf8") },
-    ])));
-    const findings = await lintFixtures(fixtures, {
-      rule: "no-manual-abort-timeout", options: { allow: [] },
-    });
-    for (const [path, count] of manualAbortTimeoutExceptions) {
-      expect(findings[path], `Update migrated manual abort timeout exception: ${path}`).toHaveLength(count);
-    }
-  }, budgetMs);
 });

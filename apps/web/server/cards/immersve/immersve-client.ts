@@ -18,18 +18,18 @@ export function createImmersveClient(config: ClientConfig, options: { fetchImple
     const url = new URL(path, config.origin);
     if (url.origin !== config.origin || url.protocol !== "https:") throw new Error("Invalid Immersve URL");
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = AbortSignal.any([controller.signal, timeoutSignal]);
+    let onAbort = () => {};
     const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        controller.abort();
-        reject(new Error("Immersve request timed out"));
-      }, timeoutMs);
+      onAbort = () => reject(new Error("Immersve request timed out"));
+      timeoutSignal.addEventListener("abort", onAbort, { once: true });
     });
     try {
       return await Promise.race([request(), timeout]);
     } finally {
       controller.abort();
-      if (timer) clearTimeout(timer);
+      timeoutSignal.removeEventListener("abort", onAbort);
     }
 
     async function request(): Promise<unknown> {
@@ -38,7 +38,7 @@ export function createImmersveClient(config: ClientConfig, options: { fetchImple
         response = await transport(url, {
           method: "GET",
           redirect: "manual",
-          signal: controller.signal,
+          signal,
           headers: authenticated
             ? { accept: "application/json", "x-api-key": config.apiKey, "x-api-secret": config.apiSecret }
             : { accept: "application/json" },

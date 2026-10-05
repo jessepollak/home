@@ -129,26 +129,20 @@ async function fetchDailyRate({
   timeoutMs: number;
   signal?: AbortSignal;
 }): Promise<ExactDecimal | null> {
-  const controller = new AbortController();
-  const abort = () => controller.abort(signal?.reason);
-  if (signal?.aborted) abort();
-  else signal?.addEventListener("abort", abort, { once: true });
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = AbortSignal.timeout(Number.isFinite(timeoutMs) && timeoutMs >= 1 && timeoutMs <= 2_147_483_647 ? Math.trunc(timeoutMs) : 1);
+  const deadlineSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
   try {
     const response = await fetchImpl(coinbaseDailyFxUrl(request), {
       method: "GET",
       headers: { accept: "application/json" },
       cache: "no-store",
-      signal: controller.signal,
+      signal: deadlineSignal,
     });
     if (!response.ok) return null;
     return readRate(await readJson(response), request);
   } catch (error) {
     void error;
     return null;
-  } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener("abort", abort);
   }
 }
 

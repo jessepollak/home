@@ -109,22 +109,18 @@ export function createGetActionHandler(dependencies: {
     }
     const now = dependencies.now?.() ?? new Date();
     const deadline = createDeadline(request.signal, RECONCILE_DEADLINE_MS);
-    try {
-      const reconciled = isReconcileCandidate(row, now)
-        ? await reconcileRow({
-            row,
-            owner,
-            store: dependencies.store ?? getActionsStore(),
-            resolveHandle: dependencies.resolveHandle ?? getDefaultActionHandleResolver(),
-            signal: deadline.signal,
-            route: "/api/actions/:id",
-          })
-        : row;
-      const result = await settleRow(reconciled, owner, dependencies.store ?? getActionsStore(), dependencies.readReceipt, request.signal, "/api/actions/:id");
-      return privateJson(await presentAction(result.row, owner, result.receipt, now), 200);
-    } finally {
-      deadline.dispose();
-    }
+    const reconciled = isReconcileCandidate(row, now)
+      ? await reconcileRow({
+          row,
+          owner,
+          store: dependencies.store ?? getActionsStore(),
+          resolveHandle: dependencies.resolveHandle ?? getDefaultActionHandleResolver(),
+          signal: deadline.signal,
+          route: "/api/actions/:id",
+        })
+      : row;
+    const result = await settleRow(reconciled, owner, dependencies.store ?? getActionsStore(), dependencies.readReceipt, request.signal, "/api/actions/:id");
+    return privateJson(await presentAction(result.row, owner, result.receipt, now), 200);
   };
 }
 
@@ -183,7 +179,6 @@ async function readBorrowDebtWithDeadline(
     return await Promise.race([read(owner, market, deadline.signal), aborted]);
   } finally {
     deadline.signal.removeEventListener("abort", onAbort);
-    deadline.dispose();
   }
 }
 
@@ -588,54 +583,44 @@ export function createListActionsHandler(dependencies: {
       now.getTime(),
     ).map((row) => row.id));
     const deadline = createDeadline(request.signal, RECONCILE_DEADLINE_MS);
-    let observed: CashoutReceiptRow[];
-    let retainedObserved: CashoutReceiptRow[];
-    try {
-      const allObserved = await Promise.all([...rows, ...retainedRows].map(async (row): Promise<CashoutReceiptRow> => {
-        const reconciled = candidateIds.has(row.id)
-          ? await reconcileRow({
-              row,
-              owner,
-              store,
-              resolveHandle: dependencies.resolveHandle ?? getDefaultActionHandleResolver(),
-              signal: deadline.signal,
-              route: "/api/actions",
-            })
-          : row;
-        return await settleRow(reconciled, owner, store, dependencies.readReceipt, deadline.signal, "/api/actions");
-      }));
-      observed = allObserved.slice(0, rows.length);
-      retainedObserved = allObserved.slice(rows.length);
-    } finally {
-      deadline.dispose();
-    }
+    const allObserved = await Promise.all([...rows, ...retainedRows].map(async (row): Promise<CashoutReceiptRow> => {
+      const reconciled = candidateIds.has(row.id)
+        ? await reconcileRow({
+            row,
+            owner,
+            store,
+            resolveHandle: dependencies.resolveHandle ?? getDefaultActionHandleResolver(),
+            signal: deadline.signal,
+            route: "/api/actions",
+          })
+        : row;
+      return await settleRow(reconciled, owner, store, dependencies.readReceipt, deadline.signal, "/api/actions");
+    }));
+    const observed = allObserved.slice(0, rows.length);
+    const retainedObserved = allObserved.slice(rows.length);
     const refreshDeadline = createDeadline(request.signal, CASHOUT_REFRESH_DEADLINE_MS);
-    try {
-      const records = await (dependencies.refreshCashouts ?? refreshCashoutProgress)({ owner, rows: observed, store: store as ActionsStore, signal: refreshDeadline.signal, now: () => now });
-      const byAction = new Map(records.map((record) => [record.action_id, record]));
-      const actions = await Promise.all(observed.map(async ({ row, receipt }) => {
-        const record = row.kind === "cash-out" ? byAction.get(row.id) : undefined;
-        return {
-          ...await presentAction(row, owner, receipt, now),
-          ...(row.kind === "cash-out-withdraw" && finalizedSucceededReceiptBlock(row) !== undefined
-            ? { receiptBlockNumber: finalizedSucceededReceiptBlock(row) } : {}),
-          ...(record ? { cashout: presentCashoutProgress(record,
-            record.deposit_id !== null && cashoutWithdrawalInFlight(observed, owner, record.deposit_id, now), row) } : {}),
-        };
-      }));
-      const truncated = observed.length === RECENT_ACTIONS_LIMIT &&
-        (observed.at(-1)?.row.kind === "cash-out" || observed.at(-1)?.row.kind === "cash-out-withdraw");
-      const retainedSavingsDeposits = await Promise.all(retainedObserved.map(({ row, receipt }) => presentAction(row, owner, receipt, now)));
-      return privateJson({
-        version: LIST_ACTIONS_CONTRACT_VERSION,
-        actions,
-        truncated,
-        ...(retainedSavingsDeposits.length ? { retainedSavingsDeposits } : {}),
-        ...(retainedSavingsDepositsUnavailable ? { retainedSavingsDepositsUnavailable: true } : {}),
-      } satisfies ListActionsResponse, 200);
-    } finally {
-      refreshDeadline.dispose();
-    }
+    const records = await (dependencies.refreshCashouts ?? refreshCashoutProgress)({ owner, rows: observed, store: store as ActionsStore, signal: refreshDeadline.signal, now: () => now });
+    const byAction = new Map(records.map((record) => [record.action_id, record]));
+    const actions = await Promise.all(observed.map(async ({ row, receipt }) => {
+      const record = row.kind === "cash-out" ? byAction.get(row.id) : undefined;
+      return {
+        ...await presentAction(row, owner, receipt, now),
+        ...(row.kind === "cash-out-withdraw" && finalizedSucceededReceiptBlock(row) !== undefined
+          ? { receiptBlockNumber: finalizedSucceededReceiptBlock(row) } : {}),
+        ...(record ? { cashout: presentCashoutProgress(record,
+          record.deposit_id !== null && cashoutWithdrawalInFlight(observed, owner, record.deposit_id, now), row) } : {}),
+      };
+    }));
+    const truncated = observed.length === RECENT_ACTIONS_LIMIT &&
+      (observed.at(-1)?.row.kind === "cash-out" || observed.at(-1)?.row.kind === "cash-out-withdraw");
+    const retainedSavingsDeposits = await Promise.all(retainedObserved.map(({ row, receipt }) => presentAction(row, owner, receipt, now)));
+    return privateJson({
+      version: LIST_ACTIONS_CONTRACT_VERSION,
+      actions,
+      truncated,
+      ...(retainedSavingsDeposits.length ? { retainedSavingsDeposits } : {}),
+      ...(retainedSavingsDepositsUnavailable ? { retainedSavingsDepositsUnavailable: true } : {}),
+    } satisfies ListActionsResponse, 200);
   };
 }
 
@@ -705,22 +690,8 @@ export async function presentAction(
   } satisfies ActionListItem & GetActionResponse;
 }
 
-function createDeadline(parentSignal: AbortSignal, ms: number): {
-  signal: AbortSignal;
-  dispose: () => void;
-} {
-  const controller = new AbortController();
-  const abortFromParent = () => controller.abort(parentSignal.reason);
-  parentSignal.addEventListener("abort", abortFromParent, { once: true });
-  if (parentSignal.aborted) abortFromParent();
-  const timeout = setTimeout(() => controller.abort(), ms);
-  return {
-    signal: controller.signal,
-    dispose: () => {
-      clearTimeout(timeout);
-      parentSignal.removeEventListener("abort", abortFromParent);
-    },
-  };
+function createDeadline(parentSignal: AbortSignal, ms: number): { signal: AbortSignal } {
+  return { signal: AbortSignal.any([parentSignal, AbortSignal.timeout(ms)]) };
 }
 
 function iso(value: string | Date | null): string | null {

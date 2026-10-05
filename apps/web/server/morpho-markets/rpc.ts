@@ -18,6 +18,7 @@ import {
   CoinbaseSmartAccountBatchSimulationError, createCoinbaseSmartAccountBatchSimulator,
 } from "@/server/chain/coinbase-smart-account";
 import { createBaseRpcClient, parseRpcQuantity, resolveBaseRpcUrl } from "@/server/chain/rpc";
+import { createUpstreamDeadline } from "@/server/http/upstream";
 
 const RPC_TIMEOUT_MS = 8_000;
 const READ_BATCH_SIZE = 40;
@@ -92,21 +93,15 @@ export function createMorphoMarketRpcReader(options: {
   const batchSimulator = createCoinbaseSmartAccountBatchSimulator({ fetchImpl, rpcUrl, timeoutMs });
 
   async function withTimeout<T>(externalSignal: AbortSignal | undefined, work: (signal: AbortSignal) => Promise<T>) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const abort = () => controller.abort();
-    externalSignal?.addEventListener("abort", abort, { once: true });
+    const deadline = createUpstreamDeadline({ timeoutMs, signal: externalSignal });
     try {
-      return await work(controller.signal);
+      return await work(deadline.signal);
     } catch (error) {
       if (error instanceof MorphoMarketRpcError) throw error;
       throw new MorphoMarketRpcError(
-        controller.signal.aborted ? "The Base Morpho market RPC request timed out or was aborted." : "The Base Morpho market RPC request failed.",
+        deadline.signal.aborted ? "The Base Morpho market RPC request timed out or was aborted." : "The Base Morpho market RPC request failed.",
         { cause: error },
       );
-    } finally {
-      clearTimeout(timeout);
-      externalSignal?.removeEventListener("abort", abort);
     }
   }
 

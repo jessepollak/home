@@ -177,14 +177,11 @@ export function createPostgresSqlExecutor(
       options: SqlQueryOptions = {},
     ) {
       const timeoutMs = boundedSqlTimeoutMs(options.timeoutMs);
-      const deadline = timeoutMs === null ? null : new AbortController();
-      const timer = timeoutMs === null ? null : setTimeout(() => {
-        deadline?.abort(new DOMException(`PostgreSQL query exceeded its ${timeoutMs}ms deadline.`, "TimeoutError"));
-      }, timeoutMs);
+      const deadline = timeoutMs === null ? null : AbortSignal.timeout(timeoutMs);
       const signal = deadline === null
         ? options.signal
-        : options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal;
-      const operation = beginTransaction(
+        : options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+      return beginTransaction(
         async (tx) => {
           if (timeoutMs !== null) {
             await tx.query(
@@ -197,7 +194,6 @@ export function createPostgresSqlExecutor(
         },
         signal,
       );
-      return timer === null ? operation : operation.finally(() => clearTimeout(timer));
     },
     transaction: (fn) => beginTransaction(fn),
     async dispose() {

@@ -32,16 +32,18 @@ function runtimeReader(env: Readonly<Record<string, string | undefined>> = serve
 
 function withDeadline<T>(work: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
   const controller = new AbortController();
-  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const deadline = AbortSignal.timeout(Number.isFinite(ms) && ms >= 1 && ms <= 2_147_483_647 ? Math.trunc(ms) : 1);
+  let onAbort = () => {};
   return Promise.race([
     work(controller.signal),
     new Promise<never>((_resolve, reject) => {
-      deadline = setTimeout(() => {
+      onAbort = () => {
         controller.abort(new RegionPolicyUnavailableError("Region settings read timed out"));
         reject(new RegionPolicyUnavailableError("Region settings read timed out"));
-      }, ms);
+      };
+      deadline.addEventListener("abort", onAbort, { once: true });
     }),
-  ]).finally(() => clearTimeout(deadline));
+  ]).finally(() => deadline.removeEventListener("abort", onAbort));
 }
 
 export function createRegionPolicyReader({ read = runtimeReader(), now = Date.now, deadlineMs = REGION_POLICY_READ_DEADLINE_MS }: { read?: Reader; now?: () => number; deadlineMs?: number } = {}) {

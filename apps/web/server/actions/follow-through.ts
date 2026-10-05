@@ -77,24 +77,18 @@ async function followRows(
 export async function followActionUntilSettled(row: ActionRow, options: LoopOptions): Promise<ActionRow> {
   const now = options.deps?.now ?? Date.now;
   const deadline = now() + options.deadlineMs;
-  const controller = new AbortController();
-  const onAbort = () => controller.abort(options.signal.reason);
-  options.signal.addEventListener("abort", onAbort, { once: true });
-  if (options.signal.aborted) onAbort();
-  const timer = setTimeout(() => controller.abort(), Math.max(0, options.deadlineMs));
-  try {
-    for (let attempt = 0; !controller.signal.aborted && now() < deadline; attempt++) {
-      row = await followAction(row, { ...options, signal: controller.signal });
-      if (row.outcome || row.transaction_hash && row.observed_receipt_transaction_hash?.toLowerCase() === row.transaction_hash.toLowerCase() &&
-        row.observed_receipt_block_hash && row.observed_receipt_outcome) break;
-      if (controller.signal.aborted || now() >= deadline) break;
-      await (options.sleep ?? wait)(Math.min(5_000, 2_000 + attempt * 1_000), controller.signal);
-    }
-    return row;
-  } finally {
-    clearTimeout(timer);
-    options.signal.removeEventListener("abort", onAbort);
+  const signal = AbortSignal.any([
+    options.signal,
+    AbortSignal.timeout(Number.isFinite(options.deadlineMs) && options.deadlineMs >= 1 && options.deadlineMs <= 2_147_483_647 ? Math.trunc(options.deadlineMs) : 1),
+  ]);
+  for (let attempt = 0; !signal.aborted && now() < deadline; attempt++) {
+    row = await followAction(row, { ...options, signal });
+    if (row.outcome || row.transaction_hash && row.observed_receipt_transaction_hash?.toLowerCase() === row.transaction_hash.toLowerCase() &&
+      row.observed_receipt_block_hash && row.observed_receipt_outcome) break;
+    if (signal.aborted || now() >= deadline) break;
+    await (options.sleep ?? wait)(Math.min(5_000, 2_000 + attempt * 1_000), signal);
   }
+  return row;
 }
 
 export async function settleOpenActionsForAccounts(

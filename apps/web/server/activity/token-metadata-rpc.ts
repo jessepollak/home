@@ -13,6 +13,7 @@ import {
   MULTICALL3_ADDRESS,
 } from "@/server/balances/abi";
 import { createBoundedCache } from "@/server/cache/bounded";
+import { createUpstreamDeadline } from "@/server/http/upstream";
 
 export const ACTIVITY_TOKEN_RPC_BATCH_MAX = 25;
 export const ACTIVITY_TOKEN_RPC_CACHE_MAX = 512;
@@ -218,15 +219,6 @@ async function withRpcDeadline<T>(
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
     throw new Error("Activity token metadata RPC timeout is invalid.");
   }
-  const controller = new AbortController();
-  const abort = () => controller.abort(signal?.reason);
-  signal?.addEventListener("abort", abort, { once: true });
-  if (signal?.aborted) abort();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await run(controller.signal);
-  } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener("abort", abort);
-  }
+  const deadline = createUpstreamDeadline({ timeoutMs, signal });
+  return run(deadline.signal);
 }
