@@ -19,7 +19,8 @@ import { Input } from "@/components/ui/input";
 import type { AssetMarkPresentation } from "@/client/asset-mark/presentation";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import type { RegionId } from "@/config/regions";
-import { decimalSeparatorForLocale, normalizeTypedAmount, parsePastedAmount } from "./amount-input";
+import { decimalSeparatorForLocale } from "@/shared/formatting";
+import { normalizeTypedAmount, parsePastedAmount } from "./amount-input";
 import {
   amountExceedsCeiling,
   clampDecimal,

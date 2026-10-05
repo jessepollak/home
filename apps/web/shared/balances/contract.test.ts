@@ -29,6 +29,12 @@ function clone(snapshot: BalancesSnapshot): BalancesSnapshot {
   return JSON.parse(JSON.stringify(snapshot)) as BalancesSnapshot;
 }
 
+function holdingById(holdings: BalancesSnapshot["holdings"], id: string): BalancesSnapshot["holdings"][number] {
+  const holding = holdings.find((entry) => entry.id === id);
+  if (!holding) throw new Error(`Missing fixture holding ${id}`);
+  return holding;
+}
+
 test("registry matcher detects missing identities and changed metadata", () => {
   const holdings = balancesSnapshotFixture.holdings;
   expect(registryHoldingsMatchExpectations(holdings)).toBe(true);
@@ -182,7 +188,7 @@ describe("parseBalancesSnapshot", () => {
 
   test.each(["eth", "usdc", `catalog:${FIXTURE_CATALOG.priced.address}`])("rejects a withdrawal limit on non-vault %s", (id) => {
     const snapshot = clone(balancesSnapshotFixture);
-    snapshot.holdings.find((holding) => holding.id === id)!.withdrawableBalance = ready("0");
+    holdingById(snapshot.holdings, id).withdrawableBalance = ready("0");
     expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
   });
 
@@ -195,14 +201,14 @@ describe("parseBalancesSnapshot", () => {
 
   test("accepts a vault without a withdrawal limit from an older server", () => {
     const snapshot = clone(balancesSnapshotFixture);
-    delete snapshot.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance;
+    delete holdingById(snapshot.holdings, "morpho-steakhouse-usdc").withdrawableBalance;
     const parsed = parseBalancesSnapshot(snapshot, session, "US");
-    expect(parsed.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance).toBeUndefined();
+    expect(holdingById(parsed.holdings, "morpho-steakhouse-usdc").withdrawableBalance).toBeUndefined();
   });
 
   test("rejects a vault withdrawal limit above its underlying balance", () => {
     const snapshot = clone(balancesSnapshotFixture);
-    snapshot.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance = ready("1000124");
+    holdingById(snapshot.holdings, "morpho-steakhouse-usdc").withdrawableBalance = ready("1000124");
     expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
   });
 
@@ -219,9 +225,9 @@ describe("parseBalancesSnapshot", () => {
 
   test("accepts an unavailable vault withdrawal limit", () => {
     const snapshot = clone(balancesSnapshotFixture);
-    snapshot.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance = { status: "unavailable", baseUnits: null };
+    holdingById(snapshot.holdings, "morpho-steakhouse-usdc").withdrawableBalance = { status: "unavailable", baseUnits: null };
     const parsed = parseBalancesSnapshot(snapshot, session, "US");
-    expect(parsed.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance).toEqual({ status: "unavailable", baseUnits: null });
+    expect(holdingById(parsed.holdings, "morpho-steakhouse-usdc").withdrawableBalance).toEqual({ status: "unavailable", baseUnits: null });
   });
 
   type Rejection = {

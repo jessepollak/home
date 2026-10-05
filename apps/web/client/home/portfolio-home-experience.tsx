@@ -26,6 +26,7 @@ import { INVEST_SETTINGS_DEFAULTS } from "@/shared/operator-settings/invest";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
+import type { InvestmentsContentProps, ShellSearchContentProps } from "./home-types";
 import { ProductOfferingProvider } from "./product-offering";
 import { resolveProductOffering, type ProductOffering } from "@/shared/operator-settings/products";
 import { useRouteShellLocation } from "./shell-page-context";
@@ -216,8 +217,14 @@ export function PortfolioHomeExperience({
     return (key: string) => snapshot !== null && selectOwnedInvestment(snapshot, key as AssetKey) !== null;
   }, [balances.snapshot]);
 
-  const renderSearchContent = useCallback((props: import("./home-types").ShellSearchContentProps) => <PresentationRegionProvider regionId={region.regionId}>
+  const renderSearchContent = useCallback((props: ShellSearchContentProps) => <PresentationRegionProvider regionId={region.regionId}>
     <PricedAssetSearch {...props} discover={discover} investVisibility={investVisibility} /></PresentationRegionProvider>, [region.regionId, discover, investVisibility]);
+  const renderCashContent = useCallback((props: { view: "cash" | "savings"; onOpenSavings: () => void }) => (
+    <AuthenticatedCashExperience view={props.view} onOpenSavings={props.onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />
+  ), [regionReady, pendingCashout]);
+  const renderInvestmentsContent = useCallback((props: InvestmentsContentProps) => (
+    <InvestmentsExperience {...props} balances={balances} discover={discover} />
+  ), [balances, discover]);
   return (
     <VaultPositionsProvider snapshot={snapshot}>
     <ProductOfferingProvider value={productOffering}>
@@ -229,10 +236,8 @@ export function PortfolioHomeExperience({
       investContent={<RoutedInvestExperience discover={discover} investVisibility={investVisibility} />}
       searchContent={productOffering.products.invest === "on" && getVisibleShelves(discover.memeAssets, investVisibility ?? INVEST_SETTINGS_DEFAULTS).length > 0
         ? renderSearchContent : undefined}
-      // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
-      cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />}
-      // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
-      investmentsContent={(props) => <InvestmentsExperience {...props} balances={balances} discover={discover} />}
+      cashContent={renderCashContent}
+      investmentsContent={renderInvestmentsContent}
       interruption={interruptionStatus.interruption}
       interruptionAnnouncement={interruptionStatus.announcement}
       onRetryInterruption={interruptionStatus.retry}

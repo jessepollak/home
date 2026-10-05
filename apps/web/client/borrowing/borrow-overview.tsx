@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import { ChevronDown, CircleAlertIcon, CircleDollarSign, Coins, ShieldCheck } from "lucide-react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
@@ -323,10 +323,10 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
     setFocusOperation(nextOperation);
     setOperation(nextOperation);
   }
-  function backToManagement() {
+  const backToManagement = useCallback(() => {
     setOperation(null);
     setMoneySnapshot(null);
-  }
+  }, []);
   function done() {
     if (snapshot && (BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) || BigInt(snapshot.position.collateralRaw) > BigInt(0) || operation === "supply-and-borrow")) backToManagement();
     else exitJourney("summary");
@@ -348,6 +348,10 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
     const frame = requestAnimationFrame(() => exitJourney("summary"));
     return () => cancelAnimationFrame(frame);
   }, [journeyOpen, marketId, snapshot]);
+  const renderBorrowFallback = useCallback(({ failed, retry }: { failed: boolean; retry: () => void }) => operation
+    ? <MoneyModalStepLoading step="amount" depth={managementDepth + 1} title={borrowOperationLabels[operation]} titleId="borrow-action-title"
+        onBack={backToManagement} closeLabel="Close Borrow action" failed={failed} onRetry={retry} />
+    : null, [operation, managementDepth, backToManagement]);
   return <section className="space-y-4" aria-labelledby="borrow-overview-title">
     <h2 className="sr-only" id="borrow-overview-title">Borrow</h2>
     {showIntro ? null : <Summary overview={overview} borrowSummary={borrowSummary} status={status} onRetry={onRetry} regionId={regionId} summaryRef={summaryRef} />}
@@ -391,9 +395,7 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
         prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} fetchAccountResource={fetchAccountResource}
         assetMarkResolution={assetMarkResolution} onBack={backToManagement} onDone={done}
         onLeave={() => { leavingForActivity.current = true; closeFocus.current = "none"; returnFocusAllowed.current = false; }}
-        // oxlint-disable-next-line react/no-unstable-nested-components -- Deferred-sheet fallback is invoked as a render callback, not mounted.
-        fallback={({ failed, retry }) => <MoneyModalStepLoading step="amount" depth={managementDepth + 1} title={borrowOperationLabels[operation]} titleId="borrow-action-title"
-          onBack={backToManagement} closeLabel="Close Borrow action" failed={failed} onRetry={retry} />} />
+        fallback={renderBorrowFallback} />
         : snapshot ? <MoneyModalStep step="management" depth={managementDepth} initialFocusRef={focusOperation ? actionEnabled ? actionFocusRef : heroFocusRef : undefined}>
           <ManagementSheet snapshot={snapshot} name={collateralDisplayName(snapshot.market.id)} regionId={regionId}
             openingAvailableRaw={held?.openingAvailableRaw ?? "0"} titleId={titleId} detailsId={detailsId}

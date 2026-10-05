@@ -45,6 +45,17 @@ function cachedNumberFormat(
   return formatter;
 }
 
+export function decimalSeparatorForLocale(locale: string | undefined): "." | "," {
+  if (!locale) return ".";
+  try {
+    if (Intl.NumberFormat.supportedLocalesOf(locale).length === 0) return ".";
+    const separator = cachedNumberFormat(locale).formatToParts(1.1).find((part) => part.type === "decimal")?.value;
+    return separator === "," ? "," : ".";
+  } catch {
+    return ".";
+  }
+}
+
 function cachedDateTimeFormat(
   locale: string,
   options: Intl.DateTimeFormatOptions,

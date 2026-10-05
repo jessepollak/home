@@ -1,8 +1,5 @@
 {
   "files": {
-    "apps/web/app/coverage/page.tsx": {
-      "nextjs/no-html-link-for-pages": 1
-    },
     "apps/web/client/account/account-screen.tsx": {
       "home/no-silent-catch": 1
     },
@@ -21,38 +18,14 @@
     "apps/web/client/account/email-request-flow.ts": {
       "home/no-silent-catch": 1
     },
-    "apps/web/client/activity/activity-ledger-sheet.tsx": {
-      "react/no-array-index-key": 1
-    },
-    "apps/web/client/activity/virtual-activity-list.tsx": {
-      "react/incompatible-library": 1
-    },
-    "apps/web/client/borrowing/borrow-overview.tsx": {
-      "react/no-unstable-nested-components": 1
-    },
-    "apps/web/client/funding/order-flow.tsx": {
-      "react/no-array-index-key": 3
-    },
     "apps/web/client/home/landing-shell.tsx": {
       "home/no-silent-catch": 2
-    },
-    "apps/web/client/home/portfolio-home-experience.tsx": {
-      "react/no-unstable-nested-components": 2
     },
     "apps/web/client/home/shell.tsx": {
       "home/no-silent-catch": 1
     },
-    "apps/web/client/money-modal/amount-input.ts": {
-      "home/no-local-formatting": 1
-    },
-    "apps/web/client/money-modal/amount-units.ts": {
-      "home/no-amount-fallback": 1
-    },
     "apps/web/client/money-modal/amount.tsx": {
       "home/no-silent-catch": 1
-    },
-    "apps/web/client/money-modal/confirm-summary.tsx": {
-      "react/no-array-index-key": 1
     },
     "apps/web/client/money-modal/money-modal.tsx": {
       "home/no-silent-catch": 1
@@ -66,27 +39,8 @@
     "apps/web/components/address-field.tsx": {
       "home/no-silent-catch": 1
     },
-    "apps/web/components/copyable-value.tsx": {
-      "jsx-a11y/no-noninteractive-tabindex": 2,
-      "react/no-array-index-key": 1
-    },
-    "apps/web/components/currency-mark.tsx": {
-      "nextjs/no-img-element": 1
-    },
     "apps/web/components/home-mark.tsx": {
       "home/no-silent-catch": 1
-    },
-    "apps/web/components/money-ticker.tsx": {
-      "react/no-array-index-key": 1
-    },
-    "apps/web/components/profile-mark.tsx": {
-      "nextjs/no-img-element": 1
-    },
-    "apps/web/components/ui/data-table.tsx": {
-      "react-hooks/incompatible-library": 1
-    },
-    "apps/web/components/ui/input-group.tsx": {
-      "jsx-a11y/no-noninteractive-element-interactions": 1
     },
     "apps/web/instrumentation-client.ts": {
       "home/no-silent-catch": 1
@@ -182,6 +136,83 @@
       "count": 1,
       "issue": "#1632",
       "reason": "Foundations reference scroll regions have no focusable content; axe scrollable-region-focusable requires keyboard focus"
+    },
+    {
+      "path": "apps/web/client/money-modal/amount-units.ts",
+      "rule": "home/no-amount-fallback",
+      "count": 1,
+      "issue": "#2055",
+      "reason": "A blank editable amount field intentionally presents its zero entry state; this is display entry-state for an input, not an unavailable or missing money amount."
+    },
+    {
+      "path": "apps/web/client/money-modal/confirm-summary.tsx",
+      "rule": "react/no-array-index-key",
+      "count": 1,
+      "issue": "#2055",
+      "reason": "Character position is the identity of each wrap-segment span; characters repeat, no content key is unique, and the spans hold no state."
+    },
+    {
+      "path": "apps/web/components/copyable-value.tsx",
+      "rule": "jsx-a11y/no-noninteractive-tabindex",
+      "count": 2,
+      "issue": "#2055",
+      "reason": "The full-value code blocks are deliberately focusable so keyboard users can select and copy; they are not interactive controls, so the rule cannot express the intent."
+    },
+    {
+      "path": "apps/web/components/copyable-value.tsx",
+      "rule": "react/no-array-index-key",
+      "count": 1,
+      "issue": "#2055",
+      "reason": "Group position is the identity of each displayed address segment; groups can repeat and hold no state."
+    },
+    {
+      "path": "apps/web/components/currency-mark.tsx",
+      "rule": "nextjs/no-img-element",
+      "count": 1,
+      "issue": "#2055",
+      "reason": "Provider icon URLs are remote runtime data from hosts next/image is not configured to optimize; the image is decorative and aria-hidden."
+    },
+    {
+      "path": "apps/web/components/money-ticker.tsx",
+      "rule": "react/no-array-index-key",
+      "count": 1,
+      "issue": "#2055",
+      "reason": "Character position is the identity of each animated ticker slot; a content key would remount slots on digit change and break the animation."
+    },
+    {
+      "path": "apps/web/components/profile-mark.tsx",
+      "rule": "nextjs/no-img-element",
+      "count": 1,
+      "issue": "#2055",
+      "reason": "Profile avatar URLs are remote runtime data from hosts next/image is not configured to optimize."
+    },
+    {
+      "path": "apps/web/components/ui/data-table.tsx",
+      "rule": "react-hooks/incompatible-library",
+      "count": 1,
+      "issue": "#2055",
+      "reason": "TanStack Table returns mutable functions that stay inside this component; the compiler diagnostic is informational and no table value reaches a memoized consumer."
+    },
+    {
+      "path": "apps/web/client/activity/virtual-activity-list.tsx",
+      "rule": "react/incompatible-library",
+      "count": 1,
+      "issue": "#2055",
+      "reason": "The virtualizer owns scroll updates and rendered ranges inside this component; its mutable functions do not reach a memoized consumer."
+    },
+    {
+      "path": "apps/web/components/ui/input-group.tsx",
+      "rule": "jsx-a11y/no-noninteractive-element-interactions",
+      "count": 1,
+      "issue": "#2055",
+      "reason": "Pointer convenience only: pressing the addon focuses the group input, and keyboard users tab to the input directly."
+    },
+    {
+      "path": "apps/web/client/funding/order-flow.tsx",
+      "rule": "react/no-array-index-key",
+      "count": 3,
+      "issue": "#2055",
+      "reason": "Provider fee breakdowns are immutable quote snapshots with no guaranteed unique fee identifier and rows never reorder."
     }
   ]
 }

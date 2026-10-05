@@ -76,10 +76,27 @@ function aggregate(values: Array<bigint | null>): Hex {
   });
 }
 
+function isHex(value: unknown): value is Hex {
+  return typeof value === "string" && /^0x[0-9a-f]*$/i.test(value);
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function callData(call: unknown): Hex {
+  if (!record(call)) throw new Error("Expected an RPC call");
+  const params = call.params;
+  if (!Array.isArray(params)) throw new Error("Expected RPC params");
+  const request: unknown = params[0];
+  if (!record(request) || !isHex(request.data)) throw new Error("Expected RPC calldata");
+  return request.data;
+}
+
 function targets(params: readonly unknown[]): string[] {
   const decoded = decodeFunctionData({
     abi: multicallAbi,
-    data: (params[0] as { data: Hex }).data,
+    data: callData({ params }),
   });
   return decoded.args[0].map(({ target }) => target.toLowerCase());
 }
@@ -183,7 +200,7 @@ describe("balances chain read", () => {
     expect(conversionCalls).toHaveLength(1);
     const conversion = decodeFunctionData({
       abi: vaultAbi,
-      data: ((conversionCalls[0]?.[0] as { params: [{ data: Hex }] }).params[0].data),
+      data: callData(conversionCalls[0]?.[0]),
     });
     expect(conversion).toMatchObject({
       functionName: "convertToAssets",
@@ -191,7 +208,7 @@ describe("balances chain read", () => {
     });
     const withdrawal = decodeFunctionData({
       abi: vaultAbi,
-      data: (conversionCalls[0]?.[1] as { params: [{ data: Hex }] }).params[0].data,
+      data: callData(conversionCalls[0]?.[1]),
     });
     expect(withdrawal.functionName).toBe("maxWithdraw");
     expect(withdrawal.args?.[0].toString().toLowerCase()).toBe(owner);

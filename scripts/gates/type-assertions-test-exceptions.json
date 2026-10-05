@@ -1,18 +1,6 @@
 {
   "exceptions": [
     {
-      "path": "apps/web/server/balances/read.test.ts",
-      "kind": "assertion",
-      "count": 1,
-      "reason": "One as { params: [{ data: Hex }] } cast decoding the captured maxWithdraw call, matching the convertToAssets call decoded just above it."
-    },
-    {
-      "path": "apps/web/shared/balances/contract.test.ts",
-      "kind": "nonNull",
-      "count": 6,
-      "reason": "Six non-null fixture lookups of a holding by id in the withdrawal-limit contract tests, the lookup this file already uses to reach a fixture holding."
-    },
-    {
       "path": "apps/web/tests/browser/fixtures/fixed-time.ts",
       "kind": "suppression",
       "count": 1,
@@ -23,18 +11,6 @@
       "kind": "assertion",
       "count": 2,
       "reason": "The host story injects a partial AccountWalletClient whose fetchAccountResource serves the cards and activity-orders fixtures; constructing the full client would add harness noise."
-    },
-    {
-      "path": "apps/web/stories/journeys/operator-support-inbox.stories.tsx",
-      "kind": "nonNull",
-      "count": 1,
-      "reason": "The play function reads the customer-details panel it just opened through closest(\"details\") on the summary it clicked"
-    },
-    {
-      "path": "apps/web/stories/journeys/support-chat.stories.tsx",
-      "kind": "assertion",
-      "count": 1,
-      "reason": "The fixture transport parses its own request body and casts it to the message shape it echoes back"
     },
     {
       "path": "apps/web/server/cdp/auth.test.ts",

@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { SUPPORT_CONTRACT_VERSION, decodeSupportCursor, type CustomerSupportResponse, type CustomerSupportSendRequest, type CustomerSupportSummary, type OperatorSupportConversationResponse, type OperatorSupportListQuery, type OperatorSupportListResponse, type OperatorSupportReplyRequest, type OperatorSupportSummary, type SupportMessage, type SupportContextRef, type SupportHandler, type SupportAssistantCapability } from "@/shared/support/contract";
+import { SUPPORT_CONTRACT_VERSION, decodeSupportCursor, type CustomerSupportConversation, type CustomerSupportResponse, type CustomerSupportSendRequest, type CustomerSupportSummary, type OperatorSupportConversationResponse, type OperatorSupportListQuery, type OperatorSupportListResponse, type OperatorSupportReplyRequest, type OperatorSupportSummary, type SupportMessage, type SupportContextRef, type SupportHandler, type SupportAssistantCapability } from "@/shared/support/contract";
 import { actionOwnerKey, type ActionOutcome } from "@/server/actions/store";
 import { deriveActionStatus, type ActionReceiptState } from "@/server/actions/status";
 import type { SqlExecutor } from "@/server/db/sql";
@@ -97,7 +97,7 @@ export class SupportStore {
     return { version: SUPPORT_CONTRACT_VERSION, unreadCount: row ? await this.customerUnreadCount(row.id) : 0 };
   }
 
-  async sendCustomer(customerId: string, session: VerifiedAccountSession, input: CustomerSupportSendRequest, capability: SupportAssistantCapability = { available: false, handoff: false }): Promise<{ response: CustomerSupportResponse; replayed: boolean; messageId: string }> {
+  async sendCustomer(customerId: string, session: VerifiedAccountSession, input: CustomerSupportSendRequest, capability: SupportAssistantCapability = { available: false, handoff: false }): Promise<{ response: CustomerSupportResponse & { conversation: CustomerSupportConversation }; replayed: boolean; messageId: string }> {
     const sent = await this.sql.transaction(async (tx) => {
       const customer = (await tx.query<{ status: string }>("SELECT status FROM customers WHERE id=$1 FOR UPDATE", [customerId])).rows[0];
       if (!customer || customer.status === "closed") throw new SupportCustomerClosedError();
@@ -130,7 +130,9 @@ export class SupportStore {
       }
       return { replayed: !!existing, messageId: id };
     });
-    return { response: await this.customerConversation(customerId, undefined, capability), ...sent };
+    const response = await this.customerConversation(customerId, undefined, capability);
+    if (!response.conversation) throw new Error("Support conversation missing after send");
+    return { response: { ...response, conversation: response.conversation }, ...sent };
   }
 
   async claimAssistantRun(conversationId: string, messageId: string, capability: SupportAssistantCapability, recheckOnly = false): Promise<{ status: "claimed"; runId: string } | { status: "answering" | "held" | "skipped" | "unavailable" | "pending" } | { status: "limited"; retryAfter: number }> {
@@ -154,7 +156,7 @@ export class SupportStore {
   }
 
   private async insertAssistantRun(tx: SqlExecutor, conversationId: string, messageId: string): Promise<string | number> {
-    const counts = (await tx.query<{ day: string; recent_replays: string; prior: boolean; day_retry_after: number | null; replay_retry_after: number | null }>(`SELECT rates.day,rates.recent_replays,
+    const counts = (await tx.query<{ day: string; recent_replays: string; prior: boolean; day_retry_after: number; replay_retry_after: number }>(`SELECT rates.day,rates.recent_replays,
       EXISTS (SELECT 1 FROM support_assistant_runs WHERE conversation_id=$1 AND message_id=$2) AS prior,
       GREATEST(1,ceil(extract(epoch FROM (rates.oldest_day + interval '24 hours' - cutoff.checked_at))))::integer AS day_retry_after,
       GREATEST(1,ceil(extract(epoch FROM (rates.oldest_replay + interval '10 minutes' - cutoff.checked_at))))::integer AS replay_retry_after
@@ -165,8 +167,8 @@ export class SupportStore {
         count(*) FILTER (WHERE replay AND started_at > cutoff.checked_at - interval '10 minutes')::text AS recent_replays,
         min(started_at) FILTER (WHERE replay AND started_at > cutoff.checked_at - interval '10 minutes') AS oldest_replay
         FROM support_assistant_runs WHERE conversation_id=$1) rates`, [conversationId, messageId])).rows[0];
-    if (Number(counts.day) >= 40) return counts.day_retry_after!;
-    if (counts.prior && Number(counts.recent_replays) >= 10) return counts.replay_retry_after!;
+    if (Number(counts.day) >= 40) return counts.day_retry_after;
+    if (counts.prior && Number(counts.recent_replays) >= 10) return counts.replay_retry_after;
     const runId = crypto.randomUUID();
     await tx.query("INSERT INTO support_assistant_runs (id,conversation_id,message_id,replay) VALUES ($1,$2,$3,$4)", [runId, conversationId, messageId, counts.prior]);
     await tx.query("UPDATE support_conversations SET assistant_run_id=$2,assistant_run_message_id=$3,assistant_run_expires_at=clock_timestamp() + interval '60 seconds' WHERE id=$1", [conversationId, runId, messageId]);
@@ -189,7 +191,8 @@ export class SupportStore {
        WHERE ($1::text='all' OR c.status=$1) AND ($2::timestamptz IS NULL OR (c.last_message_at,c.id) < ($2::timestamptz,$3::uuid))
        ORDER BY c.last_message_at DESC,c.id DESC LIMIT $4`, [input.status, before?.at ?? null, before?.id ?? null, input.limit + 1]);
     const rows = result.rows.slice(0, input.limit);
-    return { version: SUPPORT_CONTRACT_VERSION, conversations: rows.map((row) => ({ id: row.id, status: row.status, handler: effectiveHandler(row, capability), lastMessageAt: date(row.last_message_at), preview: preview(row.preview), lastAuthorType: row.author_type, unread: effectiveHandler(row, capability) === "operator" && unread(row), customerLabel: row.label_wallet ? `${row.label_wallet.slice(0, 6)}…${row.label_wallet.slice(-4)}` : `Customer ${row.id.slice(0, 8)}` })), nextCursor: result.rows.length > input.limit ? Buffer.from(JSON.stringify({ at: date(rows.at(-1)!.last_message_at), id: rows.at(-1)!.id })).toString("base64url") : null };
+    const last = rows.at(-1);
+    return { version: SUPPORT_CONTRACT_VERSION, conversations: rows.map((row) => ({ id: row.id, status: row.status, handler: effectiveHandler(row, capability), lastMessageAt: date(row.last_message_at), preview: preview(row.preview), lastAuthorType: row.author_type, unread: effectiveHandler(row, capability) === "operator" && unread(row), customerLabel: row.label_wallet ? `${row.label_wallet.slice(0, 6)}…${row.label_wallet.slice(-4)}` : `Customer ${row.id.slice(0, 8)}` })), nextCursor: result.rows.length > input.limit && last ? Buffer.from(JSON.stringify({ at: date(last.last_message_at), id: last.id })).toString("base64url") : null };
   }
 
   async operatorSummary(capability: SupportAssistantCapability = { available: false, handoff: false }): Promise<OperatorSupportSummary> {
