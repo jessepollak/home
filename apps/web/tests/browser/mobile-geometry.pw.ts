@@ -106,7 +106,7 @@ test("add-money method rows contain their full descriptions and loading geometry
   });
   await page.goto("/home?flow=add-money");
   const dialog = page.getByRole("dialog", { name: "Add money" });
-  const receive = dialog.getByRole("button", { name: /Receive crypto/ });
+  const receive = dialog.getByRole("button", { name: /From another wallet/ });
   const deposits = dialog.getByRole("button", { name: /Deposit IDR/ });
   const shimmer = dialog.locator('[aria-hidden="true"]:has([data-shimmer="deposit-method"])');
   await expect(receive).toBeVisible();

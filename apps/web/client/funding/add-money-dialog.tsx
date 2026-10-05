@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, type ReactNode } from "react";
 import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import {
   type FiatCurrencyCode,
   type RegionId,
 } from "@/config/regions";
-import { formatAddress } from "@/shared/formatting";
+import { AddressText } from "@/components/address-text";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { receiveSupportedCashCurrencies } from "@/shared/funding/assets";
@@ -232,9 +232,9 @@ export function MethodBody({
           <div aria-busy={providersStatus === "loading"} className="@container/method-list">
             <MethodRow
               icon={<ArrowDownToLine className="size-4" />}
-              title="Receive crypto"
-              description="USDC and supported tokens on Base"
-              hint="Open receive options"
+              title="From another wallet"
+              description="USDC and other tokens on Base"
+              hint="Open receive details"
               onSelect={onSelectReceive}
             />
             {providersStatus === "loading" ? (
@@ -338,7 +338,7 @@ export function ReceiveBody({
 }) {
   return (
     <MoneyModalBody hasFooter={false} className="items-center gap-4 pt-2">
-      <Badge variant="secondary">Receive on Base</Badge>
+      <Badge variant="secondary">Base only</Badge>
       <div className="aspect-square w-full max-w-56 overflow-hidden rounded-xl border bg-background">
         {address ? (
           <ReceiveQr
@@ -355,7 +355,7 @@ export function ReceiveBody({
       </div>
       <div className="grid justify-items-center gap-1 text-center">
         {address ? (
-          <ReceiveAddress address={address} />
+          <AddressText address={address} presentation="compact" resetKey={address} className="max-w-xs" />
         ) : (
           <>
             <Skeleton
@@ -371,68 +371,6 @@ export function ReceiveBody({
       </div>
       <SupportedAssets regionId={regionId} />
     </MoneyModalBody>
-  );
-}
-
-function ReceiveAddress({ address }: { address: `0x${string}` }) {
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">(
-    "idle",
-  );
-  const condensed = formatAddress(address);
-
-  async function copyAddress() {
-    if (!navigator.clipboard?.writeText) {
-      setCopyStatus("error");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopyStatus("copied");
-    } catch {
-      setCopyStatus("error");
-    }
-  }
-
-  return (
-    <>
-      <Button
-        variant="ghost"
-        className="select-text"
-        size="touch"
-        title={address}
-        aria-label={copyStatus === "copied" ? "Copied" : `Copy ${condensed}`}
-        aria-describedby="receive-address-help"
-        onClick={() => void copyAddress()}
-      >
-        {copyStatus === "copied" ? "Copied" : condensed}
-      </Button>
-      {copyStatus === "error" ? (
-        <div className="grid w-full max-w-xs justify-items-center gap-2">
-          <Alert id="receive-address-help" variant="destructive" role="alert">
-            <AlertIcon><CircleAlertIcon /></AlertIcon>
-            <AlertDescription>
-              Clipboard access is unavailable. Select and copy the full address
-              below.
-            </AlertDescription>
-          </Alert>
-          <code
-            className="block w-full select-text rounded-lg border bg-muted p-3 font-mono text-xs [overflow-wrap:anywhere]"
-            aria-label={`Full Base address ${address}`}
-            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Focusable full address supports keyboard selection.
-            tabIndex={0}
-          >
-            {address}
-          </code>
-        </div>
-      ) : (
-        <p
-          id="receive-address-help"
-          className="text-center text-xs text-muted-foreground"
-        >
-          Tap the address to copy
-        </p>
-      )}
-    </>
   );
 }
 
@@ -464,7 +402,7 @@ export function SupportedAssets({ regionId }: { regionId: RegionId }) {
         ) : null}
       </div>
       <p className="max-w-sm text-center text-xs text-muted-foreground">
-        Plus other tokens in Home&apos;s supported Base inventory
+        Plus other tokens on Base
       </p>
     </section>
   );
