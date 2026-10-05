@@ -83,9 +83,12 @@ export const ripioProvider: FundingProvider = {
           paymentMethodType: ctx.binding.paymentMethod.id as "bank_transfer" | "pix" | "breb" | "r2p_bancolombia" | "r2p_nequi",
           destination: input.destination,
         });
+        const entered = sameRipioDecimal(quote.fromAmount, input.fiatAmount) ? input.fiatAmount : quote.fromAmount;
+        const total = sameRipioDecimal(quote.finalFromAmount, quote.fromAmount) ? entered : quote.finalFromAmount;
         return {
           providerQuoteId: quote.quoteId,
-          fiatAmount: sameRipioDecimal(quote.finalFromAmount, input.fiatAmount) ? input.fiatAmount : quote.finalFromAmount,
+          fiatAmount: total,
+          ...(entered === total ? {} : { enteredFiatAmount: entered }),
           tokenAmountAtomic: ripioDecimalToAtomic(quote.finalToAmount, ctx.binding.asset.decimals, "invalid-response"),
           fees: quote.fees.map((fee) => ({
             label: fee.type,

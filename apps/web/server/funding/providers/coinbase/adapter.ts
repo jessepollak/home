@@ -222,7 +222,7 @@ function createOrderBody(
 ): Record<string, unknown> | null {
   if (
     !input.quote ||
-    input.quote.fiatAmount !== input.fiatAmount ||
+    (input.quote.enteredFiatAmount ?? input.quote.fiatAmount) !== input.fiatAmount ||
     !/^(?:0|[1-9]\d*)$/.test(input.quote.tokenAmountAtomic)
   ) {
     return null;
