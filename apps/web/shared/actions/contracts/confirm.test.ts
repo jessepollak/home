@@ -35,7 +35,7 @@ test("Base batch gas hint requires independent intermediate token calls", () => 
 });
 
 test("confirm action error contract accepts declared codes and rejects malformed or unknown responses", () => {
-  for (const code of ["INVALID_ACTION", "ACTION_NOT_FOUND", "ACTION_EXPIRED", "TRADE_STOCK_RESTRICTED", "INVALID_TRADE_SIGNATURE", "PRODUCT_NOT_OFFERED"] as const) {
+  for (const code of ["INVALID_ACTION", "ACTION_NOT_FOUND", "ACTION_EXPIRED", "TRADE_ADMISSION_REVOKED", "TRADE_STOCK_RESTRICTED", "INVALID_TRADE_SIGNATURE", "PRODUCT_NOT_OFFERED"] as const) {
     expect(isConfirmActionErrorCode(code)).toBe(true);
     expect(parseConfirmActionErrorResponse({ error: { code, message: "Unavailable" } })).toEqual({ error: { code, message: "Unavailable" } });
   }

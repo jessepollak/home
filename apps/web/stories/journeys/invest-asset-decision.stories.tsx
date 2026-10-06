@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fireEvent, userEvent, within } from "storybook/test";
-import { waitForReady } from "@/tests/helpers/story-readiness";
 import { http, HttpResponse } from "msw";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { AssetDetailScreen } from "@/client/invest/asset-detail-screen";
@@ -13,6 +12,7 @@ import { assetFacts } from "@/config/invest-sources/asset-context";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { priceHistoryFixture } from "@/tests/browser/feature-map/fixtures";
 import { pinClock } from "@/tests/helpers/pin-clock";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import type { MarketDataState } from "@/shared/invest/invest-market";
 import { isMarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import type { AssetCatalyst, AssetFact } from "@/shared/invest/asset-context";
