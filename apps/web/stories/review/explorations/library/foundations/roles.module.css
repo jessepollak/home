@@ -1,0 +1,129 @@
+.lede {
+  max-width: 72ch;
+  margin: 0 0 16px;
+  color: var(--foundation-subtle);
+  font-size: 13px;
+  line-height: 20px;
+}
+.roleTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
+  line-height: 20px;
+}
+.roleTable thead th {
+  padding: 0 16px 8px 0;
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: start;
+}
+.roleTable thead th:nth-child(1) {
+  width: 15%;
+}
+.roleTable thead th:nth-child(2) {
+  width: 30%;
+}
+.roleTable thead th:nth-child(3) {
+  width: 27%;
+}
+.roleTable tbody th, .roleTable tbody td {
+  padding: 14px 16px 14px 0;
+  border-top: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+.roleTable tbody th {
+  font-weight: 600;
+}
+.roleTable code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.stack > * {
+  display: block;
+}
+.stack > * + * {
+  margin-top: 6px;
+}
+.roleSpecimen {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.shapeBox {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+}
+.today {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.today ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.why {
+  color: var(--foundation-subtle);
+}
+.notes {
+  display: grid;
+  gap: 6px;
+  max-width: 72ch;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+.notes code {
+  font-family: var(--font-mono);
+}
+.compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+}
+.pane figcaption {
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.paneNote {
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+@media (max-width: 760px) {
+  .compare, .swatches {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
