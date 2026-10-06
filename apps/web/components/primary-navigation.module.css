@@ -2,6 +2,22 @@
   grid-template-columns: repeat(var(--navigation-items, 2), minmax(0, 1fr));
 }
 
+.assetSearchBar {
+  bottom: var(--shell-bottom-control-offset);
+  transform: translate3d(0, calc(-1 * var(--shell-viewport-keyboard-height, var(--shell-viewport-inset-bottom))), 0);
+}
+.searchViewport {
+  position: relative;
+  top: var(--shell-viewport-pan, 0px);
+  height: calc(100dvh - var(--shell-viewport-keyboard-height, 0px));
+  min-height: 0;
+  overflow: hidden;
+}
+.assetSearchResults {
+  padding-bottom: calc(var(--spacing-shell-mobile-navigation) + var(--shell-bottom-control-offset) + 1rem);
+}
+.shellSearchField { height: var(--spacing-shell-mobile-navigation); }
+
 @media (max-width: 63.9375rem) {
   .navigation, .glass {
     --glass-tint-top: color-mix(in oklch, var(--background) 12%, transparent);
@@ -14,7 +30,7 @@
     --glass-glow: oklch(1 0 0 / 85%);
     --glass-shade: color-mix(in oklch, var(--foreground) 6%, transparent);
     --glass-edge: color-mix(in oklch, var(--foreground) 14%, transparent);
-    --glass-shadow: 0 1px 2px oklch(0 0 0 / 6%), 0 6px 16px -4px oklch(0 0 0 / 10%), 0 18px 40px -12px oklch(0 0 0 / 14%);
+    --glass-shadow: 0 1px 2px oklch(0 0 0 / 6%), 0 6px 16px -4px oklch(0 0 0 / 10%), 0 .625rem 1.5rem -.5rem oklch(0 0 0 / 14%);
     --glass-pill: color-mix(in oklch, color-mix(in oklch, var(--foreground) 8%, var(--background)) 70%, transparent);
     --glass-pill-highlight: oklch(1 0 0 / 70%);
     --glass-pill-rim: color-mix(in oklch, var(--foreground) 4%, transparent);
@@ -27,7 +43,8 @@
   }
 
   .navigation {
-    width: calc(6rem * var(--navigation-items, 2));
+    --navigation-tab-slot: 4.75rem;
+    width: calc(var(--navigation-tab-slot) * var(--navigation-items, 2) + .5rem);
     max-width: calc(100% - 2rem);
     height: var(--spacing-shell-mobile-navigation);
     bottom: var(--shell-navigation-offset);
@@ -46,7 +63,7 @@
     --glass-glow: oklch(1 0 0 / 16%);
     --glass-shade: oklch(0 0 0 / 22%);
     --glass-edge: oklch(0 0 0 / 50%);
-    --glass-shadow: 0 1px 2px oklch(0 0 0 / 30%), 0 6px 16px -4px oklch(0 0 0 / 40%), 0 18px 40px -12px oklch(0 0 0 / 55%);
+    --glass-shadow: 0 1px 2px oklch(0 0 0 / 30%), 0 6px 16px -4px oklch(0 0 0 / 40%), 0 .625rem 1.5rem -.5rem oklch(0 0 0 / 55%);
     --glass-pill: color-mix(in oklch, color-mix(in oklch, var(--foreground) 10%, var(--background)) 72%, transparent);
     --glass-pill-highlight: oklch(1 0 0 / 18%);
     --glass-pill-rim: oklch(1 0 0 / 6%);
@@ -55,8 +72,10 @@
     --glass-lens-lift-shadow: 0 0 0 .5px oklch(0 0 0 / 40%), 0 6px 14px -4px oklch(0 0 0 / 45%);
   }
 
+  .navigation[data-navigation-items="3"] { --navigation-tab-slot: 5rem; }
+
   .navigation.withSearch {
-    width: calc(6rem * var(--navigation-items, 2));
+    width: calc(var(--navigation-tab-slot) * var(--navigation-items, 2) + .5rem);
     max-width: calc(100% - var(--spacing-shell-mobile-navigation) - .5rem);
     margin-inline: 0;
     position: relative;
@@ -65,7 +84,11 @@
     flex-shrink: 1;
   }
 
-  .group, .assetSearchBar { --shell-frame-inset: 1rem; }
+  .group, .assetSearchBar { --shell-frame-inset: min(1.3125rem, 21px); }
+  .group, .assetSearchBar, .assetSearchResults, .shellSearchField {
+    --shell-search-field-size: max(var(--spacing-shell-search-field), 44px);
+    --shell-search-centering-inset: calc((var(--spacing-shell-mobile-navigation) - var(--shell-search-field-size)) / 2);
+  }
 
   .group {
     bottom: var(--shell-navigation-offset);
@@ -74,7 +97,12 @@
   }
 
   .assetSearchBar {
-    inset-inline: var(--shell-frame-inset);
+    --shell-search-inline-inset: min(var(--shell-search-centering-inset), 7px);
+    --shell-search-action-size: clamp(44px, var(--shell-search-field-size), 48px);
+    --shell-search-gap: min(.75rem, 12px);
+    inset-inline: calc(var(--shell-frame-inset) + var(--shell-search-inline-inset));
+    bottom: calc(var(--shell-bottom-control-offset) + var(--shell-search-centering-inset));
+    gap: var(--shell-search-gap);
     translate: 0 var(--shell-viewport-pan, 0px);
     transition: transform 250ms cubic-bezier(.38, .7, .125, 1);
   }
@@ -130,34 +158,46 @@
   .group[data-search-open] > .navigation > * { opacity: 0; transition: opacity 150ms cubic-bezier(.4, 0, .2, 1); }
   .searchMorphOrigin { transition: opacity 1ms linear 299ms; }
   .group[data-search-open] > .searchMorphOrigin { opacity: 0; transition: none; }
-  .shellSearchField { overflow: hidden; }
-  .searchMorphClip { overflow: hidden; }
+  .shellSearchField {
+    --shell-search-padding: min(.8125rem, 13px);
+    --shell-search-content-gap: min(.5rem, 8px);
+    --shell-search-clear-size: 44px;
+    height: var(--shell-search-field-size);
+    overflow: clip;
+  }
+  .searchMorphClip { padding-inline: var(--shell-search-padding); }
+  .searchMorphContent { gap: var(--shell-search-content-gap); }
+  .searchFieldIcon, .searchCloseIcon { width: min(1.25rem, 20px); height: min(1.25rem, 20px); }
+  .assetSearchResults { padding-bottom: calc(var(--shell-search-field-size) + var(--shell-bottom-control-offset) + var(--shell-search-centering-inset) + 1rem); }
+  .searchMorphClip { overflow: clip; }
   .searchMorphField {
-    --search-morph-cap: calc(var(--spacing-shell-mobile-navigation) / 2);
-    --search-morph-shift: calc(var(--spacing-shell-mobile-navigation) + .5rem);
+    --search-morph-cap: calc(var(--shell-search-field-size) / 2);
+    --search-morph-shift: calc(var(--shell-search-action-size) + var(--shell-search-gap) + var(--shell-search-inline-inset) - var(--shell-search-centering-inset));
+    --search-morph-scale: calc(var(--spacing-shell-mobile-navigation) / var(--shell-search-field-size));
     --search-morph-sign: 1;
-    transform: translate3d(0, 0, 0);
+    transform-origin: calc(100% - var(--search-morph-cap)) 50%;
+    transform: translate3d(0, 0, 0) scale(1);
     transition: transform 300ms cubic-bezier(.4, 0, .2, 1);
   }
-  .searchMorphField:dir(rtl) { --search-morph-sign: -1; }
+  .searchMorphField:is(:dir(rtl), :where([dir="rtl"] *)) { --search-morph-sign: -1; transform-origin: var(--search-morph-cap) 50%; }
   .searchMorphField > .shellSearchField { box-shadow: none; }
   .searchMorphField :is(.searchMorphHalf, .searchMorphStartGlass, .searchMorphEndGlass, .searchMorphClip, .searchMorphContent) { transform: translate3d(0, 0, 0); transition: transform 300ms cubic-bezier(.4, 0, .2, 1); }
   .searchMorphShadow { opacity: 1; transition: opacity 120ms ease-out 180ms; }
   .searchMorphAction { opacity: 1; transition: opacity 160ms ease-out 140ms; }
-  [data-search-morph="closed"] > .searchMorphField { transform: translate3d(calc(var(--search-morph-sign) * var(--search-morph-shift)), 0, 0); }
+  [data-search-morph="closed"] > .searchMorphField { transform: translate3d(calc(var(--search-morph-sign) * var(--search-morph-shift)), 0, 0) scale(var(--search-morph-scale)); }
   [data-search-morph="closed"] > .searchMorphField .searchMorphHalf { transform: translate3d(calc(var(--search-morph-sign) * (100% - var(--search-morph-cap))), 0, 0); }
   [data-search-morph="closed"] > .searchMorphField .searchMorphStartGlass { transform: translate3d(calc(var(--search-morph-sign) * (50% - var(--search-morph-cap))), 0, 0); }
   [data-search-morph="closed"] > .searchMorphField .searchMorphEndGlass { transform: translate3d(calc(var(--search-morph-sign) * (var(--search-morph-cap) - 50%)), 0, 0); }
   [data-search-morph="closed"] > .searchMorphField .searchMorphClip { transform: translate3d(calc(var(--search-morph-sign) * (100% - 2 * var(--search-morph-cap))), 0, 0); }
-  [data-search-morph="closed"] > .searchMorphField .searchMorphContent { transform: translate3d(calc(var(--search-morph-sign) * (var(--search-morph-cap) - 1.625rem)), 0, 0); }
+  [data-search-morph="closed"] > .searchMorphField .searchMorphContent { transform: translate3d(calc(var(--search-morph-sign) * (var(--search-morph-cap) - 2 * var(--shell-search-padding))), 0, 0); }
   [data-search-morph="closed"] > .searchMorphAction, [data-search-morph="closed"] > .searchMorphField > .searchMorphShadow { opacity: 0; transition: opacity 100ms ease-in; }
   @starting-style {
-    .searchMorphField { transform: translate3d(calc(var(--search-morph-sign) * var(--search-morph-shift)), 0, 0); }
+    .searchMorphField { transform: translate3d(calc(var(--search-morph-sign) * var(--search-morph-shift)), 0, 0) scale(var(--search-morph-scale)); }
     .searchMorphField .searchMorphHalf { transform: translate3d(calc(var(--search-morph-sign) * (100% - var(--search-morph-cap))), 0, 0); }
     .searchMorphField .searchMorphStartGlass { transform: translate3d(calc(var(--search-morph-sign) * (50% - var(--search-morph-cap))), 0, 0); }
     .searchMorphField .searchMorphEndGlass { transform: translate3d(calc(var(--search-morph-sign) * (var(--search-morph-cap) - 50%)), 0, 0); }
     .searchMorphField .searchMorphClip { transform: translate3d(calc(var(--search-morph-sign) * (100% - 2 * var(--search-morph-cap))), 0, 0); }
-    .searchMorphField .searchMorphContent { transform: translate3d(calc(var(--search-morph-sign) * (var(--search-morph-cap) - 1.625rem)), 0, 0); }
+    .searchMorphField .searchMorphContent { transform: translate3d(calc(var(--search-morph-sign) * (var(--search-morph-cap) - 2 * var(--shell-search-padding))), 0, 0); }
     .searchMorphAction, .searchMorphShadow { opacity: 0; }
   }
 }
@@ -208,16 +248,7 @@
   .navigation [aria-current="page"] :is(span, svg) { color: HighlightText; }
 }
 
-.assetSearchBar {
-  bottom: var(--shell-bottom-control-offset);
-  transform: translate3d(0, calc(-1 * var(--shell-viewport-keyboard-height, var(--shell-viewport-inset-bottom))), 0);
-}
-.assetSearchResults {
-  padding-bottom: calc(var(--spacing-shell-mobile-navigation) + var(--shell-bottom-control-offset) + 1rem + var(--shell-viewport-inset-bottom));
-}
-.shellSearchField { height: var(--spacing-shell-mobile-navigation); }
 @media (min-width: 64rem) {
-  .assetSearchSurface { inset-inline-start: var(--shell-rail-width, 15rem); }
   .assetSearchBar { position: relative; inset: auto; transform: none; order: -1; width: 100%; max-width: 73rem; margin-inline: auto; padding: 1.5rem; }
   .assetSearchResults { padding-bottom: 1.5rem; }
   .shellSearchField { background: var(--background); border: 1px solid var(--border); }

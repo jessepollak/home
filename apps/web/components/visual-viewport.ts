@@ -48,8 +48,9 @@ function retainGeometry() {
       const target = document.activeElement;
       const editable = target instanceof HTMLElement &&
         (target.matches("input, textarea, select, [contenteditable]:not([contenteditable='false'])") || target.isContentEditable);
-      const inset = shellViewportBottomInset(height, geometry, editable);
-      const keyboardHeight = editable && geometry && geometry.scale <= 1.01 ? Math.max(0, height - geometry.height) : 0;
+      const tracking = editable || !!document.querySelector("[data-shell-search-viewport]");
+      const inset = shellViewportBottomInset(height, geometry, tracking);
+      const keyboardHeight = tracking && geometry && geometry.scale <= 1.01 ? Math.max(0, height - geometry.height) : 0;
       const pan = keyboardHeight - inset;
       const values = [`${inset}px`, `${keyboardHeight}px`, `${pan}px`];
       for (const element of document.querySelectorAll<HTMLElement>(viewportTargets)) {

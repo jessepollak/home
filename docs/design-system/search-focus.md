@@ -12,7 +12,7 @@ Search's visual exit does not own keyboard dismissal or opener restoration. The 
 
 Search requires both an explicitly on Invest offering and a visible catalog shelf. The portfolio content gate and shell availability gate independently enforce the offering check; account and money overlays retain precedence. Exit-only and unavailable offerings do not remove owned Investments detail or exits. Availability revocation removes the old presence boundary without opener restoration; an owner change replaces it with surface focus, not input autofocus. The `AvailabilityRevoked` and `OwnerChanged` search journey stories exercise those runtime transitions.
 
-The desktop rail stays mounted behind the modal, inside the same inert and accessibility-hidden boundary as production. Search traps Tab within its controls and blocks rail focus and pointer activation until Close, Escape or Back. The desktop modal cases in `invest-search.pw.ts` exercise all three exits, including opener focus return.
+Search is a named region inside the single shared main, below the actual shared header and its Search title. The desktop rail stays mounted inside an inert and accessibility-hidden boundary while Search is active; the header remains reachable, and Tab can leave Search for its standard Back control. The desktop shared-header cases in `invest-search.pw.ts` exercise Close, Escape and Back, including opener focus return. The mid-collapse case in `navigation-geometry.pw.ts` checks header reachability, contained Search geometry and the viewport-aligned mobile field without imposing fullscreen overlay bounds.
 
 Composition Escape remains open. Reduced motion does not change focus ownership. Route and owner changes discard the old presence boundary; results remain noninteractive throughout exit. Real device keyboard behavior still requires device verification; fixture Chromium uses simulated viewport geometry.
 
@@ -28,6 +28,18 @@ Below 64rem the opener circle grows into the field over 300ms (`cubic-bezier(.4,
 - **Controls.** The `floating-control` button variant transitions only its press scale, and the `shell-search` input variant has no transition, so focus, hover and focus-ring changes are instant.
 
 All halves share one duration and easing, so CSS transition reversal keeps them aligned when a close interrupts an open. RTL mirrors the translations through `--search-morph-sign`. Reduced motion removes every transition. At 64rem and wider the halves sit at rest and the field uses its bordered desktop style.
+
+## Scaled text geometry
+
+At the default 16px root, the mobile navigation capsule is 160 × 52px with 76 × 44px tab targets, a 4px inset and a detached 52px Search circle. Three tabs use 80px slots before viewport fitting. This is an intentional compact adaptation requested after the measured 188 × 62px stock iOS 26 tab-bar reference, not a claim that 52px is a stock control height. Labels remain 10px on a 12px line and navigation glyph boxes remain 27px. The effective shared closed-control size is `max(3.25rem, 44px + .5rem)`, driving the capsule, opener, clearance and morph's closed endpoint together. At a 14px root it yields a 51px capsule/opener, 44px tabs and a 3.5px inset; at 32px it yields 104px controls, 88px tabs and an 8px inset. The mobile open field and Close remain 48px at the default root, with a 44px Clear target; desktop field and Close become 52px at the default root, down from 62px. Default field centering is 2px inside the closed control, so its frame inset is 23px and its resting bottom gap is 14px before safe-area adjustment. On mobile, Search keeps its rem-based field height and input text growth, with an accessible browser minimum of 16px (`max(16px, 1.0625rem)`) to avoid small-text focus zoom rather than disabling text scaling, while capping non-text horizontal chrome at its default footprint: frame inset, centering inset, field/Close gap, field padding, content gaps and search glyphs. The effective field height is at least 44px, matching Clear's physical target; Close clamps between 44px and 48px. Centering, results clearance, morph cap, scale and displacement use those effective dimensions, including RTL, rather than a nominal rem size smaller than the controls. Clear's glyph continues to scale inside its target. This accessible adaptation is not a claim about stock scaled-text measurements. Viewport and keyboard-pan semantics, focus ownership and history are unchanged. `invest-search.pw.ts` covers nonblank input width, center/lower-edge hit bounds, Clear/refocus, Close/Back and detail-return restoration at 320/390px with 14px and root-200% text, plus LTR/RTL morph endpoints at 14/16/32px roots. `navigation-geometry.pw.ts` checks capsule/pill/inset geometry, physical target floors, scaled glyphs, clearance and real lower-edge taps at 320/390px, in LTR/RTL with two and three tabs at those roots. Geometry acceptance waits for the open morph state and the bar's observable settled animations before sampling exact dimensions and slot bounds; route arrival and input focus alone do not imply the morph has finished.
+
+| Root text size | Field height | Close target | Clear target | Input text | Nonblank input width at 320 / 390px |
+|---|---|---|---|---|---|
+| 14px | 44px | 44px | 44px | 16px | Fluid |
+| 16px (default) | 48px | 48px | 44px | 17px | Fluid |
+| 32px (200%) | 96px | 48px | 44px | 34px | 104 / 174px |
+
+Enlarged shared-title/results truncation remains an inherited layout gap; this geometry adaptation does not redesign those surfaces.
 
 ## Keyboard lift
 

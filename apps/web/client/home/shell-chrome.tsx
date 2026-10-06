@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import { useShellSearch } from "./shell-search";
 import { CircleAlertIcon, ArrowLeft } from "lucide-react";
 import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,13 @@ import {
   shellChromeCompensationClassName,
   shellFrameClassName,
 } from "@/components/shell-layout";
+
+export function ShellSearchHeader(props: ComponentProps<typeof ShellHeader>) {
+  const { open, closeSearch } = useShellSearch();
+  return <ShellHeader {...props} nestedChromeTitle={open ? "Search" : props.nestedChromeTitle}
+    nestedChromeBackLabel={open ? "Back" : props.nestedChromeBackLabel}
+    onNestedChromeBack={open && closeSearch ? closeSearch : props.onNestedChromeBack} />;
+}
 
 export function ShellHeader({
   hasDesktopRail = false,
