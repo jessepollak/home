@@ -224,6 +224,7 @@ describe("CDP Onchain Data Token Balances client", () => {
       pagesRead: 2,
     });
     expect(listed.balances.map(({ amountBaseUnits }) => amountBaseUnits)).toEqual(["1", "2"]);
+    expect(listed).not.toHaveProperty("interruption");
   });
 
   test("keeps a slow first page that finishes before the inventory deadline", async () => {
@@ -253,6 +254,7 @@ describe("CDP Onchain Data Token Balances client", () => {
       durationMs: 3_000,
       balances: [{ amountBaseUnits: "1" }],
     });
+    expect(listed).not.toHaveProperty("interruption");
   });
 
   test("keeps a second page that finishes before the inventory deadline then stops starting pages", async () => {
@@ -325,6 +327,7 @@ describe("CDP Onchain Data Token Balances client", () => {
       complete: false,
       nextPageToken: "page-two",
       pagesRead: 1,
+      interruption: "timed-out",
       detail: "page-ceiling",
       balances: [{ contractAddress: USDC.toLowerCase(), amountBaseUnits: "42" }],
     });
@@ -729,6 +732,7 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(listed.pagesRead).toBe(pages);
     expect(listed.balances.map(({ amountBaseUnits }) => amountBaseUnits)).toEqual(served);
     expect(listed.nextPageToken).toBe(`page-${pages + 1}`);
+    expect(listed).not.toHaveProperty("interruption");
   });
 
   test("keeps collected rows when a transient middle page fails after retry", async () => {
@@ -752,6 +756,7 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(calls).toBe(3);
     expect(listed).toMatchObject({
       complete: false,
+      interruption: "upstream-error",
       balances: [{
         contractAddress: USDC.toLowerCase() as `0x${string}`,
         amountBaseUnits: "1000000",
@@ -783,6 +788,7 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(calls).toBe(3);
     expect(listed).toMatchObject({
       complete: false,
+      interruption: "rate-limited",
       balances: [{
         contractAddress: USDC.toLowerCase() as `0x${string}`,
         amountBaseUnits: "42",

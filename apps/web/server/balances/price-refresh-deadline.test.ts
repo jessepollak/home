@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, expect, jest, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, mock, setSystemTime, test } from "bun:test";
+import { stockAssets, type InvestAsset } from "@/config/invest-assets";
+import type { TokenizedEquityFeed, TokenizedEquityReference } from "@/server/market-data/tokenized-equity/reader";
 import type { CodexRawQuoteInput } from "@/server/market-data/codex/raw-quotes";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import type { PriceQuote } from "@/shared/balances/quotes";
@@ -48,7 +50,19 @@ function quotes(inputs: readonly CodexRawQuoteInput[]): PriceQuote[] {
   }));
 }
 
-function fixture() {
+function stockInventory(asset: InvestAsset): BalancesRead {
+  return {
+    ...inventory(0),
+    holdings: [{
+      key: `eip155:8453/erc20:${asset.contractAddress.toLowerCase()}`, id: asset.id, kind: "erc20", source: "registry",
+      name: asset.displayName, symbol: asset.representation.tokenSymbol, decimals: asset.representation.decimals ?? 8,
+      contractAddress: asset.contractAddress, cashCurrency: null,
+      balance: { status: "ready", baseUnits: "100000000" },
+    }],
+  };
+}
+
+function fixture(configuredStocks: readonly InvestAsset[] = []) {
   const clock = { ms: 0 };
   const observations: PriceObservation[] = [];
   const attempts: ValuationAttempt[] = [];
@@ -70,8 +84,9 @@ function fixture() {
     putMany: async (values) => { observations.push(...values); },
     putAttempts: async (values) => { attempts.push(...values); checkpoint.resolve(); },
   };
+  const readStockReferences = mock(async (_feeds: readonly TokenizedEquityFeed[]): Promise<TokenizedEquityReference[]> => []);
   const price = createBalancesPricer({
-    priceStore, refreshWindowMs: 30_000, stockAssets: [],
+    priceStore, refreshWindowMs: 30_000, stockAssets: configuredStocks, readStockReferences,
     now: () => new Date(Date.parse(AT) + clock.ms), nowMs: () => clock.ms,
     schedule: (task) => { scheduled.push(typeof task === "function" ? task : () => task); },
     readPrices: (inputs, options) => {
@@ -81,7 +96,7 @@ function fixture() {
     },
     readExchangeRates: () => { fxCalls += 1; return fx.promise; },
   });
-  return { clock, price, scheduled, tokenReads, observations, attempts, checkpoint, events, fx, fxCalls: () => fxCalls };
+  return { clock, price, scheduled, tokenReads, readStockReferences, observations, attempts, checkpoint, events, fx, fxCalls: () => fxCalls };
 }
 
 test("background token deadline preserves completed batches but leaves unfinished keys due for the next request", async () => {
@@ -174,4 +189,42 @@ test("background FX whose timeout fits persists while token pricing is still pen
   await refresh;
   expect(f.observations).toHaveLength(1);
   expect(f.attempts).toHaveLength(1);
+});
+
+test("background stock references stay due when their timeout does not fit the request deadline", async () => {
+  const asset = at(stockAssets, 0);
+  const f = fixture([asset]);
+  const read = stockInventory(asset);
+  f.clock.ms = 20_000;
+  await f.price(read, "US", "cached", undefined, 1_000);
+  expect(f.scheduled).toHaveLength(1);
+  f.clock.ms = 25_501;
+  await at(f.scheduled, 0)();
+  expect(f.readStockReferences).not.toHaveBeenCalled();
+  await f.price(read, "US", "cached");
+  expect(f.scheduled).toHaveLength(2);
+  await at(f.scheduled, 1)();
+  expect(f.readStockReferences).toHaveBeenCalledTimes(1);
+  expect(f.readStockReferences).toHaveBeenCalledWith([{
+    assetId: asset.id,
+    token: asset.contractAddress,
+    feedProxy: asset.valuation.feedProxy,
+    feedDecimals: asset.valuation.feedDecimals,
+    heartbeatSeconds: asset.valuation.heartbeatSeconds,
+  }]);
+});
+
+test("background stock references run once when their timeout fits exactly", async () => {
+  const asset = at(stockAssets, 0);
+  const f = fixture([asset]);
+  const read = stockInventory(asset);
+  f.clock.ms = 20_000;
+  await f.price(read, "US", "cached", undefined, 1_000);
+  expect(f.scheduled).toHaveLength(1);
+  f.clock.ms = 25_500;
+  await at(f.scheduled, 0)();
+  expect(f.readStockReferences).toHaveBeenCalledTimes(1);
+  await f.price(read, "US", "cached");
+  expect(f.scheduled).toHaveLength(1);
+  expect(f.readStockReferences).toHaveBeenCalledTimes(1);
 });

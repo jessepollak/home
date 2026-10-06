@@ -75,7 +75,7 @@ async function runEnumeration(
       emitEnumerationEvent(
         log,
         "incomplete",
-        "partial",
+        listed.interruption ?? "partial",
         result.pagesRead,
         result.durationMs,
         listed.detail,

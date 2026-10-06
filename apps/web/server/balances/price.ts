@@ -13,6 +13,7 @@ import {
 } from "@/server/market-data/codex/raw-quotes";
 import {
   readCurrentTokenizedEquityReferences,
+  TOKENIZED_EQUITY_READ_TIMEOUT_MS,
   tokenizedEquityFeeds,
   type TokenizedEquityFeed,
   type TokenizedEquityReference,
@@ -177,7 +178,7 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     const referencesDue = stockFeeds.length > 0 && (stockReferenceAttemptAt === null || nowMs() - stockReferenceAttemptAt >= STOCK_REFERENCE_REFRESH_MS);
     if (stockFeeds.length > 0 && (referencesDue || stockReferencePending !== null)) {
       if (mode === "bootstrap") await startStockReferenceRead(stockFeeds, nowMs());
-      else if (referencesDue) scheduleStockRefresh(stockFeeds, nowMs());
+      else if (referencesDue) scheduleStockRefresh(stockFeeds, nowMs(), refreshDeadline);
     }
     const referencesById = new Map<string, TokenizedEquityReference>();
     if (stockFeeds.length > 0) {
@@ -242,11 +243,12 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     return task;
   }
 
-  function scheduleStockRefresh(feeds: readonly TokenizedEquityFeed[], attemptAt: number): void {
+  function scheduleStockRefresh(feeds: readonly TokenizedEquityFeed[], attemptAt: number, deadline?: number): void {
     if (stockReferencePending !== null || stockReferenceScheduled) return;
     stockReferenceScheduled = true;
     const run = () => {
       stockReferenceScheduled = false;
+      if (deadline !== undefined && deadline - nowMs() < TOKENIZED_EQUITY_READ_TIMEOUT_MS) return Promise.resolve();
       return startStockReferenceRead(feeds, attemptAt);
     };
     try {
