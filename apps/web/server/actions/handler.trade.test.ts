@@ -1,7 +1,9 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { parseAddress, requireAddress } from "@/shared/chain/hex";
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
+import { isRecord } from "@/shared/guards";
 import { privateKeyToAccount } from "viem/accounts";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { encodeFunctionData, erc20Abi, keccak256 } from "viem";
@@ -15,6 +17,16 @@ import { CONVERT_PROVIDER, type ConvertPairRecord } from "@/shared/currencies/ty
 import type { ActionRow } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createGetPendingTradeHandler, createHandleActionHandler, createRetryActionHandler } from "./handler";
+
+const events: Array<Record<string, unknown>> = [];
+beforeEach(() => {
+  events.length = 0;
+  setObservabilityLogWriterForTests((line) => {
+    const event: unknown = JSON.parse(line);
+    if (isRecord(event)) events.push(event);
+  });
+});
+afterEach(() => setObservabilityLogWriterForTests());
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
@@ -142,6 +154,7 @@ describe("trade confirmation", () => {
     const result = await handler(request("0x1234", "cdp-embedded"), context);
     expect(result.status).toBe(410);
     expect((await result.json()).error.code).toBe("ACTION_EXPIRED");
+    expect(events).toContainEqual(expect.objectContaining({ kind: "action-confirm", code: "ACTION_EXPIRED", outcome: "failed" }));
     expect(confirms).toBe(0);
   });
 
@@ -167,8 +180,9 @@ describe("trade confirmation", () => {
       store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
     });
     const result = await handler(request("0x1234", "cdp-embedded"), context);
-    expect(result.status).toBe(410);
-    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(result.status).toBe(409);
+    expect(await readJson(result)).toMatchObject({ error: { code: "TRADE_ADMISSION_REVOKED", message: "This trade is no longer available." } });
+    expect(events).toContainEqual(expect.objectContaining({ kind: "action-confirm", code: "TRADE_ADMISSION_REVOKED", outcome: "failed" }));
     expect(confirms).toBe(0);
     expect(verifications).toBe(0);
   });
@@ -189,8 +203,8 @@ describe("trade confirmation", () => {
       store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
     });
     const result = await handler(request("0x1234", "cdp-embedded"), context);
-    expect(result.status).toBe(410);
-    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(result.status).toBe(409);
+    expect(await readJson(result)).toMatchObject({ error: { code: "TRADE_ADMISSION_REVOKED", message: "This trade is no longer available." } });
     expect(confirms).toBe(0);
     expect(verifications).toBe(0);
   });
@@ -213,8 +227,8 @@ describe("trade confirmation", () => {
       store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
     });
     const result = await handler(request("0x1234", "cdp-embedded"), context);
-    expect(result.status).toBe(410);
-    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(result.status).toBe(409);
+    expect(await readJson(result)).toMatchObject({ error: { code: "TRADE_ADMISSION_REVOKED", message: "This trade is no longer available." } });
     expect(confirms).toBe(0);
     expect(verifications).toBe(0);
   });
@@ -269,8 +283,8 @@ describe("trade confirmation", () => {
       store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
     });
     const result = await handler(request("0x1234", "cdp-embedded"), context);
-    expect(result.status).toBe(410);
-    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(result.status).toBe(409);
+    expect(await readJson(result)).toMatchObject({ error: { code: "TRADE_ADMISSION_REVOKED", message: "This trade is no longer available." } });
     expect(confirms).toBe(0);
     expect(verifications).toBe(0);
   });
@@ -323,8 +337,8 @@ describe("trade confirmation", () => {
       store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
     });
     const result = await handler(request("0x1234", "cdp-embedded"), context);
-    expect(result.status).toBe(410);
-    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(result.status).toBe(409);
+    expect(await readJson(result)).toMatchObject({ error: { code: "TRADE_ADMISSION_REVOKED", message: "This trade is no longer available." } });
     expect(confirms).toBe(0);
     expect(verifications).toBe(0);
   });
@@ -412,8 +426,8 @@ describe("trade confirmation", () => {
     expect(pairs).toContainEqual({ from: "base:usdc", to: record.id });
     expect(pairs.every((pair) => pair.from !== pair.to)).toBe(true);
     if (reason) {
-      expect(result.status).toBe(410);
-      expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+      expect(result.status).toBe(409);
+      expect(await readJson(result)).toMatchObject({ error: { code: "TRADE_ADMISSION_REVOKED", message: "This trade is no longer available." } });
     } else {
       expect(result.status).toBe(400);
       expect(await readJson(result)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
@@ -483,8 +497,8 @@ describe("trade confirmation", () => {
       store: { get: async () => row, confirm: async () => { throw new Error("Must not confirm"); } },
     });
     const result = await handler(request("0x1234", "cdp-embedded"), context);
-    expect(result.status).toBe(410);
-    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(result.status).toBe(409);
+    expect(await readJson(result)).toMatchObject({ error: { code: "TRADE_ADMISSION_REVOKED", message: "This trade is no longer available." } });
     expect(pairReads).toBe(0);
   });
 
@@ -820,6 +834,7 @@ describe("confirmed trade replay", () => {
     const response = await replayHandler(row).confirm("cdp-embedded");
     expect(response.status).toBe(410);
     expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(events).toContainEqual(expect.objectContaining({ kind: "action-confirm", code: "ACTION_EXPIRED", outcome: "failed" }));
   });
 });
 

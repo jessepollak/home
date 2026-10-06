@@ -242,11 +242,11 @@ export function createConfirmActionHandler(dependencies: {
       const to = isRecord(tradeMetadata.toAsset) ? tradeMetadata.toAsset : null;
       if ((tradeMetadata.currencyRecordId !== undefined || (typeof from?.address === "string" && typeof to?.address === "string")) &&
         !tradeMetadataTradeable(tradeMetadata, { convertPair: dependencies.convertPair })) {
-        return fail("ACTION_EXPIRED", "This trade is no longer available. Prepare it again.", 410);
+        return fail("TRADE_ADMISSION_REVOKED", "This trade is no longer available.", 409);
       }
       if (tradeMetadata.direction === "buy" && (typeof tradeMetadata.assetId !== "string" ||
         (dependencies.buyBlocked ?? tradeBuyBlocked)(tradeMetadata.assetId))) {
-        return fail("ACTION_EXPIRED", "This trade is no longer available. Prepare it again.", 410);
+        return fail("TRADE_ADMISSION_REVOKED", "This trade is no longer available.", 409);
       }
     }
     if (!replay && draft.kind === "trade" && tradeMetadata?.product === "trade" && tradeMetadata.operatorFee?.recipient.toLowerCase() === owner.address.toLowerCase()) {
