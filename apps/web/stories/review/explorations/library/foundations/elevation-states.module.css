@@ -1,0 +1,221 @@
+.page {
+  --level-ring: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
+  --level-ring-strong: 0 0 0 1px color-mix(in oklab, var(--foreground) 15%, transparent);
+  --level-raised: var(--level-ring), 0 1px 2px rgb(0 0 0 / 5%);
+  --level-floating: var(--level-ring), 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%);
+  --level-overlay: var(--level-ring), 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%);
+  --level-toast: var(--level-ring), 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%);
+  --state-hover: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --state-pressed: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --state-input-rest: transparent;
+}
+.page[data-theme="dark"] {
+  --level-raised: var(--level-ring);
+  --level-floating: var(--level-ring-strong), 0 4px 12px rgb(0 0 0 / 40%);
+  --level-overlay: var(--level-ring);
+  --level-toast: var(--level-ring-strong), 0 8px 24px rgb(0 0 0 / 50%);
+  --state-hover: color-mix(in oklab, var(--foreground) 7%, transparent);
+  --state-pressed: color-mix(in oklab, var(--foreground) 11%, transparent);
+  --state-input-rest: color-mix(in oklab, var(--input) 30%, transparent);
+}
+
+.usageTable thead th:nth-child(1) {
+  width: 46%;
+}
+.usageTable thead th:nth-child(2) {
+  width: 14%;
+}
+.value {
+  display: block;
+  margin-top: 2px;
+  color: var(--foundation-subtle);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.levels {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.level {
+  padding: 20px 0 24px;
+  border-top: 1px solid var(--border);
+}
+.levelHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.levelName {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+.figure figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.figure code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+.plate {
+  display: grid;
+  place-items: center;
+  min-height: 168px;
+  padding: 28px 20px;
+  border-radius: 12px;
+  background: var(--muted);
+}
+.plate[data-level="overlay"] {
+  background: color-mix(in oklab, var(--foreground) 15%, var(--muted));
+}
+.plate > * {
+  width: min(100%, 264px);
+}
+.inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.raised {
+  box-shadow: var(--level-raised);
+}
+.floating {
+  box-shadow: var(--level-floating);
+}
+.overlay {
+  box-shadow: var(--level-overlay);
+}
+.toast {
+  border: 0;
+  box-shadow: var(--level-toast);
+}
+.values {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+.values div {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.values div[data-active] {
+  color: var(--foreground);
+}
+.values dd {
+  margin: 0;
+}
+.why {
+  max-width: 72ch;
+  margin: 12px 0 0;
+  color: var(--foundation-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.matrix, .specimens {
+  font-size: 13px;
+}
+.matrix thead th:first-child, .specimens thead th:first-child {
+  width: 16%;
+}
+.matrix thead th:not(:first-child) {
+  width: auto;
+}
+.matrix td {
+  vertical-align: top;
+}
+.classLine {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+.contractTable thead th:nth-child(1) {
+  width: 16%;
+}
+.contractTable thead th:nth-child(2) {
+  width: 30%;
+}
+.contractTable thead th:nth-child(3), .contractTable thead th:nth-child(4) {
+  width: 14%;
+}
+.contractTable td code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.contractTable td[data-active] {
+  font-weight: 500;
+}
+.contractTable td:not([data-active]):nth-child(3), .contractTable td:not([data-active]):nth-child(4) {
+  color: var(--foundation-subtle);
+}
+.specimens thead th:not(:first-child) {
+  width: auto;
+}
+
+.contract {
+  transition: none;
+}
+.contract:hover:not(:disabled), .contract[data-demo="hover"] {
+  background-color: var(--state-hover);
+  color: var(--foreground);
+}
+.contract:active:not(:disabled), .contract[data-demo="pressed"] {
+  background-color: var(--state-pressed);
+  color: var(--foreground);
+}
+.contract[aria-pressed="true"], .contract[data-demo="selected"] {
+  background-color: var(--state-pressed);
+  color: var(--foreground);
+}
+.contract:focus-visible, .contract[data-demo="focus"] {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
+}
+.contract:disabled {
+  opacity: 0.5;
+}
+.input, .input:hover:not(:disabled), .input[data-demo="hover"], .input:disabled {
+  background-color: var(--state-input-rest);
+}
+.input:hover:not(:disabled), .input[data-demo="hover"] {
+  border-color: color-mix(in oklab, var(--foreground) 24%, var(--input));
+}
+.press:active:not(:disabled), .press[data-demo="pressed"] {
+  scale: 0.97;
+}
+@media (prefers-reduced-motion: reduce) {
+  .press:active:not(:disabled), .press[data-demo="pressed"] {
+    scale: none;
+  }
+}

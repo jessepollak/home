@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { SurfaceHeading } from "../heading";
 import { ColorPage } from "./color-page";
+import { ElevationPage } from "./elevation-page";
 import { foundationPages, foundations, type FoundationId } from "./model";
 import { MotionPage } from "./motion-page";
 import { probeThemes, type ThemeValues } from "./probe";
 import { RadiusSpacingPage, TypePage } from "./scale-pages";
+import { StatesPage } from "./states-page";
 import styles from "./foundations.module.css";
 
 export function FoundationsSurface({ page, theme }: { page: FoundationId; theme: string }) {
@@ -28,6 +30,8 @@ export function FoundationsSurface({ page, theme }: { page: FoundationId; theme:
         {page === "foundations/type" && foundations.sourcesAvailable && foundations.candidatesAvailable && <TypePage />}
         {page === "foundations/radius-spacing" && foundations.sourcesAvailable && foundations.candidatesAvailable && <RadiusSpacingPage />}
         {page === "foundations/motion" && foundations.sourcesAvailable && foundations.candidatesAvailable && <MotionPage />}
+        {page === "foundations/elevation" && foundations.sourcesAvailable && foundations.candidatesAvailable && <ElevationPage theme={theme} />}
+        {page === "foundations/states" && foundations.sourcesAvailable && foundations.candidatesAvailable && <StatesPage theme={theme} />}
       </article>
     </div>
   </div>;

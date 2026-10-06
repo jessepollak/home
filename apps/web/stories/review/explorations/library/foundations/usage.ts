@@ -61,15 +61,28 @@ export function spacingUsage(files: CandidateFile[], named: string[]): Usage[] {
 
 export type MotionUse = { utility: string; count: number; files: string[]; classes: string[] };
 
-function utility(candidate: string): string {
+function variantSplits(candidate: string): number[] {
   let depth = 0;
-  let split = -1;
+  const splits: number[] = [];
   for (let index = 0; index < candidate.length; index += 1) {
     if (candidate[index] === "[" || candidate[index] === "(") depth += 1;
     else if (candidate[index] === "]" || candidate[index] === ")") depth -= 1;
-    else if (candidate[index] === ":" && depth === 0) split = index;
+    else if (candidate[index] === ":" && depth === 0) splits.push(index);
   }
-  return candidate.slice(split + 1).replace(/^!|!$/g, "");
+  return splits;
+}
+
+function utility(candidate: string): string {
+  return candidate.slice((variantSplits(candidate).at(-1) ?? -1) + 1).replace(/^!|!$/g, "");
+}
+
+function variants(candidate: string): string[] {
+  let start = 0;
+  return variantSplits(candidate).map((split) => {
+    const variant = candidate.slice(start, split);
+    start = split + 1;
+    return variant;
+  });
 }
 
 export function motionUsage(files: CandidateFile[]): { uses: MotionUse[] } {
@@ -96,4 +109,44 @@ export function cubicBezier(easing: string): [number, number, number, number] | 
   if (keyword[easing.trim()]) return keyword[easing.trim()];
   const match = /cubic-bezier\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/.exec(easing);
   return match ? [Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4])] : null;
+}
+
+const SHADOWS = ["2xs", "xs", "sm", "md", "lg", "xl", "2xl", "none"];
+
+export function elevationUsage(files: CandidateFile[]) {
+  return {
+    shadows: tally(files, utilityPattern("shadow", words(SHADOWS)), SHADOWS),
+    rings: tally(files, /^(ring-1|ring-foreground\/\d+)$/),
+  };
+}
+
+export type InteractionState = "hover" | "pressed" | "focus" | "disabled" | "selected";
+export type StateUse = { component: string; state: InteractionState; classes: { name: string; count: number }[] };
+
+const STATE_VARIANTS: [InteractionState, RegExp][] = [
+  ["disabled", /^(?:disabled|data-disabled|aria-disabled)$/],
+  ["focus", /^focus-visible$/],
+  ["pressed", /^active$/],
+  ["selected", /^(?:aria-pressed|aria-selected|aria-expanded|aria-checked|data-selected|data-checked|data-\[state=on\]|aria-\[current=page\])$/],
+  ["hover", /^(?:hover|focus|data-highlighted)$/],
+];
+
+export function stateUsage(files: CandidateFile[], components: string[]): StateUse[] {
+  const uses = new Map<string, StateUse>();
+  for (const { path, candidates } of files) {
+    const component = components.find((name) => path.endsWith(`/${name}.tsx`));
+    if (!component) continue;
+    for (const candidate of candidates) {
+      const chain = variants(candidate);
+      const state = STATE_VARIANTS.find(([, pattern]) => chain.some((variant) => pattern.test(variant)))?.[0];
+      if (!state) continue;
+      const key = `${component} ${state}`;
+      const use = uses.get(key) ?? { component, state, classes: [] };
+      const entry = use.classes.find(({ name }) => name === candidate);
+      if (entry) entry.count += 1;
+      else use.classes.push({ name: candidate, count: 1 });
+      uses.set(key, use);
+    }
+  }
+  return [...uses.values()];
 }
