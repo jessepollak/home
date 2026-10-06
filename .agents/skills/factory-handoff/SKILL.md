@@ -12,7 +12,7 @@ The factory runs from GitHub state alone: an issue and a branch. A handoff there
 
 Never copy a working tree, `node_modules`, env files, or browser state to another machine. Pulling factory work back later is the same contract in reverse (`git fetch origin agent/<n>` into a fresh worktree), so keep the branch the single source of truth.
 
-Jesse runs this skill in his own session, so his GitHub identity edits the issue, closes his own PR, and applies `factory`. Each of those happens only after he confirms the plan in step 4.
+Jesse runs this skill in his own session, so his GitHub identity edits the issue and applies `factory`. Both happen only after he confirms the plan in step 4.
 
 ## 1. Find the work
 
@@ -44,7 +44,7 @@ Ask once, with up to four questions, only about what step 2 could not settle. Ty
 
 ## 4. Confirm the plan
 
-Show Jesse, in one message: the issue (existing number or the new title), the worktree and file count being snapshotted, the branch and expected head, any PR that will be closed, and the issue text to be written. Proceed only on his confirmation. He may choose to file without queueing; then skip applying `factory` in step 7.
+Show Jesse, in one message: the issue (existing number or the new title), the worktree and file count being snapshotted, the branch and expected head, any open PR the factory will continue, and the issue text to be written. Proceed only on his confirmation. He may choose to file without queueing; then skip applying `factory` in step 7.
 
 ## 5. Snapshot the code
 
@@ -75,12 +75,12 @@ Edit the body with `gh issue edit <n> --body-file <file>`, preserving everything
 
 ## 7. Clear the way and queue
 
-1. A Jesse-authored PR on `agent/<n>` must close first: the factory opens its own PR, which Jesse can then approve. Close it with a one-line comment pointing at the issue. Leave the branch in place; it now holds the snapshot.
+1. Keep an open Jesse-authored PR on `agent/<n>` open: the factory adopts it and pushes to the same PR. A PR on that branch by anyone else, or more than one open PR, makes the factory stop and ask, so resolve that first.
 2. Apply the label: `gh issue edit <n> --add-label factory`.
 3. Leave the local worktree untouched. Further local edits do not reach the factory; to change course, comment on the issue or PR instead.
 
 ## 8. Report
 
-Tell Jesse the issue link, the pushed head, the closed PR if any, and that the factory now owns `agent/<n>`. To bring the work back later, fetch `agent/<n>` into a fresh worktree; do not reuse the snapshotted one while the factory is running.
+Tell Jesse the issue link, the pushed head, the PR the factory will continue if any, and that the factory now owns `agent/<n>`. To bring the work back later, fetch `agent/<n>` into a fresh worktree; do not reuse the snapshotted one while the factory is running.
 
 The factory starts from the marked head only when the branch head still matches it. If Jesse pushes again after labelling, rerun steps 5 and 6 so the marker names the new head.
