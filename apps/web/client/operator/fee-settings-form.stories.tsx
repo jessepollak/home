@@ -18,7 +18,7 @@ const stored: FeeSettingsState = {
 };
 
 function saved(settings: FeeSettingsState) {
-  return { version: 1, domain: "fees", settings };
+  return { version: 2, domain: "fees", settings };
 }
 
 function FeeSettingsStory({ initial, operator }: { initial: FeeSettingsState; operator: `0x${string}` }) {
