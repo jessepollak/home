@@ -49,6 +49,14 @@ const LEVELS: Level[] = [
   },
 ];
 
+function isEmptyLayer(part: string): boolean {
+  let lengths = part;
+  while (/[a-z-]+\([^()]*\)/i.test(lengths)) lengths = lengths.replace(/[a-z-]+\([^()]*\)/gi, " ");
+  const tokens = lengths.replace(/#[0-9a-f]+/gi, " ").split(/\s+/)
+    .filter((token) => token && !/^(?:inset|transparent|currentcolor)$/i.test(token));
+  return tokens.every((token) => /^0(?:px)?$/.test(token));
+}
+
 function layers(value: string): string {
   const parts: string[] = [];
   let depth = 0;
@@ -62,7 +70,7 @@ function layers(value: string): string {
       start = index + 1;
     }
   }
-  return parts.filter((part) => part && !/^rgba\(0, 0, 0, 0\) 0px 0px 0px 0px$/.test(part) && part !== "none").join(", ");
+  return parts.filter((part) => part && part !== "none" && !isEmptyLayer(part)).join(", ");
 }
 
 function fileUses(file: string, usage: Usage[]): string[] {
@@ -107,13 +115,13 @@ export function ElevationPage({ theme }: { theme: string }) {
   const { shadows, rings } = foundations.elevation;
   const rows = useMemo(() => [
     ...shadows.map((entry) => ({ entry, name: `shadow-${entry.step}`, probe: `shadow-${entry.step}` })),
-    ...rings.map((entry) => ({ entry, name: entry.step, probe: "ring-1 ring-foreground/10" })),
+    ...rings.map((entry) => ({ entry, name: entry.step, probe: entry.step === "ring-1" ? "ring-1" : `ring-1 ${entry.step}` })),
   ], [shadows, rings]);
   const values = useMemo(() => utilityValues(rows.map(({ probe }) => probe), "boxShadow"), [rows]);
   const count = (step: string) => (shadows.find((entry) => entry.step === step) ?? rings.find((entry) => entry.step === step))?.count ?? 0;
   return <div className={local.page} data-theme={theme === "dark" ? "dark" : "light"}>
     <p className={styles.summary}>
-      Shadow and ring utilities Tailwind generates from component source, with the files they appear in. Counts span {foundations.scanned} files in <code>components/</code>.
+      Shadow and ring utilities Tailwind generates from component source, with the files they appear in. Counts span {foundations.scanned} files in <code>components/</code>; each utility is measured on its own, with ring colours on a 1px ring.
       Each owned surface picks its own step today; the proposal names four levels with separately reasoned Light and Dark values.
     </p>
     <section className={styles.section} aria-labelledby="elevation-current">
