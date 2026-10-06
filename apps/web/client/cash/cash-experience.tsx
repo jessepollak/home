@@ -885,6 +885,7 @@ export function CashExperience({
           pendingDeposits={pendingDeposits}
           depositFailed={depositFailed}
           pendingActionsLoading={actionsStatus === "loading" && !fundedNow}
+          depositCheckInFlight={actions.isFetching && !fundedNow}
           pendingActionsError={savingsEntryUnresolved}
           onRetryActions={() => void actions.refetch()}
           onAddMoney={onAddMoney}

@@ -89,6 +89,7 @@ export type SavingsDetailProps = Omit<
   balanceStale?: boolean;
   summary?: SavingsPortfolioSummary | null;
   pendingActionsLoading?: boolean;
+  depositCheckInFlight?: boolean;
   pendingActionsError?: boolean;
   onRetryActions?: () => void;
   depositFailed?: boolean;
@@ -784,6 +785,7 @@ export function SavingsDetail({
   summary = null,
   pendingDeposits = [],
   pendingActionsLoading = false,
+  depositCheckInFlight = false,
   pendingActionsError = false,
   onRetryActions,
   depositFailed = false,
@@ -998,7 +1000,7 @@ export function SavingsDetail({
         </>
       ) : null}
       {verifiedEmpty && !entryOffered &&
-      !pendingEmpty && !pendingActionsLoading && !actionHistoryUnresolved ? (
+      !pendingEmpty && !pendingActionsLoading && !depositCheckInFlight && !actionHistoryUnresolved ? (
         <p className="text-sm text-muted-foreground" role="status">This is no longer offered.</p>
       ) : null}
       {balanceFailed && onRetryBalances ? (
