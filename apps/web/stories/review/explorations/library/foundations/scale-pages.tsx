@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { foundations } from "./model";
 import { measure, rootProperties, utilityValues } from "./probe";
+import { ShapeRoles, TypeRoles } from "./role-sections";
 import { radiusSteps } from "./tokens";
 import type { Usage } from "./usage";
 import styles from "./foundations.module.css";
@@ -62,6 +63,7 @@ export function TypePage() {
       Utilities Tailwind generates from component source, with the files they appear in. Counts span {foundations.scanned} files in <code>components/</code>; values are measured from the loaded theme.
       A complete utility token in a comparison or other literal counts too.
     </p>
+    <TypeRoles />
     <section className={styles.section} aria-labelledby="type-families">
       <h3 id="type-families" className={styles.sectionTitle}>Families</h3>
       <dl className={styles.stackList}>
@@ -174,6 +176,7 @@ export function RadiusSpacingPage() {
         </li>)}
       </ul>
     </section>
+    <ShapeRoles />
     <section className={styles.section} aria-labelledby="spacing-scale">
       <h3 id="spacing-scale" className={styles.sectionTitle}>Spacing<span className={styles.sectionCount}>{data.spacingSteps.length}</span></h3>
       <table className={`${styles.scaleTable} ${styles.spacingTable}`}>
