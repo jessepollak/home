@@ -48,7 +48,7 @@ export const Conflict: Story = {
   parameters: {
     msw: { handlers: [http.put("/api/admin/settings/invest", () => HttpResponse.json({
       error: { code: "SETTINGS_CONFLICT" },
-      current: { version: 1, domain: "invest", settings: saved },
+      current: { version: 2, domain: "invest", settings: saved },
     }, { status: 409 }))] },
   },
   play: async ({ canvasElement }) => {
