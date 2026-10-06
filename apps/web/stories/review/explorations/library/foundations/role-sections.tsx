@@ -5,8 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { foundations } from "./model";
-import { measure } from "./probe";
-import { filesUsing, shapeNotes, shapeRoles, typeNotes, typeRoles } from "./role-proposals";
+import { measure, rootProperties } from "./probe";
+import { filesUsing, shapeNotes, shapeRoles, typeNotes, typeRoles, type ShapeScan } from "./role-proposals";
 import type { Usage } from "./usage";
 import roles from "./roles.module.css";
 import styles from "./foundations.module.css";
@@ -84,13 +84,13 @@ export function TypeRoles() {
           </td>
           <td>
             <div className={roles.today}>
-              <span>{role.today}</span>
+              <span>{role.today(foundations.type)}</span>
               <ul aria-label="Scanned occurrences">
                 {role.cites.map((utility) => <li key={utility} className={styles.meta}>{utility} ×{typeCount(utility)}</li>)}
               </ul>
             </div>
           </td>
-          <td className={roles.why}>{role.rationale}</td>
+          <td className={roles.why}>{role.rationale(foundations.type)}</td>
         </tr>)}
       </tbody>
     </table>
@@ -138,10 +138,16 @@ export function ShapeRoles() {
   const usage = foundations.radius.usage;
   const source = useMemo(() => {
     const defined = new Map(foundations.radius.scale.map(({ name, value }) => [name, value]));
-    return Object.fromEntries(shapeRoles.map(({ step }) =>
+    const steps = new Set([...shapeRoles.map(({ step }) => step), ...defined.keys(), ...usage.map(({ step }) => step)]);
+    return Object.fromEntries([...steps].map((step) =>
       [step, step === "full" ? "calc(infinity * 1px)" : defined.get(step) ?? `var(--radius-${step})`]));
-  }, []);
+  }, [usage]);
   const radius = useMemo(() => measure(source), [source]);
+  const scan = useMemo<ShapeScan>(() => ({
+    usage,
+    px: Object.fromEntries(Object.entries(radius).map(([step, value]) => [step, px(value)])),
+    base: rootProperties(["radius"]).radius,
+  }), [usage, radius]);
   return <section className={styles.section} aria-labelledby="shape-roles">
     <h3 id="shape-roles" className={styles.sectionTitle}>Shape roles<span className={styles.sectionCount}>Proposal</span></h3>
     <p className={roles.lede}>
@@ -169,15 +175,15 @@ export function ShapeRoles() {
                 <span className={styles.meta}>{`rounded-${role.step} ×${count(usage, role.step)} across components`}</span>
               </div>
             </td>
-            <td className={roles.why}>{role.rationale}</td>
+            <td className={roles.why}>{role.rationale(scan)}</td>
           </tr>;
         })}
       </tbody>
     </table>
     <ul className={roles.notes}>
-      <li>{shapeNotes.base}</li>
-      <li>{shapeNotes.inset}</li>
-      <li>{shapeNotes.outlier}</li>
+      <li>{shapeNotes.base(scan)}</li>
+      <li>{shapeNotes.inset(scan)}</li>
+      <li>{shapeNotes.outlier(scan)}</li>
     </ul>
     <div className={roles.compare}>
       <Pane label="Today" note="Owned components as shipped; popup and sheet are surface samples with their components' classes.">

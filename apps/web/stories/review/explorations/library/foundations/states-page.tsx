@@ -66,8 +66,9 @@ export function StatesPage({ theme }: { theme: string }) {
   const byState = (state: InteractionState) => foundations.states.filter((use) => use.state === state);
   return <div className={local.page} data-theme={theme === "dark" ? "dark" : "light"}>
     <p className={styles.summary}>
-      State utilities Tailwind generates from {files} owned component files, grouped by the variant that applies them; menu <code>focus:</code> and
-      <code> data-highlighted</code> count as highlight. Each component sets its own treatment today; the proposal is one contract every component draws from.
+      State utilities Tailwind generates from {files} owned component files, grouped by the variant that applies them. A class lands in one state, the first
+      that matches in the order disabled, focus-visible, pressed, selected, hover; menu <code>focus:</code> and <code>data-highlighted</code> count as highlight.
+      Each component sets its own treatment today; the proposal is one contract every component draws from.
     </p>
     <section className={styles.section} aria-labelledby="states-current">
       <h3 id="states-current" className={styles.sectionTitle}>Current usage
@@ -90,7 +91,7 @@ export function StatesPage({ theme }: { theme: string }) {
     <section className={styles.section} aria-labelledby="states-contract">
       <h3 id="states-contract" className={styles.sectionTitle}>Proposed contract<span className={styles.sectionCount}>{CONTRACT.length}</span></h3>
       <table className={`${styles.scaleTable} ${local.contractTable}`}>
-        <thead><tr><th scope="col">State</th><th scope="col">Treatment</th><th scope="col">Light</th><th scope="col">Dark</th><th scope="col">Replaces</th></tr></thead>
+        <thead><tr><th scope="col">State</th><th scope="col">Treatment</th><th scope="col">Light</th><th scope="col">Dark</th><th scope="col">Replaces, in these {files} files</th></tr></thead>
         <tbody>{CONTRACT.map((row) => <tr key={row.state}>
           <th scope="row">{STATES.find((state) => state.id === row.state)!.name}</th>
           <td>{row.treatment}</td>
