@@ -22,7 +22,7 @@ Jesse runs this skill in his own session, so his GitHub identity edits the issue
 4. Resolve the issue, in order: the branch name `agent/<n>`; an open PR's `Closes #n` or `Refs #n`; the session's own references; a search of open issues. If none exists, draft a new issue with a required title prefix (`feat(...)`, `fix(...)`, `design(...)`, and so on) and its `Area:` lines from [work sizing](../../../docs/work-sizing.md).
 5. Record the state: issue number and author, open PRs on `agent/<n>` and their authors, whether remote `agent/<n>` already exists and at what head, local commits ahead of `origin/main`, and uncommitted files.
 
-Stop and tell Jesse when remote `agent/<n>` already has commits that are not in the local branch (the factory or another session moved it), when the issue is not authored by Jesse, or when `factory:working` is already on the issue.
+Stop and tell Jesse when remote `agent/<n>` already has commits that are not in the local branch (the factory or another session moved it), when the factory has already published to `agent/<n>` or opened a PR for the issue (comment there instead; a handoff marker only seeds work the factory has not published), when the issue is not authored by Jesse, or when `factory:working` is already on the issue.
 
 ## 2. Gather context
 
@@ -83,4 +83,4 @@ Edit the body with `gh issue edit <n> --body-file <file>`, preserving everything
 
 Tell Jesse the issue link, the pushed head, the PR the factory will continue if any, and that the factory now owns `agent/<n>`. To bring the work back later, fetch `agent/<n>` into a fresh worktree; do not reuse the snapshotted one while the factory is running.
 
-The factory starts from the marked head only when the branch head still matches it. If Jesse pushes again after labelling, rerun steps 5 and 6 so the marker names the new head.
+The factory starts from the marked head only when the branch head still matches it, and checks again before publishing. Re-pushing and updating the marker (steps 5 and 6) is safe before the factory starts, or after it stops with a handoff mismatch; then re-add `factory`. Once the factory has started or published, change course with a comment on the issue or PR instead.
