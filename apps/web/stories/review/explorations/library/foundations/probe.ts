@@ -77,7 +77,7 @@ export function measure(values: Record<string, string>, property: "width" | "fon
   }
 }
 
-export function utilityValues(names: string[], property: "fontWeight" | "lineHeight" | "letterSpacing" | "fontFamily", owner: Document = document) {
+export function utilityValues(names: string[], property: "fontWeight" | "lineHeight" | "letterSpacing" | "fontFamily" | "boxShadow", owner: Document = document) {
   const probe = owner.createElement("div");
   Object.assign(probe.style, { position: "absolute", visibility: "hidden", fontSize: "16px" });
   owner.body.append(probe);

@@ -1,5 +1,5 @@
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
-import { ActivityIcon, LayersIcon, LayoutGridIcon, PaletteIcon, RulerIcon, TypeIcon } from "lucide-react";
+import { ActivityIcon, CopyIcon, LayersIcon, LayoutGridIcon, MousePointerClickIcon, PaletteIcon, RulerIcon, TypeIcon } from "lucide-react";
 import { COMPOSITIONS, countLabel, monogram, OVERVIEW, type LibraryCatalog } from "./catalog";
 import { foundationPages, type FoundationId } from "./foundations/model";
 import styles from "./library.module.css";
@@ -9,6 +9,8 @@ export const FOUNDATION_ICONS: Record<FoundationId, ReactNode> = {
   "foundations/type": <TypeIcon />,
   "foundations/radius-spacing": <RulerIcon />,
   "foundations/motion": <ActivityIcon />,
+  "foundations/elevation": <CopyIcon />,
+  "foundations/states": <MousePointerClickIcon />,
 };
 
 type SidebarRow = { id: string; name: string; kind: string; label: string; tile: ReactNode; changed?: boolean };
