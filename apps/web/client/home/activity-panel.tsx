@@ -22,7 +22,7 @@ import type { ActivityLedgerNextActionKind } from "@/client/activity/activity-le
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
 import { useCashOutWithdrawJourney } from "@/client/activity/cash-out-withdraw-journey";
-import { openPanelAfterClose, useOptionalHomeShellRouting } from "./panel-routing";
+import { openPanelAfterClose, useOptionalHomeShellRouting, type ActivityDetailReturn } from "./panel-routing";
 import { ShimmerRows } from "./panel-shared";
 import { useOptionalShellPage } from "./shell-page-context";
 import { cancellationErrorCopy, cancellationNeedsRefetch, useCancelFundingOrder } from "@/client/funding/cancel-order";
@@ -31,6 +31,27 @@ import { readFundingOrderResponse } from "@/shared/funding/contracts/order";
 
 const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
 const EMPTY_ORDERS: readonly ActivityOrder[] = [];
+
+function sameActivityReturn(left: ActivityDetailReturn | null, right: ActivityDetailReturn | null): boolean {
+  return Boolean(left && right && left.ownerKey === right.ownerKey && left.panel === right.panel &&
+    left.path === right.path && left.item === right.item);
+}
+
+export function useActivityReturnInvalidation(unavailable: boolean): boolean {
+  const routing = useOptionalHomeShellRouting();
+  const returned = routing?.activityReturn ?? null;
+  const [invalidatedReturn, setInvalidatedReturn] = useState<ActivityDetailReturn | null>(null);
+  if (invalidatedReturn && !returned) setInvalidatedReturn(null);
+  if (unavailable && returned && invalidatedReturn !== returned) {
+    setInvalidatedReturn(returned);
+  }
+  useEffect(() => {
+    if (sameActivityReturn(invalidatedReturn, routing?.getActivityReturn?.() ?? null)) {
+      routing?.setActivityReturn?.(null);
+    }
+  }, [invalidatedReturn, routing]);
+  return returned !== null && (unavailable || sameActivityReturn(returned, invalidatedReturn));
+}
 
 export function ActivityPage({
   activitySession,
@@ -45,6 +66,7 @@ export function ActivityPage({
   regionId: RegionId;
   showSessionShimmer: boolean;
 }) {
+  const suppressDetailReturn = useActivityReturnInvalidation(showSessionShimmer);
   if (showSessionShimmer) {
     return (
       <section
@@ -65,6 +87,7 @@ export function ActivityPage({
         fetchActivity={fetchActivity}
         fetchOperations={fetchOperations}
         regionId={regionId}
+        suppressDetailReturn={suppressDetailReturn}
       />
     </div>
   );
@@ -81,6 +104,7 @@ export function ConnectedActivityPanel({
   emptyAction,
   onDetailsOpenChange,
   scheduleContinuationRetry,
+  suppressDetailReturn = false,
 }: {
   quietLoading?: boolean;
   density: ActivityPanelDensity;
@@ -92,8 +116,10 @@ export function ConnectedActivityPanel({
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   regionId: RegionId;
   scheduleContinuationRetry?: RetrySchedule;
+  suppressDetailReturn?: boolean;
 }) {
   const ownerKey = activitySession?.smartAccount ? activityOwnerKey(activitySession) : null;
+  const returnInvalidated = useActivityReturnInvalidation(ownerKey === null);
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const wallet = useContext(AccountWalletContext);
   const cancelOrderMutation = useCancelFundingOrder(ownerKey, async (path, options) => {
@@ -330,7 +356,7 @@ export function ConnectedActivityPanel({
       fetchOperations={fetchOperations}
       onViewActivity={(close) => openPanelAfterClose(routing, "activity", close)}
       onDetailsOpenChange={onDetailsOpenChange}
-      initialDetailItem={ownerKey && routing?.activityReturn?.ownerKey === ownerKey &&
+      initialDetailItem={!suppressDetailReturn && !returnInvalidated && ownerKey && routing?.activityReturn?.ownerKey === ownerKey &&
         routing.activityReturn.path === window.location.pathname && !routing.activityReturn.suspended
           ? routing.activityReturn.item : null}
       onDetailsSelectionChange={(item) => {
