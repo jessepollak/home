@@ -25,6 +25,7 @@ export type TradePreparationFailure =
   | "below-minimum"
   | "token-unreadable"
   | "buy-unavailable"
+  | "pair-unavailable"
   | "stale-quote"
   | "quote-rejected"
   | "unverified-actions"

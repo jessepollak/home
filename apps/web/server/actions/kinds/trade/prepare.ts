@@ -4,7 +4,9 @@ import { parseAddress, requireAddress } from "@/shared/chain/hex";
 import { randomUUID } from "node:crypto";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
-import { convertDirectionAdmitted, resolveTradeAsset } from "@/shared/trading/assets";
+import { convertCurrencyTradeable, resolveTradeAsset } from "@/shared/trading/assets";
+import { CONVERT_QUOTE_ASSET_ID } from "@/shared/currencies/types";
+import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { resolveConvertPair } from "@/shared/currencies/convert";
 import { currencyRecordForContract } from "@/shared/currencies/registry";
 import { tradeCustomerAmounts } from "@/shared/trading/fee-amounts";
@@ -50,12 +52,13 @@ export async function prepareTradeAction(
   const signer = await (deps.resolveSigner ?? createTradeSignerResolver({ getValidator: getCdpAccessTokenValidator }))(request, session, signal);
   if (signer.smartAccount.toLowerCase() !== taker.toLowerCase() || signer.ownerIndex !== 0) throw new TradePreparationError("signer-unsupported");
   const pairDeps = { convertPair: deps.convertPair };
+  const assetIdentity = resolveMarketPriceAssetIdentity(parsed.assetId);
+  const currencyRecord = assetIdentity ? currencyRecordForContract(assetIdentity.contractAddress) : null;
+  if (currencyRecord && currencyRecord.id !== CONVERT_QUOTE_ASSET_ID && !convertCurrencyTradeable(currencyRecord.id, pairDeps)) {
+    throw new TradePreparationError(parsed.direction === "buy" ? "buy-unavailable" : "pair-unavailable");
+  }
   const resolved = resolveTradeAsset(parsed.assetId, pairDeps);
   if (!resolved || resolved.status !== "tradeable") throw new TradePreparationError("invalid-request");
-  const currencyRecord = currencyRecordForContract(resolved.address);
-  if (currencyRecord && !convertDirectionAdmitted(currencyRecord.id, parsed.direction, pairDeps)) {
-    throw new TradePreparationError(parsed.direction === "buy" ? "buy-unavailable" : "invalid-request");
-  }
   if (parsed.direction === "buy" && (deps.buyBlocked ?? tradeBuyBlocked)(resolved.assetId)) throw new TradePreparationError("buy-unavailable");
   const rpc = deps.rpc ?? baseRpc;
   const read = (method: string, params: readonly unknown[]) => rpc(method, params, { signal });
@@ -230,6 +233,7 @@ export function tradePreparationResponse(error: unknown): { code: string; messag
     case "below-minimum": return { code: "TRADE_BELOW_MINIMUM", message: "The amount is below the available trade minimum.", status: 422 };
     case "token-unreadable": return { code: "TRADE_TOKEN_UNREADABLE", message: "This token cannot be read for trading.", status: 422 };
     case "buy-unavailable": return { code: "TRADE_BUY_UNAVAILABLE", message: "Buying this asset is unavailable.", status: 422 };
+    case "pair-unavailable": return { code: "TRADE_PAIR_UNAVAILABLE", message: "This conversion is unavailable.", status: 422 };
     case "unverified-actions": return { code: "TRADE_ROUTE_UNAVAILABLE", message: "No verified trade route is available.", status: 422 };
     case "stale-quote": return { code: "TRADE_QUOTE_STALE", message: "The trade quote changed. Prepare it again.", status: 409 };
     case "permit-used": return { code: "TRADE_QUOTE_STALE", message: "This trade quote can no longer be used. Get a new quote.", status: 409 };
