@@ -3,7 +3,7 @@
 import { skipToken } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { dataOwnerKey } from "@/client/account/owner-keys";
-import { invalidateAfterAction, requalifyBalancesAfterSettlement } from "@/client/query/after-action";
+import { highestBlockNumber, invalidateAfterAction, requalifyBalancesAfterSettlement } from "@/client/query/after-action";
 import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import type { PreparedMoneyAction, DerivedActionStatus, MoneyActionOwner } from "@/shared/money-actions/types";
 import { recentActionsQuery } from "./recent-actions-query";
@@ -18,6 +18,56 @@ export function moneyResultOutcome({ submission, row }: { submission: Submission
   if (row?.status === "failed") return "failed";
   if (row?.status === "unknown" || submission === "ambiguous") return "unknown";
   return "pending";
+}
+
+export type MoneyActionQualification = {
+  actionId: string;
+  settlement: string | null;
+  settlementBlock: string | null;
+  qualifiedSettlement: string | null;
+  qualifiedUnknown: boolean;
+  unknownServerAt: number | null;
+};
+
+export function createMoneyActionQualification(actionId: string): MoneyActionQualification {
+  return { actionId, settlement: null, settlementBlock: null, qualifiedSettlement: null, qualifiedUnknown: false, unknownServerAt: null };
+}
+
+export function nextMoneyActionQualification(input: {
+  current: MoneyActionQualification;
+  actionId: string;
+  submission: Submission;
+  outcome: MoneyResultStatus;
+  settled: boolean;
+  operation?: { settledAt?: string; settledBlockNumber?: string; submittedAt?: string; updatedAt?: string };
+}): { qualification: MoneyActionQualification; action: "none" | "settlement" | "unknown"; settledBlock?: string } {
+  const { actionId, submission, outcome, settled, operation } = input;
+  const current = input.current.actionId === actionId ? input.current : createMoneyActionQualification(actionId);
+  if (submission === "failed" || outcome === "failed") return { qualification: current, action: "none" };
+  if (settled) {
+    const block = highestBlockNumber(current.settlementBlock ?? undefined, operation?.settledBlockNumber);
+    const settlement = operation
+      ? `${actionId}\u0000${block ?? operation.settledAt ?? ""}`
+      : (current.settlement ?? `${actionId}\u0000`);
+    const qualification = { ...current, settlement, settlementBlock: block ?? null };
+    if (settlement === current.qualifiedSettlement) return { qualification, action: "none" };
+    return {
+      qualification: { ...qualification, qualifiedSettlement: settlement },
+      action: "settlement",
+      ...(block !== undefined ? { settledBlock: block } : {}),
+    };
+  }
+  if (submission === "ambiguous" && outcome === "unknown") {
+    const serverAt = Date.parse(operation?.submittedAt ?? operation?.updatedAt ?? "");
+    const newerServerAt = Number.isFinite(serverAt) && serverAt > (current.unknownServerAt ?? 0);
+    if (!current.qualifiedUnknown || newerServerAt) {
+      return {
+        qualification: { ...current, qualifiedUnknown: true, unknownServerAt: newerServerAt ? serverAt : current.unknownServerAt },
+        action: "unknown",
+      };
+    }
+  }
+  return { qualification: current, action: "none" };
 }
 
 export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
@@ -60,23 +110,15 @@ export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
   const row = operation ? { id: operation.action.id, status: operation.status, owner: action.owner } : observation.data;
   const outcome = moneyResultOutcome({ submission, row });
   const settled = row?.status === "confirmed";
-  const settledStamp = settled ? `${action.id}\u0000${operation?.settledAt ?? ""}` : null;
-  const qualifiedUnknown = useRef(false);
-  const qualifiedSettlement = useRef<string | null>(null);
-  const settledBefore = useRef(settled);
+  const qualification = useRef(createMoneyActionQualification(action.id));
   useEffect(() => {
-    const newlySettled = settled && !settledBefore.current;
-    settledBefore.current = settled;
-    if (submission === "failed" || outcome === "failed") return;
-    if (settledStamp !== null) {
-      if (!newlySettled && qualifiedSettlement.current === settledStamp) return;
-      qualifiedSettlement.current = settledStamp;
-      requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey });
-      return;
+    const next = nextMoneyActionQualification({ current: qualification.current, actionId: action.id, submission, outcome, settled, operation });
+    qualification.current = next.qualification;
+    if (next.action === "settlement") {
+      requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: action.id, settledBlock: next.settledBlock, serverAt: operation?.settledAt ?? operation?.submittedAt });
+    } else if (next.action === "unknown") {
+      void invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: action.id, serverAt: operation?.submittedAt ?? operation?.updatedAt });
     }
-    if (submission !== "ambiguous" || outcome !== "unknown" || qualifiedUnknown.current) return;
-    qualifiedUnknown.current = true;
-    void invalidateAfterAction(queryClient, ownerKey);
-  }, [submission, outcome, settled, settledStamp, queryClient, ownerKey]);
+  }, [action.id, submission, outcome, settled, operation, queryClient, ownerKey]);
   return { outcome, ...(row ? { row } : {}) };
 }

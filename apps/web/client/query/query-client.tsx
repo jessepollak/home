@@ -397,6 +397,16 @@ export async function restoreOwnerQueriesAsync(
   return hydrateOwnerClient(queryClient, persister, persisted, Date.now(), ownerKey);
 }
 
+function retainRestoredScopeGcTime(queryClient: QueryClient, queryKey: QueryKey): void {
+  const scope = queryKey[1];
+  const policy = typeof scope === "string" ? scopePolicies[scope] : undefined;
+  if (policy?.audience !== "owner" || policy.persistence !== "owner" || policy.gcTime === undefined) return;
+  const query = queryClient.getQueryCache().find({ queryKey });
+  if (!query) return;
+  query.setOptions({ ...query.options, gcTime: policy.gcTime });
+  query.destroy();
+}
+
 function hydrateOwnerClient(
   queryClient: QueryClient,
   persister: ReturnType<typeof createOwnerQueryPersister>,
@@ -442,6 +452,7 @@ function hydrateOwnerClient(
   }
   hydrate(queryClient, { mutations: [], queries });
   for (const query of queries) {
+    retainRestoredScopeGcTime(queryClient, query.queryKey);
     if (query.queryKey[1] === "balances" && typeof query.state.data === "object" && query.state.data !== null &&
       queryClient.getQueryData(query.queryKey) === query.state.data) {
       recordRestoredBalance(query.state.data);

@@ -24,25 +24,29 @@ const FOLLOW_CONCURRENCY = 4;
 const FOLLOW_ROW_BUDGET_MS = 15_000;
 
 export async function followAction(row: ActionRow, options: FollowOptions): Promise<ActionRow> {
+  return (await followActionStep(row, options)).row;
+}
+
+async function followActionStep(row: ActionRow, options: FollowOptions): Promise<{ row: ActionRow; receiptPersisted: boolean }> {
   const owner = ownerFromActionKey(row.owner_key);
   if (!owner || actionOwnerKey(owner) !== row.owner_key || row.provider !== owner.accountProvider ||
     row.account_address !== null && row.account_address.toLowerCase() !== owner.address.toLowerCase() ||
-    !row.confirmed_at || options.signal.aborted || row.outcome) return row;
+    !row.confirmed_at || options.signal.aborted || row.outcome) return { row, receiptPersisted: false };
   const store = options.deps?.store ?? getActionsStore();
   let current: ActionRow | null;
   try {
     current = await store.get(owner, row.id, { signal: options.signal, timeoutMs: 5_000 });
   } catch (error) {
-    if (options.signal.aborted) return row;
+    if (options.signal.aborted) return { row, receiptPersisted: false };
     throw error;
   }
-  if (!current || current.outcome || current.owner_key !== row.owner_key || options.signal.aborted) return current ?? row;
+  if (!current || current.outcome || current.owner_key !== row.owner_key || options.signal.aborted) return { row: current ?? row, receiptPersisted: false };
   const reconciled = !current.transaction_hash && current.provider_handle && current.provider_handle !== current.id
     ? await reconcileRow({ row: current, owner, store, resolveHandle: options.deps?.resolveHandle ?? getDefaultActionHandleResolver(),
       signal: options.signal, route: options.route })
     : current;
-  if (options.signal.aborted) return reconciled;
-  return (await settleRow(reconciled, owner, store, options.deps?.readReceipt, options.signal, options.route)).row;
+  if (options.signal.aborted) return { row: reconciled, receiptPersisted: false };
+  return await settleRow(reconciled, owner, store, options.deps?.readReceipt, options.signal, options.route);
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -88,8 +92,9 @@ export async function followActionUntilSettled(row: ActionRow, options: LoopOpti
     AbortSignal.timeout(Number.isFinite(options.deadlineMs) && options.deadlineMs >= 1 && options.deadlineMs <= 2_147_483_647 ? Math.trunc(options.deadlineMs) : 1),
   ]);
   for (let attempt = 0; !signal.aborted && now() < deadline; attempt++) {
-    row = await followAction(row, { ...options, signal });
-    if (row.outcome || row.transaction_hash && row.observed_receipt_transaction_hash?.toLowerCase() === row.transaction_hash.toLowerCase() &&
+    const result = await followActionStep(row, { ...options, signal });
+    row = result.row;
+    if (row.outcome || result.receiptPersisted && row.transaction_hash && row.observed_receipt_transaction_hash?.toLowerCase() === row.transaction_hash.toLowerCase() &&
       row.observed_receipt_block_hash && row.observed_receipt_outcome) break;
     if (signal.aborted || now() >= deadline) break;
     await (options.sleep ?? wait)(Math.min(5_000, 2_000 + attempt * 1_000), signal);

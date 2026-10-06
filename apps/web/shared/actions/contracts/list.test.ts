@@ -272,6 +272,17 @@ describe("recent Home action activity", () => {
     expect(parseRecentMoneyActions({ actions: [{ ...row(), settledAt: "not-a-date" }] }, session)[0]?.settledAt).toBeUndefined();
   });
 
+  test("carries the settled receipt block number onto the operation", () => {
+    const [settled] = parseRecentMoneyActions({ actions: [{ ...row(), settledBlockNumber: "35123456" }] }, session);
+    expect(settled?.settledBlockNumber).toBe("35123456");
+  });
+
+  test.each(["12.5", "1e3", "-1", 35123456])("drops malformed settled block number %j without dropping the operation", (settledBlockNumber) => {
+    const parsed = parseRecentMoneyActions({ actions: [{ ...row(), settledBlockNumber }] }, session);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]).not.toHaveProperty("settledBlockNumber");
+  });
+
   test("reports a rejected same-owner cash-out row as incomplete", () => {
     const malformedDeposit = { ...row(), kind: "cash-out", summary: { ...row().summary, warnings: undefined } };
     expect(readRecentActionsIncomplete({ actions: [malformedDeposit] }, session)).toBe(true);

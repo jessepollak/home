@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import { formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
@@ -70,7 +70,7 @@ type Props = {
   onCancel: () => void;
   onClosed: (unresolved: boolean) => void;
   onAddMoney: () => void;
-  onConfirmed: () => void | Promise<void>;
+  onConfirmed: (result: OperationResult) => void | Promise<void>;
 };
 
 type Step = "currency" | "destination" | "trade" | "save";
@@ -217,7 +217,7 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
       initialAmount={draft} onAmountChange={setDraft} onBack={backFromTrade} onDone={onCancel} resume={resume ?? undefined}
       onAttemptedChange={(attempted, unknown) => { unresolved.current = attempted && !unknown; if (!unresolved.current) setResume(null); }}
       onUnresolved={setResume}
-      onConfirmed={async () => { setResume(null); await onConfirmed(); }}
+      onConfirmed={async (result) => { setResume(null); await onConfirmed(result); }}
       fallback={deferredStepLoading({ title: `Convert to ${selected.name}`, titleId: "trade-action-title", closeLabel: "Close conversion", depth: depth + 1, onBack: backFromTrade })} />
       : step === "trade" && selected && !trade && selectedQuery?.isPending && !selectedQuery.isError ? <MoneyModalStepLoading key={resetKey} step="amount" depth={depth + 1} title={`Convert to ${selected.name}`} titleId="trade-action-title"
         onBack={backFromTrade} closeLabel="Close conversion" failed={false} onRetry={() => { for (const [index, currency] of destinations.entries()) if (currency.convertOffered && queries[index]?.isError) void queries[index].refetch(); }} />

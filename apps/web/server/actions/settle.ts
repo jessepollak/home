@@ -74,9 +74,10 @@ async function recordRowOutcome(
   store: Pick<ActionsStore, "recordOutcome">, row: ActionRow, owner: MoneyActionOwner,
   outcome: ActionOutcome, source: "chain" | "wallet", settledAt: Date | null,
   route: string, startedAt: number,
+  observedReceipt?: Parameters<ActionsStore["recordOutcome"]>[2]["observedReceipt"],
 ): Promise<ActionRow> {
   try {
-    const result = await store.recordOutcome(owner, row.id, { outcome, source, settledAt });
+    const result = await store.recordOutcome(owner, row.id, { outcome, source, settledAt, observedReceipt });
     if (result.conflict) emitOutcomeEvent(route, row, owner, "OUTCOME_CONFLICT", "conflict", startedAt);
     if (result.written) emitOutcomeEvent(route, row, owner, "OUTCOME_RECORDED", "ok", startedAt);
     return result.row ?? row;
@@ -113,8 +114,8 @@ export async function settleRow(
   store: Pick<ActionsStore, "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>,
   readReceipt: ((hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>) | undefined,
   signal: AbortSignal, route: string,
-): Promise<{ row: ActionRow; receipt: ActionReceiptState | null }> {
-  if (row.outcome || !row.transaction_hash || !hashPattern.test(row.transaction_hash)) return { row, receipt: null };
+): Promise<{ row: ActionRow; receipt: ActionReceiptState | null; receiptPersisted: boolean }> {
+  if (row.outcome || !row.transaction_hash || !hashPattern.test(row.transaction_hash)) return { row, receipt: null, receiptPersisted: false };
   const startedAt = Date.now();
   try {
     const reader = readReceipt ?? ((hash: `0x${string}`, nextSignal?: AbortSignal) =>
@@ -122,8 +123,8 @@ export async function settleRow(
     const receipt = await reader(row.transaction_hash.toLowerCase() as `0x${string}`, signal);
     if (receipt.status === "pending") {
       const observed = observedReceiptStatus(row);
-      if (!observed) return { row, receipt: "pending" };
-      if (BigInt(receipt.finalizedBlockNumber) < BigInt(row.observed_receipt_block_number!)) return { row, receipt: observed };
+      if (!observed) return { row, receipt: "pending", receiptPersisted: false };
+      if (BigInt(receipt.finalizedBlockNumber) < BigInt(row.observed_receipt_block_number!)) return { row, receipt: observed, receiptPersisted: true };
       let cleared: ActionRow | null | undefined;
       try {
         cleared = await store.clearReceiptObservation?.(owner, row.id, row.observed_receipt_block_hash!);
@@ -133,17 +134,18 @@ export async function settleRow(
       return {
         row: cleared ?? { ...row, observed_receipt_transaction_hash: null, observed_receipt_block_number: null,
           observed_receipt_block_hash: null, observed_receipt_outcome: null, observed_at: null },
-        receipt: "pending",
+        receipt: "pending", receiptPersisted: false,
       };
     }
     const outcome = attributeReceipt(row, owner, receipt);
     if (!outcome) {
       emitOutcomeEvent(route, row, owner, "OUTCOME_UNATTRIBUTED", "conflict", startedAt);
-      return { row, receipt: "unattributed" };
+      return { row, receipt: "unattributed", receiptPersisted: observedReceiptStatus(row) !== null };
     }
     const observedOutcome = outcome as ObservedReceiptOutcome;
     const freshStatus = outcome === "succeeded" ? "confirmed" : "failed";
     if (row.observed_receipt_block_hash?.toLowerCase() !== receipt.blockHash.toLowerCase() || row.observed_receipt_outcome !== observedOutcome ||
+      row.observed_receipt_block_number !== receipt.blockNumber ||
       row.observed_receipt_transaction_hash?.toLowerCase() !== receipt.transactionHash.toLowerCase()) {
       try {
         row = await store.recordReceiptObservation?.(owner, row.id, {
@@ -154,11 +156,21 @@ export async function settleRow(
         emitOutcomeEvent(route, row, owner, "OBSERVATION_UNAVAILABLE", "unavailable", startedAt);
       }
     }
-    if (!receipt.finalized) return { row, receipt: freshStatus };
-    const updated = await recordRowOutcome(store, row, owner, outcome, "chain", new Date(receipt.blockTimestamp), route, startedAt);
-    return { row: updated, receipt: freshStatus };
+    if (receipt.finalized) row = await recordRowOutcome(store, row, owner, outcome, "chain", new Date(receipt.blockTimestamp), route, startedAt, {
+      transactionHash: receipt.transactionHash, blockNumber: receipt.blockNumber,
+      blockHash: receipt.blockHash, outcome: observedOutcome,
+    });
+    const receiptPersisted = row.observed_receipt_block_hash?.toLowerCase() === receipt.blockHash.toLowerCase() &&
+      row.observed_receipt_outcome === observedOutcome && row.observed_receipt_block_number === receipt.blockNumber &&
+      row.observed_receipt_transaction_hash?.toLowerCase() === receipt.transactionHash.toLowerCase();
+    if (!receiptPersisted) {
+      row = { ...row, observed_receipt_transaction_hash: receipt.transactionHash, observed_receipt_block_number: receipt.blockNumber,
+        observed_receipt_block_hash: receipt.blockHash, observed_receipt_outcome: observedOutcome, observed_at: row.observed_at ?? new Date(startedAt) };
+    }
+    return { row, receipt: freshStatus, receiptPersisted };
   } catch {
-    return { row, receipt: observedReceiptStatus(row) ?? "unavailable" };
+    const observed = observedReceiptStatus(row);
+    return { row, receipt: observed ?? "unavailable", receiptPersisted: observed !== null };
   }
 }
 

@@ -921,7 +921,7 @@ export function CashExperience({
         session={session} snapshot={currencyBalanceSnapshot} best={best} balanceStale={balanceStale || !liveSnapshot}
         fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeSavingsAction}
         onCancel={() => setCurrencyOpen(false)} onClosed={currencyClosed} onAddMoney={onAddMoney}
-        onConfirmed={() => invalidateAfterAction(getHomeQueryClient(), dataOwnerKey(session))} /> : null}
+        onConfirmed={(result) => invalidateAfterAction({ queryClient: getHomeQueryClient(), dataOwnerKey: dataOwnerKey(session), actionId: result.id })} /> : null}
       {session && journeyKey !== null ? (
         <StagedSavingsJourney
           titleId={SAVINGS_JOURNEY_TITLE_ID}

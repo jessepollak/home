@@ -239,6 +239,47 @@ describePostgres("actions schema and store", () => {
     expect(await store.clearReceiptObservation(owner, id, block)).toBeNull();
   });
 
+  test("records receipt observations with the outcome and preserves existing observations when omitted", async () => {
+    const withReceipt = randomUUID();
+    const existingReceipt = randomUUID();
+    const observation = {
+      transactionHash: `0x${"ab".repeat(32)}`, blockNumber: "105", blockHash: `0x${"cd".repeat(32)}`, outcome: "succeeded" as const,
+    };
+    const expectedObservation = {
+      observed_receipt_transaction_hash: observation.transactionHash, observed_receipt_block_number: "105",
+      observed_receipt_block_hash: observation.blockHash, observed_receipt_outcome: "succeeded",
+    };
+    for (const id of [withReceipt, existingReceipt]) {
+      await store.insert({ id, owner, kind: "send", summary, pending: { calls }, createdAt: new Date().toISOString() });
+      await store.confirm(owner, id);
+      await store.recordHandle(owner, id, { transactionHash: observation.transactionHash });
+    }
+    const settledAt = new Date("2026-09-13T12:00:03.000Z");
+    const recorded = await store.recordOutcome(owner, withReceipt, {
+      outcome: "succeeded", source: "chain", settledAt, observedReceipt: observation,
+    });
+    expect(recorded).toMatchObject({
+      written: true, conflict: false,
+      row: { ...expectedObservation, outcome: "succeeded", outcome_source: "chain", settled_at: settledAt, observed_at: expect.any(Date) },
+    });
+    const recordedRow = recorded.row;
+    if (!recordedRow) throw new Error("Expected the recorded outcome row");
+    expect(await store.get(owner, withReceipt)).toMatchObject({
+      ...expectedObservation, outcome: "succeeded", outcome_source: "chain", settled_at: settledAt, observed_at: recordedRow.observed_at,
+    });
+    await store.recordReceiptObservation(owner, existingReceipt, observation);
+    const observedAt = new Date("2026-09-13T12:00:02.000Z");
+    await sql.query("UPDATE actions SET observed_at = $2::timestamptz WHERE id = $1", [existingReceipt, observedAt]);
+    const preserved = await store.recordOutcome(owner, existingReceipt, { outcome: "succeeded", source: "chain", settledAt });
+    expect(preserved).toMatchObject({
+      written: true, conflict: false,
+      row: { ...expectedObservation, outcome: "succeeded", outcome_source: "chain", settled_at: settledAt, observed_at: observedAt },
+    });
+    expect(await store.get(owner, existingReceipt)).toMatchObject({
+      ...expectedObservation, outcome: "succeeded", outcome_source: "chain", settled_at: settledAt, observed_at: observedAt,
+    });
+  });
+
   test("confirmation commits finalized calls rather than the pending draft", async () => {
     const id = randomUUID();
     const finalCalls = [{ ...calls[0]!, data: "0x5678" as const }];

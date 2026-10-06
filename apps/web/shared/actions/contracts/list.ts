@@ -26,6 +26,7 @@ export type ActionListItem = {
   submittedAt?: string;
   settledAt?: string;
   receiptBlockNumber?: string;
+  settledBlockNumber?: string;
   providerHandle?: string;
   transactionHash?: string;
   owner: MoneyActionOwner;
@@ -64,6 +65,7 @@ export type RecentMoneyActionOperation = {
   submittedAt?: string;
   settledAt?: string;
   receiptBlockNumber?: string;
+  settledBlockNumber?: string;
 };
 
 export type UnparsedSavingsDeposit = { status: DerivedActionStatus | null; settledAt?: string; vaultAddress: string | null };
@@ -193,6 +195,7 @@ function parseRecentActionItems(items: unknown[], session: VerifiedAccountSessio
       ...(typeof item.settledAt === "string" && Number.isFinite(Date.parse(item.settledAt)) ? { settledAt: item.settledAt } : {}),
       ...(item.kind === "cash-out-withdraw" && typeof item.receiptBlockNumber === "string" && /^\d+$/.test(item.receiptBlockNumber)
         ? { receiptBlockNumber: item.receiptBlockNumber } : {}),
+      ...(typeof item.settledBlockNumber === "string" && /^(?:0|[1-9][0-9]*)$/.test(item.settledBlockNumber) ? { settledBlockNumber: item.settledBlockNumber } : {}),
       ...(cashout ? { cashout } : {}),
       ...(transactionHash ? { transactionHash } : {}),
       ...(userOperationHash ? { userOperationHash } : {}),

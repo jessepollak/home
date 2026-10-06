@@ -1,3 +1,4 @@
+import { trustRestoredBalanceActionMarker } from "../restored-cache";
 import type { QueryScopePolicy } from "./policy";
 
-export const balancesAction = { audience: "owner", persistence: "memory", staleTime: Infinity, mutatedByActions: false } as const satisfies QueryScopePolicy;
+export const balancesAction = { audience: "owner", persistence: "owner", validateRestored: trustRestoredBalanceActionMarker, staleTime: Infinity, gcTime: Infinity, mutatedByActions: false } as const satisfies QueryScopePolicy;

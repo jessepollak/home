@@ -16,6 +16,7 @@ import { createActionHandleResolver, type HandleResolution } from "./reconcile";
 import { createUserOperationLogLookup } from "./user-operation-log";
 import { USER_OPERATION_ENTRY_POINTS, USER_OPERATION_EVENT_TOPIC } from "./receipt";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
+import { parseHandleActionResponse } from "@/shared/actions/contracts/handle";
 
 async function readActions(response: Response): Promise<Record<string, unknown>[]> {
   const value = await readJson(response);
@@ -123,7 +124,10 @@ describePostgres("write-once action outcomes with real handlers", () => {
       const handle = createHandleActionHandler({ authorize: provider === "base-account" ? baseAuthorize : authorize,
         store, schedule: (task) => tasks.push(task), markHot: async () => {},
         followDeps: { store, resolveHandle: resolver, readReceipt: async () => receipt(true) } });
-      expect((await handle(request(id, "/handle", provider, { providerHandle: userOpHash }), context(id))).status).toBe(200);
+      const response = await handle(request(id, "/handle", provider, { providerHandle: userOpHash }), context(id));
+      expect(response.status).toBe(200);
+      const body = await readJson(response);
+      expect(parseHandleActionResponse(body)).not.toBeNull();
       expect((await store.get(owner(provider), id))?.transaction_hash).toBeNull();
       expect(tasks).toHaveLength(1);
       await tasks[0]!();

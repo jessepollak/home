@@ -13,6 +13,7 @@ import { readJson } from "@/shared/http/read-json";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { parsePrepareActionErrorResponse, parseProductNotOfferedPrepareErrorResponse } from "@/shared/actions/contracts/prepare";
 import { parseConfirmActionErrorResponse } from "@/shared/actions/contracts/confirm";
+import { parseHandleActionErrorResponse } from "@/shared/actions/contracts/handle";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import {
   deploymentHeaders,
@@ -82,6 +83,12 @@ function actionErrorDetails(pathname: string, payload: unknown): { code: string 
       ? { code: parsed.error.code, serverMessage: parsed.error.message }
       : { code: null, serverMessage: responseErrorDetails(payload).serverMessage };
   }
+  if (/^\/api\/actions\/[^/]+\/handle$/.test(pathname)) {
+    const parsed = parseHandleActionErrorResponse(payload);
+    return parsed
+      ? { code: parsed.error.code, serverMessage: parsed.error.message }
+      : { code: null, serverMessage: responseErrorDetails(payload).serverMessage };
+  }
   if (pathname === "/api/actions/prepare") {
     const parsed = parsePrepareActionErrorResponse(payload);
     if (parsed) return { code: parsed.error.code, serverMessage: parsed.error.message };
@@ -113,16 +120,33 @@ function responseErrorDetails(payload: unknown): {
   return { code, serverMessage };
 }
 
-export function qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey, recordsHandle, status, unreadable }: {
+/** @public Regression surface for an already-aborted handle request. */
+export function handleRequestShowsBroadcast(body: string | undefined): boolean {
+  if (!body) return false;
+  try {
+    const payload: unknown = JSON.parse(body);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+    return (
+      ("transactionHash" in payload && typeof payload.transactionHash === "string" && payload.transactionHash.length > 0) ||
+      ("providerHandle" in payload && typeof payload.providerHandle === "string" && payload.providerHandle.length > 0)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey, actionId, recordsHandle, status, unreadable, dispatched = true }: {
   queryClient: QueryClient;
   dataOwnerKey: string;
+  actionId: string;
   recordsHandle: boolean;
   status: number | null;
   unreadable: boolean;
+  dispatched?: boolean;
 }): void {
-  if (!recordsHandle) return;
+  if (!recordsHandle || !dispatched) return;
   if (!(unreadable || status === null || status === 409 || status >= 500)) return;
-  void invalidateAfterAction(queryClient, dataOwnerKey);
+  void invalidateAfterAction({ queryClient, dataOwnerKey, actionId });
 }
 
 export function useAuthenticatedTransport({
@@ -247,7 +271,7 @@ export function useAuthenticatedTransport({
   }), [fetchVerifiedResource, queryClient, session]);
 
   const requestAccountResource = useCallback(
-    async (path: string, options: { method: "GET" | "POST" | "PUT"; body?: string; accept: string; signal?: AbortSignal }): Promise<{ response: Response; assertActive: () => void; recordsHandle: boolean; qualifyUncertainHandle: (status: number | null, unreadable: boolean) => void }> => {
+    async (path: string, options: { method: "GET" | "POST" | "PUT"; body?: string; accept: string; signal?: AbortSignal }): Promise<{ response: Response; assertActive: () => void; recordsHandle: boolean; qualifyUncertainHandle: (status: number | null, unreadable: boolean, dispatched?: boolean) => void }> => {
       const safePath = normalizeAccountResourcePath(path);
       const pathname = new URL(safePath, "https://home.invalid").pathname;
       const walletFree = walletFreeAccountResourcePrefixes.some(
@@ -273,12 +297,14 @@ export function useAuthenticatedTransport({
       }
 
       const recordsHandle = method === "POST" && /^\/api\/actions\/[^/]+\/handle$/.test(pathname);
-      const qualifyUncertainHandle = (status: number | null, unreadable: boolean) => {
-        if (!recordsHandle || !session.smartAccount || !ownerFence.isCurrent(identity)) return;
-        qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey: dataOwnerKey(session), recordsHandle, status, unreadable });
+      const qualifyUncertainHandle = (status: number | null, unreadable: boolean, dispatched = true) => {
+        const actionId = pathname.split("/")[3];
+        if (!recordsHandle || !actionId || !session.smartAccount || !ownerFence.isCurrent(identity)) return;
+        qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey: dataOwnerKey(session), actionId, recordsHandle, status, unreadable, dispatched });
       };
       const skewHeaders = deploymentHeaders();
       let response: Response;
+      const abortedBeforeSend = options.signal?.aborted === true;
       try {
         response = await (sessionFetch ?? fetch)(safePath, {
           method,
@@ -297,7 +323,7 @@ export function useAuthenticatedTransport({
         });
       } catch (error) {
         if (options.signal?.aborted) {
-          qualifyUncertainHandle(null, false);
+          qualifyUncertainHandle(null, false, !abortedBeforeSend || handleRequestShowsBroadcast(options.body));
           throw error;
         }
         if (error instanceof TransferExecutionError) throw error;
@@ -347,6 +373,7 @@ export function useAuthenticatedTransport({
           void applyActionHandleEffects({
             path: safePath,
             body: options.body,
+            response: value,
             dataOwnerKey: ownerDataKey,
             queryClient,
             startBalanceFreshness: startActionBalanceFreshness,
