@@ -1,5 +1,6 @@
 # Library revisions
 
+- [Revision 7](revision-7.md)
 - [Revision 6](revision-6.md)
 - [Revision 2](revision-2.md)
 - [Revision 3](revision-3.md)
