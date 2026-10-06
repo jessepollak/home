@@ -63,8 +63,10 @@ export type CashOverviewProps = {
   pendingCashout?: PendingCashoutEstimate;
   pendingDeposits?: { vaultAddress: string; vaultName: string; amountBaseUnits: string }[];
   balanceStatus?: "ready" | "loading" | "failed";
+  balanceStale?: boolean;
   balanceActionStale?: boolean;
   refreshFailed?: boolean;
+  summary?: SavingsPortfolioSummary | null;
   metadata: MorphoVaultsResult | null;
   vaultStatus?: "ready" | "loading" | "failed";
   nowMs: number;
@@ -86,8 +88,6 @@ export type SavingsDetailProps = Omit<
   CashOverviewProps,
   "onOpenSavings" | "rateLabel"
 > & {
-  balanceStale?: boolean;
-  summary?: SavingsPortfolioSummary | null;
   pendingActionsLoading?: boolean;
   pendingActionsError?: boolean;
   onRetryActions?: () => void;
@@ -413,8 +413,10 @@ export function CashOverview({
   pendingCashout = null,
   pendingDeposits = [],
   balanceStatus = "ready",
+  balanceStale = false,
   balanceActionStale = false,
   refreshFailed = false,
+  summary = null,
   metadata,
   vaultStatus = "ready",
   nowMs,
@@ -439,7 +441,7 @@ export function CashOverview({
   const pendingValue = activeSnapshot ? presentPendingCashout(activeSnapshot, pendingCashout) : null;
   const savingsStale = balanceActionStale || activeSnapshot?.stale === true;
   const balanceComplete = balanceStatus === "ready" && !savingsStale && activeSnapshot?.coverage.registry === "complete" && activeSnapshot.coverage.catalog === "complete";
-  const summary = useMemo(() => activeSnapshot
+  const cashSummary = useMemo(() => activeSnapshot
     ? presentCashTotal(activeSnapshot)
     : null, [activeSnapshot]);
   const rows = useMemo(() => activeSnapshot ? cashHoldings(activeSnapshot) : [], [activeSnapshot]);
@@ -466,11 +468,16 @@ export function CashOverview({
   );
   const savingsHeld = holdings.some(({ held }) => held);
   const pendingTotal = pendingDeposits.reduce((sum, deposit) => sum + BigInt(deposit.amountBaseUnits), BigInt(0));
-  const savingsPending = !loading && pendingDeposits.length > 0 && total === BigInt(0) && !partial;
-  const savingsUncertain = !balanceComplete || savingsPending;
+  const depositInFlight = !loading && pendingDeposits.length > 0;
+  const verifiedEmpty = verifiedEmptySavings({
+    balanceStatus, snapshot, balanceStale, vaultStatus, summary,
+    shownCount: holdings.filter(({ held, partial: unreadable }) => held || unreadable).length,
+  });
+  const savingsPending = depositInFlight && verifiedEmpty;
+  const savingsUncertain = !balanceComplete || balanceStale || depositInFlight;
   const empty =
     !loading &&
-    summary?.status === "complete" &&
+    cashSummary?.status === "complete" &&
     cashTotal?.value?.atoms === "0" &&
     !savingsHeld;
   const savingsValue =
@@ -486,7 +493,7 @@ export function CashOverview({
       ? "Rate unavailable"
       : `Earn up to ${formatPresentationPercentage(bestRate, regionId)} APY`;
   const cashValue =
-    summary?.status === "complete" &&
+    cashSummary?.status === "complete" &&
     cashTotal?.value &&
     activeSnapshot?.quoteCurrency === "USD"
       ? formatPresentationFiat(
@@ -502,7 +509,7 @@ export function CashOverview({
           growth === BigInt(0) ? 2 : 6,
           activeSnapshot.region
         )
-      : summary?.value ?? null;
+      : cashSummary?.value ?? null;
   return (
     <div className="space-y-4">
       <Card
@@ -522,7 +529,7 @@ export function CashOverview({
               <>
                 <div
                   className={`text-4xl font-semibold tabular-nums ${
-                    summary?.status !== "complete"
+                    cashSummary?.status !== "complete"
                       ? "text-muted-foreground"
                       : ""
                   }`}
@@ -532,7 +539,7 @@ export function CashOverview({
                       align="start"
                       reserveDigits={false}
                       value={cashValue}
-                      aria-describedby={summary?.status === "partial" ? "cash-balance-partial" : undefined}
+                      aria-describedby={cashSummary?.status === "partial" ? "cash-balance-partial" : undefined}
                     />
                   ) : (
                     <span role="img" aria-label="Unavailable">—</span>
@@ -572,7 +579,7 @@ export function CashOverview({
                     <span className="sr-only">Loading rate</span>
                   </div>
                 ) : null}
-                {summary?.status === "partial" ? (
+                {cashSummary?.status === "partial" ? (
                   <p
                     id="cash-balance-partial"
                     className="text-sm text-muted-foreground"
@@ -614,7 +621,7 @@ export function CashOverview({
             Convert
           </Button> : null}
         </div>
-        {summary?.status === "unavailable" && onRetryBalances ? (
+        {cashSummary?.status === "unavailable" && onRetryBalances ? (
           <Button variant="outline" size="lg" className="h-11 w-full" onClick={onRetryBalances}>
             <RotateCw aria-hidden="true" />
             Try again

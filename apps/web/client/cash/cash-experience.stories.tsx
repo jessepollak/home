@@ -188,6 +188,7 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
   const [snapshotEntryUnavailable, setSnapshotEntryUnavailable] = useState(false);
   const [snapshotFunded, setSnapshotFunded] = useState(false);
   const [snapshotEmpty, setSnapshotEmpty] = useState(false);
+  const [balancesStale, setBalancesStale] = useState(false);
   const [balancesFailed, setBalancesFailed] = useState(false);
   const [savePaused, setSavePaused] = useState(false);
   const offering = useMemo(() => {
@@ -222,12 +223,14 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
     const failed = () => setBalancesFailed(true);
     const pauseSave = () => setSavePaused(true);
     const empty = () => setSnapshotEmpty(true);
+    const stale = () => setBalancesStale(true);
     snapshotChanges.addEventListener("unavailable", unavailable);
     snapshotChanges.addEventListener("entry-unavailable", entryUnavailable);
     snapshotChanges.addEventListener("funded", funded);
     snapshotChanges.addEventListener("failed", failed);
     snapshotChanges.addEventListener("save-exit-only", pauseSave);
     snapshotChanges.addEventListener("empty", empty);
+    snapshotChanges.addEventListener("stale", stale);
     return () => {
       snapshotChanges.removeEventListener("unavailable", unavailable);
       snapshotChanges.removeEventListener("entry-unavailable", entryUnavailable);
@@ -235,6 +238,7 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
       snapshotChanges.removeEventListener("failed", failed);
       snapshotChanges.removeEventListener("save-exit-only", pauseSave);
       snapshotChanges.removeEventListener("empty", empty);
+      snapshotChanges.removeEventListener("stale", stale);
     };
   }, [snapshotToggle]);
   const cachedSnapshot = snapshotToggle && snapshotEmpty ? emptySnapshot : snapshotToggle && snapshotEntryUnavailable ? unfundedUsdcUnavailableSnapshot : snapshotToggle && snapshotUnavailable ? usdcUnavailableSnapshot : snapshotToggle && snapshotFunded ? fundedSnapshot : ticking && snapshot ? { ...snapshot, block: { ...snapshot.block, timestamp: String(Math.floor(NOW / 1000) - 120) } } : snapshot;
@@ -258,7 +262,7 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
       : { version: 1, usdcReserveBaseUnits: "20000" };
   const summary = liveSnapshot ? presentBalances({ status: "ready", snapshot: liveSnapshot, error: null }).summary : null;
   const cashRate = homeParity ? "4.08% APY" : null;
-  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale || balanceActionStale} balanceActionStale={balanceActionStale} refreshFailed={refreshFailed} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
+  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale || balanceActionStale || balancesStale} balanceActionStale={balanceActionStale} refreshFailed={refreshFailed} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
   return (
     <PresentationRegionProvider regionId={regionId}>
       <ProductOfferingProvider value={offering}>
@@ -1004,6 +1008,30 @@ export const CurrencySaveFirstDepositPending: Story = { args: { snapshot: cashOn
   await expect(pendingSavings.getByText("Pending")).toBeVisible();
   await expect(pendingSavings.getByRole("img", { name: "$25.00" })).toBeVisible();
   await expect(pendingSavings.queryByRole("button", { name: /Gauntlet/ })).toBeNull();
+} };
+export const CashSavingsPendingStaleBalances: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  const body = within(canvasElement.ownerDocument.body);
+  await userEvent.click(await screen.findByRole("button", { name: "Start saving" }));
+  const picker = await body.findByRole("dialog", { name: "Choose where to save" });
+  await userEvent.click(within(picker).getByRole("button", { name: /^Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
+  const dialog = await body.findByRole("dialog", { name: "Deposit" });
+  await userEvent.type(within(dialog).getByRole("textbox", { name: "Amount" }), "25");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+  const confirm = await body.findByRole("dialog", { name: "Confirm" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Deposit $25.00" }));
+  await waitForReady(() => expect(journey.executed).toHaveLength(1));
+  await userEvent.click(body.getByRole("button", { name: "Done" }));
+  await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
+  await userEvent.click(within(canvasElement).getByRole("button", { name: "Back" }));
+  const row = savingsRow(canvasElement);
+  await expect(within(row).getByText("Pending")).toBeVisible();
+  await expect(within(row).getByRole("img", { name: "$25.00" })).toBeVisible();
+  snapshotChanges.dispatchEvent(new Event("stale"));
+  await waitForReady(() => expect(within(row).queryByText("Pending")).toBeNull());
+  await expect(row).toBeVisible();
+  await expect(within(row).queryByRole("img", { name: "$25.00" })).toBeNull();
+  await expect(row).not.toHaveTextContent("$25.00");
 } };
 export const SavingsFirstDepositTransition: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);

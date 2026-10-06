@@ -847,6 +847,8 @@ export function CashExperience({
         <CashOverview
           regionId={region}
           snapshot={liveSnapshot}
+          summary={summary}
+          balanceStale={balanceStale}
           balanceActionStale={balanceActionStale}
           refreshFailed={refreshFailed && liveSnapshot !== null}
           pendingCashout={pendingCashout}
