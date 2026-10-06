@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, within } from "storybook/test";
 import { http, HttpResponse } from "msw";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { AssetDetailScreen } from "@/client/invest/asset-detail-screen";
@@ -12,6 +12,7 @@ import { assetFacts } from "@/config/invest-sources/asset-context";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { priceHistoryFixture } from "@/tests/browser/feature-map/fixtures";
 import { pinClock } from "@/tests/helpers/pin-clock";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import type { MarketDataState } from "@/shared/invest/invest-market";
 import { isMarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import type { AssetCatalyst, AssetFact } from "@/shared/invest/asset-context";
@@ -178,11 +179,11 @@ export const OnePointRefreshKeepsLastGood: Story = { args: { mode: "one-point-re
   await expect(chart).toHaveAccessibleName(/1 week price history, 24 points.*Couldn't refresh/);
   await expect(canvas.queryByRole("status", { name: "Couldn't load price history" })).not.toBeInTheDocument();
   await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
-  await waitFor(() => expect(canvas.queryByText(/^Couldn't refresh price history/)).not.toBeInTheDocument(), chartWait);
+  await waitForReady(() => expect(canvas.queryByText(/^Couldn't refresh price history/)).not.toBeInTheDocument());
   await expect(canvas.getByRole("group", { name: /1 week price history, 24 points/ })).toBeVisible();
 } };
-export const Paused: Story = { args: { mode: "paused" }, play: async ({ canvasElement }) => { const canvas = await ready(canvasElement); await waitFor(() => expect(canvas.getAllByText("Paused")).toHaveLength(2)); } };
-export const Stale: Story = { args: { mode: "stale" }, play: async ({ canvasElement }) => { const canvas = await ready(canvasElement); await waitFor(() => expect(canvas.getAllByText("Price delayed")).toHaveLength(2)); } };
+export const Paused: Story = { args: { mode: "paused" }, play: async ({ canvasElement }) => { const canvas = await ready(canvasElement); await waitForReady(() => expect(canvas.getAllByText("Paused")).toHaveLength(2)); } };
+export const Stale: Story = { args: { mode: "stale" }, play: async ({ canvasElement }) => { const canvas = await ready(canvasElement); await waitForReady(() => expect(canvas.getAllByText("Price delayed")).toHaveLength(2)); } };
 export const UnavailableRetry: Story = { args: { mode: "retry" }, parameters: { msw: { handlers: [historyHandler("retry")] } }, play: async ({ canvasElement }) => {
   const canvas = await open(canvasElement); await userEvent.click(await canvas.findByRole("button", { name: "Try again" }));
   await expect(await canvas.findByRole("group", { name: /1 week price history/ }, chartWait)).toBeVisible();
@@ -200,6 +201,6 @@ export const RapidRangeSwitch: Story = { play: async ({ canvasElement }) => {
   await userEvent.click(canvas.getByRole("button", { name: "1D" }));
   await userEvent.click(canvas.getByRole("button", { name: "1Y" }));
   await userEvent.click(canvas.getByRole("button", { name: "1W" }));
-  await waitFor(() => expect(canvas.getByRole("group", { name: /1 week price history/ })).toBeVisible(), chartWait);
+  await waitForReady(() => expect(canvas.getByRole("group", { name: /1 week price history/ })).toBeVisible());
   await expect(canvasElement.querySelector('[data-layer-range="1Y"][data-layer-state="shown"]')).not.toBeInTheDocument();
 } };

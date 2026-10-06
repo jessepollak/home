@@ -46,6 +46,8 @@ export function withFundingOrderEvents(store: FundingOrderStore, record: Recorde
     completeDispatch: async (id, input) => finalized(await store.completeDispatch(id, input)),
     markDispatchAmbiguous: async (id, expectedVersion, updatedAt) =>
       finalized(await store.markDispatchAmbiguous(id, expectedVersion, updatedAt)),
+    recoverStaleReserving: (owner, region, providerId, reservedBefore, updatedAt) =>
+      store.recoverStaleReserving(owner, region, providerId, reservedBefore, updatedAt),
     resolveDispatchAmbiguous: async (id, owner, expectedVersion, updatedAt) =>
       finalized(await store.resolveDispatchAmbiguous(id, owner, expectedVersion, updatedAt)),
     abandon: (id, owner, input) => store.abandon(id, owner, input),

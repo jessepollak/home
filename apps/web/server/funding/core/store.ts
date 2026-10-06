@@ -71,6 +71,7 @@ export interface FundingOrderStore {
     updatedAt: string;
   }): Promise<FundingOrder>;
   markDispatchAmbiguous(id: string, expectedVersion: number, updatedAt: string): Promise<FundingOrder>;
+  recoverStaleReserving(owner: FundingOrderOwner, region: string, providerId: string, reservedBefore: string, updatedAt: string): Promise<FundingOrder[]>;
   resolveDispatchAmbiguous(
     id: string,
     owner: FundingOrderOwner,
@@ -208,6 +209,17 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
     if (order.state !== "reserving" || order.version !== expectedVersion) throw new Error("funding-order-already-dispatched");
     Object.assign(order, { state: "dispatch-ambiguous" as const, updatedAt, instructions: null, version: order.version + 1 });
     return clone(order);
+  }
+
+  async recoverStaleReserving(owner: FundingOrderOwner, region: string, providerId: string, reservedBefore: string, updatedAt: string): Promise<FundingOrder[]> {
+    const recovered: FundingOrder[] = [];
+    for (const order of this.orders.values()) {
+      if (!sameOwner(order.owner, owner) || order.region !== region || order.providerId !== providerId ||
+        order.state !== "reserving" || !(Date.parse(order.updatedAt) <= Date.parse(reservedBefore))) continue;
+      Object.assign(order, { state: "dispatch-ambiguous" as const, instructions: null, version: order.version + 1, updatedAt });
+      recovered.push(clone(order));
+    }
+    return recovered;
   }
 
   async resolveDispatchAmbiguous(

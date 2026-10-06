@@ -60,6 +60,9 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
   async markDispatchAmbiguous(id: string, expectedVersion: number, updatedAt: string) {
     return this.updated(`UPDATE funding_orders SET state='dispatch-ambiguous', instructions=NULL, version=version+1, updated_at=$3 WHERE id=$1 AND state='reserving' AND version=$2 RETURNING *`, [id, expectedVersion, updatedAt]);
   }
+  async recoverStaleReserving(owner: FundingOrderOwner, region: string, providerId: string, reservedBefore: string, updatedAt: string): Promise<FundingOrder[]> {
+    return this.all(`UPDATE funding_orders SET state='dispatch-ambiguous', instructions=NULL, version=version+1, updated_at=$6 WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND provider_id=$4 AND state='reserving' AND updated_at <= $5 RETURNING *`, [owner.accountProvider, owner.subject, region, providerId, reservedBefore, updatedAt]);
+  }
   async resolveDispatchAmbiguous(id: string, owner: FundingOrderOwner, expectedVersion: number, updatedAt: string) {
     return this.updatedOrNull(`UPDATE funding_orders SET state='cancelled', instructions=NULL, version=version+1, updated_at=$5 WHERE id=$1 AND account_provider=$2 AND owner_subject=$3 AND state='dispatch-ambiguous' AND version=$4 RETURNING *`, [id, owner.accountProvider, owner.subject, expectedVersion, updatedAt]);
   }
