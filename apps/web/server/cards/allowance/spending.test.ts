@@ -7,6 +7,7 @@ import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { parseCardSpendingError, parseCardSpendingResponse } from "@/shared/cards/allowance-contract";
 import type { CardAllowanceRegistry } from "./config";
 import { createCardSpendingHandler } from "./spending";
+import { fakeProgram } from "@/tests/cards/fake-program";
 
 const owner = "0x1111111111111111111111111111111111111111" as const;
 const spender = "0x3333333333333333333333333333333333333333" as const;
@@ -24,7 +25,8 @@ function handler(options: { balance?: number; allowance?: number; registry?: Car
   return createCardSpendingHandler({
     authorize: async () => options.session ?? session,
     registry: () => { if (options.invalidRegistry) throw new Error("invalid settings"); return options.registry === undefined ? registry : options.registry; },
-    journey: () => { if (options.invalidJourney) throw new Error("invalid journey"); return options.enabled === false ? null : ({ mode: "production", funding: { kind: "crypto_wallet" } }) as ReturnType<typeof import("../bridge/journey-config").readCardJourneyConfig>; },
+    customer: async () => ({ id: "owner" }),
+    programFor: async () => { if (options.invalidJourney) throw new Error("invalid program"); return options.enabled === false ? null : fakeProgram({ mode: "production" }).program; },
     now: () => fetchedAt,
     rpc: async (method, params, rpcOptions) => {
       calls.push({ method, params, signal: rpcOptions?.signal });
@@ -74,6 +76,14 @@ describe("GET /api/cards/spending", () => {
     expect(calls[4]?.signal).toBe(calls[0]?.signal);
     expect(await (await handler({ registry: withRetired, fail: "retired" })(request())).json()).toEqual({ version: 1, status: "unavailable", fetchedAt });
   });
+  test("deposit program never reads or offers a USDC allowance", async () => {
+    let reads = 0;
+    const GET = createCardSpendingHandler({ authorize: async () => session, registry: () => registry,
+      customer: async () => ({ id: "owner" }), programFor: async () => fakeProgram({ mode: "production", funding: { strategy: "deposit" } }).program,
+      rpc: async () => { reads++; return "0x64"; } });
+    expect(await (await GET(request())).json()).toEqual({ version: 1, status: "not-configured" });
+    expect(reads).toBe(0);
+  });
   test("missing Bridge registry returns not-configured without a chain read", async () => {
     const calls: Array<{ method: string; params: readonly unknown[] }> = [];
     expect(await (await handler({ registry: null }, calls)(request())).json()).toEqual({ version: 1, status: "not-configured" });
@@ -110,7 +120,7 @@ describe("GET /api/cards/spending", () => {
   test("deadline expiring during chain reads yields unavailable even if the RPC returns data", async () => {
     const controller = new AbortController();
     const GET = createCardSpendingHandler({ authorize: async () => session, registry: () => registry,
-      journey: () => ({ mode: "production", funding: { kind: "crypto_wallet" } }) as ReturnType<typeof import("../bridge/journey-config").readCardJourneyConfig>,
+      customer: async () => ({ id: "owner" }), programFor: async () => fakeProgram({ mode: "production" }).program,
       deadline: () => controller.signal, now: () => fetchedAt,
       rpc: async (method) => { if (method === "eth_blockNumber") return "0x64"; controller.abort(); return word(10); } });
     expect(await (await GET(request())).json()).toEqual({ version: 1, status: "unavailable", fetchedAt });

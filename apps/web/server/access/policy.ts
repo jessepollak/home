@@ -19,6 +19,7 @@ const actionPaymasterPattern =
   /^\/api\/actions\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/paymaster$/i;
 
 function isPublicPath(pathname: string): boolean {
+  if (/^\/api\/cards\/[^/]+\/(?:reveal|freeze|unfreeze)$/.test(pathname)) return false;
   return pathname === appleAssociationPath ||
     pathname === "/api/webhooks/cdp" ||
     fundingWebhookPattern.test(pathname) ||

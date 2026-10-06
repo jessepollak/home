@@ -35,8 +35,8 @@ export function cardsBody(state: CardState = "active", now = new Date(FIXED_NOW)
   const issued = status !== "active" || state === "active";
   return {
     version: CARDS_CONTRACT_VERSION, state,
-    cards: issued ? [{ id: "ic_fixture4821", status, last4: "4821" }] : [],
-    provenance: { bridge: "available", stripe: issued ? "available" : "not-requested", fetchedAt: now.toISOString() },
+    cards: issued ? [{ id: "11111111-1111-4111-8111-111111114821", status, last4: "4821" }] : [],
+    provenance: { program: "bridge", account: "available", cards: issued ? "available" : "not-requested", fetchedAt: now.toISOString() },
   };
 }
 

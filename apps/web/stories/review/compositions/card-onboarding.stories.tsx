@@ -14,7 +14,7 @@ function CardOnboardingComposition({ initial = "not-enrolled" }: { initial?: Ext
     <div className={shellDesktopContentClassName} data-shell-panel-id="card">
       <CardScreen cards={cards} onRetry={() => {}} onOpenVerification={() => setResponse(cardsBody("ready-to-issue"))}
         commands={{
-          enroll: async () => "https://bridge.withpersona.com/verify?inquiry-template-id=itmpl_journey",
+          enroll: async () => ({ kind: "redirect", url: "https://bridge.withpersona.com/verify?inquiry-template-id=itmpl_journey" }),
           issue: async () => setResponse(cardsBody("active")),
           setFrozen: async (_cardId, frozen) => setResponse(cardsBody(frozen ? "frozen" : "active")),
         }} />

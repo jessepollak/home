@@ -13,15 +13,15 @@ import { CARD_PURCHASES_VERSION, type CardPurchase } from "@/shared/cards/transa
 function cardsFixture(state: "frozen" | "active"): CardsResponse {
   return {
     version: CARDS_CONTRACT_VERSION, state,
-    cards: [{ id: "ic_fixture1107", status: state, last4: "1107" }],
-    provenance: { bridge: "available", stripe: "available", fetchedAt: "2026-09-24T12:00:00.000Z" },
+    cards: [{ id: "11111111-1111-4111-8111-111111111107", status: state, last4: "1107" }],
+    provenance: { program: "bridge", account: "available", cards: "available", fetchedAt: "2026-09-24T12:00:00.000Z" },
   };
 }
 const frozenCards = cardsFixture("frozen");
 
 function purchase(reason: string | null): CardPurchase {
   return {
-    id: "iauth_declinefixture", kind: "authorization", amountMinor: "1820", currency: "USD",
+    id: "11111111-1111-4111-8111-111111110021", kind: "authorization", amountMinor: "1820", currency: "USD",
     merchantName: "Fixture Market", merchantCategory: null, status: "declined", declineReasonCode: reason,
     createdAt: "2026-09-24T12:00:00.000Z", updatedAt: "2026-09-24T12:00:00.000Z",
   };

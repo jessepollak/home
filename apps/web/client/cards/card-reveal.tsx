@@ -34,15 +34,23 @@ export function CardDetailsReveal({ cardId, publishableKey, revealKey }: {
         const { loadStripe } = await import("@stripe/stripe-js/pure");
         const stripe = await loadStripe(publishableKey);
         if (!stripe) throw new Error("Stripe unavailable");
-        const nonceResult = await stripe.createEphemeralKeyNonce({ issuingCard: cardId });
+        if (cancelled) return;
+        const prepared = await revealKey(cardId, { method: "stripe-issuing-elements", step: "prepare" });
+        if (cancelled) return;
+        if (prepared.grant.method !== "stripe-issuing-elements" || prepared.grant.step !== "prepare") throw new Error("Unsupported reveal method");
+        const nonceResult = await stripe.createEphemeralKeyNonce({ issuingCard: prepared.grant.issuingCard });
+        if (cancelled) return;
         if (!nonceResult.nonce) throw new Error("Nonce unavailable");
-        const { ephemeralKeySecret } = await revealKey(cardId, nonceResult.nonce);
+        const response = await revealKey(cardId, { method: "stripe-issuing-elements", step: "grant", nonce: nonceResult.nonce });
+        if (response.grant.method !== "stripe-issuing-elements" || response.grant.step !== "grant" || response.grant.issuingCard !== prepared.grant.issuingCard)
+          throw new Error("Invalid reveal grant");
+        const { ephemeralKeySecret, issuingCard, nonce } = response.grant;
         if (cancelled || !numberRef.current || !expiryRef.current || !cvcRef.current) return;
         const computed = getComputedStyle(numberRef.current);
         const style: StripeElementStyle = {
           base: { color: computed.color, fontSize: "16px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" },
         };
-        const options = { issuingCard: cardId, nonce: nonceResult.nonce, ephemeralKeySecret, style };
+        const options = { issuingCard, nonce, ephemeralKeySecret, style };
         const elements = stripe.elements();
         const number = elements.create("issuingCardNumberDisplay", options);
         const expiry = elements.create("issuingCardExpiryDisplay", options);

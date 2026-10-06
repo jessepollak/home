@@ -1,131 +1,136 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { isAddress } from "viem";
 import type { SqlExecutor } from "@/server/db/sql";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { CardWriteErrorCode } from "@/shared/cards/contract";
-import { createCardAccountStore } from "./account-store";
-import type { CardJourneyConfig } from "./bridge/journey-config";
-import type { createBridgeClient } from "./bridge/client";
+import type { CardWriteErrorCode, RevealRequest, RevealGrant } from "@/shared/cards/contract";
+import { createCardAccountStore, type CardAccountLink } from "./account-store";
+import type { ProgramLink } from "./program";
+import type { CardMode, CardProviderName } from "./provider";
 import { readCardState } from "./journey";
-import type { createStripeClient } from "./stripe/client";
-
-type IssuedCard = Readonly<{ id: string; status: "active" | "frozen" }>;
-
-type Bridge = ReturnType<typeof createBridgeClient>;
-type Stripe = ReturnType<typeof createStripeClient>;
-type Dependencies = { sql: SqlExecutor; config: CardJourneyConfig; bridge: Bridge; stripe: Stripe };
+import { readCardPrograms } from "./programs";
 
 export class CardWriteFailure extends Error {
   constructor(readonly code: CardWriteErrorCode, readonly status: number) { super(code); }
 }
-
-function key(...parts: string[]): string {
-  const hash = createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+function key(provider: CardProviderName, purpose: string, ...parts: string[]): string {
+  const hash = createHash("sha256").update(JSON.stringify([provider, purpose, ...parts])).digest("hex");
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
-async function lockedAccount(tx: SqlExecutor, customerId: string, mode: string) {
-  return (await tx.query<{ bridge_customer_id: string | null; stripe_cardholder_id: string | null }>(
-    "SELECT bridge_customer_id,stripe_cardholder_id FROM card_accounts WHERE customer_id=$1 AND mode=$2 FOR UPDATE",
-    [customerId, mode],
-  )).rows[0] ?? null;
-}
-
-export function createCardWriteService({ sql, config, bridge, stripe }: Dependencies) {
-  const mode = config.mode;
+export function createCardWriteService({ sql, programs = readCardPrograms(sql), mode = programs.mode }: {
+  sql: SqlExecutor; programs?: ReturnType<typeof readCardPrograms>; mode?: CardMode | null;
+}) {
+  function availableMode() { if (!mode) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503); return mode; }
+  async function selected(link: CardAccountLink | null, customerId: string, selectedMode: CardMode) {
+    const program = link ? programs.byProvider(link.provider, selectedMode) : await programs.programFor(customerId, selectedMode);
+    if (!program) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+    return program;
+  }
+  async function owned(tx: SqlExecutor, customerId: string, id: string) {
+    const selectedMode = availableMode();
+    const store = createCardAccountStore(tx);
+    const link = await store.read(customerId, selectedMode, undefined, true);
+    const card = link?.cards.find((card) => card.id === id);
+    if (!link?.accountId || !card) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
+    const program = await selected(link, customerId, selectedMode);
+    const state = await readCardState(customerId, selectedMode, { store, programFor: async () => program });
+    if (state.state === "unavailable") throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+    const fresh = state.cards.find((item) => item.id === id);
+    if (!fresh) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+    return { link, card, program, state, fresh };
+  }
   return {
-    async enroll(customerId: string, redirectUri: string): Promise<string> {
-      await sql.query("INSERT INTO card_accounts(customer_id,mode) VALUES ($1,$2) ON CONFLICT (customer_id,mode) DO NOTHING", [customerId, mode]);
-      const bridgeId = await sql.transaction(async (tx) => {
-        const account = await lockedAccount(tx, customerId, mode);
-        if (!account) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        if (account.bridge_customer_id) return account.bridge_customer_id;
-        const customer = await bridge.createCustomer(key("bridge-customer", mode, customerId));
-        await tx.query("UPDATE card_accounts SET bridge_customer_id=$3,updated_at=now() WHERE customer_id=$1 AND mode=$2", [customerId, mode, customer.id]);
-        return customer.id;
+    async enroll(customerId: string, redirectUri: string) {
+      const selectedMode = availableMode();
+      return sql.transaction(async (tx) => {
+        const store = createCardAccountStore(tx);
+        const initial = await store.read(customerId, selectedMode);
+        const first = await selected(initial, customerId, selectedMode);
+        await tx.query("INSERT INTO card_accounts(customer_id,mode,provider) VALUES ($1,$2,$3) ON CONFLICT (customer_id,mode) DO NOTHING", [customerId, selectedMode, first.provider]);
+        const link = await store.read(customerId, selectedMode, undefined, true);
+        if (!link) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+        const program = await selected(link, customerId, selectedMode);
+        const result = await program.enroll(link, { customerId, redirectUri, idempotencyKey: key(program.provider, "enroll", selectedMode, customerId) });
+        if (result.next.kind === "redirect") {
+          const url = new URL(result.next.url);
+          if (url.protocol !== "https:" || !program.enrollmentHosts.includes(url.host) || url.username || url.password || url.hash)
+            throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+        }
+        await store.update(link, result.link);
+        return result.next;
       });
-      const customer = await bridge.readCustomer(bridgeId);
-      if (customer.stripeCardholderId) {
-        const updated = await sql.query(
-          "UPDATE card_accounts SET stripe_cardholder_id=$3,updated_at=now() WHERE customer_id=$1 AND mode=$2 AND (stripe_cardholder_id IS NULL OR stripe_cardholder_id=$3)",
-          [customerId, mode, customer.stripeCardholderId],
-        );
-        if (!updated.rowCount) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-      }
-      return bridge.cardsKycLink(bridgeId, redirectUri);
     },
-    async issue(customerId: string, session: VerifiedAccountSession): Promise<IssuedCard> {
+    async issue(customerId: string, session: VerifiedAccountSession): Promise<Readonly<{ id: string; status: "active" | "frozen" }>> {
+      const selectedMode = availableMode();
       if (!session.smartAccount) throw new CardWriteFailure("CARD_NOT_READY", 409);
       const wallet = session.smartAccount.address.toLowerCase();
+      if (!isAddress(wallet)) throw new CardWriteFailure("CARD_NOT_READY", 409);
       return sql.transaction(async (tx) => {
-        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`cards:${mode}:${wallet}`]);
-        const account = await lockedAccount(tx, customerId, mode);
-        if (!account?.bridge_customer_id) throw new CardWriteFailure("CARD_NOT_READY", 409);
-        const ownerWallet = await tx.query("SELECT 1 FROM customer_wallets WHERE customer_id=$1 AND chain_id=8453 AND address=$2", [customerId, wallet]);
-        if (!ownerWallet.rowCount) throw new CardWriteFailure("CARD_NOT_READY", 409);
-        const state = await readCardState(customerId, mode, { store: createCardAccountStore(tx), bridge, stripe });
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`cards:${selectedMode}:${wallet}`]);
+        const store = createCardAccountStore(tx);
+        const link = await store.read(customerId, selectedMode, undefined, true);
+        if (!link?.accountId) throw new CardWriteFailure("CARD_NOT_READY", 409);
+        const program = await selected(link, customerId, selectedMode);
+        if (!(await tx.query("SELECT 1 FROM customer_wallets WHERE customer_id=$1 AND chain_id=8453 AND address=$2", [customerId, wallet])).rowCount)
+          throw new CardWriteFailure("CARD_NOT_READY", 409);
+        const state = await readCardState(customerId, selectedMode, { store, programFor: async () => program });
         if (state.state === "unavailable") throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        const current = await createCardAccountStore(tx).read(customerId, mode);
-        if (!current) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        const sameWallet = current.cards.filter((card) => card.walletAddress === wallet);
-        const otherCards = await tx.query<{ stripe_card_id: string }>(
-          "SELECT stripe_card_id FROM cards WHERE mode=$1 AND wallet_address=$2 AND customer_id<>$3", [mode, wallet, customerId],
-        );
-        for (const otherCard of otherCards.rows) {
-          if ((await stripe.readCard(otherCard.stripe_card_id)).status !== "canceled") throw new CardWriteFailure("CARD_CONFLICT", 409);
+        const others = await tx.query<{ customer_id: string; provider: CardProviderName; provider_card_id: string; provider_account_id: string | null; provider_cardholder_id: string | null }>(
+          `SELECT c.customer_id,c.provider,c.provider_card_id,a.provider_account_id,a.provider_cardholder_id FROM cards c
+           JOIN card_accounts a ON a.customer_id=c.customer_id AND a.mode=c.mode AND a.provider=c.provider
+           WHERE c.mode=$1 AND c.wallet_address=$2 AND c.customer_id<>$3`, [selectedMode, wallet, customerId]);
+        for (const row of others.rows) {
+          const other = programs.byProvider(row.provider, selectedMode);
+          if (!other) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+          const otherLink: ProgramLink = { customerId: row.customer_id, mode: selectedMode, accountId: row.provider_account_id, cardholderId: row.provider_cardholder_id };
+          let reads;
+          try { reads = await other.readCards(otherLink, [row.provider_card_id]); } catch { throw new CardWriteFailure("CARDS_UNAVAILABLE", 503); }
+          const read = reads[0];
+          if (reads.length !== 1 || !read?.ok || read.providerCardId !== row.provider_card_id || read.card.providerCardId !== row.provider_card_id)
+            throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+          if (read.card.status !== "canceled") throw new CardWriteFailure("CARD_CONFLICT", 409);
         }
-        const existing = state.cards.find((item) => item.status !== "canceled" && sameWallet.some((card) => card.stripeCardId === item.id));
+        const sameWallet = link.cards.filter((card) => card.walletAddress === wallet);
+        const existing = state.cards.find((item) => item.status !== "canceled" && sameWallet.some((card) => card.id === item.id));
         if (existing) {
           if (existing.status !== "active" && existing.status !== "frozen") throw new CardWriteFailure("CARD_NOT_READY", 409);
           return { id: existing.id, status: existing.status };
         }
         if (!["ready-to-issue", "active", "frozen", "canceled"].includes(state.state)) throw new CardWriteFailure("CARD_NOT_READY", 409);
-        const customer = await bridge.readCustomer(account.bridge_customer_id);
-        if (!customer.stripeCardholderId || customer.cardsEndorsement?.status !== "approved" || customer.cardsEndorsement.missing || customer.cardsEndorsement.pending || customer.cardsEndorsement.issues || customer.status !== "active")
-          throw new CardWriteFailure("CARD_NOT_READY", 409);
-        if (account.stripe_cardholder_id && account.stripe_cardholder_id !== customer.stripeCardholderId) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        const holder = await stripe.readCardholder(customer.stripeCardholderId);
-        if (holder.status !== "active") throw new CardWriteFailure("CARD_NOT_READY", 409);
-        const card = await stripe.issueCard(customer.stripeCardholderId, wallet, key("stripe-issue", mode, customerId, wallet, String(sameWallet.length)));
-        if (card.status !== "active" || card.customerFrozen) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        await tx.query("UPDATE card_accounts SET stripe_cardholder_id=$3,updated_at=now() WHERE customer_id=$1 AND mode=$2", [customerId, mode, customer.stripeCardholderId]);
-        await tx.query("INSERT INTO cards(id,customer_id,mode,stripe_card_id,wallet_address) VALUES (gen_random_uuid(),$1,$2,$3,$4) ON CONFLICT (stripe_card_id) DO NOTHING", [customerId, mode, card.id, wallet]);
-        const linked = await tx.query("SELECT 1 FROM cards WHERE customer_id=$1 AND mode=$2 AND stripe_card_id=$3 AND wallet_address=$4", [customerId, mode, card.id, wallet]);
-        if (!linked.rowCount) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        return { id: card.id, status: "active" as const };
+        const account = await program.readAccount(link);
+        if (account.status === "unavailable") throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+        if (account.status !== "ready") throw new CardWriteFailure("CARD_NOT_READY", 409);
+        await store.update(link, account.link);
+        const currentLink = { ...link, ...account.link };
+        const card = await program.issue(currentLink, wallet, key(program.provider, "issue", selectedMode, customerId, wallet, String(sameWallet.length)));
+        if (card.status !== "active" || card.cardholderId !== (account.cardholderId ?? currentLink.cardholderId)) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+        await tx.query("INSERT INTO cards(id,customer_id,mode,provider,provider_card_id,wallet_address) VALUES (gen_random_uuid(),$1,$2,$3,$4,$5) ON CONFLICT (provider,mode,provider_card_id) DO NOTHING", [customerId, selectedMode, program.provider, card.providerCardId, wallet]);
+        const linked = await tx.query<{ id: string }>("SELECT id FROM cards WHERE customer_id=$1 AND mode=$2 AND provider=$3 AND provider_card_id=$4 AND wallet_address=$5", [customerId, selectedMode, program.provider, card.providerCardId, wallet]);
+        if (!linked.rows[0]) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+        return { id: linked.rows[0].id, status: "active" };
       });
     },
-    async freeze(customerId: string, id: string, freeze: boolean): Promise<string> {
+    async freeze(customerId: string, id: string, frozen: boolean): Promise<string> {
       return sql.transaction(async (tx) => {
-        const account = await lockedAccount(tx, customerId, mode);
-        if (!account?.bridge_customer_id) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
-        const owned = await tx.query("SELECT 1 FROM cards WHERE customer_id=$1 AND mode=$2 AND stripe_card_id=$3", [customerId, mode, id]);
-        if (!owned.rowCount) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
-        const state = await readCardState(customerId, mode, { store: createCardAccountStore(tx), bridge, stripe });
-        if (state.state === "unavailable") throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        const found = state.cards.find((card) => card.id === id);
-        if (!found) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        if ((!freeze && state.state === "restricted") || found.status === "restricted" || found.status === "canceled") throw new CardWriteFailure("CARD_NOT_READY", 409);
-        if (found.status === (freeze ? "frozen" : "active")) return id;
-        if (found.status !== (freeze ? "active" : "frozen")) throw new CardWriteFailure("CARD_NOT_READY", 409);
-        const card = await stripe.setCardFreeze(id, freeze, crypto.randomUUID());
-        if (card.cardholderId !== account.stripe_cardholder_id && account.stripe_cardholder_id !== null) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        return card.id;
+        const { link, card, program, state, fresh } = await owned(tx, customerId, id);
+        if (!frozen && state.state === "restricted" || fresh.status === "restricted" || fresh.status === "canceled") throw new CardWriteFailure("CARD_NOT_READY", 409);
+        if (fresh.status === (frozen ? "frozen" : "active")) return id;
+        const result = await program.setFrozen(link, card.providerCardId, frozen, crypto.randomUUID());
+        if (result.providerCardId !== card.providerCardId || link.cardholderId !== null && result.cardholderId !== link.cardholderId || result.status !== (frozen ? "frozen" : "active"))
+          throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+        return id;
       });
     },
-    async ephemeralKey(customerId: string, id: string, nonce: string): Promise<string> {
+    async reveal(customerId: string, id: string, request: RevealRequest): Promise<RevealGrant> {
       return sql.transaction(async (tx) => {
-        const account = await lockedAccount(tx, customerId, mode);
-        if (!account?.bridge_customer_id) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
-        const owned = await tx.query("SELECT 1 FROM cards WHERE customer_id=$1 AND mode=$2 AND stripe_card_id=$3", [customerId, mode, id]);
-        if (!owned.rowCount) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
-        const state = await readCardState(customerId, mode, { store: createCardAccountStore(tx), bridge, stripe });
-        if (state.state === "unavailable") throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        const card = state.cards.find((item) => item.id === id);
-        if (!card || !["active", "frozen"].includes(state.state) || !["active", "frozen"].includes(card.status))
-          throw new CardWriteFailure("CARD_NOT_READY", 409);
-        return stripe.ephemeralKey(id, nonce);
+        const { link, card, program, state, fresh } = await owned(tx, customerId, id);
+        if (!["active", "frozen"].includes(state.state) || !["active", "frozen"].includes(fresh.status)) throw new CardWriteFailure("CARD_NOT_READY", 409);
+        const grant = await program.reveal(link, card.providerCardId, request);
+        if (grant.method !== request.method || grant.step !== request.step || grant.issuingCard !== card.providerCardId ||
+            request.step === "grant" && (grant.step !== "grant" || grant.nonce !== request.nonce)) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+        return grant;
       });
     },
   };

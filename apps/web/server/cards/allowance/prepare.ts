@@ -11,10 +11,8 @@ import { resolveCustomer } from "@/server/customers/resolve";
 import { getSqlExecutor } from "@/server/db/sql";
 import { createCardAccountStore, type CardAccountLink } from "../account-store";
 import { readCardState } from "../journey";
-import { createBridgeClient } from "../bridge/client";
-import { readCardJourneyConfig } from "../bridge/journey-config";
-import { createStripeClient } from "../stripe/client";
-import { cardAllowanceSetEnabled, readCardAllowanceRegistry, type CardAllowanceRegistry } from "./config";
+import { programFor } from "../programs";
+import { readCardAllowanceRegistry, type CardAllowanceRegistry } from "./config";
 
 export class CardAllowancePreparationError extends Error {
   readonly code: (typeof CARD_ALLOWANCE_PREPARE_ERRORS)[CardAllowancePrepareErrorReason]["code"];
@@ -31,22 +29,19 @@ export class CardAllowancePreparationError extends Error {
 type Rpc = (method: string, params: readonly unknown[], options?: BaseRpcOptions) => Promise<unknown>;
 type Dependencies = {
   registry?: () => CardAllowanceRegistry | null;
-  journey?: typeof readCardJourneyConfig;
+  programFor?: typeof programFor;
   customer?: (session: VerifiedAccountSession, signal?: AbortSignal) => Promise<{ id: string; walletId: string | null } | null>;
   account?: (customerId: string, mode: "sandbox" | "production", signal?: AbortSignal) => Promise<CardAccountLink | null>;
   state?: (customerId: string, mode: "sandbox" | "production", signal?: AbortSignal) => ReturnType<typeof readCardState>;
   rpc?: Rpc;
 };
 
-export function createCardAllowanceEligibility(deps: Pick<Dependencies, "customer" | "account" | "state" | "journey"> = {}) {
-  const journey = deps.journey ?? readCardJourneyConfig;
+export function createCardAllowanceEligibility(deps: Pick<Dependencies, "customer" | "account" | "state" | "programFor"> = {}) {
+  const resolveProgram = deps.programFor ?? programFor;
   const customer = deps.customer ?? ((session: VerifiedAccountSession, signal?: AbortSignal) => resolveCustomer(session, { create: false, signal }));
   const account = deps.account ?? ((id: string, mode: "sandbox" | "production", signal?: AbortSignal) => createCardAccountStore(getSqlExecutor()).read(id, mode, signal));
   const state = deps.state ?? ((id: string, mode: "sandbox" | "production", signal?: AbortSignal) => {
-    const config = journey();
-    if (!config || config.mode !== mode) throw new CardAllowancePreparationError("unavailable");
-    return readCardState(id, mode, { store: createCardAccountStore(getSqlExecutor()),
-      bridge: createBridgeClient(config), stripe: createStripeClient(config) }, signal);
+    return readCardState(id, mode, { store: createCardAccountStore(getSqlExecutor()), programFor: resolveProgram }, signal);
   });
   return async (session: VerifiedAccountSession, mode: "sandbox" | "production", signal?: AbortSignal): Promise<void> => {
     try {
@@ -54,16 +49,20 @@ export function createCardAllowanceEligibility(deps: Pick<Dependencies, "custome
       const resolved = await customer(session, signal);
       signal?.throwIfAborted();
       if (!resolved?.walletId) throw new CardAllowancePreparationError("not-ready");
+      const program = await resolveProgram(resolved.id, mode, signal);
+      signal?.throwIfAborted();
+      if (!program || program.provider !== "bridge" || program.mode !== mode || program.funding.strategy !== "allowance-pull" || !program.funding.prerequisitesMet)
+        throw new CardAllowancePreparationError("unavailable");
       const link = await account(resolved.id, mode, signal);
       signal?.throwIfAborted();
       const wallet = session.smartAccount?.address.toLowerCase();
-      if (!link || !wallet || !link.cards.some((card) => card.walletAddress.toLowerCase() === wallet))
+      if (!link || link.provider !== "bridge" || !wallet || !link.cards.some((card) => card.walletAddress.toLowerCase() === wallet))
         throw new CardAllowancePreparationError("not-ready");
       const cardState = await state(resolved.id, mode, signal);
       signal?.throwIfAborted();
       if (cardState.state === "unavailable") throw new CardAllowancePreparationError("unavailable");
       const eligible = link.cards.some((card) => card.walletAddress.toLowerCase() === wallet &&
-        cardState.cards.some((fresh) => fresh.id === card.stripeCardId && (fresh.status === "active" || fresh.status === "frozen")));
+        cardState.cards.some((fresh) => fresh.id === card.id && (fresh.status === "active" || fresh.status === "frozen")));
       if (!eligible || (cardState.state !== "active" && cardState.state !== "frozen")) throw new CardAllowancePreparationError("not-ready");
     } catch (error) {
       if (signal?.aborted) throw new CardAllowancePreparationError("unavailable");
@@ -77,7 +76,6 @@ export const checkCardAllowanceEligibility = createCardAllowanceEligibility();
 
 export function createCardAllowancePreparation(deps: Dependencies = {}) {
   const registry = deps.registry ?? readCardAllowanceRegistry;
-  const journey = deps.journey ?? readCardJourneyConfig;
   const eligible = createCardAllowanceEligibility(deps);
   const rpc = deps.rpc ?? baseRpc;
 
@@ -90,10 +88,7 @@ export function createCardAllowancePreparation(deps: Dependencies = {}) {
     catch { throw new CardAllowancePreparationError("unavailable"); }
     if (!configured) throw new CardAllowancePreparationError("unavailable");
     const set = params.operation === "set";
-    let allowed: boolean;
-    try { allowed = !set || cardAllowanceSetEnabled(configured, journey); }
-    catch { throw new CardAllowancePreparationError("unavailable"); }
-    if (!allowed) throw new CardAllowancePreparationError("unavailable");
+    if (set && (configured.bridge.mode !== "production" || !configured.maximumBaseUnits)) throw new CardAllowancePreparationError("unavailable");
     const spender = set ? configured.current : params.operation === "revoke" ? params.spender.toLowerCase() : null;
     if (!spender || !isAddress(spender)) throw new CardAllowancePreparationError("invalid");
     const token = BASE_USDC_ADDRESS.toLowerCase();

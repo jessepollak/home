@@ -2,7 +2,7 @@ import "server-only";
 
 import { constants, createPublicKey, verify, type JsonWebKey } from "node:crypto";
 import type { ImmersveConfig } from "./config";
-import { createCardWebhookHandler, type CardObservation, type CardProvider, type CardWebhookResult, type CardVerification } from "../provider";
+import { createCardWebhookHandler, type CardObservation, type CardEventSource, type CardWebhookResult, type CardVerification } from "../provider";
 
 type JwksClient = { getJwks(): Promise<unknown> };
 type CardEventStore = { insert(event: CardObservation): Promise<boolean> };
@@ -49,7 +49,7 @@ export function createImmersveWebhookHandler(dependencies: {
     finally { loading = null; }
   }
 
-  const provider: CardProvider = {
+  const provider: CardEventSource = {
     fundingStrategy: "deposit",
     async verifyAndNormalize(raw: Uint8Array, headers: Headers, topic?: string): Promise<CardVerification> {
       if (!topic || !isImmersveWebhookTopic(topic)) return { outcome: "rejected" };
