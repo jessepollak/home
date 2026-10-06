@@ -105,7 +105,8 @@ export function ActivityPanelView({
     ? { key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem, opener: null } : null);
   const [detailsOpen, setDetailsOpen] = useState(initialDetailItem !== null);
   const [immediateClose, setImmediateClose] = useState(false);
-  if (initialDetailItem && !selection && !detailsOpen && activity.status === "ready") {
+  const [detailsInvalidated, setDetailsInvalidated] = useState(false);
+  if (initialDetailItem && !selection && !detailsOpen && !detailsInvalidated && activity.status === "ready") {
     setSelection({ key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem, opener: null });
     setDetailsOpen(true);
   }
@@ -136,8 +137,18 @@ export function ActivityPanelView({
   const recentRef = useRef<ActivityListHandle>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const onDetailsChangeRef = useRef(onDetailsChange);
-  useEffect(() => { onDetailsChangeRef.current = onDetailsChange; }, [onDetailsChange]);
+  const onDetailsSelectionChangeRef = useRef(onDetailsSelectionChange);
+  useEffect(() => {
+    onDetailsChangeRef.current = onDetailsChange;
+    onDetailsSelectionChangeRef.current = onDetailsSelectionChange;
+  }, [onDetailsChange, onDetailsSelectionChange]);
+  useEffect(() => {
+    if (!detailsInvalidated) return;
+    onDetailsChangeRef.current?.(false);
+    onDetailsSelectionChangeRef.current?.(null);
+  }, [detailsInvalidated]);
   const openDetail = useCallback((item: ActivityLedgerItem, opener: HTMLElement) => {
+    setDetailsInvalidated(false);
     setPendingReturn(false);
     setImmediateClose(false);
     detailOpenerRef.current = opener;
@@ -150,6 +161,7 @@ export function ActivityPanelView({
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
     if (activity.status !== "ready") {
+      if (detailsStatus === "ready") setDetailsInvalidated(true);
       setPendingReturn(false);
       setDetailsOpen(false);
       setSelection(null);

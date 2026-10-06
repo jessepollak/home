@@ -69,6 +69,10 @@ Every sheet shows the caller's detail amount when supplied (otherwise the row am
 
 The page owns one selected item, opener and detail sheet; rows pass the exact opener to the page's `onOpen`. Closing returns focus to that opener.
 
+An owned non-cash Asset row opens the exact holding; Back restores the originating Activity detail only while Activity remains ready. Leaving ready for unavailable, loading, or error closes the sheet and invalidates both the page selection and the shell's remembered return, including a suspended asset return. Same-owner recovery shows the ledger without reopening a detail; a late Back cannot revive the invalidated selection. Cached-ready refresh failures and partial source availability preserve the selection. Owner changes fence the previous owner's detail.
+
+Session-unavailable key replacement and the Activity page's or Home feed's session shimmer invalidate the matching remembered return above the replaced or removed detail view. Both callers share the presentation invalidation boundary. A deferred post-render clear cannot hydrate that stale return on recovery, including with a hidden neighboring feed subscriber. Ordinary ready route hiding or unmounting is not an invalidation signal, so owned-asset Back remains available.
+
 ## Transaction names
 
 A row title names the money movement: a verb and an object or counterparty (`Sent to alex.base.eth`, `Borrowed USDC`, `Deposit to Savings`, `Card · Blue Bottle`). It never names a protocol, contract or status. A movement keeps one title through its whole lifecycle, so a pending `Sent to alex.base.eth` does not rename itself when it confirms; whether it happened is carried by the Pending group, the row context and the sheet badge, never by the title. A title without a known counterparty uses the family verb alone (`Send`).
