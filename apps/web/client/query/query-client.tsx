@@ -430,6 +430,7 @@ function hydrateOwnerClient(
     .map((query): DehydratedState["queries"][number] => ({
       queryKey: query.queryKey,
       queryHash: query.queryHash,
+      dehydratedAt: query.dataUpdatedAt,
       ...(query.meta ? { meta: query.meta } : {}),
       state: {
         data: query.data,

@@ -55,6 +55,7 @@ test("a reload keeps the post-action balance qualifier until a proving read clea
   persisted.clientState.queries = persisted.clientState.queries.filter((query) => query.queryKey[1] !== "balances-action");
   persisted.clientState.queries.push({
     queryKey: markerKey, queryHash: hashKey(markerKey), meta: ownerQueryMeta(ownerKey, "owner"),
+    dehydratedAt: FIXED_NOW,
     state: { ...balances.state, data: marker },
   });
   await replaceIndexedOwnerCache(page, value, JSON.stringify(persisted));
