@@ -7,7 +7,7 @@ import { readProductOffering } from "@/server/operator-settings/offering";
 
 import { CONFIRM_CASHOUT_ERRORS, supportsBaseBatchGasHint, type ConfirmActionErrorCode, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
-import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
+import { HANDLE_ACTION_CONTRACT_VERSION, parseHandleActionResponse, type HandleActionErrorCode } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
 import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
 import { LIST_ACTIONS_CONTRACT_VERSION, RECENT_ACTIONS_LIMIT, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
@@ -425,7 +425,7 @@ export function createHandleActionHandler(dependencies: {
     const startedAt = Date.now();
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
-    const fail = (code: string, message: string, status: number) => {
+    const fail = (code: HandleActionErrorCode, message: string, status: number) => {
       emitServerEvent("action-handle", {
         route: "/api/actions/:id/handle",
         code,
@@ -466,7 +466,9 @@ export function createHandleActionHandler(dependencies: {
       owner.address,
       new Date(signalTime.getTime() + BALANCES_HOT_WINDOW_MS),
     ), { timeoutMs: 2_000 });
-    return privateJson({ action: await presentAction(row, owner) } satisfies HandleActionResponse, 200);
+    const response = parseHandleActionResponse({ version: HANDLE_ACTION_CONTRACT_VERSION, action: await presentAction(row, owner) });
+    if (!response) return fail("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503);
+    return privateJson(response, 200);
   };
 }
 
@@ -679,6 +681,9 @@ export async function presentAction(
     confirmedAt,
     ...(iso(row.handle_recorded_at) ? { submittedAt: iso(row.handle_recorded_at)! } : {}),
     ...(settledAt ? { settledAt } : {}),
+    ...((row.outcome === null || row.outcome === "succeeded") && row.observed_receipt_outcome === "succeeded" && row.observed_receipt_block_number != null && row.observed_receipt_block_hash &&
+      row.transaction_hash && row.observed_receipt_transaction_hash?.toLowerCase() === row.transaction_hash.toLowerCase()
+      ? { settledBlockNumber: row.observed_receipt_block_number } : {}),
     ...(row.provider_handle ? { providerHandle: row.provider_handle } : {}),
     ...(row.transaction_hash ? { transactionHash: row.transaction_hash.toLowerCase() } : {}),
     owner: {

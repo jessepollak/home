@@ -1,6 +1,18 @@
 {
   "exceptions": [
     {
+      "path": "apps/web/client/query/after-action.test.ts",
+      "kind": "nonNull",
+      "count": 29,
+      "reason": "The post-action freshness regressions read markers, settlement proofs and seeded balance snapshots back out of the query cache immediately after the writer under test runs; each read is asserted in the same test."
+    },
+    {
+      "path": "apps/web/client/query/after-action.test.ts",
+      "kind": "assertion",
+      "count": 6,
+      "reason": "Six restored-marker cases build the persisted owner-state shapes the restore parser must accept or reject, which the parser's generic input type cannot express."
+    },
+    {
       "path": "apps/web/tests/browser/fixtures/fixed-time.ts",
       "kind": "suppression",
       "count": 1,

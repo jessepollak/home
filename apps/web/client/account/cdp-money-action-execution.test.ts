@@ -821,6 +821,56 @@ describe("thin action dispatch", () => {
     }
   });
 
+test("a handle error response is validated through the shared contract before the caller sees a code", async () => {
+  const session: VerifiedAccountSession = {
+    user: { subject: "subject" },
+    smartAccount: { address: plan.calls[0].to, chainId: 8453 },
+    accountProvider: "cdp-embedded",
+  };
+  const ownerFence: OwnerGenerationFence = {
+    advance: () => 4,
+    capture: () => 4,
+    isCurrent: (generation) => generation === 4,
+    assertCurrent: (generation) => { expect(generation).toBe(4); },
+    updateAuthorizationBoundary: () => {},
+    updateOwnerKey: () => false,
+  };
+  let code = "ACTIONS_UNAVAILABLE";
+  const sessionFetch: SessionFetch = async (path, options) => {
+    if (path !== `/api/actions/${id}/handle`) throw new Error(`Unexpected account resource ${String(path)}`);
+    expect(options?.method).toBe("POST");
+    return new Response(JSON.stringify({ error: { code, message: "Recorded actions are temporarily unavailable." } }), {
+      status: 503, headers: { "content-type": "application/json" },
+    });
+  };
+  const queryClient = new QueryClient();
+  const transportRef: { current: AuthenticatedTransport | null } = { current: null };
+  function Probe() {
+    const transport = useAuthenticatedTransport({
+      session, status: "verified", verification: "server", ownerKey: "owner", ownerFence,
+      getAccessToken: async () => "fixture-access-token", sessionFetch,
+    });
+    useEffect(() => { transportRef.current = transport; }, [transport]);
+    return null;
+  }
+  const view = render(createElement(QueryClientProvider, { client: queryClient }, createElement(Probe)));
+  try {
+    const transport = transportRef.current;
+    if (!transport) throw new Error("Transport probe did not render");
+    const call = () => transport.fetchAccountResource(`/api/actions/${id}/handle`, { method: "POST", body: JSON.stringify({ providerHandle: "handle-1" }) });
+    await expect(call()).rejects.toMatchObject({
+      kind: "http", status: 503, code: "ACTIONS_UNAVAILABLE", serverMessage: "Recorded actions are temporarily unavailable.",
+    });
+    code = "UNKNOWN_HANDLE_FAILURE";
+    await expect(call()).rejects.toMatchObject({
+      kind: "http", status: 503, code: null, serverMessage: "Recorded actions are temporarily unavailable.",
+    });
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
   test("an ambiguous CDP dispatch failure stays single-shot through the real executor", async () => {
     const failure = new Error("transport aborted after dispatch began");
     const harness = renderConfirmExecution(async () => plan, failure);

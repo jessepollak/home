@@ -5,7 +5,7 @@ import { keepPreviousData } from "@tanstack/react-query";
 import { createBalanceReadTiming, recordPresentedBalance } from "@/client/observability/balance-performance";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { isInterruptionEligible } from "@/client/account/resource-failure";
-import { snapshotSourceTime, type BalanceActionMarker } from "@/client/query/after-action";
+import { freshRegionMarker, snapshotProvesFreshness, type BalanceActionMarker } from "@/client/query/after-action";
 import { browserHomeQueryClient, ownerQueryKey, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { ownerQuery } from "@/client/query/query-options";
 import type { RegionId } from "@/config/regions";
@@ -171,21 +171,13 @@ function useBalancesObserver(
   const presentedSnapshot = useMemo(() => query.data && refreshError
     ? { ...query.data, stale: true as const } : query.data, [query.data, refreshError]);
   const held = options.held === true;
-  const presentedSource = presentedSnapshot ? snapshotSourceTime(presentedSnapshot) : null;
   const actionStale = presentedSnapshot !== undefined && marker !== undefined && marker.fresh[region] !== true &&
-    (presentedSource === null || presentedSource <= marker.at || presentedSnapshot.stale === true);
+    !snapshotProvesFreshness(presentedSnapshot, marker);
 
   useEffect(() => {
-    if (!ownerKey || marker === undefined || !query.isSuccess || query.isPlaceholderData ||
-      query.data === undefined || query.data.stale === true) return;
-    const source = snapshotSourceTime(query.data);
-    if (source === null || source <= marker.at || marker.fresh[region] === true) return;
+    if (!ownerKey || marker === undefined || !query.isSuccess || query.isPlaceholderData || marker.fresh[region] === true) return;
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
-    const currentMarker = queryClient.getQueryData<BalanceActionMarker>(markerKey);
-    if (currentMarker !== undefined && currentMarker.at === marker.at && currentMarker.fresh[region] !== true) {
-      queryClient.setQueryData<BalanceActionMarker>(markerKey, (current) => current && current.at === currentMarker.at
-        ? { ...current, fresh: { ...current.fresh, [region]: true } } : current);
-    }
+    queryClient.setQueryData<BalanceActionMarker>(markerKey, (current) => freshRegionMarker(current, marker, region, query.data));
   }, [ownerKey, region, marker, query.isSuccess, query.isPlaceholderData, query.data, query.dataUpdatedAt, queryClient]);
 
   useEffect(() => {

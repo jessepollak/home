@@ -98,6 +98,23 @@ export function trustRestoredBalances(data: unknown, entry: RestoredQueryEntry):
   }
 }
 
+export function trustRestoredBalanceActionMarker(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
+  if (!restoredOwner(entry.ownerKey) || entry.queryKey.length !== 2 || entry.queryKey[1] !== "balances-action" ||
+    !isRecord(data) || typeof data.at !== "number" || !Number.isFinite(data.at) || data.at < 0 ||
+    !isRecord(data.fresh) || !Object.entries(data.fresh).every(([region, fresh]) =>
+      regionIds.some((candidate) => candidate === region) && fresh === true) ||
+    (data.settledBlock !== undefined && (typeof data.settledBlock !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(data.settledBlock))) ||
+    (data.settledActionId !== undefined && (typeof data.settledActionId !== "string" || data.settledActionId.length === 0 || data.settledActionId.length > 64)) ||
+    (data.dispatchedOverflow !== undefined && data.dispatchedOverflow !== true) ||
+    (data.dispatchedActionIds !== undefined && (!Array.isArray(data.dispatchedActionIds) || data.dispatchedActionIds.length > 16 ||
+      !data.dispatchedActionIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 64)))) return null;
+  const dispatchedActionIds = [...new Set(data.dispatchedActionIds ?? [])];
+  return { data: { at: data.at, fresh: { ...data.fresh }, ...(data.settledBlock !== undefined ? { settledBlock: data.settledBlock } : {}),
+    ...(data.settledActionId !== undefined ? { settledActionId: data.settledActionId } : {}),
+    ...(dispatchedActionIds.length ? { dispatchedActionIds } : {}),
+    ...(data.dispatchedOverflow === true ? { dispatchedOverflow: true } : {}) } };
+}
+
 export function trustRestoredBorrowOverview(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   const owner = restoredOwner(entry.ownerKey);
   if (!owner || entry.queryKey.length !== 3 || entry.queryKey[1] !== "borrow" || entry.queryKey[2] !== "overview") return null;

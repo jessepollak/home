@@ -479,14 +479,24 @@ export class ActionsStore {
   async recordOutcome(
     owner: MoneyActionOwner,
     id: string,
-    input: { outcome: ActionOutcome; source: "chain" | "wallet"; settledAt: Date | null },
+    input: {
+      outcome: ActionOutcome; source: "chain" | "wallet"; settledAt: Date | null;
+      observedReceipt?: { transactionHash: string; blockNumber: string; blockHash: string; outcome: ObservedReceiptOutcome };
+    },
   ): Promise<{ row: ActionRow | null; written: boolean; conflict: boolean }> {
     const result = await this.sql.query<RawActionRow>(
       `UPDATE actions SET outcome = $3, outcome_source = $4, settled_at = $5, pending = NULL,
-         outcome_recorded_at = now()
+         outcome_recorded_at = now(),
+         observed_receipt_transaction_hash = COALESCE($6::text, observed_receipt_transaction_hash),
+         observed_receipt_block_number = COALESCE($7::numeric, observed_receipt_block_number),
+         observed_receipt_block_hash = COALESCE($8::text, observed_receipt_block_hash),
+         observed_receipt_outcome = COALESCE($9::text, observed_receipt_outcome),
+         observed_at = CASE WHEN $6::text IS NULL THEN observed_at ELSE now() END
        WHERE id = $1 AND owner_key = $2 AND confirmed_at IS NOT NULL AND outcome IS NULL
          AND ($4 <> 'wallet' OR transaction_hash IS NULL) RETURNING *`,
-      [id, actionOwnerKey(owner), input.outcome, input.source, input.settledAt],
+      [id, actionOwnerKey(owner), input.outcome, input.source, input.settledAt,
+        input.observedReceipt?.transactionHash ?? null, input.observedReceipt?.blockNumber ?? null,
+        input.observedReceipt?.blockHash ?? null, input.observedReceipt?.outcome ?? null],
     );
     if (result.rows[0]) return { row: normalizeActionRow(result.rows[0]), written: true, conflict: false };
     const row = await this.get(owner, id);

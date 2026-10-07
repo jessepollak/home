@@ -8,11 +8,12 @@ import {
   type BalanceSnapshot,
   type FreshUntilMovedClock,
 } from "./fresh-until-moved";
-import { ownerQueryKey } from "./query-client";
+import { ownerQueryKey, ownerQueryMeta } from "./query-client";
 import { ownerQuery } from "./query-options";
 import { activityWindowScope, networkFeePolicyScope, tradeAvailabilityScope, type OwnerQueryScope } from "./query-scopes";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { BALANCES_VERSION, type BalancesSnapshot } from "@/shared/balances/types";
+import { parseHandleActionResponse } from "@/shared/actions/contracts/handle";
 
 export { activityWindowScope, networkFeePolicyScope, tradeAvailabilityScope } from "./query-scopes";
 
@@ -94,14 +95,68 @@ export function advanceActivityWindowEnd(
   return next;
 }
 
-export type BalanceActionMarker = { at: number; fresh: Partial<Record<RegionId, true>> };
+export type BalanceActionMarker = { at: number; fresh: Partial<Record<RegionId, true>>; dispatchedActionIds?: string[]; dispatchedOverflow?: true; settledBlock?: string; settledActionId?: string };
 
-export async function invalidateAfterAction(
-  queryClient: QueryClient,
-  dataOwnerKey: string,
-  now = Date.now(),
-): Promise<void> {
-  writeBalanceMarker(queryClient, dataOwnerKey, newestBalancesSource(queryClient, dataOwnerKey) + 1);
+export function snapshotProvesFreshness(
+  snapshot: Pick<BalancesSnapshot, "block" | "fetchedAt" | "stale"> | undefined | null,
+  marker: BalanceActionMarker,
+): boolean {
+  if (!snapshot || snapshot.stale === true) return false;
+  if (marker.settledBlock !== undefined) {
+    const block = parseBlockNumber(snapshot.block?.number);
+    const settledBlock = parseBlockNumber(marker.settledBlock);
+    if (block === null || settledBlock === null || block < settledBlock) return false;
+    if (!marker.dispatchedActionIds?.length && marker.dispatchedOverflow !== true) return true;
+  }
+  const source = snapshotSourceTime(snapshot);
+  return source !== null && source > marker.at;
+}
+
+export function highestBlockNumber(left: string | undefined, right: string | undefined): string | undefined {
+  const leftBlock = parseBlockNumber(left);
+  const rightBlock = parseBlockNumber(right);
+  if (leftBlock === null) return rightBlock === null ? undefined : right;
+  if (rightBlock === null) return left;
+  return rightBlock >= leftBlock ? right : left;
+}
+
+export function freshRegionMarker(
+  current: BalanceActionMarker | undefined,
+  observed: BalanceActionMarker,
+  region: RegionId,
+  snapshot: Pick<BalancesSnapshot, "block" | "fetchedAt" | "stale"> | undefined | null,
+): BalanceActionMarker | undefined {
+  const currentBoundaries = current?.dispatchedActionIds ?? [];
+  const observedBoundaries = observed.dispatchedActionIds ?? [];
+  if (!current || current.at !== observed.at || current.settledBlock !== observed.settledBlock ||
+    currentBoundaries.length !== observedBoundaries.length || !currentBoundaries.every((id) => observedBoundaries.includes(id)) ||
+    current.dispatchedOverflow !== observed.dispatchedOverflow || current.settledActionId !== observed.settledActionId ||
+    current.fresh[region] === true || !snapshotProvesFreshness(snapshot, current)) return undefined;
+  return { ...current, fresh: { ...current.fresh, [region]: true } };
+}
+
+function parseBlockNumber(value: unknown): bigint | null {
+  return typeof value === "string" && /^(?:0|[1-9][0-9]*)$/.test(value) ? BigInt(value) : null;
+}
+
+export async function invalidateAfterAction({ queryClient, dataOwnerKey, actionId, serverAt, now = Date.now() }: {
+  queryClient: QueryClient;
+  dataOwnerKey: string;
+  actionId: string;
+  serverAt?: string;
+  now?: number;
+}): Promise<void> {
+  const current = queryClient.getQueryData<BalanceActionMarker>(ownerQueryKey(dataOwnerKey, "balances-action"));
+  const dispatchedActionIds = current?.settledActionId === actionId
+    ? current.dispatchedActionIds ?? []
+    : [...new Set([...(current?.dispatchedActionIds ?? []).filter((id) => id !== actionId), actionId])];
+  const dispatchedOverflow = current?.dispatchedOverflow === true || dispatchedActionIds.length > 16;
+  const at = Math.max(current?.at ?? 0, newestBalancesSource(queryClient, dataOwnerKey) + 1, Date.parse(serverAt ?? "") || 0);
+  writeBalanceMarker(queryClient, dataOwnerKey, { at, fresh: {},
+    ...(dispatchedActionIds.length ? { dispatchedActionIds: dispatchedActionIds.slice(-16) } : {}),
+    ...(dispatchedOverflow ? { dispatchedOverflow: true } : {}),
+    ...(current?.settledBlock !== undefined ? { settledBlock: current.settledBlock } : {}),
+    ...(current?.settledActionId !== undefined ? { settledActionId: current.settledActionId } : {}) });
   const advancer = activityWindowAdvancers.get(queryClient)?.get(dataOwnerKey)?.values().next().value;
   if (advancer) void advancer();
   else advanceActivityWindowEnd(queryClient, dataOwnerKey, now);
@@ -111,24 +166,38 @@ export async function invalidateAfterAction(
   ));
 }
 
-export function requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey }: {
+export function requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey, actionId, settledBlock, serverAt }: {
   queryClient: QueryClient;
   dataOwnerKey: string;
+  actionId: string;
+  settledBlock?: string;
+  serverAt?: string;
 }): void {
   const markerKey = ownerQueryKey(dataOwnerKey, "balances-action");
   const current = queryClient.getQueryData<BalanceActionMarker>(markerKey);
-  const at = Math.max(current?.at ?? 0, newestBalancesSource(queryClient, dataOwnerKey) + 1);
-  writeBalanceMarker(queryClient, dataOwnerKey, at);
+  if (current && parseBlockNumber(settledBlock) !== null && current.settledBlock === settledBlock &&
+    current.settledActionId === actionId && !current.dispatchedActionIds?.includes(actionId)) return;
+  const at = Math.max(current?.at ?? 0, newestBalancesSource(queryClient, dataOwnerKey) + 1, Date.parse(serverAt ?? "") || 0);
+  const block = highestBlockNumber(current?.settledBlock, settledBlock);
+  const dispatchedActionIds = parseBlockNumber(settledBlock) === null
+    ? [...new Set([...(current?.dispatchedActionIds ?? []), actionId])]
+    : (current?.dispatchedActionIds ?? []).filter((id) => id !== actionId);
+  const dispatchedOverflow = current?.dispatchedOverflow === true || dispatchedActionIds.length > 16;
+  writeBalanceMarker(queryClient, dataOwnerKey, { at, fresh: {},
+    ...(dispatchedActionIds.length ? { dispatchedActionIds: dispatchedActionIds.slice(-16) } : {}),
+    ...(dispatchedOverflow ? { dispatchedOverflow: true } : {}),
+    settledActionId: actionId, ...(block !== undefined ? { settledBlock: block } : {}) });
   void queryClient.cancelQueries({ queryKey: ownerQueryKey(dataOwnerKey, "balances") });
   void queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, "balances") });
 }
 
-function writeBalanceMarker(queryClient: QueryClient, dataOwnerKey: string, at: number): void {
+function writeBalanceMarker(queryClient: QueryClient, dataOwnerKey: string, marker: BalanceActionMarker): void {
   const markerKey = ownerQueryKey(dataOwnerKey, "balances-action");
-  const markerQuery = queryClient.getQueryCache().build(queryClient, { queryKey: markerKey, gcTime: Infinity });
-  markerQuery.setOptions({ ...markerQuery.options, gcTime: Infinity });
+  const meta = ownerQueryMeta(dataOwnerKey, "owner");
+  const markerQuery = queryClient.getQueryCache().build(queryClient, { queryKey: markerKey, gcTime: Infinity, meta });
+  markerQuery.setOptions({ ...markerQuery.options, gcTime: Infinity, meta });
   markerQuery.destroy();
-  queryClient.setQueryData<BalanceActionMarker>(markerKey, { at, fresh: {} });
+  queryClient.setQueryData<BalanceActionMarker>(markerKey, marker);
 }
 
 export function snapshotSourceTime(snapshot: unknown): number | null {
@@ -278,6 +347,7 @@ export async function settleBalanceFreshness(input: {
 export async function applyActionHandleEffects(input: {
   path: string;
   body: unknown;
+  response?: unknown;
   dataOwnerKey: string;
   queryClient: QueryClient;
   startBalanceFreshness: (actionId: string) => void | Promise<void>;
@@ -285,10 +355,21 @@ export async function applyActionHandleEffects(input: {
   const actionId = new URL(input.path, "https://home.invalid").pathname.split("/")[3];
   if (!actionId) return;
   const body = isRecord(input.body) ? input.body : {};
+  const response = parseHandleActionResponse(input.response);
+  const owner = response?.action.owner;
+  const ownerMatches = owner?.chainId && dataOwnerKeyForSession({
+    subject: owner.subject, smartAccountAddress: owner.address, chainId: owner.chainId,
+    accountProvider: owner.accountProvider ?? undefined,
+  }) === input.dataOwnerKey;
+  const serverAt = response?.action.id === actionId && ownerMatches ? response.action.submittedAt : undefined;
   if (typeof body.transactionHash === "string") {
+    const settledBlock = response?.action.id === actionId && ownerMatches ? response.action.settledBlockNumber : undefined;
+    if (typeof settledBlock === "string") {
+      requalifyBalancesAfterSettlement({ queryClient: input.queryClient, dataOwnerKey: input.dataOwnerKey, actionId, settledBlock, serverAt });
+    }
     void input.startBalanceFreshness(actionId);
     await Promise.all([
-      invalidateAfterAction(input.queryClient, input.dataOwnerKey),
+      invalidateAfterAction({ queryClient: input.queryClient, dataOwnerKey: input.dataOwnerKey, actionId, serverAt }),
       invalidateNetworkFeePolicy(input.queryClient),
     ]);
     return;

@@ -1,5 +1,6 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { parseHandleActionErrorResponse, parseHandleActionResponse } from "@/shared/actions/contracts/handle";
 import { parseAddress, requireAddress } from "@/shared/chain/hex";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
@@ -97,6 +98,63 @@ const eurcConvertPair: typeof resolveConvertPair = (input) => resolveConvertPair
 
 const request = (signature: string, provider: "base-account" | "cdp-embedded") => new Request(`https://home.test/api/actions/${ID}/confirm`, {
   method: "POST", headers: { "X-Home-Account-Provider": provider, "Content-Type": "application/json" }, body: JSON.stringify({ signature }),
+});
+
+describe("handle response contract", () => {
+  function confirmedRow(): ActionRow {
+    return { ...tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z"),
+      confirmed_at: "2026-09-25T12:01:00.000Z", pending: null, provider_handle: "handle-1", outcome: "succeeded" };
+  }
+
+  async function recordHandle(row: ActionRow) {
+    let calls = 0;
+    const handler = createHandleActionHandler({
+      authorize: async () => ({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const }),
+      markHot: async () => {},
+      store: { recordHandle: async () => { calls += 1; return row; } },
+    });
+    const response = await handler(new Request(`https://home.test/api/actions/${ID}/handle`, {
+      method: "POST", headers: { "X-Home-Account-Provider": "cdp-embedded", "Content-Type": "application/json" },
+      body: JSON.stringify({ providerHandle: "handle-1" }),
+    }), context);
+    return { response, calls };
+  }
+
+  test("returns a complete valid presented action", async () => {
+    const { response, calls } = await recordHandle(confirmedRow());
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(parseHandleActionResponse(body)).not.toBeNull();
+    expect(body).toMatchObject({ version: 1, action: { id: ID, kind: "trade", status: "confirmed" } });
+    expect(calls).toBe(1);
+  });
+
+  test("fails closed after recording a handle for a malformed stored summary", async () => {
+    const row = confirmedRow();
+    Object.assign(row.summary, { title: 42 });
+    const { response, calls } = await recordHandle(row);
+    expect(response.status).toBe(503);
+    const body = await readJson(response);
+    expect(body).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+    expect(parseHandleActionErrorResponse(body)).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+    expect(body).not.toHaveProperty("action");
+    expect(calls).toBe(1);
+  });
+
+  test.each(["missing warnings", "invalid kind", "empty provider", "missing createdAt"])("fails closed for %s", async (failure) => {
+    const row = confirmedRow();
+    if (failure === "missing warnings") Object.assign(row.summary, { warnings: undefined });
+    if (failure === "invalid kind") Object.assign(row, { kind: "invalid" });
+    if (failure === "empty provider") Object.assign(row, { provider: "" });
+    if (failure === "missing createdAt") row.created_at = "";
+    const { response, calls } = await recordHandle(row);
+    expect(response.status).toBe(503);
+    const body = await readJson(response);
+    expect(body).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+    expect(parseHandleActionErrorResponse(body)).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+    expect(body).not.toHaveProperty("action");
+    expect(calls).toBe(1);
+  });
 });
 
 describe("trade confirmation", () => {
