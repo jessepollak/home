@@ -1,12 +1,14 @@
-import type { HandleActionResponse } from "./handle";
+import { parsePresentedAction, type PresentedAction } from "./get";
 
 export const RETRY_ACTION_CONTRACT_VERSION = 1 as const;
 
 export type RetryActionRequest = { version: typeof RETRY_ACTION_CONTRACT_VERSION; attempt: number };
 export type RetryActionResponse = {
   version: typeof RETRY_ACTION_CONTRACT_VERSION;
-  action: HandleActionResponse["action"];
+  action: PresentedAction;
 };
+export type RetryActionErrorCode = "INVALID_ACTION" | "INVALID_ACTION_RETRY" | "ACTION_NOT_FOUND" | "ACTIONS_UNAVAILABLE" |
+  "ACTION_EXPIRED" | "ACTION_ALREADY_DISPATCHED" | "ACTION_RETRY_CONFLICT" | "CARD_ALLOWANCE_UNAVAILABLE" | "CARD_ALLOWANCE_NOT_READY";
 
 export function parseRetryActionRequest(value: unknown): RetryActionRequest | null {
   if (!isRecord(value) || value.version !== RETRY_ACTION_CONTRACT_VERSION ||
@@ -17,7 +19,7 @@ export function parseRetryActionRequest(value: unknown): RetryActionRequest | nu
 
 export function parseRetryActionResponse(value: unknown): RetryActionResponse | null {
   if (!isRecord(value) || value.version !== RETRY_ACTION_CONTRACT_VERSION ||
-    !isRecord(value.action) || typeof value.action.id !== "string") return null;
+    !parsePresentedAction(value.action)) return null;
   return value as RetryActionResponse;
 }
 

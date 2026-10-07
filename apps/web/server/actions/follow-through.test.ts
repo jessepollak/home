@@ -6,9 +6,9 @@ import { actionOwnerKey, ActionsStore, type ActionRow } from "./store";
 
 const ROW_BUDGET_MS = 20;
 
-async function advanceRowDeadlines(run: Promise<void>): Promise<void> {
+async function advanceRowDeadlines(run: Promise<void>, onSettled: () => void): Promise<void> {
   let settled = false;
-  const observe = () => { settled = true; };
+  const observe = () => { onSettled(); settled = true; };
   void run.then(observe, observe);
   for (let step = 0; !settled; step += 1) {
     if (step === 50) throw new Error("the row budget did not settle the batch");
@@ -66,23 +66,31 @@ describe("follow-through action-store deadlines", () => {
       jest.useFakeTimers();
       try {
         const reads: Array<{ id: unknown; options?: SqlQueryOptions }> = [];
+        let inFlight = 0;
+        let maximumInFlight = 0;
+        let inFlightAtSettlement: number | undefined;
         const rows = Array.from({ length: 5 }, (_, index) => actionRow(index + 1));
         const store = storeWithRead(rows, (_text, values, options) => {
           reads.push({ id: values?.[0], options });
+          inFlight += 1;
+          maximumInFlight = Math.max(maximumInFlight, inFlight);
           return new Promise((_resolve, reject) => {
             const signal = options?.signal;
-            if (signal?.aborted) reject(signal.reason);
-            else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+            const release = () => { inFlight -= 1; reject(signal?.reason); };
+            if (signal?.aborted) release();
+            else signal?.addEventListener("abort", release, { once: true });
           });
         });
         const caller = new AbortController();
 
-        await advanceRowDeadlines(batch.run(store, caller.signal));
+        await advanceRowDeadlines(batch.run(store, caller.signal), () => { inFlightAtSettlement = inFlight; });
 
+        expect(inFlightAtSettlement).toBe(0);
+        expect(maximumInFlight).toBe(4);
         expect(reads.map((read) => read.id).sort()).toEqual(rows.map((row) => row.id).sort());
         expect(caller.signal.aborted).toBe(false);
         for (const read of reads) {
-          expect(read.options?.timeoutMs).toBeGreaterThan(0);
+          expect(read.options?.timeoutMs).toBe(5_000);
           expect(read.options?.signal?.aborted).toBe(true);
           expect(read.options?.signal?.reason).toBeInstanceOf(DOMException);
           expect(read.options?.signal?.reason).toMatchObject({ name: "TimeoutError" });
@@ -114,7 +122,7 @@ describe("follow-through action-store deadlines", () => {
     expect(await result).toBe(row);
     expect(reads).toHaveLength(1);
     expect(reads[0]?.signal).toBe(caller.signal);
-    expect(reads[0]?.timeoutMs).toBeGreaterThan(0);
+    expect(reads[0]?.timeoutMs).toBe(5_000);
   });
 
   for (const error of [new Error("Action read unavailable"), new DOMException("SQL read deadline exceeded", "TimeoutError")]) {

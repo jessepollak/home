@@ -16,8 +16,14 @@ describe("decline action contract", () => {
     }
   });
 
-  test("accepts a versioned response with an action id and rejects malformed responses", () => {
-    const response = { version: DECLINE_ACTION_CONTRACT_VERSION, action: { id: "action-id" } };
+  test("accepts a complete presented action and rejects malformed responses", () => {
+    const action = {
+      id: "action-id", provider: "cdp-embedded", kind: "send", status: "pending",
+      summary: { title: "Send USDC", amounts: [], warnings: [], expiresAt: "2026-10-01T12:03:00.000Z" },
+      createdAt: "2026-10-01T12:00:00.000Z", confirmedAt: "2026-10-01T12:00:00.000Z",
+      owner: { subject: "owner", address: "0x1111111111111111111111111111111111111111", chainId: 8453, accountProvider: "cdp-embedded" },
+    };
+    const response = { version: DECLINE_ACTION_CONTRACT_VERSION, action };
     expect(parseDeclineActionResponse(response)?.version).toBe(1);
     expect(parseDeclineActionResponse(response)?.action.id).toBe("action-id");
     for (const value of [
@@ -25,6 +31,8 @@ describe("decline action contract", () => {
       { version: 1, action: {} },
       { version: 1, action: { id: 1 } },
       { version: 1, action: [] },
+      { ...response, action: { ...action, summary: { ...action.summary, warnings: [1] } } },
+      { ...response, action: { ...action, summary: { ...action.summary, title: undefined } } },
       null,
       [],
       "1",

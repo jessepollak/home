@@ -1,6 +1,6 @@
 import { parseAddress, parseHash32, type Hash32 } from "@/shared/chain/hex";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { ActionSummaryResponse } from "./get";
+import { parsePresentedAction, type ActionSummaryResponse } from "./get";
 import { readCashoutProgress, type CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import {
   isActionKind,
@@ -32,6 +32,11 @@ export type ActionListItem = {
   owner: MoneyActionOwner;
   cashout?: CashoutProgress;
 };
+export function parseActionListItem(value: unknown): ActionListItem | null {
+  const action = parsePresentedAction(value);
+  return action && isCompleteRecentActionItem(value) ? action : null;
+}
+
 export const LIST_ACTIONS_CONTRACT_VERSION = 1 as const;
 export const RECENT_ACTIONS_LIMIT = 100 as const;
 export const RETAINED_SAVINGS_DEPOSITS_LIMIT = 20 as const;

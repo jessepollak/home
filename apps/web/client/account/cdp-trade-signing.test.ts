@@ -83,6 +83,11 @@ function fixture(provider: VerifiedAccountSession["accountProvider"], signing: T
     createdAt: "2026-09-24T00:00:00.000Z",
     ...(signing ? { signing } : {}),
   };
+  const presentedAction = {
+    id: action.id, provider, kind: action.kind,
+    summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt },
+    status: "pending", createdAt: action.createdAt, confirmedAt: action.createdAt, owner: action.owner,
+  };
   const ownerFence: OwnerGenerationFence = {
     capture: () => generation,
     assertCurrent: (value) => { if (value !== generation) throw new TransferExecutionError("stale-session"); },
@@ -99,9 +104,12 @@ function fixture(provider: VerifiedAccountSession["accountProvider"], signing: T
         options?.confirm?.(request?.body, events.filter((event) => event.path === path).length);
         return { calls };
       }
-      if (path === `/api/actions/${id}/decline`) return { version: 1, action: { id } };
-      if (path === `/api/actions/${id}/retry`) return { version: 1, action: { id } };
-      if (path === `/api/actions/${id}/handle`) { options?.handle?.(); return {}; }
+      if (path === `/api/actions/${id}/decline`) return { version: 1, action: { ...presentedAction, status: "failed" } };
+      if (path === `/api/actions/${id}/retry`) return { version: 1, action: presentedAction };
+      if (path === `/api/actions/${id}/handle`) {
+        options?.handle?.();
+        return { version: 1, action: { ...presentedAction, providerHandle: operationHash, submittedAt: action.createdAt } };
+      }
       throw new Error(`Unexpected account request ${path}`);
     },
   } as AuthenticatedTransport;

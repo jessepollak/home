@@ -6,11 +6,11 @@ import { offeredMarketMode, offeredVaultMode, resolveProductOffering } from "@/s
 import { readProductOffering } from "@/server/operator-settings/offering";
 
 import { CONFIRM_CASHOUT_ERRORS, supportsBaseBatchGasHint, type ConfirmActionErrorCode, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
-import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
+import { parseGetActionPendingResponse, parsePresentedAction, type GetActionPendingResponse, type GetActionResponse } from "@/shared/actions/contracts/get";
 import { HANDLE_ACTION_CONTRACT_VERSION, parseHandleActionResponse, type HandleActionErrorCode } from "@/shared/actions/contracts/handle";
-import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
-import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
-import { LIST_ACTIONS_CONTRACT_VERSION, RECENT_ACTIONS_LIMIT, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
+import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, parseDeclineActionResponse, type DeclineActionErrorCode } from "@/shared/actions/contracts/decline";
+import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, parseRetryActionResponse, type RetryActionErrorCode } from "@/shared/actions/contracts/retry";
+import { LIST_ACTIONS_CONTRACT_VERSION, RECENT_ACTIONS_LIMIT, parseActionListItem, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { CardAllowanceMoneyActionMetadata, MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
@@ -38,7 +38,7 @@ import type { resolveConvertPair } from "@/shared/currencies/convert";
 import { tradeMetadataDirection, tradeMetadataTradeable } from "@/shared/trading/assets";
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
-import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow, type RefreshedCashoutOrder } from "@/server/funding/cash-out-progress";
+import { cashoutWithdrawalInFlight, unlinkedWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow, type RefreshedCashoutOrder } from "@/server/funding/cash-out-progress";
 import { isCashoutCorridorOffered } from "@/server/funding/offering";
 import {
   applyCoinbaseBatchGasHeadroom,
@@ -74,6 +74,11 @@ async function authorizeOwner(request: Request, authorize: ActionAuthorizer): Pr
   return owner ?? privateError("AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.", 503);
 }
 
+function unpresentableAction(route: string, kind: "action-read" | "action-decline" | "action-retry", owner: MoneyActionOwner): Response {
+  emitServerEvent(kind, { route, code: "ACTION_UNPRESENTABLE", outcome: "failed", provider: owner.accountProvider, owner });
+  return privateError("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503);
+}
+
 export function createGetActionHandler(dependencies: {
   authorize: ActionAuthorizer;
   store?: Pick<ActionsStore, "get" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>;
@@ -97,15 +102,18 @@ export function createGetActionHandler(dependencies: {
       return privateError("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503);
     }
     if (!row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
+    if (!isRecord(row.summary)) return unpresentableAction("/api/actions/:id", "action-read", owner);
     if (!row.confirmed_at) {
-      return privateJson({
+      const response = parseGetActionPendingResponse({
         id: row.id,
         kind: row.kind,
         summary: row.summary,
         calls: row.pending?.calls ?? [],
         expiresAt: row.summary.expiresAt,
         ...(row.kind === "trade" && row.summary.signing ? { signing: row.summary.signing } : {}),
-      } satisfies GetActionPendingResponse, 200);
+      } satisfies GetActionPendingResponse, owner.address);
+      if (!response) return unpresentableAction("/api/actions/:id", "action-read", owner);
+      return privateJson(response, 200);
     }
     const now = dependencies.now?.() ?? new Date();
     const deadline = createDeadline(request.signal, RECONCILE_DEADLINE_MS);
@@ -120,7 +128,9 @@ export function createGetActionHandler(dependencies: {
         })
       : row;
     const result = await settleRow(reconciled, owner, dependencies.store ?? getActionsStore(), dependencies.readReceipt, request.signal, "/api/actions/:id");
-    return privateJson(await presentAction(result.row, owner, result.receipt, now), 200);
+    const response = parsePresentedAction(await presentAction(result.row, owner, result.receipt, now));
+    if (!response) return unpresentableAction("/api/actions/:id", "action-read", owner);
+    return privateJson(response, 200);
   };
 }
 
@@ -137,7 +147,7 @@ async function recordConfirmedBestEffort(row: ActionRow, recordConfirmed?: (row:
 async function checkCardAllowanceSetGate(row: ActionRow, owner: MoneyActionOwner, signal: AbortSignal, dependencies: {
   cardAllowanceSetAllowed?: (metadata: CardAllowanceMoneyActionMetadata) => boolean | Promise<boolean>;
   cardAllowanceEligible?: typeof checkCardAllowanceEligibility;
-}, fail: (code: ConfirmActionErrorCode, message: string, status: number) => Response): Promise<Response | null> {
+}, fail: (code: Extract<ConfirmActionErrorCode, "CARD_ALLOWANCE_UNAVAILABLE" | "CARD_ALLOWANCE_NOT_READY">, message: string, status: number) => Response): Promise<Response | null> {
   const metadata = parseCardAllowanceMetadata(row.summary.metadata);
   if (!metadata) return fail("CARD_ALLOWANCE_UNAVAILABLE", "Card spending limits are unavailable right now. Prepare again.", 503);
   if (metadata.operation !== "set-allowance") return null;
@@ -425,10 +435,10 @@ export function createHandleActionHandler(dependencies: {
     const startedAt = Date.now();
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
-    const fail = (code: HandleActionErrorCode, message: string, status: number) => {
+    const fail = (code: HandleActionErrorCode, message: string, status: number, eventCode: HandleActionErrorCode | "ACTION_UNPRESENTABLE" = code) => {
       emitServerEvent("action-handle", {
         route: "/api/actions/:id/handle",
-        code,
+        code: eventCode,
         outcome: "failed",
         provider: owner.accountProvider,
         owner,
@@ -467,7 +477,7 @@ export function createHandleActionHandler(dependencies: {
       new Date(signalTime.getTime() + BALANCES_HOT_WINDOW_MS),
     ), { timeoutMs: 2_000 });
     const response = parseHandleActionResponse({ version: HANDLE_ACTION_CONTRACT_VERSION, action: await presentAction(row, owner) });
-    if (!response) return fail("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503);
+    if (!response) return fail("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503, "ACTION_UNPRESENTABLE");
     return privateJson(response, 200);
   };
 }
@@ -481,21 +491,24 @@ export function createDeclineActionHandler(dependencies: {
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
     const { id } = await context.params;
-    if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
+    const fail = (code: DeclineActionErrorCode, message: string, status: number) => privateError(code, message, status);
+    if (!uuidPattern.test(id)) return fail("INVALID_ACTION", "A valid action id is required.", 400);
     const read = await readJsonBody(request, { maxBytes: 64 * 1024 });
     const body = parseDeclineActionRequest(read.kind === "ok" ? read.value : null);
     if (!body) {
-      return privateError("INVALID_ACTION_DECLINE", "A valid versioned decline request is required.", 400);
+      return fail("INVALID_ACTION_DECLINE", "A valid versioned decline request is required.", 400);
     }
     const result = await (dependencies.store ?? getActionsStore()).recordDecline(owner, id, body.attempt);
-    if (!result.row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
+    if (!result.row) return fail("ACTION_NOT_FOUND", "The action was not found.", 404);
     if (!result.changed && (result.row.provider_handle || result.row.transaction_hash || result.row.outcome)) {
       emitServerEvent("action-decline", {
         route: "/api/actions/:id/decline", code: "DECLINE_IGNORED", outcome: "ignored",
         provider: owner.accountProvider, owner, durationMs: Date.now() - startedAt,
       });
     }
-    return privateJson({ version: DECLINE_ACTION_CONTRACT_VERSION, action: await presentAction(result.row, owner) } satisfies DeclineActionResponse, 200);
+    const response = parseDeclineActionResponse({ version: DECLINE_ACTION_CONTRACT_VERSION, action: await presentAction(result.row, owner) });
+    if (!response) return unpresentableAction("/api/actions/:id/decline", "action-decline", owner);
+    return privateJson(response, 200);
   };
 }
 
@@ -518,23 +531,27 @@ export function createRetryActionHandler(dependencies: {
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
     const { id } = await context.params;
-    if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
+    const fail = (code: RetryActionErrorCode, message: string, status: number) => privateError(code, message, status);
+    if (!uuidPattern.test(id)) return fail("INVALID_ACTION", "A valid action id is required.", 400);
     const read = await readJsonBody(request, { maxBytes: 64 * 1024 });
     const body = parseRetryActionRequest(read.kind === "ok" ? read.value : null);
-    if (!body) return privateError("INVALID_ACTION_RETRY", "A valid versioned retry request is required.", 400);
+    if (!body) return fail("INVALID_ACTION_RETRY", "A valid versioned retry request is required.", 400);
     const store = dependencies.store ?? getActionsStore();
     const row = await store.get(owner, id);
+    if (row && !isRecord(row.summary)) return unpresentableAction("/api/actions/:id/retry", "action-retry", owner);
     if (row && tradeExecutionExpired(row, dependencies.now?.() ?? new Date())) {
-      return privateError("ACTION_EXPIRED", "The trade quote expired. Get a new quote.", 409);
+      return fail("ACTION_EXPIRED", "The trade quote expired. Get a new quote.", 409);
     }
     if (row?.confirmed_at && row.kind === "card-allowance") {
-      const failure = await checkCardAllowanceSetGate(row, owner, request.signal, dependencies, privateError);
+      const failure = await checkCardAllowanceSetGate(row, owner, request.signal, dependencies, fail);
       if (failure) return failure;
     }
     const result = await store.beginRetry(owner, id, body.attempt);
-    if (!result.row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);
-    if (result.conflict) return privateError(result.dispatched ? "ACTION_ALREADY_DISPATCHED" : "ACTION_RETRY_CONFLICT", "The action cannot be retried.", 409);
-    return privateJson({ version: RETRY_ACTION_CONTRACT_VERSION, action: await presentAction(result.row, owner) } satisfies RetryActionResponse, 200);
+    if (!result.row) return fail("ACTION_NOT_FOUND", "The action was not found.", 404);
+    if (result.conflict) return fail(result.dispatched ? "ACTION_ALREADY_DISPATCHED" : "ACTION_RETRY_CONFLICT", "The action cannot be retried.", 409);
+    const response = parseRetryActionResponse({ version: RETRY_ACTION_CONTRACT_VERSION, action: await presentAction(result.row, owner) });
+    if (!response) return unpresentableAction("/api/actions/:id/retry", "action-retry", owner);
+    return privateJson(response, 200);
   };
 }
 
@@ -579,13 +596,14 @@ export function createListActionsHandler(dependencies: {
     const now = dependencies.now?.() ?? new Date();
     const candidateIds = new Set(rotatingWindow(
       [...rows, ...retainedRows]
-        .filter((row) => isReconcileCandidate(row, now))
+        .filter((row) => isRecord(row.summary) && isReconcileCandidate(row, now))
         .sort((left, right) => confirmedAtMs(right) - confirmedAtMs(left)),
       RECONCILE_MAX_PER_REQUEST,
       now.getTime(),
     ).map((row) => row.id));
     const deadline = createDeadline(request.signal, RECONCILE_DEADLINE_MS);
     const allObserved = await Promise.all([...rows, ...retainedRows].map(async (row): Promise<CashoutReceiptRow> => {
+      if (!isRecord(row.summary)) return { row, receipt: null };
       const reconciled = candidateIds.has(row.id)
         ? await reconcileRow({
             row,
@@ -601,7 +619,14 @@ export function createListActionsHandler(dependencies: {
     const observed = allObserved.slice(0, rows.length);
     const retainedObserved = allObserved.slice(rows.length);
     const refreshDeadline = createDeadline(request.signal, CASHOUT_REFRESH_DEADLINE_MS);
-    const records = await (dependencies.refreshCashouts ?? refreshCashoutProgress)({ owner, rows: observed, store: store as ActionsStore, signal: refreshDeadline.signal, now: () => now });
+    const linkableWithdrawal = (row: ActionRow) => isRecord(row.summary) && row.summary.metadata?.product === "cashout" &&
+      row.summary.metadata.operation === "withdraw" && typeof row.summary.metadata.depositId === "string" &&
+      row.summary.metadata.depositId.trim() === row.summary.metadata.depositId && row.summary.metadata.depositId.length > 0;
+    const cashoutRows = observed.filter(({ row }) => isRecord(row.summary) &&
+      (row.kind !== "cash-out-withdraw" || linkableWithdrawal(row)));
+    const unlinkableWithdrawals = observed.filter(({ row }) => row.kind === "cash-out-withdraw" && !linkableWithdrawal(row)).map(({ row }) => row);
+    const unlinkedInFlight = unlinkedWithdrawalInFlight(unlinkableWithdrawals, owner, now);
+    const records = await (dependencies.refreshCashouts ?? refreshCashoutProgress)({ owner, rows: cashoutRows, store: store as ActionsStore, signal: refreshDeadline.signal, now: () => now });
     const byAction = new Map(records.map((record) => [record.action_id, record]));
     const actions = await Promise.all(observed.map(async ({ row, receipt }) => {
       const record = row.kind === "cash-out" ? byAction.get(row.id) : undefined;
@@ -610,12 +635,18 @@ export function createListActionsHandler(dependencies: {
         ...(row.kind === "cash-out-withdraw" && finalizedSucceededReceiptBlock(row) !== undefined
           ? { receiptBlockNumber: finalizedSucceededReceiptBlock(row) } : {}),
         ...(record ? { cashout: presentCashoutProgress(record,
-          record.deposit_id !== null && cashoutWithdrawalInFlight(observed, owner, record.deposit_id, now), row) } : {}),
+          record.deposit_id !== null && (cashoutWithdrawalInFlight(cashoutRows, owner, record.deposit_id, now) ||
+            (unlinkedInFlight && record.withdrawable)), row) } : {}),
       };
     }));
     const truncated = observed.length === RECENT_ACTIONS_LIMIT &&
       (observed.at(-1)?.row.kind === "cash-out" || observed.at(-1)?.row.kind === "cash-out-withdraw");
     const retainedSavingsDeposits = await Promise.all(retainedObserved.map(({ row, receipt }) => presentAction(row, owner, receipt, now)));
+    if ([...actions, ...retainedSavingsDeposits].filter((action) => !parseActionListItem(action)).length > 0) {
+      emitServerEvent("action-read", {
+        route: "/api/actions", code: "ACTION_UNPRESENTABLE", outcome: "failed", provider: owner.accountProvider, owner,
+      });
+    }
     return privateJson({
       version: LIST_ACTIONS_CONTRACT_VERSION,
       actions,

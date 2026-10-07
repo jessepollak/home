@@ -28,6 +28,17 @@ const id = "11111111-1111-4111-8111-111111111111";
 const plan = { calls: [{ to: "0x1111111111111111111111111111111111111111" as const, data: "0x1234" as const, value: "0" }] };
 const transactionHash = `0x${"cd".repeat(32)}` as `0x${string}`;
 
+function handleResponse(session: VerifiedAccountSession) {
+  if (!session.smartAccount) throw new Error("Fixture session requires an account.");
+  return { version: 1, action: {
+    id, provider: session.accountProvider, kind: "send",
+    summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+    status: "pending", createdAt: "2026-09-24T00:00:00.000Z", confirmedAt: "2026-09-24T00:00:00.000Z",
+    submittedAt: "2026-09-24T00:00:00.000Z",
+    owner: { subject: session.user.subject, address: session.smartAccount.address, chainId: session.smartAccount.chainId, accountProvider: session.accountProvider },
+  } };
+}
+
 function requireExecution(holder: { current: ReturnType<typeof useMoneyActionExecution> | null }) {
   if (!holder.current) throw new Error("Execution probe did not render");
   return holder.current;
@@ -471,7 +482,8 @@ describe("thin action dispatch", () => {
         if (path === `/api/actions/${id}/confirm`) return { calls: plan.calls, batchGasLimit: "150000" };
         if (path === `/api/actions/${id}/handle`) {
           handlePosts.push({ path, body: options?.body });
-          return {};
+          return { ...handleResponse(session), action: { ...handleResponse(session).action, providerHandle: walletHandle,
+            ...(typeof options?.body === "object" && options.body !== null && "transactionHash" in options.body ? { transactionHash } : {}) } };
         }
         throw new Error(`Unexpected account resource ${path}`);
       },
@@ -919,7 +931,7 @@ test("a handle error response is validated through the shared contract before th
           };
         }
         if (path === `/api/actions/${id}/confirm`) return { calls: plan.calls };
-        if (path === `/api/actions/${id}/handle`) return {};
+        if (path === `/api/actions/${id}/handle`) return { ...handleResponse(session), action: { ...handleResponse(session).action, providerHandle: userOperationHash } };
         throw new Error(`Unexpected account resource ${path}`);
       },
     } as unknown as AuthenticatedTransport;
