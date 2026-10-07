@@ -19,7 +19,7 @@ Jesse runs this skill in his own session, so his GitHub identity edits the issue
 1. List candidate worktrees: the session's working directory plus every worktree this session or its children wrote to (`git worktree list`, then `git -C <path> status --porcelain` and `git -C <path> log --oneline origin/main..HEAD`). Code often lives in a child worktree, not the session directory.
 2. Stop writers first. If a child agent is still running against a candidate worktree, interrupt or wait for it; never snapshot a tree that is still changing.
 3. One handoff is one issue, one branch, one PR. If the session produced several independent changes, hand off each separately or ask which one.
-4. Resolve the issue, in order: the branch name `agent/<n>`; an open PR's `Closes #n` or `Refs #n`; the session's own references; a search of open issues. If none exists, draft a new issue with a required title prefix (`feat(...)`, `fix(...)`, `design(...)`, and so on) and its `Area:` lines from [work sizing](../../../docs/work-sizing.md).
+4. Resolve the issue, in order: the branch name `agent/<n>`; an open PR's `Closes #n` or `Refs #n`; the session's own references; a search of open issues. If none exists, draft a new issue with a required title prefix (`feat(...)`, `fix(...)`, `design(...)`, and so on) and its `Area:` lines from [work sizing](../../../docs/work-sizing.md). A reused issue must also carry a required prefix, or the factory never picks it up; propose a prefixed title in step 4 and retitle it with `gh issue edit <n> --title` in step 6.
 5. Record the state: issue number and author, open PRs on `agent/<n>` and their authors, whether remote `agent/<n>` already exists and at what head, local commits ahead of `origin/main`, and uncommitted files.
 
 Stop and tell Jesse when remote `agent/<n>` already has commits that are not in the local branch (the factory or another session moved it), when the factory has already published to `agent/<n>` or opened a PR for the issue (comment there instead; a handoff marker only seeds work the factory has not published), when the issue is not authored by Jesse, or when `factory:working` is already on the issue.
@@ -50,7 +50,7 @@ Show Jesse, in one message: the issue (existing number or the new title), the wo
 
 In the chosen worktree:
 
-1. Check what will be committed: `git status --porcelain --untracked-files=all`. Exclude env files, local artifacts, and anything gitignored; never `git add -f`. Scan the staged diff for secrets and private text before committing; stop if any appears.
+1. Check what will be committed: `git status --porcelain --untracked-files=all`. Exclude env files, local artifacts, and anything gitignored; never `git add -f`. The push publishes every commit ahead of `origin/main`, not only the snapshot, so scan the whole outgoing diff (`git diff origin/main...HEAD` plus the staged changes) and the outgoing commit messages for secrets and private text before committing; stop if any appears.
 2. Commit everything as one snapshot on top of the existing local commits: `chore(handoff): snapshot local work for #<n>`. Do not rewrite or squash earlier commits; the factory squashes on publish.
 3. Push to the factory branch. Put the push on its own line:
    ```sh
