@@ -1,16 +1,17 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { AnimatePresence } from "motion/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SHELL_SEARCH_PARAM, backClientHistory, commitClientUrl, parseShellOverlayIntent, shellHref } from "@/config/shell-location";
 import { useShellKeyboardOpen } from "@/components/visual-viewport";
+import styles from "@/components/primary-navigation.module.css";
 import { isRecord } from "@/shared/guards";
 import type { HomeExperienceProps, ShellSearchContentProps } from "./home-types";
 
 type SearchDetailTarget = { href: string; assetId: string; query: string; token: string };
-type SearchState = { open: boolean; openSearch?: (opener: HTMLButtonElement) => void };
+type SearchState = { open: boolean; openSearch?: (opener: HTMLButtonElement) => void; closeSearch?: () => void };
 const SearchStateContext = createContext<SearchState>({ open: false });
 const SearchSurfaceContext = createContext<ReactNode>(null);
 const RouteSearchContext = createContext("");
@@ -163,7 +164,7 @@ export function ShellSearchProvider({ children, content, available, signedOut, o
     const frame = requestAnimationFrame(restore);
     return () => { cancelAnimationFrame(frame); document.removeEventListener("focusin", onFocus); };
   }, [searchFocusPending, searchOpen, pathname, keyboardOpen, ownerKey, available, signedOut, shellRef]);
-  const state = useMemo(() => ({ open: searchOpen, openSearch: available ? openSearch : undefined }), [searchOpen, available, openSearch]);
+  const state = useMemo(() => ({ open: searchOpen, openSearch: available ? openSearch : undefined, closeSearch }), [searchOpen, available, openSearch, closeSearch]);
   const surface = useMemo(() => <AnimatePresence key={`${pathname}:${ownerKey}:${available}:${signedOut}`}>
     {searchOpen && content ? <ShellSearchSlot key="search" content={content} initialQuery={query ?? ""} initialScrollTop={searchRestoration?.assetSearchScrollTop ?? 0} initialResultId={searchRestoration?.assetSearchResult ?? null} onInputReady={onSearchInputReady} onClose={closeSearch} onQueryCommit={commitSearchQuery} onOpenAsset={openSearchAsset} /> : null}
   </AnimatePresence>, [pathname, ownerKey, available, signedOut, searchOpen, content, query, searchRestoration?.assetSearchScrollTop, searchRestoration?.assetSearchResult, onSearchInputReady, closeSearch, commitSearchQuery, openSearchAsset]);
@@ -172,6 +173,14 @@ export function ShellSearchProvider({ children, content, available, signedOut, o
 
 export function useShellSearch() {
   return useContext(SearchStateContext);
+}
+
+export function ShellSearchFrame({ className, children, ...props }: ComponentProps<"div">) {
+  const { open } = useShellSearch();
+  return <div {...props} data-shell-viewport="" data-shell-search-viewport={open ? "" : undefined}
+    className={`${className ?? ""} ${open ? styles.searchViewport : ""}`}>
+    {children}
+  </div>;
 }
 
 export function ShellSearchSurfaceSlot() {

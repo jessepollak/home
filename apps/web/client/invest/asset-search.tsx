@@ -78,22 +78,13 @@ export function AssetSearch({ initialQuery, initialScrollTop = 0, initialResultI
     scroll.scrollTop = Math.min(Math.max(0, saved.scrollTop), Math.max(0, scroll.scrollHeight - scroll.clientHeight));
     const row = saved.assetId ? surfaceRef.current?.querySelector<HTMLElement>(`[data-search-asset-id="${CSS.escape(saved.assetId)}"]`) : null;
     const active = document.activeElement;
-    const focusTaken = !!active && active !== surfaceRef.current && active !== scroll && !!surfaceRef.current?.contains(active);
+    const focusTaken = !!active && active !== document.body && active !== document.documentElement && active !== surfaceRef.current && active !== scroll;
     if (saved.assetId && !focusTaken) (row ?? scroll).focus({ preventScroll: true });
     restoreRef.current = null;
   }, [present, entryVersion, search.status, results]);
   return <ShellSearchSurface id="asset-search-surface" ref={surfaceRef}
-    className={styles.assetSearchSurface}
     onKeyDown={(event) => {
       if (event.key === "Escape" && !composing && !event.nativeEvent.isComposing) { event.preventDefault(); onClose(); }
-      if (event.key !== "Tab") return;
-      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]')].filter((node) => node.tabIndex >= 0 && !node.matches(":disabled") && !node.closest('[inert], [hidden]') && node.getClientRects().length > 0);
-      const first = controls[0]; const last = controls.at(-1);
-      const active = document.activeElement;
-      const nonTabbableInside = event.currentTarget.contains(active) && !controls.some((node) => node === active);
-      if (!first || !last) { event.preventDefault(); event.currentTarget.focus({ preventScroll: true }); }
-      else if (event.shiftKey && (active === first || nonTabbableInside)) { event.preventDefault(); last.focus({ preventScroll: true }); }
-      else if (!event.shiftKey && (active === last || nonTabbableInside)) { event.preventDefault(); first.focus({ preventScroll: true }); }
     }}>
     <div ref={scrollRef} hidden={!present} tabIndex={-1} data-asset-search-scroll="" className={`${styles.assetSearchResults} relative min-h-0 flex-1 overflow-y-auto overscroll-contain`}
       onScroll={() => { if (restoreRef.current) restoreRef.current = null; }}>

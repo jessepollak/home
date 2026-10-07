@@ -34,7 +34,9 @@ const buttonVariantStyles = cva(
         touch: "min-h-11 gap-1.5 px-2.5 py-2 whitespace-normal text-center has-[>[data-icon=inline-end]]:pe-2 has-[>[data-icon=inline-start]]:ps-2",
         "compact-touch": "relative h-8 gap-1.5 ps-2.5 pe-2.5 before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] md:pointer-fine:before:content-none",
         "shell-control": "size-(--spacing-shell-mobile-navigation) min-h-11 min-w-11 p-0",
-        tab: "h-13.5 min-h-11 min-w-0 rounded-full px-2 focus-visible:border-transparent focus-visible:ring-inset hover:bg-transparent active:bg-transparent dark:hover:bg-transparent dark:active:bg-transparent",
+        "shell-search-control": "size-[var(--shell-search-action-size,var(--spacing-shell-search-field))] min-h-[44px] min-w-[44px] p-0 lg:size-(--spacing-shell-mobile-navigation)",
+        "shell-search-clear": "size-[var(--shell-search-clear-size,2.75rem)] min-h-[44px] min-w-[44px] p-0",
+        tab: "h-[calc(var(--spacing-shell-mobile-navigation)-.5rem)] min-h-[44px] min-w-0 rounded-full px-0.5 focus-visible:border-transparent focus-visible:ring-inset hover:bg-transparent active:bg-transparent dark:hover:bg-transparent dark:active:bg-transparent",
         icon: "size-8",
         "icon-xs":
           "size-6 rounded-md in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",

@@ -11,7 +11,7 @@ const inputVariants = cva(
         default: "",
         code: "font-mono",
         touch: "md:text-base",
-        "shell-search": "relative h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-base shadow-none transition-none focus-visible:border-0 focus-visible:ring-0 md:text-base dark:bg-transparent",
+        "shell-search": "relative h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[max(16px,1.0625rem)] shadow-none transition-none focus-visible:border-0 focus-visible:ring-0 md:text-[max(16px,1.0625rem)] lg:text-base dark:bg-transparent",
         amount: "h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[length:inherit] font-[inherit] leading-[inherit] text-foreground caret-primary shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 disabled:bg-transparent md:text-[length:inherit] dark:bg-transparent dark:disabled:bg-transparent dark:aria-invalid:ring-0",
       },
     },

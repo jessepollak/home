@@ -151,7 +151,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
     style={{
       "--shell-safe-area-bottom": homeIndicator ? "34px" : "0px",
       "--shell-navigation-offset": "max(calc(var(--shell-safe-area-bottom) - 0.75rem), 0.75rem)",
-      "--shell-navigation-clearance": "calc(var(--spacing-shell-mobile-navigation) + var(--shell-navigation-offset) + 1rem)",
+      "--shell-navigation-clearance": "calc(var(--spacing-shell-mobile-navigation) + var(--shell-navigation-offset) + .5rem)",
     } as React.CSSProperties}>{content}</div>;
   return <AppChromeProvider><PresentationRegionProvider regionId="US"><MoneyMotionProvider reducedMotion={reducedMotion || undefined}>
     <div className={fallback ? "opaque-navigation-preview" : undefined}>
@@ -698,18 +698,25 @@ export const Partial: Story = { args: { balances: "partial" } };
 export const Failed: Story = { args: { balances: "failed" } };
 export const Narrow320: Story = { parameters: { viewport: { defaultViewport: "mobile320" } }, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
-  await expect(nav.getBoundingClientRect().width).toBeLessThanOrEqual(192);
+  await expect(nav.getBoundingClientRect().width).toBeLessThanOrEqual(160);
+  await expect(nav.getBoundingClientRect().height).toBe(52);
+  for (const button of nav.querySelectorAll("button")) await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   await expect(canvasElement.ownerDocument.documentElement.scrollWidth).toBeLessThanOrEqual(320);
 } };
 export const CardsNarrow320: Story = { args: { cards: true }, parameters: { viewport: { defaultViewport: "mobile320" } }, play: async ({ canvasElement }) => {
   const screen = within(canvasElement);
   await expect(screen.getByRole("button", { name: "Search assets" })).toBeVisible();
-  await expect(screen.getByRole("button", { name: "Card" })).toBeVisible();
+  const card = screen.getByRole("button", { name: "Card" });
+  await expect(card).toBeVisible();
+  await expect(card.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  const label = card.querySelector<HTMLElement>("svg + span");
+  if (!label) throw new Error("Expected the Card label");
+  await expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
   await expect(canvasElement.ownerDocument.documentElement.scrollWidth).toBeLessThanOrEqual(320);
 } };
 export const CardsNarrowDark: Story = { ...CardsNarrow320, globals: { theme: "dark" } };
 export const Tablet1023: Story = { parameters: { viewport: { defaultViewport: "tablet1023" } }, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
   await expect(nav).toBeVisible();
-  await expect(nav.getBoundingClientRect().width).toBeLessThanOrEqual(192);
+  await expect(nav.getBoundingClientRect().width).toBeLessThanOrEqual(160);
 } };

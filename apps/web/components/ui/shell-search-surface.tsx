@@ -11,9 +11,9 @@ const searchMorphProperties = new Set(["transform", "opacity"]);
 export function ShellSearchSurface({ className, children, ...props }: ComponentProps<"section">) {
   const present = useIsPresent();
   const reducedMotion = useReducedMotion();
-  return <section {...props} role="dialog" aria-modal={present ? true : undefined} aria-label="Search assets" tabIndex={-1}
+  return <section {...props} aria-label="Search" tabIndex={-1}
     inert={!present} aria-hidden={present ? undefined : true}
-    className={`fixed inset-0 z-40 isolate flex flex-col outline-none ${present ? "" : "pointer-events-none"} ${className ?? ""}`}>
+    className={`isolate flex min-h-0 flex-1 flex-col overflow-hidden outline-none ${present ? "relative" : "pointer-events-none absolute inset-0"} ${className ?? ""}`}>
     <motion.div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-muted" initial={{ opacity: reducedMotion ? 1 : 0 }}
       animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={reducedMotion ? { duration: 0 } : searchMorphTransition} />
     {children}

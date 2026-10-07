@@ -6,7 +6,7 @@ import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { shellFrameClassName, shellNavigationClearanceClassName } from "@/components/shell-layout";
 import { useHomeRefresh } from "./use-home-refresh";
-import { useShellSearch } from "./shell-search";
+import { ShellSearchSurfaceSlot, useShellSearch } from "./shell-search";
 
 export function ShellMain({ children, mainRef, contentFrameRef, refreshInput, pullEnabled }: {
   children: ReactNode;
@@ -23,11 +23,11 @@ export function ShellMain({ children, mainRef, contentFrameRef, refreshInput, pu
     enabled: enabled && pullEnabled,
     refreshing: state.phase === "refreshing", onRefresh: () => { void refresh(); },
   });
-  return <main ref={mainRef} data-rail-follower="" inert={open} aria-hidden={open ? true : undefined} data-app-main-authenticated className={`relative min-w-0 flex-1 bg-muted ${shellNavigationClearanceClassName}`}>
+  return <main ref={mainRef} data-rail-follower="" data-app-main-authenticated className={`relative min-w-0 flex-1 bg-muted ${open ? "flex min-h-0 flex-col overflow-hidden" : shellNavigationClearanceClassName}`}>
     {enabled ? <PullToRefreshAction label="Refresh Home" refreshing={state.phase === "refreshing"}
       onRefresh={() => { void refresh(); }} actionRef={actionRef} /> : null}
     {enabled ? <PullToRefreshIndicator phase={phase} indicatorRef={indicatorRef} /> : null}
-    <div ref={contentFrameRef} className={`${shellFrameClassName} py-4 sm:py-6`}>
+    <div ref={contentFrameRef} hidden={open} inert={open} aria-hidden={open ? true : undefined} className={`${shellFrameClassName} py-4 sm:py-6`}>
       <span role="status" aria-live="polite" className="sr-only">{enabled
         ? state.phase === "refreshing" ? "Refreshing Home" : state.phase === "complete" ? "Home updated" : null : null}</span>
       {enabled && (state.phase === "failed" || state.phase === "partial") ? <Alert className="mb-4" role="alert">
@@ -36,5 +36,6 @@ export function ShellMain({ children, mainRef, contentFrameRef, refreshInput, pu
       </Alert> : null}
       {children}
     </div>
+    <ShellSearchSurfaceSlot />
   </main>;
 }

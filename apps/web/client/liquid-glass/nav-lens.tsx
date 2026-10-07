@@ -130,7 +130,7 @@ function LensTrack({ items, target, className, tone, hovered = null }: LensTrack
     <span className={`${styles.track} ${className} grid`} style={{ transform: `translateX(${target * -100 / items.length}%)` }}>
       {items.map(({ id, label, Icon }, index) => (
         <span key={id} data-hovered={index === hovered ? "" : undefined}
-          className={`${styles.tab} ${tone === "unselected" ? styles.unselected : ""} ${navigationTabContentClassName} px-2`}>
+          className={`${styles.tab} ${tone === "unselected" ? styles.unselected : ""} ${navigationTabContentClassName} px-0.5`}>
           <Icon className={`${styles.icon} ${navigationTabIconClassName} ${colors.icon}`} aria-hidden="true" />
           <span className={`${styles.label} ${navigationTabLabelClassName} ${colors.label}`}>{label}</span>
         </span>

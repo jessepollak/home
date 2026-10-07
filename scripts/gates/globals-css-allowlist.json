@@ -70,7 +70,8 @@
       "--radius-sm",
       "--radius-xl",
       "--spacing-hairline",
-      "--spacing-shell-mobile-navigation"
+      "--spacing-shell-mobile-navigation",
+      "--spacing-shell-search-field"
     ],
     "other": []
   },

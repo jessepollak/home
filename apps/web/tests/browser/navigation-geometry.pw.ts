@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
+import { waitForShellHydration } from "./fixtures/shell-hydration";
 
 async function requiredBox(locator: Locator) {
   const box = await locator.boundingBox();
@@ -35,16 +36,83 @@ for (const width of [390, 320]) {
       };
     });
     expect(geometry.position).toBe("fixed");
-    expect(geometry.nav.width).toBe(192);
-    expect(geometry.nav.height).toBe(62);
-    expect(geometry.tabHeights).toEqual([54, 54]);
+    const tabs = process.env.BRIDGE_CARDS_ENABLED === "1" ? 3 : 2;
+    expect(geometry.nav.width).toBe(tabs === 2 ? 160 : Math.min(248, width - 102));
+    expect(geometry.nav.height).toBe(52);
+    expect(geometry.tabHeights).toEqual(Array.from({ length: tabs }, () => 44));
     expect(844 - geometry.nav.bottom).toBe(12);
     if (!geometry.search) throw new Error("Expected Search control");
-    expect(geometry.nav.left).toBe(16);
-    expect(width - geometry.search.right).toBe(16);
+    expect(geometry.nav.left).toBe(21);
+    expect(width - geometry.search.right).toBe(21);
     expect(geometry.search.top).toBe(geometry.nav.top);
     expect(geometry.contentBottom).toBeLessThanOrEqual(geometry.nav.top);
     expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+
+    const cdp = await page.context().newCDPSession(page);
+    for (const root of [14, 16, 32]) for (const dir of ["ltr", "rtl"]) {
+      await test.step(`${tabs} tabs, ${root}px root, ${dir}`, async () => {
+        await page.goto("/home");
+        await waitForShellHydration(page);
+        await page.evaluate(({ root, dir }) => {
+          document.documentElement.style.fontSize = `${root}px`;
+          document.documentElement.dir = dir;
+        }, { root, dir });
+        const nav = page.locator('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');
+        const buttons = nav.locator(":scope > button");
+        await expect(buttons).toHaveCount(tabs);
+        await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
+        const capsule = await requiredBox(nav);
+        const opener = await requiredBox(page.getByRole("button", { name: "Search assets", exact: true }));
+        const closedSize = Math.max(root * 3.25, 44 + root * .5);
+        const inset = root * .25;
+        expect(capsule.height).toBe(closedSize);
+        expect(opener.height).toBe(closedSize);
+        expect(opener.width).toBe(closedSize);
+        expect(opener.y).toBe(capsule.y);
+        const frameInset = Math.min(root * 1.3125, 21);
+        const capsuleWidth = Math.min(root * (tabs === 2 ? 4.75 : 5) * tabs + 2 * inset, width - 2 * frameInset - closedSize - root * .5);
+        expect(capsule.width).toBeCloseTo(capsuleWidth, 1);
+        expect(capsule.x).toBeGreaterThanOrEqual(frameInset - .01);
+        expect(capsule.x + capsule.width).toBeLessThanOrEqual(width - frameInset + .01);
+        expect(opener.x).toBeGreaterThanOrEqual(frameInset - .01);
+        expect(opener.x + opener.width).toBeLessThanOrEqual(width - frameInset + .01);
+        expect(dir === "ltr" ? opener.x - capsule.x - capsule.width : capsule.x - opener.x - opener.width).toBeGreaterThanOrEqual(root * .5 - .01);
+        for (let index = 0; index < tabs; index += 1) {
+          const button = buttons.nth(index);
+          const target = await requiredBox(button);
+          expect(target.height).toBeGreaterThanOrEqual(44);
+          expect(target.height).toBe(closedSize - 2 * inset);
+          expect(Math.abs(target.width - (capsule.width - 2 * inset) / tabs)).toBeLessThan(1 / 32);
+          expect(target.y - capsule.y).toBe(inset);
+          expect(capsule.y + capsule.height - target.y - target.height).toBe(inset);
+          const glyph = await requiredBox(button.locator(":scope > span > svg"));
+          expect(glyph.height).toBe(root * 27 / 16);
+          expect(glyph.width).toBe(glyph.height);
+          expect(await button.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            return [rect.top + .5, rect.top + rect.height / 2, Math.floor(rect.bottom) - 1].every((y) => node.contains(document.elementFromPoint(rect.x + rect.width / 2, y)));
+          })).toBe(true);
+        }
+        for (const pill of [nav.locator("[data-navigation-pill]"), nav.locator('[data-navigation-lens="ready"]')]) {
+          const selected = await requiredBox(nav.getByRole("button", { name: "Home", exact: true }));
+          await expect.poll(async () => {
+            const rect = await requiredBox(pill);
+            return Math.max(Math.abs(rect.x - selected.x), Math.abs(rect.y - selected.y), Math.abs(rect.width - selected.width), Math.abs(rect.height - selected.height));
+          }).toBeLessThan(.02);
+        }
+        const clearance = await page.locator("[data-app-main-authenticated]").evaluate((node) => parseFloat(getComputedStyle(node).paddingBottom));
+        expect(clearance).toBe(closedSize + root * .75 + root * .5);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        for (let index = tabs - 1; index >= 0; index -= 1) {
+          const button = buttons.nth(index);
+          const target = await requiredBox(button);
+          await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: target.x + target.width / 2, y: Math.floor(target.y + target.height) - 1, id: 1 }] });
+          await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+          await expect(button).toHaveAttribute("aria-current", "page");
+        }
+      });
+    }
+    await cdp.detach();
   });
 
   test(`mobile navigation stays anchored during document scroll at ${width}px`, async ({ page }) => {
@@ -118,7 +186,7 @@ for (const route of ["/home", "/activity"]) {
       expect(backgrounds[0]).toBe(backgrounds[2]);
       expect(backgrounds[1]).toBe(backgrounds[2]);
       const clearance = await page.locator("[data-app-main-authenticated]").evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingBottom));
-      expect(clearance).toBe(62 + 12 + 16);
+      expect(clearance).toBe(52 + 12 + 8);
     });
   }
 }
@@ -222,7 +290,7 @@ test("the capsule covers widths through 1023px and the rail takes over at 1024px
   const nav = page.getByRole("navigation", { name: "Main navigation" });
   await expect(nav).toBeVisible();
   expect(await nav.evaluate((element) => element.parentElement ? getComputedStyle(element.parentElement).position : null)).toBe("fixed");
-  expect(await nav.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(192);
+  expect(await nav.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBe(160);
   await expect(page.locator("#desktop-rail")).toBeHidden();
   await page.setViewportSize({ width: 1024, height: 768 });
   await expect(page.locator("#desktop-rail")).toBeVisible();
@@ -452,33 +520,59 @@ function settledLensTab(page: Page) {
   });
 }
 
+const railMotionTargets = "#desktop-rail > div, #desktop-rail > div > div, [data-rail-follower]";
+
+async function finishRailMotion(page: Page) {
+  await page.evaluate((selector) => {
+    const animations = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect &&
+      Number.isFinite(animation.effect.getComputedTiming().endTime) &&
+      animation.effect.target instanceof Element && animation.effect.target.matches(selector));
+    for (const animation of animations) animation.finish();
+  }, railMotionTargets);
+}
+
+async function finishSearchMotion(page: Page) {
+  await page.evaluate(() => {
+    const animations = document.getAnimations().filter((animation) => {
+      if (!(animation.effect instanceof KeyframeEffect) || !Number.isFinite(animation.effect.getComputedTiming().endTime) ||
+        !(animation.effect.target instanceof Element)) return false;
+      const target = animation.effect.target;
+      return target.matches('#asset-search-surface > div[aria-hidden="true"]') ||
+        (target.closest("[data-asset-search-bar]") && animation instanceof CSSTransition &&
+          ["transform", "opacity"].includes(animation.transitionProperty));
+    });
+    for (const animation of animations) animation.finish();
+  });
+}
+
 async function openDesktopRail(page: Page) {
   await page.setViewportSize({ width: 1280, height: 800 });
   await seedSignedInSession(page);
   await installApiFixtures(page);
-  await page.addInitScript(() => {
+  await page.addInitScript((selector) => {
     const animate = Element.prototype.animate;
     Element.prototype.animate = function (keyframes, options) {
       const animation = animate.call(this, keyframes, options);
-      if (this.matches("#desktop-rail > div, #desktop-rail > div > div, [data-rail-follower]")) animation.pause();
+      if (this.matches(selector) && animation.effect && Number.isFinite(animation.effect.getComputedTiming().endTime)) animation.pause();
       return animation;
     };
-  });
+  }, railMotionTargets);
   await page.goto("/home");
+  await waitForShellHydration(page);
   await expect(page.locator("#desktop-rail")).toHaveAttribute("data-rail-state", "expanded");
   await page.evaluate(() => document.fonts.ready);
 }
 
 async function seekRail(page: Page, time: number) {
-  const targets = await page.evaluate((at) => {
+  const targets = await page.evaluate(({ at, selector }) => {
     const running = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect &&
-      animation.effect.target instanceof Element && animation.effect.target.matches("#desktop-rail > div, #desktop-rail > div > div, [data-rail-follower]"));
+      Number.isFinite(animation.effect.getComputedTiming().endTime) &&
+      animation.effect.target instanceof Element && animation.effect.target.matches(selector));
     for (const animation of running) animation.currentTime = at;
-    Reflect.set(window, "railMotion", running);
     const animated = running.map((animation) => animation.effect instanceof KeyframeEffect ? animation.effect.target : null);
     return { count: running.length, panel: animated.includes(document.querySelector("#desktop-rail > div")),
       main: animated.includes(document.querySelector("main")), header: animated.includes(document.querySelector("header[data-rail-follower]")) };
-  }, time);
+  }, { at: time, selector: railMotionTargets });
   expect(targets.count).toBeGreaterThan(0);
   expect({ panel: targets.panel, main: targets.main, header: targets.header }).toEqual({ panel: true, main: true, header: true });
 }
@@ -498,26 +592,66 @@ test("a mid-collapse rail stays within the viewport without releasing the sticky
   await page.evaluate(() => window.scrollTo(0, 200));
   await expect.poll(() => page.evaluate(() => ({ scrollY, headerTop: document.querySelector("header[data-rail-follower]")?.getBoundingClientRect().top })))
     .toEqual({ scrollY: 200, headerTop: 0 });
-  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+  await finishRailMotion(page);
   await expect(page.locator("[data-rail-column]")).toHaveCSS("overflow-x", "visible");
 });
 
-test("a fixed overlay opened mid-collapse keeps its final viewport bounds", async ({ page }) => {
+test("Search opened mid-collapse stays below the reachable shared header and keeps its field aligned", async ({ page }) => {
   await openDesktopRail(page);
   await page.getByRole("button", { name: "Sidebar" }).click();
   await seekRail(page, 90);
   await page.getByRole("button", { name: "Search assets", exact: true }).click();
-  const search = page.getByRole("dialog", { name: "Search assets" });
+  const search = page.getByRole("region", { name: "Search", exact: true });
+  const header = page.getByRole("banner");
+  const back = header.getByRole("button", { name: "Back", exact: true });
   await expect(search).toBeVisible();
-  const bounds = () => search.evaluate((element) => {
-    const rail: unknown = Reflect.get(window, "railMotion");
-    for (const animation of document.getAnimations()) if (!Array.isArray(rail) || !rail.includes(animation)) animation.finish();
-    const { x, y, width, height } = element.getBoundingClientRect();
-    return { x, y, width, height };
-  });
-  const during = await bounds();
-  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
-  expect(during).toEqual(await bounds());
+  await expect(header).toHaveCount(1);
+  await expect(page.getByRole("main")).toHaveCount(1);
+  await expect(header.getByRole("heading", { name: "Search", level: 1 })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Search assets" })).toBeFocused();
+  const assertShellGeometry = async () => {
+    const headerBox = await requiredBox(header);
+    const searchBox = await requiredBox(search);
+    const barBox = await requiredBox(page.locator("[data-asset-search-bar]"));
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("Expected a configured viewport for Search geometry");
+    expect(headerBox.y).toBe(0);
+    expect(searchBox.y).toBe(headerBox.y + headerBox.height);
+    expect(searchBox.height).toBeGreaterThan(0);
+    expect(searchBox.y + searchBox.height).toBeLessThanOrEqual(viewport.height);
+    expect(barBox.y).toBeGreaterThanOrEqual(searchBox.y);
+    expect(barBox.y + barBox.height).toBeLessThanOrEqual(searchBox.y + searchBox.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    expect(await back.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    })).toBe(true);
+    await back.focus();
+    await expect(back).toBeFocused();
+  };
+  await finishSearchMotion(page);
+  await assertShellGeometry();
+  await finishRailMotion(page);
+  await assertShellGeometry();
+  const settledSearch = await requiredBox(search);
+  const settledBar = await requiredBox(page.locator("[data-asset-search-bar]"));
+  expect(settledBar.x).toBeGreaterThanOrEqual(settledSearch.x);
+  expect(settledBar.x + settledBar.width).toBeLessThanOrEqual(settledSearch.x + settledSearch.width);
+  expect(settledBar.x + settledBar.width / 2).toBe(settledSearch.x + settledSearch.width / 2);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(async () => (await requiredBox(page.locator("[data-asset-search-bar]"))).x).toBe(23);
+  await finishSearchMotion(page);
+  await assertShellGeometry();
+  const field = await requiredBox(page.getByRole("search"));
+  const close = await requiredBox(page.getByRole("button", { name: "Close search" }));
+  expect(field.height).toBe(48);
+  expect(close.height).toBe(48);
+  expect(close.x - field.x - field.width).toBe(12);
+  expect(390 - close.x - close.width).toBe(23);
+  expect(844 - field.y - field.height).toBe(14);
+  expect(await page.locator("[data-asset-search-bar]").evaluate((node) => getComputedStyle(node).position)).toBe("fixed");
+  await back.click();
+  await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible();
 });
 
 test("a collapsed state from another tab mid-collapse retargets without a stale transform", async ({ page }) => {
@@ -539,7 +673,7 @@ test("a collapsed state from another tab mid-collapse retargets without a stale 
   await seekRail(page, 0);
   expect(Math.abs(await seam() - before)).toBeLessThan(1);
   expect(await homeHit()).toBe(true);
-  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+  await finishRailMotion(page);
   expect(await seam()).toBe(240);
   expect(await homeHit()).toBe(true);
   expect(await page.evaluate(() => [...document.querySelectorAll("#desktop-rail div, main"), document.querySelector("main")?.parentElement]

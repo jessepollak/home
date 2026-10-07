@@ -15,13 +15,13 @@ import { AppChromeProvider, useOptionalAppChrome, type NestedAppChrome } from "@
 import { LoadErrorCard } from "@/components/load-error";
 import { useBreakpointFocusHandoff } from "@/components/breakpoint-focus";
 import { ShellNavigation } from "./shell-navigation";
-import { ShellRouteSearchProvider, useShellRouteSearch, ShellSearchProvider, ShellSearchInert, ShellSearchSurfaceSlot } from "./shell-search";
+import { ShellRouteSearchProvider, useShellRouteSearch, ShellSearchProvider, ShellSearchInert, ShellSearchFrame } from "./shell-search";
 import { ShellMain } from "./shell-main";
 import { shellDesktopContentClassName } from "@/components/shell-layout";
 import { markHomePerformance, markHomeStartupOutcome, startHomePerformance } from "@/client/observability/perf-marks";
 import { beginHomeNavigation, discardHomeInteractionSamples, commitHomeNavigation, takeHomeHistoryTraversal } from "@/client/observability/interaction-performance";
 import { useHomeScrollPerformance } from "@/client/observability/use-home-scroll-performance";
-import { ShellHeader } from "./shell-chrome";
+import { ShellSearchHeader } from "./shell-chrome";
 import { HomeShellRoutingProvider, readHomeInboundPanelState, useActivityReturnOwnerBoundary, type ActivityDetailReturn } from "./panel-routing";
 import { ShellPageProvider } from "./shell-page-context";
 import { useShellDocumentScrollRestoration } from "./use-shell-document-scroll-restoration";
@@ -442,7 +442,7 @@ function DashboardShellBody({
   return <HomeShellRoutingProvider value={routingValue}><ShellPageProvider value={pageValue}>
     <ShellSearchProvider content={searchContent} available={searchAvailable} signedOut={isSignedOut} ownerKey={account.ownerKey} shellRef={shellRef} detailTargetRef={searchDetailTargetRef} onLeaveSearch={onLeaveSearch}>
     <SupportProvider ownerKey={supportOwnerKey(account)} fetchAccountResource={account.fetchAccountResource} fetchAccountResponse={account.fetchAccountResponse}>
-    <div ref={shellRef} className="flex min-h-dvh flex-col bg-muted [--shell-scrollbar-width:0px] lg:flex-row"
+    <ShellSearchFrame ref={shellRef} className="flex min-h-dvh flex-col bg-muted [--shell-scrollbar-width:0px] lg:flex-row"
       style={shellNavigationStyle} data-shell-navigation-items={navigationItemCount}>
       {!isSignedOut ? <ShellSearchInert>
         <ShellNavigation layout="rail" cardsEnabled={cardsEnabled} activeNavigation={activeNavigation} onNavigate={navigateTo}
@@ -451,18 +451,16 @@ function DashboardShellBody({
             address: account.session?.smartAccount?.address ?? null, disabled: isAccountRailBusy,
           } : undefined} onOpenAccount={openAccountSettings} />
       </ShellSearchInert> : null}
-      <div data-rail-column="" className="flex min-h-dvh min-w-0 flex-1 flex-col">
+      <div data-rail-column="" className="flex min-h-0 min-w-0 flex-1 flex-col">
         <span role="status" className="sr-only">{isVerified && interruption && interruptionAnnouncement
           ? headerStatus({ interruption: { kind: interruptionAnnouncement }, coverage: null })?.message : null}</span>
-        <ShellSearchInert>
-        <ShellHeader hasDesktopRail={!isSignedOut} isAccountSettingsOpen={isAccountSettingsOpen}
+        <ShellSearchHeader hasDesktopRail={!isSignedOut} isAccountSettingsOpen={isAccountSettingsOpen}
           nestedChromeTitle={nestedChromeTitle} nestedChromeBackLabel={isHomeNestedPanelId(activeNavigation) ? "Back" : investChrome?.nested?.backLabel ?? "Back"} onNestedChromeBack={onNestedChromeBack}
           routeMode="dashboard" activeNavigation={activeNavigation} isVerified={isVerified} account={account}
           onHome={() => navigateTo("home")} onDashboard={() => router.replace("/home")}
           onSignIn={(opener) => { setAccountOpener(opener); setIsAccountOpen(true); router.push("/?account=signin"); }}
           onSignOut={signOut} onOpenSettings={openAccountSettings} onCloseSettings={closeAccountSettings}
           status={homeStatus ? <HomeHeaderStatus status={homeStatus} onRetry={retryHomeReads} onOpenAccount={() => openAccountSettings()} /> : null} />
-        </ShellSearchInert>
         <ShellMain mainRef={mainRef} contentFrameRef={contentFrameRef} refreshInput={{ session: activitySession, regionId, fetchActivity: account.fetchActivity, enabled: homeRefreshEnabled }} pullEnabled={!flowOpen && !isAccountOpen && !homeDetailsOpen}>
             {isUnavailable ? <div className="mb-4"><LoadErrorCard description={account.message ?? "Account check unavailable."}
               onRetry={() => void account.retrySessionValidation()} /></div> : null}
@@ -484,7 +482,6 @@ function DashboardShellBody({
               </section>}
         </ShellMain>
         {!isSignedOut ? <ShellNavigation activeNavigation={activeNavigation} cardsEnabled={cardsEnabled} onNavigate={navigateTo} /> : null}
-        <ShellSearchSurfaceSlot />
         {activeNavigation !== "home" ? <>
           <FundingActions showTrigger={false} initialOpen={urlIntent.addMoney} returnedFromProvider={urlIntent.returnedFromProvider}
             regionId={regionId} regionReady={regionReady} />
@@ -505,7 +502,7 @@ function DashboardShellBody({
         <AccountSignInSheet open={isAccountOpen} opener={accountOpener} onClose={() => { setIsAccountOpen(false); router.replace("/"); }}
           onVerified={() => window.location.replace("/home")} />
       </div>
-    </div>
+    </ShellSearchFrame>
     </SupportProvider>
     </ShellSearchProvider>
   </ShellPageProvider></HomeShellRoutingProvider>;
