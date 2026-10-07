@@ -8,6 +8,8 @@ import { classifyTokenizedEquityRound, type EquityBlock, type TokenizedEquityFee
 
 export type { TokenizedEquityFeed, TokenizedEquityReference } from "./classify";
 
+export const TOKENIZED_EQUITY_READ_TIMEOUT_MS = 2_500;
+
 export function tokenizedEquityFeeds(assets: readonly InvestAsset[]): TokenizedEquityFeed[] {
   return assets.flatMap((asset) => asset.category === "stock" && asset.valuation ? [{
     assetId: asset.id,
@@ -46,7 +48,7 @@ function wordData(value: unknown, words: number): `0x${string}` {
 
 export async function readTokenizedEquityReferences(
   feeds: readonly TokenizedEquityFeed[],
-  { blockNumber, rpc = createBaseRpcClient({ timeoutMs: 2_500 }), signal }: ReadOptions,
+  { blockNumber, rpc = createBaseRpcClient({ timeoutMs: TOKENIZED_EQUITY_READ_TIMEOUT_MS }), signal }: ReadOptions,
 ): Promise<TokenizedEquityReference[]> {
   const requested = BigInt(blockNumber);
   if (requested < BigInt(0)) throw new RangeError("Block number must be nonnegative.");
@@ -88,7 +90,7 @@ const TOKENIZED_EQUITY_MAX_IN_FLIGHT = 16;
 export function createTokenizedEquityReader({
   read = readTokenizedEquityReferences,
   ttlMs = 30_000,
-  timeoutMs = 2_500,
+  timeoutMs = TOKENIZED_EQUITY_READ_TIMEOUT_MS,
   now = Date.now,
   rpc = createBaseRpcClient({ timeoutMs }),
 }: {

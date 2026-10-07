@@ -65,6 +65,7 @@ export type TokenBalancesPageSet = {
   nextPageToken: string | null;
   pagesRead: number;
   durationMs: number;
+  interruption?: CdpTokenBalancesErrorCode;
   detail?: PortfolioBalanceSourceDetail;
 };
 
@@ -156,6 +157,7 @@ export function createCdpTokenBalancesClient(options: {
       let nextPageToken: string | null = pageToken ?? null;
       let complete = false;
       let pagesRead = 0;
+      let interruption: CdpTokenBalancesErrorCode | undefined;
       let detail: PortfolioBalanceSourceDetail | undefined;
       const deadline = createUpstreamDeadline({ timeoutMs: deadlineMs, signal: request.signal, clock });
       const startedAt = deadline.now();
@@ -175,7 +177,10 @@ export function createCdpTokenBalancesClient(options: {
           });
         } catch (error) {
           if (collected.size > 0 && pageToken && isTransientPageError(error)) {
-            if (error instanceof CdpTokenBalancesError) detail = error.detail;
+            if (error instanceof CdpTokenBalancesError) {
+              interruption = error.code;
+              detail = error.detail;
+            }
             break;
           }
           if (error instanceof CdpTokenBalancesError) error.pagesRead = pagesRead;
@@ -207,6 +212,7 @@ export function createCdpTokenBalancesClient(options: {
         nextPageToken,
         pagesRead,
         durationMs: Math.max(0, deadline.now() - startedAt),
+        ...(interruption === undefined ? {} : { interruption }),
         ...(detail === undefined ? {} : { detail }),
       };
     },
