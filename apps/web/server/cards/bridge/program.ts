@@ -12,10 +12,10 @@ import { createBridgeWebhookProvider, createStripeWebhookProvider } from "./webh
 
 export function bridgeAccountStatus(customer: BridgeCustomer, stored: string | null, holder: "active" | "inactive" | "blocked" | null): ProgramAccount["status"] {
   if (stored && customer.stripeCardholderId !== stored) return "unavailable";
-  if (customer.status === "paused" || customer.status === "deposits_restricted" || holder && holder !== "active") return "restricted";
   if (customer.status === "rejected" || customer.status === "offboarded") return "ineligible";
+  if (customer.status === "paused" || customer.status === "deposits_restricted" || holder && holder !== "active") return "restricted";
   const endorsement = customer.cardsEndorsement;
-  if (customer.status === "under_review" || endorsement?.pending || endorsement?.status === "approved" && !customer.stripeCardholderId) return "verification-pending";
+  if (customer.status === "under_review" || customer.status === "active" && (endorsement?.pending || endorsement?.status === "approved" && !customer.stripeCardholderId)) return "verification-pending";
   if (customer.status !== "active" || endorsement?.status !== "approved" || endorsement.missing || endorsement.issues) return "verification-required";
   return "ready";
 }
@@ -48,8 +48,11 @@ export function createBridgeProgram(config: CardJourneyConfig, funding: CardProg
     async enroll(link, request) {
       const customer = link.accountId ? await bridge.readCustomer(link.accountId) : await bridge.createCustomer(request.idempotencyKey);
       if (link.cardholderId && customer.stripeCardholderId !== link.cardholderId) throw new Error("Bridge cardholder mismatch");
-      return { link: { accountId: customer.id, ...(customer.stripeCardholderId ? { cardholderId: customer.stripeCardholderId } : {}) },
-        next: { kind: "redirect", url: await bridge.cardsKycLink(customer.id, request.redirectUri) } };
+      return { link: { accountId: customer.id, ...(customer.stripeCardholderId ? { cardholderId: customer.stripeCardholderId } : {}) } };
+    },
+    async enrollmentNext(link, request) {
+      if (!link.accountId) throw new Error("Missing Bridge account");
+      return { kind: "redirect", url: await bridge.cardsKycLink(link.accountId, request.redirectUri) };
     },
     async issue(link: ProgramLink, wallet, key) {
       const account = await this.readAccount(link);

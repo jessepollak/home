@@ -44,7 +44,7 @@ export function createCardWriteService({ sql, programs = readCardPrograms(sql), 
   return {
     async enroll(customerId: string, redirectUri: string) {
       const selectedMode = availableMode();
-      return sql.transaction(async (tx) => {
+      const enrollment = await sql.transaction(async (tx) => {
         const store = createCardAccountStore(tx);
         const initial = await store.read(customerId, selectedMode);
         const first = await selected(initial, customerId, selectedMode);
@@ -52,15 +52,17 @@ export function createCardWriteService({ sql, programs = readCardPrograms(sql), 
         const link = await store.read(customerId, selectedMode, undefined, true);
         if (!link) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
         const program = await selected(link, customerId, selectedMode);
-        const result = await program.enroll(link, { customerId, redirectUri, idempotencyKey: key(program.provider, "enroll", selectedMode, customerId) });
-        if (result.next.kind === "redirect") {
-          const url = new URL(result.next.url);
-          if (url.protocol !== "https:" || !program.enrollmentHosts.includes(url.host) || url.username || url.password || url.hash)
-            throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-        }
+        const result = await program.enroll(link, { customerId, idempotencyKey: key(program.provider, "enroll", selectedMode, customerId) });
         await store.update(link, result.link);
-        return result.next;
+        return { program, link: { ...link, ...result.link } };
       });
+      const next = await enrollment.program.enrollmentNext(enrollment.link, { redirectUri });
+      if (next.kind === "redirect") {
+        const url = new URL(next.url);
+        if (url.protocol !== "https:" || !enrollment.program.enrollmentHosts.includes(url.host) || url.username || url.password || url.hash)
+          throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+      }
+      return next;
     },
     async issue(customerId: string, session: VerifiedAccountSession): Promise<Readonly<{ id: string; status: "active" | "frozen" }>> {
       const selectedMode = availableMode();

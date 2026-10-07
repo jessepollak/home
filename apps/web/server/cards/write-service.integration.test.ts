@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
@@ -12,6 +12,8 @@ import { createCardRevealHandler } from "./reveal-handler";
 import { createCardsHandler } from "./handler";
 import { createCardAccountStore } from "./account-store";
 import { readCardState } from "./journey";
+import { createBridgeProgram } from "./bridge/program";
+import { fixtureCustomer } from "@/tests/cards/fake-bridge";
 
 const url = process.env.FUNDING_PG_TEST_URL?.trim();
 const schema = `cards_write_${randomBytes(4).toString("hex")}`;
@@ -51,15 +53,46 @@ let cardId: string;
   test("enrollment failures and unallowlisted redirects do not overwrite the owner link", async () => {
     const before = await createCardAccountStore(sql).read(owner, "sandbox");
     for (const failure of ["rejected", "timeout", "redirect"] as const) {
-      const program = { ...fake.program, enroll: async () => {
+      const program = { ...fake.program, enroll: async (...args: Parameters<typeof fake.program.enroll>) => {
         if (failure === "rejected") throw new Error("provider failed");
         if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
-        return { link: { accountId: "other-account" }, next: { kind: "redirect" as const, url: "https://untrusted.example/" } };
-      } };
+        return fake.program.enroll(...args);
+      }, enrollmentNext: async () => ({ kind: "redirect" as const, url: "https://untrusted.example/" }) };
       const failed = createCardWriteService({ sql, programs: createCardPrograms([program], "bridge", sql) });
       await expect(failed.enroll(owner, "https://home.example/card")).rejects.toThrow();
       expect(await createCardAccountStore(sql).read(owner, "sandbox")).toEqual(before);
     }
+  });
+  test.each(["rejected", "timeout", "redirect"] as const)("enrollment retains the created customer after a KYC link %s and reuses it on retry", async (failure) => {
+    const customerId = randomUUID();
+    const providerCustomer = { ...fixtureCustomer, id: randomUUID(), stripe_cardholder_id: `ich_${randomBytes(8).toString("hex")}` };
+    await sql.query("INSERT INTO customers(id,first_seen_at,last_seen_at,first_seen_source) VALUES ($1,now(),now(),'sign_in')", [customerId]);
+    let creates = 0, reads = 0, links = 0;
+    const program = createBridgeProgram({ mode: "sandbox", bridgeOrigin: "https://api.sandbox.bridge.xyz",
+      bridgeApiKey: "synthetic", stripeSecretKey: "sk_test_synthetic", stripeApiVersion: "2025-09-30.clover",
+      funding: { kind: "financial_account", financialAccount: "fa_synthetic" } }, { strategy: "deposit" }, [],
+      (async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        if (path === "/v0/customers" && init?.method === "POST") { creates++; return Response.json(providerCustomer); }
+        if (path === `/v0/customers/${providerCustomer.id}`) { reads++; return Response.json(providerCustomer); }
+        if (path === `/v0/customers/${providerCustomer.id}/kyc_link`) {
+          const stored = await createCardAccountStore(sql).read(customerId, "sandbox");
+          expect(stored?.accountId).toBe(providerCustomer.id);
+          expect(stored?.cardholderId).toBe(providerCustomer.stripe_cardholder_id);
+          if (++links === 1) {
+            if (failure === "rejected") return new Response(null, { status: 503 });
+            if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
+            return Response.json({ url: "https://untrusted.example/" });
+          }
+          return Response.json({ url: "https://bridge.withpersona.com/inquiry" });
+        }
+        throw new Error("Unexpected provider request");
+      }) as typeof fetch);
+    const enrollment = createCardWriteService({ sql, programs: createCardPrograms([program], "bridge", sql) });
+    await expect(enrollment.enroll(customerId, "https://home.example/card")).rejects.toThrow();
+    expect((await createCardAccountStore(sql).read(customerId, "sandbox"))?.accountId).toBe(providerCustomer.id);
+    expect(await enrollment.enroll(customerId, "https://home.example/card")).toEqual({ kind: "redirect", url: "https://bridge.withpersona.com/inquiry" });
+    expect(creates).toBe(1); expect(reads).toBe(1); expect(links).toBe(2);
   });
   test("failed issue calls and malformed cards never create a local success", async () => {
     for (const failure of ["rejected", "timeout", "mismatch"] as const) {

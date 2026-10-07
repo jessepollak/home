@@ -14,7 +14,8 @@ export function fakeProgram(options: Partial<CardProgram> = {}) {
     readAccount: async () => account,
     readCards: async (_link, ids) => ids.map((id) => { const card = cards.get(id); return card ? { providerCardId: id, ok: true, card } : { providerCardId: id, ok: false }; }),
     enroll: async (_link, request) => { calls.push({ purpose: "enroll", key: request.idempotencyKey });
-      return { link: { accountId: "account-fixture", cardholderId: account.cardholderId }, next: { kind: "redirect", url: "https://bridge.withpersona.com/inquiry" } }; },
+      return { link: { accountId: "account-fixture", cardholderId: account.cardholderId } }; },
+    enrollmentNext: async () => ({ kind: "redirect", url: "https://bridge.withpersona.com/inquiry" }),
     issue: async (_link, _wallet, key) => {
       calls.push({ purpose: "issue", key });
       const prior = issuedKeys.get(key);

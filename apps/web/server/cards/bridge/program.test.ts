@@ -24,3 +24,11 @@ test("approved without a holder remains pending and holder mismatch fails closed
   expect(bridgeAccountStatus({ ...customer, stripeCardholderId: null }, null, null)).toBe("verification-pending");
   expect(bridgeAccountStatus(customer, "ich_other", "active")).toBe("unavailable");
 });
+test.each([
+  ["incomplete", true, customer.stripeCardholderId, "active", "verification-required"],
+  ["awaiting_ubo", false, null, null, "verification-required"],
+  ["rejected", false, customer.stripeCardholderId, "inactive", "ineligible"],
+] as const)("Bridge combined status %s pending=%s holder=%s holder-status=%s", (status, pending, stripeCardholderId, holder, expected) => {
+  expect(bridgeAccountStatus({ ...customer, status, stripeCardholderId,
+    cardsEndorsement: { status: "approved", pending, missing: false, issues: false } }, stripeCardholderId, holder)).toBe(expected);
+});

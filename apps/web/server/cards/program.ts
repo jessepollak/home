@@ -18,8 +18,7 @@ export type ProgramAccount = Readonly<{
 export type ProgramCard = Readonly<{ providerCardId: string; cardholderId: string | null; last4: string;
   status: "active" | "frozen" | "restricted" | "canceled" }>;
 export type ProgramCardRead = Readonly<{ providerCardId: string } & ({ ok: true; card: ProgramCard } | { ok: false })>;
-export type EnrollResult = Readonly<{ link: Partial<Pick<ProgramLink, "accountId" | "cardholderId">>;
-  next: { kind: "redirect"; url: string } | { kind: "complete" } }>;
+export type EnrollResult = Readonly<{ link: Partial<Pick<ProgramLink, "accountId" | "cardholderId">> }>;
 export type ProgramPurchase = CardPurchase & Readonly<{ cardId: string; authorizationId: string | null }>;
 export type PurchaseRef = Readonly<{ id: string; kind: "authorization" | "transaction" }>;
 export type CardProgram = Readonly<{
@@ -29,7 +28,8 @@ export type CardProgram = Readonly<{
   enrollmentHosts: readonly string[];
   readAccount(link: ProgramLink, signal?: AbortSignal): Promise<ProgramAccount>;
   readCards(link: ProgramLink, ids: readonly string[], signal?: AbortSignal): Promise<readonly ProgramCardRead[]>;
-  enroll(link: ProgramLink, request: { customerId: string; redirectUri: string; idempotencyKey: string }): Promise<EnrollResult>;
+  enroll(link: ProgramLink, request: { customerId: string; idempotencyKey: string }): Promise<EnrollResult>;
+  enrollmentNext(link: ProgramLink, request: { redirectUri: string }): Promise<{ kind: "redirect"; url: string } | { kind: "complete" }>;
   issue(link: ProgramLink, wallet: `0x${string}`, idempotencyKey: string): Promise<ProgramCard>;
   setFrozen(link: ProgramLink, id: string, frozen: boolean, idempotencyKey: string): Promise<ProgramCard>;
   reveal(link: ProgramLink, id: string, request: RevealRequest): Promise<RevealGrant>;
