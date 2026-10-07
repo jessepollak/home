@@ -3,6 +3,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { LogOut } from "lucide-react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { useAccountExport } from "@/client/account/use-account-export";
 import { useInviteLink } from "@/client/account/use-invite-link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -139,6 +140,7 @@ export function AccountSettings({
     fetchAccountResource,
   });
   const inviteUrl = inviteLink.data;
+  const accountExport = useAccountExport({ ownerKey: accountOwnerKey, fetchAccountResource });
 
   return (
     <div className="min-w-0 space-y-8 py-2 pb-6">
@@ -343,6 +345,44 @@ export function AccountSettings({
                     ) : null}
                   </ItemContent>
                 )}
+              </Item>
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
+
+      {accountOwnerKey ? (
+        <section className="space-y-3" aria-labelledby="your-data-heading">
+          <h2 id="your-data-heading" className="text-lg font-semibold">
+            Your data
+          </h2>
+          <Card>
+            <CardContent inset="list">
+              <Item className="min-w-0 flex-wrap">
+                <ItemContent className="min-w-0 flex-1">
+                  <ItemTitle>Export my data</ItemTitle>
+                  <ItemDescription>
+                    {accountExport.state === "error"
+                      ? "Couldn't create your export. Nothing in your account changed."
+                      : "Download a copy of your Home data"}
+                  </ItemDescription>
+                  <ItemDescription role="status" aria-live="polite">
+                    {accountExport.state === "generating" ? "Preparing your export"
+                      : accountExport.state === "success" ? "Export downloaded" : ""}
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <Button
+                    variant="outline"
+                    size="touch"
+                    disabled={accountExport.state === "generating"}
+                    aria-busy={accountExport.state === "generating"}
+                    onClick={() => void accountExport.start()}
+                  >
+                    {accountExport.state === "generating" ? "Preparing…"
+                      : accountExport.state === "error" ? "Try again" : "Export"}
+                  </Button>
+                </ItemActions>
               </Item>
             </CardContent>
           </Card>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AccountRenderSeed } from "@/shared/account/session-types";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
 import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
@@ -22,20 +22,37 @@ export function SmokeFixtureAccountProvider({ children, renderSeed = null }: { c
       : null,
   );
 
+  const [fixtureAccount, setFixtureAccount] = useState<{ subject: string; address: `0x${string}` }>({
+    subject: "playwright-smoke-subject",
+    address: SMART_ACCOUNT_ADDRESS,
+  });
+  useEffect(() => {
+    const switchOwner = () => {
+      setFixtureAccount({
+        subject: "playwright-smoke-second-subject",
+        address: "0x3333333333333333333333333333333333333333",
+      });
+      setOwnerKey("playwright-smoke-second-owner");
+    };
+    window.addEventListener("home:playwright-smoke:owner-switch", switchOwner);
+    return () => window.removeEventListener("home:playwright-smoke:owner-switch", switchOwner);
+  }, []);
+
   const sdk = useMemo<AccountWalletSdkBoundary>(() => ({
     isInitialized: true,
     isSignedIn: ownerKey !== null,
     ownerKey,
     provisionalSession: ownerKey
       ? {
-          user: { subject: "playwright-smoke-subject" },
-          smartAccount: { address: SMART_ACCOUNT_ADDRESS, chainId: 8453 },
+          user: { subject: fixtureAccount.subject },
+          smartAccount: { address: fixtureAccount.address, chainId: 8453 },
           accountProvider: "cdp-embedded",
         }
       : null,
     signInWithEmail: async () => ({ flowId: "playwright-smoke-flow" }),
     verifyEmailOTP: async () => {
       window.sessionStorage.setItem(SIGNED_IN_KEY, "1");
+      setFixtureAccount({ subject: "playwright-smoke-subject", address: SMART_ACCOUNT_ADDRESS });
       setOwnerKey("playwright-smoke-owner");
     },
     requestBaseAccountChallenge: async () => ({
@@ -77,7 +94,7 @@ export function SmokeFixtureAccountProvider({ children, renderSeed = null }: { c
       window.sessionStorage.removeItem(SIGNED_IN_KEY);
       setOwnerKey(null);
     },
-  }), [ownerKey]);
+  }), [fixtureAccount, ownerKey]);
 
   return (
     <AccountWalletSessionOwner sdk={sdk} baseAccountEnabled renderSeed={renderSeed}>

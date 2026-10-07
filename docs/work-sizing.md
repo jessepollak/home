@@ -20,6 +20,8 @@ An area is a set of paths that concurrent changes cannot safely share. Every iss
 | `money-actions` | `apps/web/server/actions/`, `apps/web/server/money-actions/` |
 | `assets` | `apps/web/config/portfolio-assets.ts`, `apps/web/shared/savings/config.ts`, the cash currency registry |
 | `operator-settings` | `apps/web/server/operator-settings/`, `apps/web/app/admin/` |
+| `account-settings` | `apps/web/client/account/account-settings.tsx`, `apps/web/client/account/use-account-export.ts`, `apps/web/client/account/account-export-file.ts` |
+| `account-privacy` | `apps/web/server/account-export/`, `apps/web/shared/account/contracts/data-export.ts`, `docs/account-export.md`, and the leave-Home lifecycle that consumes them |
 
 These are the [shared merge hotspots](operating-manual.md#shared-merge-hotspots) grouped by what changes together. Add an area when the same paths show up in two conflicting PRs; remove one when its paths stop colliding.
 
