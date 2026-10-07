@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ComponentType } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { Activity, ArrowDownToLine, ChevronLeftIcon, ChevronRightIcon, CircleAlertIcon, LayoutDashboard, PiggyBank, Percent, ArrowUpFromLine, LockOpen, Star } from "lucide-react";
+import { AggregateSignals } from "@/components/ui/aggregate-signals";
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -277,6 +278,16 @@ function ToggleGroupSpecimen() {
 }
 
 export const specimens: Record<string, Specimen> = {
+  "ui-aggregate-signals": {
+    Render: () => <div className="w-72">
+      <AggregateSignals title="Token checks" source="GoPlus"
+        summary={[{ id: "restriction", label: "Sell restriction reported", tone: "danger" }]}
+        signals={[
+          { id: "sell", label: "Sell limit", detail: "Holders may not be able to sell their full balance at once", tone: "danger" },
+          { id: "unknown", label: "Unknown signals", detail: "No data: blocklist", tone: "neutral" },
+        ]} />
+    </div>,
+  },
   "ui-alert": {
     Render: () => <Alert className="w-72">
       <AlertIcon><CircleAlertIcon /></AlertIcon>

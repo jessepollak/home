@@ -14,6 +14,7 @@ import { priceHistoryFixture } from "@/tests/browser/feature-map/fixtures";
 import { pinClock } from "@/tests/helpers/pin-clock";
 import { waitForReady } from "@/tests/helpers/story-readiness";
 import type { MarketDataState } from "@/shared/invest/invest-market";
+import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { isMarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import type { AssetCatalyst, AssetFact } from "@/shared/invest/asset-context";
 
@@ -98,8 +99,15 @@ const meta = { title: "Journeys/Invest asset decision", component: Journey,
   beforeEach: () => { getHomeQueryClient().clear(); calls = 0; heldRequest = new Promise<void>((resolve) => { release = resolve; });
     const restore = pinClock(TIME); return () => { release(); restore(); getHomeQueryClient().clear(); }; },
   parameters: { layout: "fullscreen", a11y: { test: "error" }, viewport: { defaultViewport: "mobile" }, msw: { handlers: [historyHandler(),
-    http.get("/api/market-prices/stats", ({ request }) => HttpResponse.json({ version: 1, provider: "codex", assetId: new URL(request.url).searchParams.get("assetId"),
-      status: "ready", currency: "USD", fetchedAt: TIME, stats: { marketCapUsd: { atoms: "2410000000000", scale: 0 }, volume24hUsd: { atoms: "38200000000", scale: 0 }, liquidityUsd: { atoms: "850000", scale: 0 } } })),
+    http.get("/api/market-prices/stats", ({ request }) => {
+      const assetId = new URL(request.url).searchParams.get("assetId");
+      const identity = assetId ? resolveMarketPriceAssetIdentity(assetId) : null;
+      if (!identity) throw new Error("Missing stats fixture identity");
+      const isStock = investAssets.some((asset) => asset.id === assetId && asset.category === "stock");
+      return HttpResponse.json({ version: 1, provider: "codex", assetId,
+        ...(!isStock ? { risk: { source: "goplus", chainId: identity.chainId, contractAddress: identity.contractAddress.toLowerCase(), status: "unsupported", checkedAt: null } } : {}),
+        status: "ready", currency: "USD", fetchedAt: TIME, stats: { marketCapUsd: { atoms: "2410000000000", scale: 0 }, volume24hUsd: { atoms: "38200000000", scale: 0 }, liquidityUsd: { atoms: "850000", scale: 0 } } });
+    }),
   ] } },
 } satisfies Meta<typeof Journey>;
 export default meta;
@@ -123,17 +131,20 @@ export const HeldStock: Story = { play: async ({ canvasElement }) => {
   await expect(canvas.queryByText(/Partial coverage/)).not.toBeInTheDocument();
   await expect(canvas.getByText(requireFixture(assetFacts.find((entry) => entry.assetId === stock.id)).summary)).toBeVisible();
   const chart = canvas.getByRole("group", { name: /1 week price history/ });
-  chart.focus(); await userEvent.keyboard("{End}");
+  await waitForReady(async () => {
+    chart.focus();
+    await userEvent.keyboard("{End}");
+    await expect(canvasElement.querySelector("[data-scrub-readout]")).toBeVisible();
+  });
   await expect(canvasElement.querySelector("strong[data-tone]")).toHaveTextContent("$180.24");
-  await expect(canvasElement.querySelector("[data-scrub-readout]")).toBeVisible();
   await userEvent.keyboard("{Home}{ArrowRight}{ArrowLeft}{Escape}");
-  await expect(canvasElement.querySelector("[data-scrub-readout]")).not.toBeInTheDocument();
+  await waitForReady(() => expect(canvasElement.querySelector("[data-scrub-readout]")).not.toBeInTheDocument());
   const box = chart.getBoundingClientRect();
   await fireEvent.pointerDown(chart, { pointerType: "touch", pointerId: 7, clientX: box.left + 80, clientY: box.top + 60 });
   await fireEvent.pointerMove(chart, { pointerType: "touch", pointerId: 7, clientX: box.left + 100, clientY: box.top + 60 });
-  await expect(canvasElement.querySelector("[data-scrub-readout]")).toBeVisible();
+  await waitForReady(() => expect(canvasElement.querySelector("[data-scrub-readout]")).toBeVisible());
   await fireEvent.pointerCancel(chart, { pointerType: "touch", pointerId: 7 });
-  await expect(canvasElement.querySelector("[data-scrub-readout]")).not.toBeInTheDocument();
+  await waitForReady(() => expect(canvasElement.querySelector("[data-scrub-readout]")).not.toBeInTheDocument());
   await userEvent.click(canvas.getByRole("button", { name: "Back" }));
   await expect(canvas.getByRole("region", { name: "Discover" })).toBeVisible();
 } };
@@ -145,6 +156,14 @@ export const UnheldStockPartial: Story = { args: { held: false, mode: "partial" 
 } };
 export const WrappedMajor: Story = { args: { assetId: "cbbtc", held: false }, play: async ({ canvasElement }) => {
   const canvas = await ready(canvasElement); await expect(await canvas.findByText("Market cap")).toBeVisible();
+  const checks = within(canvas.getByRole("region", { name: "Token checks" }));
+  await expect(checks.getByRole("status")).toHaveTextContent("GoPlus has no data for this token");
+  const trigger = checks.getByRole("button", { name: /Token checks/ });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(checks.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  await userEvent.click(trigger);
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(checks.getByRole("button", { name: "Try again" })).toBeVisible();
   await expect(canvas.getByText(requireFixture(assetFacts.find((entry) => entry.assetId === "cbbtc")).summary)).toBeVisible();
 } };
 export const Meme: Story = { args: { assetId: "degen", held: false }, play: async ({ canvasElement }) => {

@@ -13,8 +13,10 @@ import type { Holding } from "@/shared/balances/types";
 import { expectedMarketPriceHistorySource, type MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import type { MarketDataState, MarketSession } from "@/shared/invest/invest-market";
 import { formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
-import { AssetDetailScreen } from "./asset-detail-screen";
+import { AssetDetailScreen, ExactAddressAssetScreen } from "./asset-detail-screen";
+import type { TokenRisk, TokenRiskSignals } from "@/shared/invest/contracts/market-stats";
 import { pinClock } from "@/tests/helpers/pin-clock";
+import { marketStatsOptions } from "./use-market-stats";
 
 const chartWait = { timeout: 5000 };
 const TIME = "2026-09-25T12:00:00.000Z";
@@ -162,7 +164,7 @@ function historyHandler(mode: "ready" | "empty" | "stale" | "slow" | "hold-year"
 
 type AssetKey = "cbbtc" | "nvdac" | "degen" | "dynamic";
 type Position = "unheld" | "bitcoin" | "stock" | "error" | "blocked";
-type StoryProps = { assetId: AssetKey; position: Position; localCurrency: boolean; staleMarket: boolean; reducedMotion: boolean; stockSession?: MarketSession };
+type StoryProps = { assetId: AssetKey; position: Position; localCurrency: boolean; staleMarket: boolean; reducedMotion: boolean; stockSession?: MarketSession; exactAddress?: boolean };
 const assets: Record<AssetKey, InvestAsset> = { cbbtc: crypto, nvdac: stock, degen: configuredMeme, dynamic: dynamicMeme };
 const session = {
   user: { subject: "synthetic-asset-detail-owner" },
@@ -198,13 +200,54 @@ function positionSnapshot(position: Position, stockSession: MarketSession = "ope
     return holding;
   }) };
 }
-function statsHandler(mode: "ready" | "error" = "ready") {
-  return http.get("/api/market-prices/stats", ({ request }) => {
+type RiskMode = "reported" | "no-flags" | "all-absent" | "all-unknown" | "partial" | "stale" | "retry" | "refresh-failed" | "throttled" | "unsupported" | "loading" | "error";
+const riskControl: { calls: number; release: () => void; held: Promise<void> } = { calls: 0, release: () => {}, held: Promise.resolve() };
+function resetRiskControl() {
+  riskControl.release();
+  riskControl.calls = 0;
+  riskControl.held = new Promise<void>((resolve) => { riskControl.release = resolve; });
+}
+function riskFixture(asset: InvestAsset, mode: RiskMode): TokenRisk {
+  const identity = { source: "goplus" as const, chainId: BASE_CHAIN_ID, contractAddress: asset.contractAddress.toLowerCase() };
+  if (mode === "throttled" || mode === "unsupported" || mode === "error") return { ...identity, status: mode, checkedAt: null };
+  const signals: TokenRiskSignals = {
+    honeypot: "absent", cannotSellAll: "absent", transferPausable: "absent", blacklist: "absent",
+    taxModifiable: "absent", personalTaxModifiable: "absent",
+    buyTax: { state: "absent" }, sellTax: { state: "absent" }, transferTax: { state: "unknown" },
+  };
+  if (mode === "reported" || mode === "stale" || mode === "refresh-failed") Object.assign(signals, {
+    honeypot: "reported", sellTax: { state: "reported", fraction: { atoms: "1", scale: 0 } },
+    buyTax: { state: "reported", fraction: { atoms: "5", scale: 2 } }, transferPausable: "reported",
+    blacklist: "reported", taxModifiable: "reported",
+  });
+  if (mode === "all-absent") signals.transferTax = { state: "absent" };
+  if (mode === "all-unknown") Object.assign(signals, {
+    honeypot: "unknown", cannotSellAll: "unknown", transferPausable: "unknown", blacklist: "unknown",
+    taxModifiable: "unknown", personalTaxModifiable: "unknown", buyTax: { state: "unknown" },
+    sellTax: { state: "unknown" }, transferTax: { state: "unknown" },
+  });
+  if (mode === "partial") Object.assign(signals, {
+    honeypot: "unknown", cannotSellAll: "unknown", transferPausable: "unknown", blacklist: "unknown",
+    taxModifiable: "unknown", personalTaxModifiable: "reported", sellTax: { state: "unknown" },
+    buyTax: { state: "reported", fraction: { atoms: "1", scale: 6 } }, transferTax: { state: "unknown" },
+  });
+  return { ...identity, status: mode === "stale" ? "stale" : "ready",
+    checkedAt: mode === "stale" ? "2026-09-24T12:00:00.000Z" : TIME, signals };
+}
+function statsHandler(mode: "ready" | "error" = "ready", riskMode: RiskMode = "no-flags") {
+  return http.get("/api/market-prices/stats", async ({ request }) => {
     const assetId = new URL(request.url).searchParams.get("assetId") ?? "cbbtc";
     if (mode === "error") return HttpResponse.json({ error: "unavailable" }, { status: 500 });
+    riskControl.calls++;
+    const failed = riskMode === "retry" && riskControl.calls === 1 || riskMode === "refresh-failed" && riskControl.calls > 1;
+    if (failed) return HttpResponse.json({ error: "unavailable" }, { status: 500 });
+    if (riskMode === "loading" || riskMode === "retry" && !failed) await riskControl.held;
+    const asset = Object.values(assets).find((entry) => entry.id === assetId);
+    if (!asset) throw new globalThis.Error("Missing risk fixture asset");
     const meme = assetId === "degen" || assetId === dynamicMeme.id;
     return HttpResponse.json({ version: 1, provider: "codex", assetId, currency: "USD",
       fetchedAt: new Date(clock).toISOString(), status: assetId === "nvdac" ? "unavailable" : "ready",
+      ...(asset.category !== "stock" ? { risk: riskFixture(asset, riskMode) } : {}),
       ...(assetId === "nvdac" ? { unavailableReason: "unsupported-asset" } : {}),
       stats: assetId === "nvdac" ? {} : {
         marketCapUsd: { atoms: meme ? "1200000" : "2410000000000", scale: 0 },
@@ -214,7 +257,7 @@ function statsHandler(mode: "ready" | "error" = "ready") {
     });
   });
 }
-function StoryHarness({ assetId, position, localCurrency, staleMarket, reducedMotion, stockSession = "open" }: StoryProps) {
+function StoryHarness({ assetId, position, localCurrency, staleMarket, reducedMotion, stockSession = "open", exactAddress = false }: StoryProps) {
   useLayoutEffect(() => reducedMotion ? forceReducedMotion() : undefined, [reducedMotion]);
   const asset = assets[assetId];
   const blocked = createBlockedAccountWalletClient("unconfigured");
@@ -230,8 +273,9 @@ function StoryHarness({ assetId, position, localCurrency, staleMarket, reducedMo
       valueCurrency: localCurrency ? "EUR" : "USD",
       quoteUnitsPerUsd: localCurrency ? { atoms: "92", scale: 2 } : { atoms: "1", scale: 0 },
     }}><MoneyMotionProvider reducedMotion={reducedMotion}>
-      <main className="min-h-screen bg-background"><AssetDetailScreen asset={asset}
-        market={market(asset, staleMarket, stockSession)} onBack={fn()} /></main>
+      <main className="min-h-screen bg-background">{exactAddress
+        ? <ExactAddressAssetScreen assetId={asset.id} name={asset.displayName} onBack={fn()} />
+        : <AssetDetailScreen asset={asset} market={market(asset, staleMarket, stockSession)} onBack={fn()} />}</main>
     </MoneyMotionProvider></PresentationQuoteProvider></PresentationRegionProvider>
   </AccountWalletClientProvider>;
 }
@@ -241,8 +285,9 @@ const meta = {
   beforeEach: () => {
     getHomeQueryClient().clear();
     resetHistoryControl();
+    resetRiskControl();
     const restoreClock = pinClock(TIME);
-    return () => { historyControl.release(); getHomeQueryClient().clear(); restoreClock(); };
+    return () => { riskControl.release(); historyControl.release(); getHomeQueryClient().clear(); restoreClock(); };
   },
   parameters: {
     layout: "fullscreen", a11y: { test: "error" },
@@ -451,3 +496,149 @@ export const TradeBarScroll: Story = { args: { reducedMotion: false },
     await scrollBetween(260, 240, "shown");
   },
 };
+
+async function expandChecks(canvasElement: HTMLElement) {
+  const checks = within(within(canvasElement).getByRole("region", { name: "Token checks" }));
+  const trigger = checks.getByRole("button", { name: /Token checks/ });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(checks.queryByText(/^Reported by GoPlus · checked/)).not.toBeInTheDocument();
+  trigger.focus();
+  await userEvent.keyboard("{Enter}");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  return checks;
+}
+
+export const RiskReported: Story = { args: { assetId: "degen" }, parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "reported")] } }, play: async ({ canvasElement }) => {
+  const checks = await expandChecks(canvasElement);
+  await expect(await checks.findByText("May not be sellable")).toBeVisible();
+  await expect(checks.getByText("Sell tax 100%")).toBeVisible();
+  await expect(checks.getByText("GoPlus reports a 100% sell tax")).toBeVisible();
+  await expect(checks.getByText("Buy tax 5%")).toBeVisible();
+  await expect(checks.getByText("Transfers can be paused")).toBeVisible();
+  await expect(checks.getByText("Addresses can be blocked")).toBeVisible();
+  await expect(checks.getByText("Taxes can change")).toBeVisible();
+  await expect(checks.getByText(/^Reported by GoPlus · checked/)).toBeVisible();
+  await expect(riskControl.calls).toBe(1);
+} };
+export const RiskNoFlags: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "no-flags")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expect(await canvas.findByText("No supported flags reported")).toBeVisible();
+  await expandChecks(canvasElement);
+  await expect(canvas.getByText(/^Reported by GoPlus · checked/)).toBeVisible();
+  await expect(canvas.getByText("No data: transfer tax")).toBeVisible();
+} };
+export const RiskAllAbsent: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "all-absent")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expect(await canvas.findByText("No supported flags reported")).toBeVisible();
+  const checks = await expandChecks(canvasElement);
+  await expect(checks.getByText("No honeypot flag reported", { exact: true })).toBeVisible();
+  await expect(checks.queryByText(/^No data:/)).not.toBeInTheDocument();
+  const trigger = checks.getByRole("button", { name: /Token checks/ });
+  await userEvent.keyboard(" ");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).toHaveFocus();
+} };
+export const RiskAllUnknown: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "all-unknown")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expect(await canvas.findByText("No check data")).toBeVisible();
+  const checks = await expandChecks(canvasElement);
+  await expect(checks.getByText("Unknown signals", { exact: true })).toBeVisible();
+  await expect(checks.queryByText("No supported flags reported")).not.toBeInTheDocument();
+  await expect(checks.getByText(/^No data:/)).toBeVisible();
+} };
+export const RiskPartial: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "partial")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expect(await canvas.findByText("Transfer taxes reported")).toBeVisible();
+  await expandChecks(canvasElement);
+  await expect(await canvas.findByText("Buy tax <0.01%")).toBeVisible();
+  await expect(canvas.getByText("Per-address tax")).toBeVisible();
+  await expect(canvas.getByText("No data: honeypot, sell limit, sell tax, transfer tax, pause, blocklist, tax changes")).toBeVisible();
+} };
+export const RiskStale: Story = { args: { assetId: "degen" }, parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "stale")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expect(await canvas.findByText(/^Stale ·/)).toBeVisible();
+  await expandChecks(canvasElement);
+  await expect(await canvas.findByText("Couldn't refresh", { exact: true })).toBeVisible();
+  await expect(canvas.getByText("May not be sellable")).toBeVisible();
+  await expect(within(canvas.getByRole("region", { name: "Token checks" })).getByRole("button", { name: "Try again" })).toBeEnabled();
+} };
+export const RiskRefreshFailed: Story = { args: { assetId: "degen" }, parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "refresh-failed")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  const checks = await expandChecks(canvasElement);
+  await expect(await checks.findByText("Sell tax 100%")).toBeVisible();
+  const source = checks.getByText(/^Reported by GoPlus · checked/).textContent ?? "";
+  await expect(canvas.getByRole("region", { name: "Stats" })).toBeVisible();
+  await expect(canvas.getByText("Market cap")).toBeVisible();
+  await getHomeQueryClient().refetchQueries({ queryKey: marketStatsOptions("degen", true).queryKey });
+  await expect(await checks.findByText("Couldn't refresh", { exact: true })).toBeVisible();
+  await expect(checks.getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(checks.getByText("Sell tax 100%")).toBeVisible();
+  await expect(checks.getByText(/^Reported by GoPlus · checked/)).toHaveTextContent(source);
+  await expect(canvas.getByRole("region", { name: "Stats" })).toBeVisible();
+  await expect(canvas.getByRole("group", { name: /1 week price history/ })).toBeVisible();
+  await expect(riskControl.calls).toBe(2);
+} };
+export const RiskErrorStatsReady: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "error")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expect(await canvas.findByRole("region", { name: "Stats" })).toBeVisible();
+  await expect(await canvas.findByText("Market cap", undefined, chartWait)).toBeVisible();
+  await expect(await canvas.findByRole("group", { name: /1 week price history/ }, chartWait)).toBeVisible();
+  const checks = within(await canvas.findByRole("region", { name: "Token checks" }));
+  await expect(checks.getByRole("status")).toHaveTextContent("Couldn't check this token");
+  await expandChecks(canvasElement);
+  await expect(checks.getByRole("button", { name: "Try again" })).toBeVisible();
+} };
+export const RiskRetry: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "retry")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  const checks = within(await canvas.findByRole("region", { name: "Token checks" }));
+  await waitForReady(() => expect(checks.getByRole("status")).toHaveTextContent("Couldn't check this token"));
+  await expandChecks(canvasElement);
+  const chart = await canvas.findByRole("group", { name: /1 week price history/ }, chartWait);
+  const stats = await canvas.findByRole("region", { name: "Stats" });
+  await expect(chart).toBeVisible();
+  await expect(stats).toBeVisible();
+  await expect(riskControl.calls).toBe(1);
+  const retry = checks.getByRole("button", { name: "Try again" });
+  await userEvent.click(retry);
+  try {
+    await waitForReady(() => expect(riskControl.calls).toBe(2));
+    await expect(retry).not.toBeDisabled();
+    await expect(retry).toHaveAttribute("aria-disabled", "true");
+    await expect(retry).toHaveAttribute("aria-busy", "true");
+    retry.focus();
+    await expect(retry).toHaveFocus();
+    await fireEvent.click(retry);
+    await expect(riskControl.calls).toBe(2);
+    await expect(checks.getByRole("status")).toHaveTextContent("Couldn't check this token");
+    await expect(chart).toBeVisible();
+    await expect(stats).toBeVisible();
+  } finally { riskControl.release(); }
+  await expect(await checks.findByText("No supported flags reported")).toBeVisible();
+  await expect(chart).toBeVisible();
+  await expect(stats).toBeVisible();
+} };
+export const RiskThrottled: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "throttled")] } }, play: async ({ canvasElement }) => {
+  const checks = within(within(canvasElement).getByRole("region", { name: "Token checks" }));
+  await expect(await checks.findByText("Token check is busy")).toBeVisible();
+  await expandChecks(canvasElement);
+  await expect(checks.getByRole("button", { name: "Try again" })).toBeEnabled();
+} };
+export const RiskUnsupported: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "unsupported")] } }, play: async ({ canvasElement }) => {
+  const checks = within(within(canvasElement).getByRole("region", { name: "Token checks" }));
+  await expect(await checks.findByText("GoPlus has no data for this token")).toBeVisible();
+  await expandChecks(canvasElement);
+  await expect(checks.getByRole("button", { name: "Try again" })).toBeEnabled();
+} };
+export const RiskLoading: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "loading")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expect(await canvas.findByText("Checking token")).toBeVisible();
+  await expect(canvas.getByRole("region", { name: "Token checks" })).toHaveAttribute("aria-busy", "true");
+} };
+export const ExactAddressRisk: Story = { args: { assetId: "dynamic", exactAddress: true, position: "blocked" }, parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "reported")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await expandChecks(canvasElement);
+  await expect(await canvas.findByText("May not be sellable")).toBeVisible();
+  await expect(canvas.getByText(/^Reported by GoPlus · checked/)).toBeVisible();
+  await expect(canvas.getByRole("link", { name: "View contract" })).toHaveAttribute("href", `https://basescan.org/token/${address}`);
+  await expect(canvas.queryByRole("group", { name: /price history/ })).not.toBeInTheDocument();
+} };
