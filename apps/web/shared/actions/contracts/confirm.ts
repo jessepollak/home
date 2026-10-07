@@ -61,7 +61,7 @@ export function baseBatchGasLimits(batchGasLimit: string, callCount: number): `0
   if (budget < count) return null;
   const quotient = budget / count;
   const remainder = budget % count;
-  return Array.from({ length: callCount }, (_, index) =>
+  return Array.from({ length: callCount }, (_, index): `0x${string}` =>
     `0x${(quotient + (BigInt(index) < remainder ? BigInt(1) : BigInt(0))).toString(16)}`);
 }
 

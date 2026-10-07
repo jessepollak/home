@@ -15,7 +15,7 @@ const ID = "11111111-1111-4111-8111-111111111111";
 const NOW = "2026-10-07T03:45:00.000Z";
 const MARKET = BORROW_MARKETS[0];
 
-function row(operation: "supply-and-borrow" | "close-position", provider: AccountProvider): ActionRow {
+function row(operation: "supply-and-borrow" | "close-position", provider: AccountProvider): ActionRow & { pending: { calls: MoneyActionCall[] } } {
   const metadata: BorrowMoneyActionMetadata = {
     product: "borrow", operation, marketId: MARKET.marketId,
     loanAsset: { id: MARKET.loanToken.id, symbol: MARKET.loanToken.symbol },
@@ -77,9 +77,9 @@ describe("Base Account dependent-batch confirm gas", () => {
       return BigInt(207_391);
     });
     expect(result.response.status).toBe(200);
-    expect(result.parsed).toEqual({ calls: draft.pending?.calls, batchGasLimit: "257391" });
-    expect(captured).toEqual([draft.pending?.calls]);
-    expect(result.stored).toEqual([draft.pending?.calls]);
+    expect(result.parsed).toEqual({ calls: draft.pending.calls, batchGasLimit: "257391" });
+    expect(captured).toEqual([draft.pending.calls]);
+    expect(result.stored).toEqual([draft.pending.calls]);
     expect(events.map((event): unknown => JSON.parse(event))).toContainEqual(expect.objectContaining({ code: "BASE_BATCH_GAS_HINT_APPLIED", outcome: "ok" }));
   });
 
@@ -93,8 +93,8 @@ describe("Base Account dependent-batch confirm gas", () => {
       throw failure === "timeout" ? new DOMException("Timed out", "TimeoutError") : new Error("RPC rejected");
     });
     expect(result.response.status).toBe(200);
-    expect(result.parsed).toEqual({ calls: draft.pending?.calls });
-    expect(result.stored).toEqual([draft.pending?.calls]);
+    expect(result.parsed).toEqual({ calls: draft.pending.calls });
+    expect(result.stored).toEqual([draft.pending.calls]);
     expect(events.map((event): unknown => JSON.parse(event))).toContainEqual(expect.objectContaining({ code: "BASE_BATCH_GAS_HINT_UNAVAILABLE", outcome: "unavailable" }));
   });
 
@@ -103,7 +103,7 @@ describe("Base Account dependent-batch confirm gas", () => {
     let estimates = 0;
     const result = await confirm(draft, async () => { estimates++; throw new Error("Wrong provider"); });
     expect(result.response.status).toBe(200);
-    expect(result.parsed).toEqual({ calls: draft.pending?.calls });
+    expect(result.parsed).toEqual({ calls: draft.pending.calls });
     expect(estimates).toBe(0);
   });
 });
