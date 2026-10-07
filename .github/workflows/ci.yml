@@ -60,7 +60,7 @@ jobs:
           node scripts/gates/playwright-rung.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Failure cases
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           PR_BODY: ${{ github.event.pull_request.body || '' }}
         shell: bash

@@ -1,6 +1,6 @@
 import * as z from "zod/mini";
 
-export const OPERATOR_SETTINGS_CONTRACT_VERSION = 1 as const;
+export const OPERATOR_SETTINGS_CONTRACT_VERSION = 2 as const;
 
 const settingsSchema = z.looseObject({
   value: z.unknown(),

@@ -301,7 +301,7 @@ export function SavingsJourneyStep({
         });
       }
       if (generation !== preparation.current) return;
-      setSubmittedAt(new Date().toISOString());
+      setSubmittedAt(submissionTimestamp());
       setSubmission("submitted");
       setStep("result");
     } catch (caught) {
@@ -553,6 +553,10 @@ function isSafePrepareMessage(message: string): boolean {
 }
 
 class SavingsActionClientError extends Error {}
+
+function submissionTimestamp(): string {
+  return new Date().toISOString();
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

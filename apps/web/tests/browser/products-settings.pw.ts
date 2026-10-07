@@ -1,7 +1,7 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { VERIFIED_SAVE_VAULTS } from "../../shared/savings/config";
 import { BORROW_MARKETS } from "../../shared/borrowing/config";
-import { parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest } from "../../shared/operator-settings/contract";
+import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest } from "../../shared/operator-settings/contract";
 import { settingsEntry } from "../../client/operator/product-settings-model";
 import { homeSessionToken } from "./fixtures/session";
 import { expectNavigation } from "./fixtures/navigation-budget";
@@ -46,7 +46,7 @@ async function save(page: Page, operator: string, revision: number, button = "Sa
   await page.getByRole("button", { name: button, exact: true }).click();
   const response = await pending;
   const request = parsePutSettingsRequest(response.request().postDataJSON());
-  expect(request).toMatchObject({ version: 1, operator, expectedRevision: revision });
+  expect(request).toMatchObject({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, operator, expectedRevision: revision });
   expect((await response.request().allHeaders()).cookie).toContain(`home-session=${homeSessionToken(operator)}`);
   return response;
 }

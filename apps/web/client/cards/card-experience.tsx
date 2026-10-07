@@ -112,7 +112,7 @@ function LockRow({ card, restricted, pending, requestedLocked, switchLabel, onCh
       <ItemMedia variant="avatar" aria-hidden="true"><Lock /></ItemMedia>
       <ItemContent className="min-w-0 flex-1">
         <ItemTitle>Lock card</ItemTitle>
-        <ItemDescription lines={1}>
+        <ItemDescription>
           {unlockBlocked ? "Can't unlock while on hold" : requestedLocked !== null ? requestedLocked ? "Locking…" : "Unlocking…" : locked ? "New purchases are declined" : "Pause new purchases"}
         </ItemDescription>
       </ItemContent>

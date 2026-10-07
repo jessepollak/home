@@ -14,7 +14,7 @@ const names = {
 };
 const address = "0x1111111111111111111111111111111111111111";
 function entry(value: ProductSettings, saved: boolean) {
-  return { version: 1 as const, domain: "products", settings: { value, revision: saved ? 1 : 0, source: saved ? "stored" as const : "default" as const, updatedAt: saved ? "2026-09-27T12:00:00.000Z" : null, updatedBy: saved ? address : null } };
+  return { version: 2 as const, domain: "products", settings: { value, revision: saved ? 1 : 0, source: saved ? "stored" as const : "default" as const, updatedAt: saved ? "2026-09-27T12:00:00.000Z" : null, updatedBy: saved ? address : null } };
 }
 const paused: ProductSettings = { ...defaults, products: { ...defaults.products, save: "exit-only", borrow: "exit-only" } };
 

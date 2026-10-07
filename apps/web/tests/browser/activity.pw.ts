@@ -551,11 +551,11 @@ test("Activity renders seeded card purchases across all statuses and decline rea
   for (const { merchant, label, amount } of [
     { merchant: "Lyft", label: "Card was locked", amount: "$18.20" },
     { merchant: "Whole Foods Market", label: "Not enough Cash", amount: "$64.10" },
-    { merchant: "Whole Foods Market", label: "Completed", amount: "−$42.18" },
+    { merchant: "Whole Foods Market", label: null, amount: "−$42.18" },
     { merchant: "Grand Hotel", label: "Reversed", amount: "$100.00" },
     { merchant: "Apple", label: "Refunded", amount: "+$9.99" },
   ]) {
-    const row = recent.getByRole("button", { name: new RegExp(`^${merchant} `) }).filter({ hasText: label });
+    const row = recent.getByRole("button", { name: new RegExp(`^${merchant} `) }).filter({ hasText: amount });
     await expect.poll(async () => {
       if (await row.count()) {
         await row.scrollIntoViewIfNeeded();
@@ -565,7 +565,8 @@ test("Activity renders seeded card purchases across all statuses and decline rea
       return false;
     }).toBe(true);
     await expect(row).toContainText(merchant);
-    await expect(row).toContainText(label);
+    if (label) await expect(row).toContainText(label);
+    else await expect(row).not.toContainText(" · ");
     await expect(row).toContainText(amount);
   }
 });

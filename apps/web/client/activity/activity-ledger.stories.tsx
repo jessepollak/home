@@ -374,11 +374,15 @@ export const TerminalStates: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const recent = within(canvas.getByRole("list", { name: "Recent" }));
-    for (const item of [refunded, card, cardReversed, declined, declinedInsufficient]) {
+    for (const item of [refunded, cardReversed, declined, declinedInsufficient]) {
       const statusLabel = item.statusLabel;
       if (!statusLabel) throw new Error("Missing card status label");
       await expect(recent.getByRole("button", { description: item.activateLabel, name: new RegExp(statusLabel) })).toHaveTextContent(statusLabel);
     }
+    const settled = recent.getAllByRole("button", { description: card.activateLabel })
+      .find((row) => row.textContent?.includes(card.amount));
+    await expect(settled).toHaveTextContent(card.dateLabel);
+    await expect(settled).not.toHaveTextContent(" · ");
   },
 };
 const usdcAsset = { assetKey: PORTFOLIO_USDC_ASSET_KEY, name: "US dollar", symbol: "USDC", openable: true };

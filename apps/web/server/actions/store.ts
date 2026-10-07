@@ -4,7 +4,7 @@ import { readDatabaseUrl } from "@/server/config/env";
 
 import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
-import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
+import { createPostgresSqlExecutor, type SqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
 import { recordCustomerIds } from "@/server/customers/record-ids";
 import { getFundingProvider } from "@/server/funding/providers";
 import { UNKNOWN_WINDOW_MS } from "@/server/funding/cash-out-window";
@@ -205,10 +205,11 @@ export class ActionsStore {
     return row ? { ...row, summary: parseJsonColumn<ActionSummary>(row.summary) as ActionSummary } : null;
   }
 
-  async get(owner: MoneyActionOwner, id: string): Promise<ActionRow | null> {
+  async get(owner: MoneyActionOwner, id: string, options?: SqlQueryOptions): Promise<ActionRow | null> {
     const result = await this.sql.query<RawActionRow>(
       `SELECT * FROM actions WHERE id = $1 AND owner_key = $2`,
       [id, actionOwnerKey(owner)],
+      options,
     );
     return normalizeActionRowOrNull(result.rows[0]);
   }

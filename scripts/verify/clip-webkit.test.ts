@@ -63,7 +63,7 @@ function fakePage() {
       const state = runInNewContext(`(${fn.toString()})(arg)`, { arg, document: { scrollingElement: scroller }, innerHeight: 659 });
       return { state, dispose: async () => { calls.push(["dispose"]); } };
     },
-    evaluate: async (...args: unknown[]) => { calls.push(["evaluate", ...args]); return typeof args[0] === "string" ? 42 : { width: 393, height: 659, outerWidth: 393, dpr: 3 }; },
+    evaluate: async (...args: unknown[]) => { calls.push(["evaluate", ...args]); return typeof args[0] === "string" ? 42 : { width: devices[defaultWebkitDevice]!.viewport.width, height: devices[defaultWebkitDevice]!.viewport.height, outerWidth: devices[defaultWebkitDevice]!.viewport.width, dpr: 3 }; },
     waitForFunction: async (fn: string | ((state: unknown) => boolean), handle?: { state: unknown }) => {
       if (typeof fn === "string") calls.push(["waitForFunction", fn]);
       else {
