@@ -51,7 +51,7 @@ test("a reload keeps the post-action balance qualifier until a proving read clea
   if (!balances || typeof ownerKey !== "string") throw new Error("Persisted US balances are missing");
   balances.state = { ...balances.state, data: beforeSettlement, dataUpdatedAt: FIXED_NOW, isInvalidated: false };
   const markerKey = [ownerKey, "balances-action"];
-  const marker = { at: FIXED_NOW, fresh: {}, settledBlock: "35123457", settledActionId: "action-a" };
+  const marker = { at: FIXED_NOW, fresh: {}, settledBlock: "35123457", settledActionIds: ["action-a"] };
   persisted.clientState.queries = persisted.clientState.queries.filter((query) => query.queryKey[1] !== "balances-action");
   persisted.clientState.queries.push({
     queryKey: markerKey, queryHash: hashKey(markerKey), meta: ownerQueryMeta(ownerKey, "owner"),

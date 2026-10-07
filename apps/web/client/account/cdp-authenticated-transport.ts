@@ -135,7 +135,7 @@ export function handleRequestShowsBroadcast(body: string | undefined): boolean {
   }
 }
 
-export function qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey, actionId, recordsHandle, status, unreadable, dispatched = true }: {
+export function qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey, actionId, recordsHandle, status, unreadable, dispatched = true, transactionHash = false }: {
   queryClient: QueryClient;
   dataOwnerKey: string;
   actionId: string;
@@ -143,9 +143,10 @@ export function qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey, 
   status: number | null;
   unreadable: boolean;
   dispatched?: boolean;
+  transactionHash?: boolean;
 }): void {
   if (!recordsHandle || !dispatched) return;
-  if (!(unreadable || status === null || status === 409 || status >= 500)) return;
+  if (!(unreadable || status === null || status === 409 || status >= 500 || (status === 404 && transactionHash))) return;
   void invalidateAfterAction({ queryClient, dataOwnerKey, actionId });
 }
 
@@ -297,10 +298,18 @@ export function useAuthenticatedTransport({
       }
 
       const recordsHandle = method === "POST" && /^\/api\/actions\/[^/]+\/handle$/.test(pathname);
+      let transactionHash = false;
+      try {
+        const body: unknown = JSON.parse(options.body ?? "{}");
+        transactionHash = Boolean(body && typeof body === "object" && "transactionHash" in body &&
+          typeof body.transactionHash === "string" && body.transactionHash.length > 0);
+      } catch {
+      }
       const qualifyUncertainHandle = (status: number | null, unreadable: boolean, dispatched = true) => {
         const actionId = pathname.split("/")[3];
         if (!recordsHandle || !actionId || !session.smartAccount || !ownerFence.isCurrent(identity)) return;
-        qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey: dataOwnerKey(session), actionId, recordsHandle, status, unreadable, dispatched });
+        qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey: dataOwnerKey(session), actionId, recordsHandle, status, unreadable, dispatched, transactionHash });
+        if (status === 404 && transactionHash && dispatched) void startActionBalanceFreshness(actionId);
       };
       const skewHeaders = deploymentHeaders();
       let response: Response;
@@ -352,7 +361,7 @@ export function useAuthenticatedTransport({
       }
       return { response, assertActive, recordsHandle, qualifyUncertainHandle };
     },
-    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, queryClient, session, sessionFetch, status, verification],
+    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, queryClient, session, sessionFetch, startActionBalanceFreshness, status, verification],
   );
 
   const fetchAccountResource = useCallback(

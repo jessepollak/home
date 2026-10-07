@@ -1,4 +1,11 @@
+import "./dom-test-harness";
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createElement } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
+import { getHomeQueryClient } from "@/client/query/query-client";
+const { renderHook, cleanup } = await import("@testing-library/react");
+const { useAuthenticatedTransport } = await import("./cdp-authenticated-transport");
 import type { QueryClient } from "@tanstack/react-query";
 import type { BalanceActionMarker } from "@/client/query/after-action";
 import { createHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
@@ -14,7 +21,35 @@ beforeEach(() => {
   queryClient = createHomeQueryClient();
   queryClient.setQueryData(balancesKey, balancesSnapshotFixture);
 });
-afterEach(() => queryClient.clear());
+afterEach(() => { cleanup(); queryClient.clear(); getHomeQueryClient().clear(); });
+
+test.each([
+  ["transaction hash", { transactionHash: "0xabc" }, false, true],
+  ["provider handle only", { providerHandle: "abc" }, false, false],
+  ["empty hash", { transactionHash: "" }, false, false],
+  ["no hash", {}, false, false],
+  ["switched owner", { transactionHash: "0xabc" }, true, false],
+] as const)("404 handle with %s qualifies and starts freshness only with a current owner's transaction hash", async (_label, body, switchOwner, qualifies) => {
+  const client = getHomeQueryClient();
+  client.setQueryData(balancesKey, balancesSnapshotFixture);
+  let active = true;
+  let reads = 0;
+  const ownerFence: OwnerGenerationFence = { capture: () => 1, isCurrent: () => active, advance: () => 1, assertCurrent: () => {}, updateAuthorizationBoundary: () => {}, updateOwnerKey: () => false };
+  const session = { user: { subject: "subject" }, smartAccount: { address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+  const hook = renderHook(() => useAuthenticatedTransport({ session, status: "verified", verification: "server", ownerKey, ownerFence, getAccessToken: async () => "fixture-token", sessionFetch: async (path) => {
+    if (path === "/api/actions/action-a/handle") {
+      if (switchOwner) active = false;
+      return Response.json({ error: { code: "ACTION_NOT_FOUND", message: "Not found" } }, { status: 404 });
+    }
+    if (path === "/api/actions") { reads += 1; return Response.json({ actions: [] }); }
+    throw new Error("Unexpected request");
+  } }), { wrapper: ({ children }) => createElement(QueryClientProvider, { client }, children) });
+  await expect(hook.result.current.fetchAccountResource("/api/actions/action-a/handle", { method: "POST", body })).rejects.toMatchObject(switchOwner ? { reason: "stale-session" } : { status: 404 });
+  await flushMicrotasks();
+  expect(client.getQueryData<BalanceActionMarker>(markerKey)?.dispatchedActionIds).toEqual(qualifies ? ["action-a"] : undefined);
+  expect(client.getQueryState(balancesKey)?.isInvalidated).toBe(qualifies);
+  expect(reads).toBe(qualifies ? 1 : 0);
+});
 
 const uncertainHandles: Array<{ status: number | null; unreadable: boolean }> = [
   { status: null, unreadable: false },
@@ -58,14 +93,14 @@ test.each(uncertainHandles)("an undispatched handle does not qualify balances: %
 test.each(uncertainHandles)("a dispatched uncertain handle qualifies balances: %j", async ({ status, unreadable }) => {
   qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", recordsHandle: true, status, unreadable, dispatched: true });
   await flushMicrotasks();
-  expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: Date.parse("2026-09-13T12:00:00.000Z") + 1, fresh: {}, dispatchedActionIds: ["action-a"] });
+  expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: Date.parse("2026-09-13T12:00:00.000Z") + 1, fresh: {}, dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": expect.any(Number) } });
   expect(queryClient.getQueryState(balancesKey)?.isInvalidated).toBe(true);
 });
 
 test("omitting dispatched preserves uncertain-handle qualification", async () => {
   qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", recordsHandle: true, status: null, unreadable: false });
   await flushMicrotasks();
-  expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: Date.parse("2026-09-13T12:00:00.000Z") + 1, fresh: {}, dispatchedActionIds: ["action-a"] });
+  expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: Date.parse("2026-09-13T12:00:00.000Z") + 1, fresh: {}, dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": expect.any(Number) } });
   expect(queryClient.getQueryState(balancesKey)?.isInvalidated).toBe(true);
 });
 
