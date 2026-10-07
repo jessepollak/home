@@ -198,11 +198,10 @@ test("coverage native selects keep a mobile-zoom-safe font size and fit their va
 
 async function openPeerCashOutHandle(page: Page) {
   await page.goto("/home");
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { name: "Cash out", exact: true }).click();
   await page.getByRole("textbox", { name: "Amount" }).pressSequentially("1");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: /Send to Cash App/ }).click();
-  await page.getByRole("button", { name: "Cash App" }).click();
+  await page.getByRole("button", { name: /Cash App/ }).click();
 }
 
 test("mobile cash-out destination review remains within the dialog", async ({ page }) => {
@@ -219,8 +218,9 @@ test("mobile cash-out destination review remains within the dialog", async ({ pa
     if (!isRecord(body) || body.kind !== "cash-out") return route.fallback();
     return json(route, {
       ...cashoutFixtureWithdraw, kind: "cash-out", title: "Cash out with Peer",
+      calls: [{ to: cashoutFixtureWithdraw.metadata.escrow, data: "0x1234", value: "0" }],
       amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }],
-      metadata: { ...cashoutFixtureWithdraw.metadata, operation: "deposit", canonicalHandle: canonical,
+      metadata: { ...cashoutFixtureWithdraw.metadata, operation: "deposit", depositId: undefined, canonicalHandle: canonical,
         approximateFiatAmount: "1", etaSeconds: 60, quote: {
           fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
           receive: { amount: "1", currency: "USD", approximate: true },
@@ -338,7 +338,7 @@ test("header targets stay large while content controls keep fine-pointer density
     await seedSignedInSession(targetPage);
     await targetPage.goto("/home");
     await targetPage.getByRole("button", { name: "Send" }).click();
-    const quickAmount = targetPage.getByRole("button", { name: "$10" });
+    const quickAmount = targetPage.getByRole("dialog", { name: "Send" }).getByRole("button", { name: /^\$10/ });
     await expect(quickAmount).toBeVisible();
     return {
       signInHeight,

@@ -282,6 +282,7 @@ for (const path of ["/home"] as const) {
   for (const [query, dialogName, closeName] of [
     ["flow=add-money", "Add money", "Close add money"],
     ["flow=receive", "Receive", "Close add money"],
+    ["flow=cash-out", "Cash out", "Close cash-out dialog"],
     ["flow=send&action=11111111-1111-4111-8111-111111111111", "Send", "Close send dialog"],
   ] as const) {
     test(`${path} opens and closes ${query}`, async ({ page }) => {

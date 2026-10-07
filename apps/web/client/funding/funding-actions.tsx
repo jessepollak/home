@@ -157,7 +157,7 @@ export function FundingActionsForWallet({
           if (setFundingFlow("add-money", "push", event.currentTarget) && !routing) markOpenedInApp();
         }}
       >
-        <Plus className="size-4" aria-hidden="true" />
+        <Plus className="size-4 @xs:hidden" aria-hidden="true" />
         Add money
       </a> : null}
       {mounted ? modal : null}
