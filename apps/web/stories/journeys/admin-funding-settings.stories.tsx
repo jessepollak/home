@@ -91,7 +91,7 @@ const savedOnWithoutCredentialsView: FundingOfferingView = {
 
 function settingsEnvelope(corridors: unknown, revision: number) {
   return {
-    version: 1,
+    version: 2,
     domain: "funding",
     settings: { value: { corridors }, revision, source: "stored", updatedAt: "2026-09-23T09:00:00.000Z", updatedBy: "0x1111111111111111111111111111111111111111" },
   };

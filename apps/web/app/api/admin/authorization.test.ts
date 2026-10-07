@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 import { parseOperatorErrorResponse } from "@/shared/operator/contract";
-import { parseOperatorSettingsErrorResponse } from "@/shared/operator-settings/contract";
+import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseOperatorSettingsErrorResponse } from "@/shared/operator-settings/contract";
 import { createOperatorApiHandler } from "@/server/operator/api";
 import { readOperatorConfig } from "@/server/operator/config";
 import { createAuditListHandler, createSettingsDomainHandlers, createSettingsListHandler } from "@/server/operator-settings/handlers";
@@ -33,7 +33,7 @@ test.each(["oversized", "content-length", "invalid-length", "malformed", "invali
     config: () => readOperatorConfig({ HOME_OPERATOR_ADDRESSES: operator }),
     store: () => store,
   });
-  const body = JSON.stringify({ version: 1, expectedRevision: 0, operator, value: store.registry.support?.defaults });
+  const body = JSON.stringify({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: 0, operator, value: store.registry.support?.defaults });
   const headers = new Headers({ origin: "https://home.test" });
   if (failure !== "missing-type") headers.set("content-type", failure === "wrong-type" ? "text/plain" : "application/json");
   if (failure === "content-length") headers.set("content-length", "16385");

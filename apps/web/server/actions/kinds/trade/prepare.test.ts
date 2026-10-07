@@ -284,7 +284,7 @@ describe("trade preparation", () => {
         params: { version: 3, assetId, direction, amountBaseUnits: "1000000" } }, {
         resolveSigner: async () => ({ smartAccount: OWNER, signerAddress: OWNER, ownerIndex: 0, deployed: true }),
         convertPair,
-      })).rejects.toMatchObject({ reason: "invalid-request" });
+      })).rejects.toMatchObject({ reason: direction === "sell" ? "pair-unavailable" : "buy-unavailable" });
     }
     const sell = { id: "eurc-sell", from: record.id, to: "base:usdc", provider: CONVERT_PROVIDER,
       regions: "all" as const, status: "verified" as const, verifiedAt: NOW.toISOString().slice(0, 10), evidence: "test fixture" };
@@ -298,11 +298,21 @@ describe("trade preparation", () => {
     }
     expect(quotes).toBe(2);
     const noPair: typeof resolveConvertPair = (input) => resolveConvertPair(input, { pairs: [] });
-    await expect(prepareTradeAction({ session: sessions(), request: new Request("https://home.test/api/actions/prepare"),
-      params: { version: 3, assetId, direction: "sell", amountBaseUnits: "1000000" } }, {
-      resolveSigner: async () => ({ smartAccount: OWNER, signerAddress: OWNER, ownerIndex: 0, deployed: true }),
-      convertPair: noPair,
-    })).rejects.toMatchObject({ reason: "invalid-request" });
+    for (const direction of ["sell", "buy"] as const) {
+      let reads = 0;
+      const error = await prepareTradeAction({ session: sessions(), request: new Request("https://home.test/api/actions/prepare"),
+        params: { version: 3, assetId, direction, amountBaseUnits: "1000000" } }, {
+        resolveSigner: async () => ({ smartAccount: OWNER, signerAddress: OWNER, ownerIndex: 0, deployed: true }),
+        convertPair: noPair,
+        rpc: async () => { reads++; throw new Error("Must not read chain"); },
+        createSwapsClient: () => { reads++; throw new Error("Must not quote"); },
+      }).catch((failure: unknown) => failure);
+      expect(error).toMatchObject({ reason: direction === "sell" ? "pair-unavailable" : "buy-unavailable" });
+      expect(tradePreparationResponse(error)).toEqual(direction === "sell"
+        ? { code: "TRADE_PAIR_UNAVAILABLE", message: "This conversion is unavailable.", status: 422 }
+        : { code: "TRADE_BUY_UNAVAILABLE", message: "Buying this asset is unavailable.", status: 422 });
+      expect(reads).toBe(0);
+    }
   });
 
   test.each(["buy", "sell"] as const)("reviews %s with exact spend, estimated receive and expiry", async (direction) => {
@@ -407,6 +417,28 @@ describe("trade preparation", () => {
       }
     }
   });
+  test.each(["buy", "sell"] as const)("keeps USDC as the traded asset invalid for %s", async (direction) => {
+    const error = await prepareTradeAction({ session: sessions(), request: new Request("https://home.test/api/actions/prepare"),
+      params: { version: 3, assetId: `base:${BASE_USDC_ADDRESS.toLowerCase()}`, direction, amountBaseUnits: "1000000" } }, {
+      resolveSigner: async () => ({ smartAccount: OWNER, signerAddress: OWNER, ownerIndex: 0, deployed: true }),
+      rpc: async () => { throw new Error("Must not read chain"); },
+      createSwapsClient: () => { throw new Error("Must not quote"); },
+    }).catch((failure: unknown) => failure);
+    expect(error).toMatchObject({ reason: "invalid-request" });
+  });
+  test("keeps an unknown asset invalid before reading chain or quoting", async () => {
+    let reads = 0;
+    const error = await prepareTradeAction({ session: sessions(), request: new Request("https://home.test/api/actions/prepare"),
+      params: { version: 3, assetId: "unknown", direction: "sell", amountBaseUnits: "1000000" } }, {
+      resolveSigner: async () => ({ smartAccount: OWNER, signerAddress: OWNER, ownerIndex: 0, deployed: true }),
+      convertPair: () => { reads++; throw new Error("Must not check a pair"); },
+      rpc: async () => { reads++; throw new Error("Must not read chain"); },
+      createSwapsClient: () => { reads++; throw new Error("Must not quote"); },
+    }).catch((failure: unknown) => failure);
+    expect(error).toMatchObject({ reason: "invalid-request" });
+    expect(tradePreparationResponse(error)).toMatchObject({ code: "TRADE_INVALID", status: 400 });
+    expect(reads).toBe(0);
+  });
   test("rejects mismatched signer and invalid input before requesting a quote", async () => {
     const request = new Request("https://home.test/api/actions/prepare");
     const session = sessions();
@@ -415,7 +447,8 @@ describe("trade preparation", () => {
     await expect(prepareTradeAction({ session, request, params: { version: 3, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1.5" } }, deps)).rejects.toMatchObject({ reason: "invalid-request" });
   });
   test.each([
-    ["invalid-request", "TRADE_INVALID", 400], ["signer-unsupported", "TRADE_SIGNER_UNSUPPORTED", 422],
+    ["invalid-request", "TRADE_INVALID", 400], ["pair-unavailable", "TRADE_PAIR_UNAVAILABLE", 422],
+    ["buy-unavailable", "TRADE_BUY_UNAVAILABLE", 422], ["signer-unsupported", "TRADE_SIGNER_UNSUPPORTED", 422],
     ["smart-account-unavailable", "TRADE_SIGNER_UNSUPPORTED", 422], ["insufficient-balance", "TRADE_INSUFFICIENT_BALANCE", 409],
     ["no-liquidity", "TRADE_ROUTE_UNAVAILABLE", 422], ["stale-quote", "TRADE_QUOTE_STALE", 409], ["permit-used", "TRADE_QUOTE_STALE", 409],
     ["quote-rejected", "TRADE_QUOTE_REJECTED", 502], ["unverified-actions", "TRADE_ROUTE_UNAVAILABLE", 422],

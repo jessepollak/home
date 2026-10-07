@@ -290,7 +290,7 @@ type LedgerItemRowProps = {
 };
 
 const LedgerItemRow = memo(function LedgerItemRow({ item, attentionLabel, onOpen, liProps, child }: LedgerItemRowProps) {
-  const status = item.family === "card" ? item.statusLabel ?? (item.status === "failed" ? "Declined" : "") : statusWords[item.status]
+  const status = item.family === "card" ? item.status === "confirmed" ? "" : item.statusLabel ?? (item.status === "failed" ? "Declined" : "") : statusWords[item.status]
     ? item.statusLabel ?? statusWords[item.status] : "";
   const iconTone = item.status === "failed"
     ? "outlined" : item.status === "ambiguous" ? "neutral" : "mark";

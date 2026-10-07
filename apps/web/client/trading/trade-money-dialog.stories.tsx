@@ -88,13 +88,14 @@ type StoryProps = {
   view?: "amount" | "review" | "expired" | "error" | "availability";
   availability?: "available" | "blocked" | "provider-unconfigured" | "signer-unsupported" | "token-unreadable" | "chain-unavailable" | "zero-balance";
   errorCode?: string;
+  confirmErrorCode?: string;
   networkFee?: "available" | "failed";
   tinyPrice?: boolean;
   serviceFee?: boolean;
   conversion?: boolean;
   assetName?: string;
 };
-function TradeStory({ direction = "buy", investOffered = true, view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, serviceFee = false, assetName = "DEGEN", conversion = false }: StoryProps) {
+function TradeStory({ direction = "buy", investOffered = true, view = "amount", availability = "available", errorCode, confirmErrorCode, networkFee = "available", tinyPrice = false, serviceFee = false, assetName = "DEGEN", conversion = false }: StoryProps) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   const [preparations, setPreparations] = useState(0);
   const fetchAccountResource = async (path: string) => path.startsWith("/api/trades?")
@@ -109,10 +110,10 @@ function TradeStory({ direction = "buy", investOffered = true, view = "amount", 
         ? Promise.reject(new Error("synthetic network-fee failure"))
         : { version: 1, usdcReserveBaseUnits: "20000" };
   const prepareMoneyAction = async (_kind: string, input: unknown) => {
+    setPreparations((count) => count + 1);
     if (errorCode) throw { code: errorCode };
     const quoted = syntheticAction(input as TradeActionParams, view === "expired" && preparations === 0, tinyPrice, conversion ? eurToken : token);
     const result = serviceFee ? withServiceFee(quoted) : quoted;
-    setPreparations((count) => count + 1);
     return result;
   };
   const availabilityView = <AccountWalletClientProvider client={{
@@ -122,6 +123,7 @@ function TradeStory({ direction = "buy", investOffered = true, view = "amount", 
   }}><TradeActions asset={degen} /></AccountWalletClientProvider>;
   return <QueryClientProvider client={client}><PresentationRegionProvider regionId="US">
     <main className="mx-auto flex min-h-svh w-full max-w-2xl items-center justify-center p-4">
+      <span hidden data-prepare-count={preparations} />
       {view === "availability" ? investOffered ? availabilityView :
         <ProductOfferingProvider value={{ ...deploymentOffering, products: { ...deploymentOffering.products, invest: "exit-only" } }}>{availabilityView}</ProductOfferingProvider> :
         <TradeMoneyDialog open direction={direction} session={session} token={conversion ? eurToken : token} assetName={conversion ? eur.name : assetName}
@@ -130,7 +132,10 @@ function TradeStory({ direction = "buy", investOffered = true, view = "amount", 
           assetPrice={direction === "sell" ? { currency: "USD", perUnit: { atoms: "5", scale: 3 } } : null}
           fetchAccountResource={fetchAccountResource}
           prepareMoneyAction={prepareMoneyAction}
-          executeMoneyAction={async (action) => ({ id: action.id, status: "rejected" })}
+          executeMoneyAction={async (action) => {
+            if (confirmErrorCode) throw { code: confirmErrorCode };
+            return { id: action.id, status: "rejected" };
+          }}
           onClose={() => undefined} />}
     </main>
   </PresentationRegionProvider></QueryClientProvider>;
@@ -350,6 +355,32 @@ export const NetworkFeeUnavailable: Story = {
     await expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     await expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
   },
+};
+
+export const ConversionPairRevoked: Story = {
+  args: { conversion: true, confirmErrorCode: "TRADE_ADMISSION_REVOKED" },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), "1");
+    await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Convert $1.00" }));
+    await expect(await screen.findByText("This conversion isn't available right now. Try again later.")).toBeVisible();
+    await expect(screen.queryByRole("button", { name: "Get new quote" })).not.toBeInTheDocument();
+    const footerElement = screen.getByRole("button", { name: "Close" }).closest('[data-slot="drawer-footer"]');
+    if (!(footerElement instanceof HTMLElement)) throw new Error("Missing review footer");
+    const footer = within(footerElement);
+    await expect(footer.getByRole("button", { name: "Back" })).toBeVisible();
+    await expect(footer.getByRole("button", { name: "Close" })).toBeVisible();
+    await expect(canvasElement.querySelector("[data-prepare-count]")).toHaveAttribute("data-prepare-count", "1");
+    await userEvent.click(footer.getByRole("button", { name: "Back" }));
+    await expect(await screen.findByRole("textbox", { name: "Amount" })).toBeVisible();
+    await expect(screen.getByRole("button", { name: "Continue" })).toBeVisible();
+    await expect(canvasElement.querySelector("[data-prepare-count]")).toHaveAttribute("data-prepare-count", "1");
+  },
+};
+export const TradePairUnavailable: Story = {
+  args: { conversion: true, view: "error", errorCode: "TRADE_PAIR_UNAVAILABLE" },
+  play: async ({ canvasElement }) => expectError(canvasElement, "Conversion isn't available right now. Try again later."),
 };
 
 export const USDToEURConversionReview: Story = {

@@ -223,6 +223,12 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
         setStep("confirm");
         return;
       }
+      if (isRecord(caught) && caught.code === "TRADE_ADMISSION_REVOKED") {
+        changeAttempted(false);
+        setError(conversion ? "This conversion isn't available right now. Try again later." : "This trade isn't available right now. Try again later.");
+        setStep("failed");
+        return;
+      }
       if (isRecord(caught) && (caught.code === "ACTION_EXPIRED" || caught.code === "TRADE_QUOTE_STALE")) {
         setServerExpiredId(prepared.id);
         setError("This quote expired. Get a new quote.");
@@ -357,7 +363,7 @@ function messageForTradeError(error: unknown, direction: TradeDirection, convers
     if (conversion) {
       if (code === "TRADE_NOT_ROUTED" || code === "TRADE_ROUTE_UNAVAILABLE") return `Can't convert to ${conversion.to.name} right now. Try a different amount or try again later.`;
       if (code === "TRADE_INSUFFICIENT_BALANCE") return `Your ${conversion.from.name} balance changed. Review the amount again.`;
-      if (code === "TRADE_BUY_UNAVAILABLE" || code === "TRADE_UNAVAILABLE" || code === "TRADE_SIGNER_UNSUPPORTED") return "Conversion isn't available right now. Try again later.";
+      if (code === "TRADE_PAIR_UNAVAILABLE" || code === "TRADE_BUY_UNAVAILABLE" || code === "TRADE_UNAVAILABLE" || code === "TRADE_SIGNER_UNSUPPORTED") return "Conversion isn't available right now. Try again later.";
       if (code === "TRADE_TOKEN_UNREADABLE") return `Can't read ${conversion.to.name} on Base right now. Try again later.`;
     }
     switch (code) {
@@ -368,6 +374,7 @@ function messageForTradeError(error: unknown, direction: TradeDirection, convers
       case "TRADE_BELOW_MINIMUM": return "This amount is below the trade minimum. Enter a larger amount.";
       case "TRADE_TOKEN_UNREADABLE": return "This token couldn't be read on Base. Try again later.";
       case "TRADE_BUY_UNAVAILABLE": return "Buying is unavailable. You can still sell or send.";
+      case "TRADE_PAIR_UNAVAILABLE": return "This trade isn't available right now. Try again later.";
       case "TRADE_INSUFFICIENT_BALANCE": return direction === "sell" ? "Your token balance changed. Review the amount again." : "Your Cash balance changed. Review the amount again.";
       case "TRADE_QUOTE_STALE":
       case "TRADE_QUOTE_REJECTED": return "This quote changed. Get a new quote.";

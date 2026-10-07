@@ -29,7 +29,13 @@ export async function followAction(row: ActionRow, options: FollowOptions): Prom
     row.account_address !== null && row.account_address.toLowerCase() !== owner.address.toLowerCase() ||
     !row.confirmed_at || options.signal.aborted || row.outcome) return row;
   const store = options.deps?.store ?? getActionsStore();
-  const current = await store.get(owner, row.id);
+  let current: ActionRow | null;
+  try {
+    current = await store.get(owner, row.id, { signal: options.signal, timeoutMs: 5_000 });
+  } catch (error) {
+    if (options.signal.aborted) return row;
+    throw error;
+  }
   if (!current || current.outcome || current.owner_key !== row.owner_key || options.signal.aborted) return current ?? row;
   const reconciled = !current.transaction_hash && current.provider_handle && current.provider_handle !== current.id
     ? await reconcileRow({ row: current, owner, store, resolveHandle: options.deps?.resolveHandle ?? getDefaultActionHandleResolver(),

@@ -22,7 +22,7 @@ import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
-import { ConnectedActivityPanel } from "./activity-panel";
+import { ConnectedActivityPanel, useActivityReturnInvalidation } from "./activity-panel";
 import { HomeOverview, HomeSectionHeading } from "./home-overview";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 import { ShimmerRows } from "./panel-shared";
@@ -81,6 +81,7 @@ export function HomePanel({
   const showSessionShimmer = activitySession
     ? !regionReady
     : sessionSettling || isLoading || isRevalidating;
+  const suppressDetailReturn = useActivityReturnInvalidation(showSessionShimmer);
   const offering = useProductOffering();
   const cashRate = useSavingsRateLabel(regionId, regionReady, offering);
   const borrowRate = useBorrowOfferRate({
@@ -164,6 +165,7 @@ export function HomePanel({
           regionId={regionId}
           emptyAction={addMoneyPrompt}
           onDetailsOpenChange={onDetailsOpenChange}
+          suppressDetailReturn={suppressDetailReturn}
         />
       )}
     />

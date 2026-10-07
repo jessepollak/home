@@ -9,6 +9,7 @@ const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const warning = "Some activity is unavailable";
 const merchant = "Fixture Coffee";
 const freshMerchant = "Fixture Bakery";
+const settledMerchant = new RegExp(`^${merchant} (?!.*Pending)`);
 
 function activityResponse(url: URL, partial: boolean, freshCard = false) {
   const to = url.searchParams.get("to")!;
@@ -303,7 +304,7 @@ async function refreshWithNewerCards(page: Page, options: {
     await requestBackgroundRevalidation(page, () => currentWindowReads, readsBeforeRevalidation);
     await (await revalidationResponse).finished();
     await page.clock.runFor(100);
-    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+    await expect(feed.getByRole("button", { name: settledMerchant })).toBeVisible();
     expect(newerWindowReads).toBe(1);
   }
   await expect.poll(async () => {
@@ -340,7 +341,7 @@ for (const remainingRetriesFail of [false, true]) {
 test("a newer-window partial snapshot replaces a superseded authorization with its transaction", async ({ page }) => {
   const { feed, rows } = await refreshWithNewerCards(page, { supersede: true });
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
-  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: settledMerchant })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
   await expect(rows).toHaveCount(3);
   await expect(feed.getByText(warning)).toHaveCount(0);
@@ -348,7 +349,7 @@ test("a newer-window partial snapshot replaces a superseded authorization with i
 
 test("a same-window read completed during a newer-window card read cannot restore its superseded authorization", async ({ page }) => {
   const { feed, rows } = await refreshWithNewerCards(page, { supersede: true, revalidationWhileNewerReadHeld: true });
-  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: settledMerchant })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
   await expect(rows).toHaveCount(3);
@@ -362,7 +363,7 @@ for (const revalidationStartsSameTick of [false, true]) {
       revalidationSupersedesRetainedPartial: true,
       revalidationStartsSameTick,
     });
-    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+    await expect(feed.getByRole("button", { name: settledMerchant })).toBeVisible();
     await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
     await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
     await expect(rows).toHaveCount(3);
@@ -405,9 +406,9 @@ test("healthy same-window revalidation completes a shared pending card without l
   await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
   await expect.poll(async () => {
     await page.clock.runFor(100);
-    return feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) }).count();
+    return feed.getByRole("button", { name: settledMerchant }).count();
   }).toBe(1);
-  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: settledMerchant })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   await expect(rows).toHaveCount(3);
