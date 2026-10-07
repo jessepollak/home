@@ -5,7 +5,7 @@ import { cleanupSteps, loopbackPort } from "../../../scripts/verify/clip-core.mj
 import { save, type ClipState } from "../../../scripts/verify/clip-runtime";
 import type { ClipTarget } from "../../../scripts/verify/clip-targets";
 
-export const defaultWebkitDevice = "iPhone 15";
+export const defaultWebkitDevice = "iPhone 17";
 const supported = "open|goto <url>, click <selector>, fill|type <selector> <text>, press <key>, hover <selector>, scroll|swipe <up|down> [px], wait <ms|selector>, wait --fn <js>, eval <js>, snapshot, screenshot <path>, get url|title";
 
 export function webkitDevice(name = defaultWebkitDevice) {
