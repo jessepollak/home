@@ -684,7 +684,7 @@ describe("trade confirmation", () => {
     expect(body.calls[2].data).toStartWith(swap.data);
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
     expect(body.calls[3]).toEqual({ ...transfer, to: requireAddress(transfer.to) });
-    if (provider === "base-account") expect(body.batchGasLimit).toBeUndefined();
+    if (provider === "base-account") expect(body.batchGasLimit).toBe("200000");
   });
   test("confirms a second trade while an earlier dispatched trade has no outcome", async () => {
     const previous = retryRow(String(Date.parse("2026-09-25T12:03:00.000Z") / 1000));

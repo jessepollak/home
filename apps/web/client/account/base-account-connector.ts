@@ -8,7 +8,7 @@ import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce"
 import { isWalletCode } from "@/shared/account/contracts/email-request";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 import { parseAddress } from "@/shared/chain/hex";
-import { supportsBaseBatchGasHint } from "@/shared/actions/contracts/confirm";
+import { baseBatchGasLimits } from "@/shared/actions/contracts/confirm";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
 const BASE_CHAIN_HEX = "0x2105";
@@ -99,15 +99,6 @@ type BaseAccountProvider = Pick<
   ProviderInterface,
   "request" | "on" | "removeListener" | "disconnect"
 >;
-
-function isValidBatchGasLimit(value: string): boolean {
-  if (!/^[1-9]\d*$/.test(value)) return false;
-  try {
-    return BigInt(value) <= BigInt(2_000_000);
-  } catch {
-    return false;
-  }
-}
 
 function providerErrorCode(error: unknown): number | null {
   if (
@@ -463,9 +454,10 @@ async function openBaseProvider(
       } catch (error) {
         throw new TransferExecutionError("not-submitted", error);
       }
+      const gasLimits = batchGasLimit === undefined ? undefined : baseBatchGasLimits(batchGasLimit, calls.length);
       if (
         calls.length < 1 || calls.length > 8 || !requestId ||
-        (batchGasLimit !== undefined && (!isValidBatchGasLimit(batchGasLimit) || !supportsBaseBatchGasHint(calls)))
+        gasLimits === null
       ) {
         throw new TransferExecutionError("not-submitted", new BaseAccountConnectorError("invalid-provider-response"));
       }
@@ -485,8 +477,8 @@ async function openBaseProvider(
               to: call.to,
               value: `0x${call.value.toString(16)}`,
               data: call.data,
-              ...(batchGasLimit !== undefined && index === calls.length - 1
-                ? { capabilities: { gasLimitOverride: { value: `0x${BigInt(batchGasLimit).toString(16)}` } } }
+              ...(gasLimits
+                ? { capabilities: { gasLimitOverride: { value: gasLimits[index] } } }
                 : {}),
             })),
           }],

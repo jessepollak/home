@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CONFIRM_CASHOUT_ERRORS, isConfirmActionErrorCode, parseConfirmActionErrorResponse, parseConfirmActionResponse, supportsBaseBatchGasHint } from "./confirm";
+import { CONFIRM_CASHOUT_ERRORS, baseBatchGasLimits, isConfirmActionErrorCode, parseConfirmActionErrorResponse, parseConfirmActionResponse } from "./confirm";
 import { CASHOUT_PREPARE_ERRORS } from "./prepare";
 
 const calls = [{
@@ -8,30 +8,23 @@ const calls = [{
   value: "0",
 }];
 
-test("Base batch gas hint requires independent intermediate token calls", () => {
-  const approve = { data: `0x095ea7b3${"0".repeat(64)}${"f".repeat(64)}` };
-  const upperSelectorApprove = { data: `0x095EA7B3${"A".repeat(128)}` };
-  const supplyCollateral = { data: "0x238d6579" };
-  const borrow = { data: "0x50d8cd4b" };
-  const swap = { data: "0x1234" };
+test.each([1, 2, 3, 4, 5, 6, 7, 8])("Base gas overrides preserve the aggregate budget for %s calls", (count) => {
+  for (const budget of [count, 257_391, 2_000_000]) {
+    const limits = baseBatchGasLimits(String(budget), count);
+    if (!limits) throw new Error("Missing gas overrides");
+    expect(limits).toHaveLength(count);
+    expect(limits.every((limit) => BigInt(limit) > BigInt(0))).toBe(true);
+    expect(limits.reduce((sum, limit) => sum + BigInt(limit), BigInt(0))).toBe(BigInt(budget));
+  }
+});
 
-  expect(supportsBaseBatchGasHint([])).toBe(false);
-  expect(supportsBaseBatchGasHint([supplyCollateral])).toBe(true);
-  expect(supportsBaseBatchGasHint([supplyCollateral, borrow])).toBe(true);
-  expect(supportsBaseBatchGasHint([approve, upperSelectorApprove, swap])).toBe(true);
-  expect(supportsBaseBatchGasHint([approve, supplyCollateral, borrow])).toBe(false);
-  expect(supportsBaseBatchGasHint([approve, upperSelectorApprove, supplyCollateral, borrow])).toBe(false);
-  expect(supportsBaseBatchGasHint([approve, { data: "0x095ea7b3" }, swap])).toBe(false);
-  expect(supportsBaseBatchGasHint([approve, { data: `${approve.data}00` }, swap])).toBe(false);
-  const transfer = { data: `0xa9059cbb${"0".repeat(24)}${"1".repeat(40)}${"0".repeat(63)}1` };
-  expect(supportsBaseBatchGasHint([approve, transfer, swap])).toBe(true);
-  expect(supportsBaseBatchGasHint([transfer, approve, swap])).toBe(true);
-  expect(supportsBaseBatchGasHint([approve, transfer, approve, swap])).toBe(true);
-  expect(supportsBaseBatchGasHint([approve, swap, transfer])).toBe(false);
-  expect(supportsBaseBatchGasHint([swap, transfer])).toBe(true);
-  expect(supportsBaseBatchGasHint([swap, transfer, swap])).toBe(false);
-  expect(supportsBaseBatchGasHint([approve, { data: `${transfer.data}00` }, swap])).toBe(false);
-  expect(supportsBaseBatchGasHint([approve, { data: transfer.data.replace(/^0xa9059cbb0/, "0xa9059cbb1") }, swap])).toBe(false);
+test("Base gas overrides reject invalid or insufficient budgets and unsupported batch sizes", () => {
+  for (const budget of ["0", "2", "01", "0x10", "1.5", "-1", "2000001"]) {
+    expect(baseBatchGasLimits(budget, 3)).toBeNull();
+  }
+  for (const count of [0, -1, 9, 1.5, NaN, Infinity]) {
+    expect(baseBatchGasLimits("150000", count)).toBeNull();
+  }
 });
 
 test("confirm action error contract accepts declared codes and rejects malformed or unknown responses", () => {

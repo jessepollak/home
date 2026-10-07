@@ -5,7 +5,7 @@ import { PRODUCT_NOT_OFFERED_CODE, PRODUCT_NOT_OFFERED_MESSAGE } from "@/shared/
 import { offeredMarketMode, offeredVaultMode, resolveProductOffering } from "@/shared/operator-settings/products";
 import { readProductOffering } from "@/server/operator-settings/offering";
 
-import { CONFIRM_CASHOUT_ERRORS, supportsBaseBatchGasHint, type ConfirmActionErrorCode, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { CONFIRM_CASHOUT_ERRORS, type ConfirmActionErrorCode, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
 import { HANDLE_ACTION_CONTRACT_VERSION, parseHandleActionResponse, type HandleActionErrorCode } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
@@ -335,22 +335,18 @@ export function createConfirmActionHandler(dependencies: {
     }
 
     let batchGasLimit: string | undefined;
-    let gasHintCode: "BASE_BATCH_GAS_HINT_APPLIED" | "BASE_BATCH_GAS_HINT_UNAVAILABLE" | "BASE_BATCH_GAS_HINT_SKIPPED" | undefined;
+    let gasHintCode: "BASE_BATCH_GAS_HINT_APPLIED" | "BASE_BATCH_GAS_HINT_UNAVAILABLE" | undefined;
     if (owner.accountProvider === "base-account") {
-      if (!supportsBaseBatchGasHint(calls)) {
-        gasHintCode = "BASE_BATCH_GAS_HINT_SKIPPED";
-      } else {
-        try {
-          const raw = await (dependencies.estimateBaseBatch ??
-            getBaseCoinbaseSmartAccountBatchEstimator.estimateBatch)(calls, owner.address, request.signal);
-          const padded = applyCoinbaseBatchGasHeadroom(raw);
-          if (padded !== null) batchGasLimit = padded.toString();
-          gasHintCode = batchGasLimit
-            ? "BASE_BATCH_GAS_HINT_APPLIED"
-            : "BASE_BATCH_GAS_HINT_UNAVAILABLE";
-        } catch {
-          gasHintCode = "BASE_BATCH_GAS_HINT_UNAVAILABLE";
-        }
+      try {
+        const raw = await (dependencies.estimateBaseBatch ??
+          getBaseCoinbaseSmartAccountBatchEstimator.estimateBatch)(calls, owner.address, request.signal);
+        const padded = applyCoinbaseBatchGasHeadroom(raw);
+        if (padded !== null) batchGasLimit = padded.toString();
+        gasHintCode = batchGasLimit
+          ? "BASE_BATCH_GAS_HINT_APPLIED"
+          : "BASE_BATCH_GAS_HINT_UNAVAILABLE";
+      } catch {
+        gasHintCode = "BASE_BATCH_GAS_HINT_UNAVAILABLE";
       }
     }
 
@@ -364,7 +360,7 @@ export function createConfirmActionHandler(dependencies: {
       emitServerEvent("action-confirm", {
         route: "/api/actions/:id/confirm",
         code: gasHintCode,
-        outcome: gasHintCode === "BASE_BATCH_GAS_HINT_SKIPPED" ? "skipped" : batchGasLimit ? "ok" : "unavailable",
+        outcome: batchGasLimit ? "ok" : "unavailable",
         provider: owner.accountProvider,
         owner,
         durationMs: Date.now() - startedAt,
