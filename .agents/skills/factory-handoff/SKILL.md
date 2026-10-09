@@ -52,9 +52,9 @@ For a new issue, create it now, before the snapshot, so its number exists for th
 
 In the chosen worktree:
 
-1. Stage the snapshot: `git add -A`. Exclude env files, local artifacts, and anything gitignored; never `git add -f`. Then check `git diff --cached --name-status` for anything that should not ship and unstage it.
+1. Stage the snapshot. When the worktree holds only this handoff's changes, `git add -A`; when it also holds unrelated work, stage only this handoff's paths (`git add -- <paths>`), and stop if its commits ahead of `origin/main` include unrelated work, since the push would publish them too. Exclude env files, local artifacts, and anything gitignored; never `git add -f`. Then check `git diff --cached --name-status` for anything that should not ship and unstage it.
 2. Scan before committing. The push publishes every commit ahead of `origin/main`, not only the snapshot, so read the full staged diff (`git diff --cached`, which includes new files), the committed outgoing diff (`git diff origin/main...HEAD`), and the outgoing commit messages (`git log origin/main..HEAD`) for secrets and private text. Stop if any appears.
-3. Commit the staged snapshot on top of the existing local commits: `chore(handoff): snapshot local work for #<n>`. Do not rewrite or squash earlier commits; the factory squashes on publish.
+3. Commit the staged snapshot on top of the existing local commits: `chore(handoff): snapshot local work for #<n>`. Skip this when nothing is staged because all the work is already committed. Do not rewrite or squash earlier commits; the factory squashes on publish.
 4. Push to the factory branch. Put the push on its own line:
    ```sh
    git push origin HEAD:refs/heads/agent/<n>
