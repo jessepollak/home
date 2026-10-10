@@ -153,6 +153,7 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
   const [plots, setPlots] = useState<Partial<Record<MarketPriceRange, Plot>>>({});
   const [prefetchAssetId, setPrefetchAssetId] = useState<string | null>(null);
   const [visible, setVisible] = useState<MarketPriceRange | null>(null);
+  const shownPlotId = useRef<number | null>(null);
   const [resting, setResting] = useState<Partial<Record<MarketPriceRange, Plot>>>({});
   const [dimmedRange, setDimmedRange] = useState<MarketPriceRange | null>(null);
   const dimmed = dimmedRange === range && visible !== range;
@@ -165,6 +166,12 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
   const hintId = useId();
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [scrubPosition, setScrubPosition] = useState<{ x: number; y: number } | null>(null);
+  const [scrubRange, setScrubRange] = useState(range);
+  if (scrubRange !== range) {
+    setScrubRange(range);
+    setScrub(null);
+    setScrubPosition(null);
+  }
   const failed = history.status === "error" || (history.status === "ready" || history.status === "stale")
     && history.points.length < 2 && !!coverage?.gaps.some((gap) => gap.reason === "read-failed" || gap.reason === "incomplete");
   const source = "source" in history ? history.source : undefined;
@@ -214,7 +221,9 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
   }, []);
   useEffect(() => {
     if (!targetReady || missing) return;
+    if (visible === range && shownPlotId.current === plots[range]?.id) return;
     const timer = window.setTimeout(() => {
+      shownPlotId.current = plots[range]?.id ?? null;
       setVisible(range);
       setScrub(null);
       setScrubPosition(null);
@@ -222,7 +231,7 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
       onReadout(null);
     }, reduced ? 0 : visible === null ? 0 : 60);
     return () => window.clearTimeout(timer);
-  }, [range, targetReady, missing, reduced, visible, onReadout]);
+  }, [range, targetReady, missing, reduced, visible, onReadout, plots]);
   useEffect(() => {
     if (!pending) return;
     const timer = window.setTimeout(() => setDimmedRange(range), 150);

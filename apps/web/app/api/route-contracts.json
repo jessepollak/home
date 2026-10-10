@@ -4,6 +4,7 @@
     "access/route.ts": { "contracts": ["shared/access/contract.ts"] },
     "account/country-preference/route.ts": { "contracts": ["shared/account/contracts/country-preference.ts"], "methods": { "GET": { "contracts": ["shared/account/contracts/country-preference.ts"] }, "PUT": { "contracts": ["shared/account/contracts/country-preference.ts"] } } },
     "account/email-request/route.ts": { "contracts": ["shared/account/contracts/email-request.ts"], "methods": { "GET": { "contracts": ["shared/account/contracts/email-request.ts"] }, "POST": { "contracts": ["shared/account/contracts/email-request.ts"] } } },
+    "account/export/route.ts": { "contracts": ["shared/account/contracts/data-export.ts"], "methods": { "GET": { "contracts": ["shared/account/contracts/data-export.ts"] } } },
     "actions/[id]/confirm/route.ts": { "contracts": ["shared/actions/contracts/confirm.ts"] },
     "actions/[id]/decline/route.ts": { "contracts": ["shared/actions/contracts/decline.ts"] },
     "actions/[id]/handle/route.ts": { "contracts": ["shared/actions/contracts/handle.ts"] },
