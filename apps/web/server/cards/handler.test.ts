@@ -6,7 +6,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 const session: VerifiedAccountSession = { accountProvider: "base-account", user: { subject: "owner" },
   smartAccount: { chainId: 8453, address: "0x1111111111111111111111111111111111111111" } };
 const response: CardsResponse = { version: CARDS_CONTRACT_VERSION, state: "not-enrolled", cards: [],
-  provenance: { bridge: "not-requested", stripe: "not-requested", fetchedAt: "2026-09-28T12:00:00.000Z" } };
+  provenance: { program: null, account: "not-requested", cards: "not-requested", fetchedAt: "2026-09-28T12:00:00.000Z" } };
 
 const request = () => new Request("http://localhost/api/cards", { headers: { "X-Home-Account-Provider": "base-account" } });
 
@@ -21,7 +21,7 @@ describe("GET /api/cards", () => {
     expect(result.status).toBe(200);
     expect(result.headers.get("Cache-Control")).toContain("no-store");
     expect(parseCardsResponse(await result.json())).toEqual(response);
-    expect(parseCardsResponse({ ...response, version: 2 })).toBeNull();
+    expect(parseCardsResponse({ ...response, version: 1 })).toBeNull();
     expect(parseCardsResponse({ ...response, state: "unknown" })).toBeNull();
   });
   test("rejects unauthorized and unresolved owners without reading another account", async () => {
@@ -33,7 +33,7 @@ describe("GET /api/cards", () => {
       customer: async () => null, read: async () => { reads++; return response; } });
     const result = await unresolved(request());
     expect(result.status).toBe(503);
-    expect(await result.json()).toEqual({ version: 1, error: { code: "CARDS_UNAVAILABLE" } });
+    expect(await result.json()).toEqual({ version: 2, error: { code: "CARDS_UNAVAILABLE" } });
     expect(reads).toBe(0);
   });
 });

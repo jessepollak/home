@@ -123,17 +123,17 @@ function cardPurchaseItem(purchase: CardPurchase): ActivityLedgerItem {
   return ledgerItem;
 }
 
-const cardPendingPurchase: CardPurchase = { id: "iauth_fixturebluebottle", kind: "authorization", amountMinor: "650", merchantName: "Blue Bottle Coffee", status: "pending", declineReasonCode: null,
+const cardPendingPurchase: CardPurchase = { id: "11111111-1111-4111-8111-111111110001", kind: "authorization", amountMinor: "650", merchantName: "Blue Bottle Coffee", status: "pending", declineReasonCode: null,
     currency: "USD", merchantCategory: null, createdAt: "2026-09-24T10:30:00.000Z", updatedAt: "2026-09-24T10:30:00.000Z" };
-const cardDeclinedLockedPurchase: CardPurchase = { id: "iauth_fixturelyft", kind: "authorization", amountMinor: "1820", merchantName: "Lyft", status: "declined", declineReasonCode: "card_inactive",
+const cardDeclinedLockedPurchase: CardPurchase = { id: "11111111-1111-4111-8111-111111110002", kind: "authorization", amountMinor: "1820", merchantName: "Lyft", status: "declined", declineReasonCode: "card_inactive",
     currency: "USD", merchantCategory: null, createdAt: "2026-09-19T14:00:00.000Z", updatedAt: "2026-09-19T14:00:00.000Z" };
-const cardDeclinedInsufficientPurchase: CardPurchase = { id: "iauth_fixturewholefoodsdeclined", kind: "authorization", amountMinor: "6410", merchantName: "Whole Foods Market", status: "declined", declineReasonCode: "insufficient_funds",
+const cardDeclinedInsufficientPurchase: CardPurchase = { id: "11111111-1111-4111-8111-111111110003", kind: "authorization", amountMinor: "6410", merchantName: "Whole Foods Market", status: "declined", declineReasonCode: "insufficient_funds",
     currency: "USD", merchantCategory: null, createdAt: "2026-09-19T13:30:00.000Z", updatedAt: "2026-09-19T13:30:00.000Z" };
-const cardCompletedPurchase: CardPurchase = { id: "ipi_fixturewholefoods", kind: "transaction", amountMinor: "4218", merchantName: "Whole Foods Market", status: "completed", declineReasonCode: null,
+const cardCompletedPurchase: CardPurchase = { id: "11111111-1111-4111-8111-111111110004", kind: "transaction", amountMinor: "4218", merchantName: "Whole Foods Market", status: "completed", declineReasonCode: null,
     currency: "USD", merchantCategory: null, createdAt: "2026-09-21T14:00:00.000Z", updatedAt: "2026-09-21T14:00:00.000Z" };
-const cardReversedPurchase: CardPurchase = { id: "ipi_fixturegrandhotel", kind: "transaction", amountMinor: "10000", merchantName: "Grand Hotel", status: "reversed", declineReasonCode: null,
+const cardReversedPurchase: CardPurchase = { id: "11111111-1111-4111-8111-111111110005", kind: "transaction", amountMinor: "10000", merchantName: "Grand Hotel", status: "reversed", declineReasonCode: null,
     currency: "USD", merchantCategory: null, createdAt: "2026-09-23T06:30:00.000Z", updatedAt: "2026-09-23T06:30:00.000Z" };
-const cardRefundedPurchase: CardPurchase = { id: "ipi_fixtureapple", kind: "transaction", amountMinor: "999", merchantName: "Apple", status: "refunded", declineReasonCode: null,
+const cardRefundedPurchase: CardPurchase = { id: "11111111-1111-4111-8111-111111110006", kind: "transaction", amountMinor: "999", merchantName: "Apple", status: "refunded", declineReasonCode: null,
     currency: "USD", merchantCategory: null, createdAt: "2026-09-23T06:00:00.000Z", updatedAt: "2026-09-23T06:00:00.000Z" };
 const pendingCard = cardPurchaseItem(cardPendingPurchase);
 const declined = cardPurchaseItem(cardDeclinedLockedPurchase);

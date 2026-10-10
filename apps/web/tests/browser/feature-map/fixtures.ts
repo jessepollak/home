@@ -37,12 +37,12 @@ export const degenAssetId = `base:${syntheticDegen}` as const;
 
 export function cardPurchasesFixture(windowEnd: string): CardPurchase[] {
   const rows: Array<Pick<CardPurchase, "id" | "kind" | "amountMinor" | "merchantName" | "status" | "declineReasonCode">> = [
-    { id: "iauth_fixturebluebottle", kind: "authorization", amountMinor: "650", merchantName: "Blue Bottle Coffee", status: "pending", declineReasonCode: null },
-    { id: "iauth_fixturelyft", kind: "authorization", amountMinor: "1820", merchantName: "Lyft", status: "declined", declineReasonCode: "card_inactive" },
-    { id: "iauth_fixturewholefoodsdeclined", kind: "authorization", amountMinor: "6410", merchantName: "Whole Foods Market", status: "declined", declineReasonCode: "insufficient_funds" },
-    { id: "ipi_fixturewholefoods", kind: "transaction", amountMinor: "4218", merchantName: "Whole Foods Market", status: "completed", declineReasonCode: null },
-    { id: "ipi_fixturegrandhotel", kind: "transaction", amountMinor: "10000", merchantName: "Grand Hotel", status: "reversed", declineReasonCode: null },
-    { id: "ipi_fixtureapple", kind: "transaction", amountMinor: "999", merchantName: "Apple", status: "refunded", declineReasonCode: null },
+    { id: "11111111-1111-4111-8111-111111110001", kind: "authorization", amountMinor: "650", merchantName: "Blue Bottle Coffee", status: "pending", declineReasonCode: null },
+    { id: "11111111-1111-4111-8111-111111110002", kind: "authorization", amountMinor: "1820", merchantName: "Lyft", status: "declined", declineReasonCode: "card_inactive" },
+    { id: "11111111-1111-4111-8111-111111110003", kind: "authorization", amountMinor: "6410", merchantName: "Whole Foods Market", status: "declined", declineReasonCode: "insufficient_funds" },
+    { id: "11111111-1111-4111-8111-111111110004", kind: "transaction", amountMinor: "4218", merchantName: "Whole Foods Market", status: "completed", declineReasonCode: null },
+    { id: "11111111-1111-4111-8111-111111110005", kind: "transaction", amountMinor: "10000", merchantName: "Grand Hotel", status: "reversed", declineReasonCode: null },
+    { id: "11111111-1111-4111-8111-111111110006", kind: "transaction", amountMinor: "999", merchantName: "Apple", status: "refunded", declineReasonCode: null },
   ];
   return rows.map((row, index) => {
     const timestamp = new Date(Date.parse(windowEnd) - (index + 1) * 10 * 60_000).toISOString();

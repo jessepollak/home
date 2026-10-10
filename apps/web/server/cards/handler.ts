@@ -30,16 +30,14 @@ export const cardsHandler = createCardsHandler({
   authorize: authorizeSession,
   customer: (session) => resolveCustomer(session, { create: false }),
   read: async (customerId) => {
-    const { readCardJourneyConfig } = await import("./bridge/journey-config");
+    const { readCardPrograms } = await import("./programs");
     const { getSqlExecutor } = await import("@/server/db/sql");
     const { createCardAccountStore } = await import("./account-store");
-    const { createBridgeClient } = await import("./bridge/client");
-    const { createStripeClient } = await import("./stripe/client");
+
     const { readCardState } = await import("./journey");
-    const config = readCardJourneyConfig();
-    if (!config) throw new Error("Cards not configured");
-    return readCardState(customerId, config.mode, {
-      store: createCardAccountStore(getSqlExecutor()), bridge: createBridgeClient(config), stripe: createStripeClient(config),
-    });
+    const sql = getSqlExecutor();
+    const programs = readCardPrograms(sql);
+    if (!programs.mode) throw new Error("Cards not configured");
+    return readCardState(customerId, programs.mode, { store: createCardAccountStore(sql), programFor: programs.programFor });
   },
 });

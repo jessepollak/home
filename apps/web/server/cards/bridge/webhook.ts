@@ -2,15 +2,20 @@ import "server-only";
 
 import { createHash, createHmac, createPublicKey, verify } from "node:crypto";
 import { timingSafeEqualBytes } from "@/server/http/hmac";
-import type { BridgeConfig } from "./config";
-import type { CardObservation, CardProvider, CardVerification } from "../provider";
+import { readBridgeConfig, type BridgeConfig } from "./config";
+import type { CardObservation, CardEventSource, CardVerification } from "../provider";
+
+export function readBridgeEventSource(source: "bridge" | "stripe"): CardEventSource | null {
+  const config = readBridgeConfig();
+  return config ? source === "bridge" ? createBridgeWebhookProvider(config) : createStripeWebhookProvider(config) : null;
+}
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const TEN_MINUTES = 600_000;
 const FIVE_MINUTES = 300_000;
 const THIRTY_DAYS = 30 * 24 * 60 * 60_000;
 
-export function createBridgeWebhookProvider(config: BridgeConfig, now: () => number = Date.now): CardProvider {
+export function createBridgeWebhookProvider(config: BridgeConfig, now: () => number = Date.now): CardEventSource {
   const key = createPublicKey(config.webhookPublicKey);
   return {
     fundingStrategy: "allowance-pull",
@@ -36,7 +41,7 @@ export function createBridgeWebhookProvider(config: BridgeConfig, now: () => num
   };
 }
 
-export function createStripeWebhookProvider(config: BridgeConfig, now: () => number = Date.now): CardProvider {
+export function createStripeWebhookProvider(config: BridgeConfig, now: () => number = Date.now): CardEventSource {
   return {
     fundingStrategy: "allowance-pull",
     async verifyAndNormalize(raw, headers): Promise<CardVerification> {

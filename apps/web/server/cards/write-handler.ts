@@ -8,9 +8,6 @@ import { CARDS_CONTRACT_VERSION, parseCardEnrollmentResponse, parseCardWriteResp
 import { privateJson, withPrivateHeaders } from "@/server/http/private-response";
 import { readBoundedRequestText } from "@/server/http/request";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { createBridgeClient } from "./bridge/client";
-import { readCardJourneyConfig } from "./bridge/journey-config";
-import { createStripeClient } from "./stripe/client";
 import { CardWriteFailure, createCardWriteService } from "./write-service";
 
 function failure(code: CardWriteErrorCode, status: number): Response {
@@ -54,10 +51,10 @@ export function createCardWriteHandlers(deps: {
     }
   }
   return {
-    enrollment: (request: Request) => respond(request, async (id, _session, origin) => ({ kycUrl: await deps.service().enroll(id, `${origin}/card?return=verification`) }), true),
+    enrollment: (request: Request) => respond(request, async (id, _session, origin) => ({ next: await deps.service().enroll(id, `${origin}/card?return=verification`) }), true),
     issue: (request: Request) => respond(request, async (id, session) => ({ card: await deps.service().issue(id, session) })),
     freeze: (request: Request, id: string, freeze: boolean) => respond(request, async (customerId) => {
-      if (!/^ic_[A-Za-z0-9]+$/.test(id)) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
+      if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) throw new CardWriteFailure("CARD_NOT_FOUND", 404);
       return { card: { id: await deps.service().freeze(customerId, id, freeze), status: freeze ? "frozen" as const : "active" as const } };
     }),
   };
@@ -66,9 +63,5 @@ export function createCardWriteHandlers(deps: {
 export const cardWriteHandlers = createCardWriteHandlers({
   authorize: authorizeSession,
   customer: (session) => resolveCustomer(session, { create: false }),
-  service: () => {
-    const config = readCardJourneyConfig();
-    if (!config) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
-    return createCardWriteService({ sql: getSqlExecutor(), config, bridge: createBridgeClient(config), stripe: createStripeClient(config) });
-  },
+  service: () => createCardWriteService({ sql: getSqlExecutor() }),
 });

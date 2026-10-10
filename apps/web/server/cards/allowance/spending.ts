@@ -6,14 +6,17 @@ import { baseRpc, parseRpcDataWord, parseRpcQuantity, type BaseRpcOptions } from
 import { privateJson } from "@/server/http/private-response";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { CARD_ALLOWANCE_CONTRACT_VERSION, parseCardSpendingResponse, type CardSpendingError, type CardSpendingResponse } from "@/shared/cards/allowance-contract";
-import { cardAllowanceSetEnabled, readCardAllowanceRegistry, type CardAllowanceRegistry } from "./config";
-import { readCardJourneyConfig } from "../bridge/journey-config";
+import { readCardAllowanceRegistry, type CardAllowanceRegistry } from "./config";
+import { programFor } from "../programs";
+import { resolveCustomer } from "@/server/customers/resolve";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 type Rpc = (method: string, params: readonly unknown[], options?: BaseRpcOptions) => Promise<unknown>;
 type Dependencies = {
   authorize: SessionAuthorizer;
   registry: () => CardAllowanceRegistry | null;
-  journey: typeof readCardJourneyConfig;
+  programFor: typeof programFor;
+  customer: (session: VerifiedAccountSession) => Promise<{ id: string } | null>;
   rpc: Rpc;
   now: () => string;
   deadline: () => AbortSignal;
@@ -22,7 +25,8 @@ type Dependencies = {
 export function createCardSpendingHandler(deps: Partial<Dependencies> = {}) {
   const authorize = deps.authorize ?? authorizeSession;
   const registry = deps.registry ?? readCardAllowanceRegistry;
-  const journey = deps.journey ?? readCardJourneyConfig;
+  const resolveProgram = deps.programFor ?? programFor;
+  const customer = deps.customer ?? ((session: VerifiedAccountSession) => resolveCustomer(session, { create: false }));
   const rpc = deps.rpc ?? baseRpc;
   const deadline = deps.deadline ?? (() => AbortSignal.timeout(5_000));
   const now = deps.now ?? (() => new Date().toISOString());
@@ -42,8 +46,13 @@ export function createCardSpendingHandler(deps: Partial<Dependencies> = {}) {
         response = { version: 1, status: "not-configured" };
       } else {
         let setEnabled = false;
-        try { setEnabled = cardAllowanceSetEnabled(configured, journey); }
-        catch { setEnabled = false; }
+        try {
+          const owner = await customer(session);
+          const program = owner ? await resolveProgram(owner.id, configured.bridge.mode, request.signal) : null;
+          if (program && program.funding.strategy !== "allowance-pull") return privateJson({ version: 1, status: "not-configured" } satisfies CardSpendingResponse);
+          setEnabled = program?.provider === "bridge" && program.mode === "production" && configured.bridge.mode === "production" && program.funding.strategy === "allowance-pull" &&
+            program.funding.prerequisitesMet && configured.maximumBaseUnits !== null;
+        } catch { setEnabled = false; }
         const signal = AbortSignal.any([request.signal, deadline()]);
         const options = { signal, timeoutMs: 5_000 };
         const block = parseRpcQuantity(await rpc("eth_blockNumber", [], options), "block number");

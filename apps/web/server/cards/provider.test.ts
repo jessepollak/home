@@ -4,7 +4,7 @@ import { readImmersveConfig } from "./immersve/config";
 import { createImmersveWebhookHandler } from "./immersve/webhook";
 import { readBridgeConfig } from "./bridge/config";
 import { createBridgeWebhookProvider, createStripeWebhookProvider } from "./bridge/webhook";
-import { createCardWebhookHandler, type CardObservation, type CardProvider } from "./provider";
+import { createCardWebhookHandler, type CardObservation, type CardEventSource } from "./provider";
 
 const now = Date.parse("2026-09-24T12:00:00Z");
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -39,7 +39,7 @@ function stripeDelivery(timestamp = Math.floor(now / 1000)): Delivery {
   const v1 = createHmac("sha256", stripeSecret).update(`${timestamp}.`).update(raw).digest("hex");
   return { raw, headers: new Headers({ "stripe-signature": `t=${timestamp},v1=${"f".repeat(64)},v1=${v1}` }) };
 }
-const adapters: { name: string; expectedStale: "rejected" | "stale"; make(): CardProvider; delivery(): Delivery; staleDelivery(): Delivery; disabled(): boolean; expected: CardObservation }[] = [
+const adapters: { name: string; expectedStale: "rejected" | "stale"; make(): CardEventSource; delivery(): Delivery; staleDelivery(): Delivery; disabled(): boolean; expected: CardObservation }[] = [
   { name: "Immersve", expectedStale: "rejected", make: () => createImmersveWebhookHandler({ config: immersve, client: { getJwks: async () => ({ keys: [jwk] }) }, store: { insert: async () => true }, now: () => now }).provider,
     delivery: immersveDelivery, staleDelivery: () => immersveDelivery(new Date(now - 31 * 24 * 60 * 60_000).toISOString()), disabled: () => readImmersveConfig({ IMMERSVE_ENABLED: "" }) === null,
     expected: { provider: "immersve", mode: "sandbox", eventId: "message_fixture", kind: "payment-updated", occurredAt: new Date(now).toISOString(),
