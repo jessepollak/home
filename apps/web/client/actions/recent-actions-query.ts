@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { isTransientAccountResourceFailure } from "@/client/account/resource-failure";
 import { queryViewState } from "@/client/query/query-view-state";
 import { ownerQuery } from "@/client/query/query-options";
+import { reconcileBalanceBoundaries } from "@/client/query/after-action";
 import { parseRecentActionsPayload, type RecentActionsPayload } from "@/shared/actions/contracts/list";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
@@ -34,10 +35,13 @@ export function recentActionsQuery(input: RecentActionsInput) {
     retryDelay: (attempt) => Math.min(500 * 3 ** attempt, 1_500),
     refetchOnWindowFocus: refetchFailedRecentActions,
     refetchOnReconnect: refetchFailedRecentActions,
-    queryFn: async ({ signal }) => {
+    queryFn: async ({ signal, client }, owner) => {
       if (!input.session) throw new Error("Recent actions are unavailable.");
       const readSequence = ++recentActionsReadSequence;
-      return { ...parseRecentActionsPayload(await input.fetchOperations(signal), input.session), readSequence };
+      const payload = parseRecentActionsPayload(await input.fetchOperations(signal), input.session);
+      signal.throwIfAborted();
+      reconcileBalanceBoundaries({ queryClient: client, dataOwnerKey: owner, payload });
+      return { ...payload, readSequence };
     },
   });
 }

@@ -105,14 +105,24 @@ export function trustRestoredBalanceActionMarker(data: unknown, entry: RestoredQ
       regionIds.some((candidate) => candidate === region) && fresh === true) ||
     (data.settledBlock !== undefined && (typeof data.settledBlock !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(data.settledBlock))) ||
     (data.settledActionId !== undefined && (typeof data.settledActionId !== "string" || data.settledActionId.length === 0 || data.settledActionId.length > 64)) ||
+    (data.settledActionIds !== undefined && (!Array.isArray(data.settledActionIds) || data.settledActionIds.length > 16 ||
+      !data.settledActionIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 64))) ||
     (data.dispatchedOverflow !== undefined && data.dispatchedOverflow !== true) ||
+    (data.dispatchedOverflowAt !== undefined && (data.dispatchedOverflow !== true || typeof data.dispatchedOverflowAt !== "number" ||
+      !Number.isFinite(data.dispatchedOverflowAt) || data.dispatchedOverflowAt < 0)) ||
     (data.dispatchedActionIds !== undefined && (!Array.isArray(data.dispatchedActionIds) || data.dispatchedActionIds.length > 16 ||
-      !data.dispatchedActionIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 64)))) return null;
+      !data.dispatchedActionIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 64))) ||
+    (data.dispatchedAt !== undefined && (!isRecord(data.dispatchedAt) || !Object.entries(data.dispatchedAt).every(([id, time]) =>
+      Array.isArray(data.dispatchedActionIds) && data.dispatchedActionIds.includes(id) &&
+      typeof time === "number" && Number.isFinite(time) && time >= 0)))) return null;
   const dispatchedActionIds = [...new Set(data.dispatchedActionIds ?? [])];
+  const settledActionIds = [...new Set(data.settledActionIds ?? (data.settledActionId !== undefined ? [data.settledActionId] : []))];
   return { data: { at: data.at, fresh: { ...data.fresh }, ...(data.settledBlock !== undefined ? { settledBlock: data.settledBlock } : {}),
-    ...(data.settledActionId !== undefined ? { settledActionId: data.settledActionId } : {}),
+    ...(settledActionIds.length ? { settledActionIds } : {}),
     ...(dispatchedActionIds.length ? { dispatchedActionIds } : {}),
-    ...(data.dispatchedOverflow === true ? { dispatchedOverflow: true } : {}) } };
+    ...(data.dispatchedAt !== undefined ? { dispatchedAt: { ...data.dispatchedAt } } : {}),
+    ...(data.dispatchedOverflow === true ? { dispatchedOverflow: true } : {}),
+    ...(data.dispatchedOverflowAt !== undefined ? { dispatchedOverflowAt: data.dispatchedOverflowAt } : {}) } };
 }
 
 export function trustRestoredBorrowOverview(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {

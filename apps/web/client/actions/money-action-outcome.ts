@@ -40,7 +40,7 @@ export function nextMoneyActionQualification(input: {
   outcome: MoneyResultStatus;
   settled: boolean;
   operation?: { settledAt?: string; settledBlockNumber?: string; submittedAt?: string; updatedAt?: string };
-}): { qualification: MoneyActionQualification; action: "none" | "settlement" | "unknown"; settledBlock?: string } {
+}): { qualification: MoneyActionQualification; action: "none" | "settlement" | "unknown" | "reopen"; settledBlock?: string } {
   const { actionId, submission, outcome, settled, operation } = input;
   const current = input.current.actionId === actionId ? input.current : createMoneyActionQualification(actionId);
   if (submission === "failed" || outcome === "failed") return { qualification: current, action: "none" };
@@ -56,6 +56,9 @@ export function nextMoneyActionQualification(input: {
       action: "settlement",
       ...(block !== undefined ? { settledBlock: block } : {}),
     };
+  }
+  if (current.qualifiedSettlement !== null) {
+    return { qualification: { ...current, settlement: null, settlementBlock: null, qualifiedSettlement: null }, action: "reopen" };
   }
   if (submission === "ambiguous" && outcome === "unknown") {
     const serverAt = Date.parse(operation?.submittedAt ?? operation?.updatedAt ?? "");
@@ -116,8 +119,8 @@ export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
     qualification.current = next.qualification;
     if (next.action === "settlement") {
       requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: action.id, settledBlock: next.settledBlock, serverAt: operation?.settledAt ?? operation?.submittedAt });
-    } else if (next.action === "unknown") {
-      void invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: action.id, serverAt: operation?.submittedAt ?? operation?.updatedAt });
+    } else if (next.action === "unknown" || next.action === "reopen") {
+      void invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: action.id, serverAt: operation?.submittedAt ?? operation?.updatedAt, reopen: next.action === "reopen" });
     }
   }, [action.id, submission, outcome, settled, operation, queryClient, ownerKey]);
   return { outcome, ...(row ? { row } : {}) };
