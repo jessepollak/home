@@ -137,6 +137,33 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     expect(await store.getDispatchAmbiguous({ subject: "pg-other", accountProvider: "base-account" }, "ID", "idrx")).toBeNull();
   });
 
+  test("stale recovery moves only stale reserving rows for the exact owner, region and provider", async () => {
+    const first = reservation();
+    const boundary = { ...reservation(), createdAt: "2026-09-12T00:00:30.000Z" };
+    const fresh = { ...reservation(), createdAt: "2026-09-12T00:00:30.001Z" };
+    const otherProvider = { ...reservation(), providerId: "other-provider" };
+    const otherRegion = { ...reservation(), region: "US" };
+    const otherSubject = { ...reservation(), owner: { ...first.owner, subject: "other-owner" } };
+    const otherAccountProvider = { ...reservation(), owner: { ...first.owner, accountProvider: "cdp-embedded" as const } };
+    const completed = reservation();
+    const failed = reservation();
+    const ambiguous = reservation();
+    for (const input of [first, boundary, fresh, otherProvider, otherRegion, otherSubject, otherAccountProvider, completed, failed, ambiguous]) await store.reserve(input);
+    await store.completeDispatch(completed.id, dispatch);
+    await store.applyObservation(failed.id, { state: "failed", providerStatus: "rejected", expectedVersion: 0, updatedAt: first.createdAt });
+    await store.markDispatchAmbiguous(ambiguous.id, 0, first.createdAt);
+    const unchanged = await Promise.all([fresh, otherProvider, otherRegion, otherSubject, otherAccountProvider, completed, failed, ambiguous].map((input) => store.getOwned(input.id, input.owner)));
+    const updatedAt = "2026-09-12T00:02:30.000Z";
+    const recovered = await store.recoverStaleReserving(first.owner, first.region, first.providerId, boundary.createdAt, updatedAt);
+    expect(recovered.map((order) => order.id).sort()).toEqual([first.id, boundary.id].sort());
+    for (const order of recovered) {
+      expect(order).toMatchObject({ state: "dispatch-ambiguous", instructions: null, version: 1, updatedAt });
+      expect(await store.getOwned(order.id, order.owner)).toEqual(order);
+    }
+    expect(await Promise.all([fresh, otherProvider, otherRegion, otherSubject, otherAccountProvider, completed, failed, ambiguous].map((input) => store.getOwned(input.id, input.owner)))).toEqual(unchanged);
+    expect(await store.recoverStaleReserving(first.owner, first.region, first.providerId, boundary.createdAt, updatedAt)).toEqual([]);
+  });
+
   test("owner-scoped ambiguous resolution is terminal and excluded from getOpen", async () => {
     const input = reservation();
     await store.reserve(input);

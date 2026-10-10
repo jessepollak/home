@@ -22,6 +22,7 @@ import type { FundingUserTokenVault, ProviderUserTokenCreateOrder, FundingUserTo
 import { isRegionOffered } from "@/server/operator-settings/regions";
 import { checkoutDeadline } from "@/shared/funding/checkout-deadline";
 
+export const FUNDING_DISPATCH_DEADLINE_MS = 120_000;
 export const AMBIGUOUS_ORDER_RECOVERY_DELAY_MS = 24 * 60 * 60 * 1_000;
 const REFRESH_COOLDOWN_MS = 3_000;
 const ABANDONED_RECONCILE_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -29,7 +30,7 @@ const ABANDONED_RECONCILE_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
 export type ReceiptMatch = { transactionHash: `0x${string}`; logIndex: number } | null;
 
 export type FundingOrderTransitionEvent = {
-  route: "/api/funding/orders" | "/api/funding/orders/:id" | "/api/funding/orders/:id/resolve" | "/api/funding/orders/:id/cancel" | "/api/funding/webhooks/:provider";
+  route: "/api/activity/orders" | "/api/funding/orders" | "/api/funding/orders/:id" | "/api/funding/orders/:id/resolve" | "/api/funding/orders/:id/cancel" | "/api/funding/webhooks/:provider";
   code: "ORDER_CREATED" | "ORDER_REJECTED" | "ORDER_AMBIGUOUS" | "ORDER_AMBIGUOUS_RESOLVED" | "ORDER_ABANDONED" | "ORDER_SENT_UNVERIFIED" | "ORDER_RECEIVED" | "ORDER_EXPIRED" | "ORDER_CANCELLED" | "ORDER_FAILED" | "ORDER_REFUNDED";
   outcome: "ok" | "rejected" | "unavailable" | "failed";
   providerId: string;
@@ -458,9 +459,12 @@ export class FundingCore {
     const existing = await this.deps.store.getByIntent(owner, intentDigest);
     if (existing) {
       if (existing.quoteToken !== authenticated.canonicalToken) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
-      return publicOrder(existing);
+      return publicOrder(this.isStaleReserving(existing)
+        ? await this.recoverStaleReservation(existing, "/api/funding/orders")
+        : existing);
     }
     await this.requireOffered(provider, binding.region, "onramp", "ORDER_UNAVAILABLE");
+    await this.recoverStaleReserving(owner, claims.region, claims.providerId, "/api/funding/orders");
     if (await this.deps.store.getDispatchAmbiguous(owner, claims.region, claims.providerId)) {
       throw new FundingCoreError("AMBIGUOUS_ORDER_OPEN", 409);
     }
@@ -468,18 +472,7 @@ export class FundingCore {
     const directional = binding.directions.onramp;
     if (!directional || !environmentAvailable(directional.env, this.env)) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
     if (!await this.offered(binding.region, "ORDER_UNAVAILABLE")) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
-    const id = randomUUID();
-    const timestamp = this.now().toISOString();
-    const reserved = await this.deps.store.reserve({
-      id, owner, destination: session.smartAccount.address, providerId: claims.providerId,
-      region: claims.region, assetId: claims.assetId, paymentMethod: claims.paymentMethod,
-      fiatAmount: claims.fiatAmount, intentDigest,
-      quote: claims.quote, quoteToken: authenticated.canonicalToken, customerRef: claims.customerRef,
-      sandbox: claims.sandbox, creationBlock: await this.deps.currentBaseBlock(), createdAt: timestamp,
-    });
-    if (!reserved.created) return publicOrder(reserved.order);
-    const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: claims.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: claims.sandbox });
-    const dispatchStartedAt = Date.now();
+    const creationBlock = await this.deps.currentBaseBlock();
     const createWithToken = this.deps.userTokenProviders?.get(claims.providerId);
     const tokenBinding: FundingUserTokenBinding | null = createWithToken && this.deps.userTokenVault &&
       claims.subject === owner.subject && claims.accountProvider === owner.accountProvider &&
@@ -487,15 +480,30 @@ export class FundingCore {
       ? { owner, providerId: claims.providerId, region: binding.region, sandbox: claims.sandbox, destination: session.smartAccount.address.toLowerCase() } : null;
     const tokenRead = tokenBinding ? await this.deps.userTokenVault!.readForDispatch(tokenBinding) : null;
     const stored = tokenRead?.credential ?? null;
+    await this.recoverStaleReserving(owner, claims.region, claims.providerId, "/api/funding/orders");
+    if (await this.deps.store.getDispatchAmbiguous(owner, claims.region, claims.providerId)) {
+      throw new FundingCoreError("AMBIGUOUS_ORDER_OPEN", 409);
+    }
+    const id = randomUUID();
+    const timestamp = this.now().toISOString();
+    const reserved = await this.deps.store.reserve({
+      id, owner, destination: session.smartAccount.address, providerId: claims.providerId,
+      region: claims.region, assetId: claims.assetId, paymentMethod: claims.paymentMethod,
+      fiatAmount: claims.fiatAmount, intentDigest,
+      quote: claims.quote, quoteToken: authenticated.canonicalToken, customerRef: claims.customerRef,
+      sandbox: claims.sandbox, creationBlock, createdAt: timestamp,
+    });
+    if (!reserved.created) return publicOrder(reserved.order);
+    if (this.isStaleReserving(reserved.order)) return publicOrder(await this.recoverStaleReservation(reserved.order, "/api/funding/orders"));
+    const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: claims.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: claims.sandbox });
+    const dispatchStartedAt = Date.now();
     const intent = { homeOrderId: id, destination: session.smartAccount.address, fiatAmount: claims.fiatAmount, quote: claims.quote, customerRef: claims.customerRef ?? undefined, clientIp: resolveClientIp(headers, this.env, claims.sandbox), returnUrl: `${returnOrigin}/fund?return=funding` };
     const dispatched = tokenBinding && createWithToken
       ? await createWithToken(intent, { userAuthToken: stored?.token ?? null }, ctx)
       : { result: await onramp.createOrder(intent, ctx), userAuthToken: null, credentialRejected: false };
     const result = dispatched.result;
     if (result.outcome === "ambiguous") {
-      const ambiguous = await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString());
-      this.logTransition(ambiguous, "ORDER_AMBIGUOUS", "unavailable", "/api/funding/orders", dispatchStartedAt);
-      return publicOrder(ambiguous);
+      return publicOrder(await this.markDispatchAmbiguousOrRecovered(id, owner, reserved.order.version, "/api/funding/orders", dispatchStartedAt));
     }
     if (result.outcome === "rejected") {
       if (tokenBinding && stored && dispatched.credentialRejected) await this.deps.userTokenVault!.clearAfterRejection(tokenBinding, stored);
@@ -513,18 +521,43 @@ export class FundingCore {
         provider.manifest.onramp?.redirectOrigins,
       )
     ) {
-      const ambiguous = await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString());
+      return publicOrder(await this.markDispatchAmbiguousOrRecovered(id, owner, reserved.order.version, "/api/funding/orders", dispatchStartedAt));
+    }
+    let created: FundingOrder;
+    try {
+      created = await this.deps.store.completeDispatch(id, { ...result.order, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() });
+    } catch (error) {
+      let ambiguous: FundingOrder;
+      try {
+        ambiguous = await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString());
+      } catch {
+        const current = await this.deps.store.getOwned(id, owner);
+        if (current?.state === "awaiting-payment" && current.providerOrderId === result.order.providerOrderId) {
+          if (tokenBinding && tokenRead && dispatched.userAuthToken) await this.deps.userTokenVault?.capture(tokenBinding, dispatched.userAuthToken, tokenRead.expectedEnvelope);
+          this.logTransition(current, "ORDER_CREATED", "ok", "/api/funding/orders", dispatchStartedAt);
+        }
+        if (current && current.state !== "reserving") return publicOrder(current);
+        throw error;
+      }
       this.logTransition(ambiguous, "ORDER_AMBIGUOUS", "unavailable", "/api/funding/orders", dispatchStartedAt);
       return publicOrder(ambiguous);
     }
-    const created = await this.deps.store.completeDispatch(id, { ...result.order, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() });
     if (tokenBinding && tokenRead && dispatched.userAuthToken) await this.deps.userTokenVault!.capture(tokenBinding, dispatched.userAuthToken, tokenRead.expectedEnvelope);
     this.logTransition(created, "ORDER_CREATED", "ok", "/api/funding/orders", dispatchStartedAt);
     return publicOrder(created);
   }
 
   async listOrderHistory(session: VerifiedAccountSession, limit = ACTIVITY_ORDERS_LIMIT): Promise<FundingOrder[]> {
-    const orders = await this.deps.store.listOwned(ownerFor(session), limit);
+    const owner = ownerFor(session);
+    let orders = await this.deps.store.listOwned(owner, limit);
+    const stale = orders.filter((order) => this.isStaleReserving(order));
+    const groups = new Map(stale.map((order) => [JSON.stringify([order.region, order.providerId]), order]));
+    const recovered = new Map((await Promise.all([...groups.values()].map((order) =>
+      this.recoverStaleReserving(owner, order.region, order.providerId, "/api/activity/orders"))))
+      .flat().map((order) => [order.id, order]));
+    const replacements = new Map(await Promise.all(stale.map(async (order) =>
+      [order.id, recovered.get(order.id) ?? await this.deps.store.getOwned(order.id, owner) ?? order] as const)));
+    orders = orders.map((order) => replacements.get(order.id) ?? order);
     const now = this.now().getTime();
     const eligible = orders.filter((order) => !isTerminalFundingState(order.state) && order.state !== "reserving" &&
       !(order.sandbox && order.state === "sent-unverified") &&
@@ -678,6 +711,48 @@ export class FundingCore {
     return { accepted: true, matched: true };
   }
 
+  private isStaleReserving(order: FundingOrder): boolean {
+    return order.state === "reserving" && this.now().getTime() - Date.parse(order.updatedAt) >= FUNDING_DISPATCH_DEADLINE_MS;
+  }
+
+  private async markDispatchAmbiguousOrRecovered(
+    id: string,
+    owner: FundingOrderOwner,
+    expectedVersion: number,
+    route: FundingOrderTransitionEvent["route"],
+    startedAt: number,
+  ): Promise<FundingOrder> {
+    try {
+      const ambiguous = await this.deps.store.markDispatchAmbiguous(id, expectedVersion, this.now().toISOString());
+      this.logTransition(ambiguous, "ORDER_AMBIGUOUS", "unavailable", route, startedAt);
+      return ambiguous;
+    } catch (error) {
+      const current = await this.deps.store.getOwned(id, owner);
+      if (current?.state === "dispatch-ambiguous") return current;
+      throw error;
+    }
+  }
+
+  private async recoverStaleReserving(
+    owner: FundingOrderOwner,
+    region: string,
+    providerId: string,
+    route: FundingOrderTransitionEvent["route"],
+  ): Promise<FundingOrder[]> {
+    const startedAt = Date.now();
+    const now = this.now();
+    const recovered = await this.deps.store.recoverStaleReserving(
+      owner, region, providerId, new Date(now.getTime() - FUNDING_DISPATCH_DEADLINE_MS).toISOString(), now.toISOString(),
+    );
+    for (const order of recovered) this.logTransition(order, "ORDER_AMBIGUOUS", "unavailable", route, startedAt);
+    return recovered;
+  }
+
+  private async recoverStaleReservation(order: FundingOrder, route: FundingOrderTransitionEvent["route"]): Promise<FundingOrder> {
+    const recovered = await this.recoverStaleReserving(order.owner, order.region, order.providerId, route);
+    return recovered.find((candidate) => candidate.id === order.id) ?? await this.deps.store.getOwned(order.id, order.owner) ?? order;
+  }
+
   private async refresh(order: FundingOrder, force = false): Promise<FundingOrder> {
     return (await this.refreshObservation(order, force)).order;
   }
@@ -687,7 +762,11 @@ export class FundingCore {
     force = false,
     refreshRoute: FundingOrderTransitionEvent["route"] = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id",
   ): Promise<{ order: FundingOrder; definite: boolean; advanced?: boolean }> {
-    if (isTerminalFundingState(order.state) || order.state === "reserving" || !order.providerOrderId || !order.expectedTokenAmountAtomic) return { order, definite: false };
+    if (order.state === "reserving") return {
+      order: this.isStaleReserving(order) ? await this.recoverStaleReservation(order, refreshRoute) : order,
+      definite: false,
+    };
+    if (isTerminalFundingState(order.state) || !order.providerOrderId || !order.expectedTokenAmountAtomic) return { order, definite: false };
     if (!force && this.now().getTime() - Date.parse(order.checkedAt ?? order.updatedAt) < REFRESH_COOLDOWN_MS) return { order: await this.abandonTimedOut(order, refreshRoute, Date.now()), definite: false };
     const provider = this.provider(order.providerId);
     const binding = provider ? findBinding(provider, order.region, "onramp", order.paymentMethod, order.assetId) : null;

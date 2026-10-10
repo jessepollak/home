@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { parseJson } from "@/tests/helpers/read-json";
 import { isRecord } from "@/shared/guards";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createHash, randomUUID } from "node:crypto";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { readQuoteDraft } from "@/shared/funding/contracts/quotes";
 import type {
@@ -16,6 +17,7 @@ import type {
 import { MemoryFundingOrderStore, type FundingReservation } from "./store";
 import {
   ambiguousOrderRecoveryAvailableAt,
+  FUNDING_DISPATCH_DEADLINE_MS,
   FundingCore,
   resolveClientIp,
   isPrivateIp,
@@ -94,7 +96,7 @@ function customerSetup(readOffering?: FundingCoreDependencies["readOffering"], e
 
 function setup(
   outcome: "created" | "ambiguous" | "rejected" = "created",
-  options: { sandbox?: boolean; providerSandbox?: boolean; readOffering?: FundingCoreDependencies["readOffering"] } = {},
+  options: { sandbox?: boolean; providerSandbox?: boolean; readOffering?: FundingCoreDependencies["readOffering"]; currentBaseBlock?: FundingCoreDependencies["currentBaseBlock"] } = {},
 ) {
   let dispatches = 0;
   let blockReads = 0;
@@ -123,8 +125,20 @@ function setup(
       },
     },
   };
-  const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FIXTURE_ONRAMP_MODE: "sandbox" } : {}) }, readOffering: options.readOffering, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, logOrderTransition: (event) => transitionEvents.push(event), now: () => date });
+  const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FIXTURE_ONRAMP_MODE: "sandbox" } : {}) }, readOffering: options.readOffering, currentBaseBlock: async () => { blockReads += 1; return options.currentBaseBlock ? options.currentBaseBlock() : "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, logOrderTransition: (event) => transitionEvents.push(event), now: () => date });
   return { core, store, transitionEvents, dispatches: () => dispatches, blockReads: () => blockReads, receiptVerifications: () => receiptVerifications, getOrderSandboxes: () => getOrderSandboxes, staleSignals: () => staleSignals, advance(minutes: number) { date = new Date(date.getTime() + minutes * 60_000); }, observe(state: typeof observation) { observation = state; date = new Date(date.getTime() + 10_000); }, throwStatus() { statusThrows = true; date = new Date(date.getTime() + 10_000); }, sent() { observation = "sent"; date = new Date(date.getTime() + 10_000); } };
+}
+
+async function reserveQuote(fixture: ReturnType<typeof setup>, fiatAmount = "20000", createdAt = "2026-09-12T00:00:00.000Z") {
+  if (!sessionAddress) throw new Error("Expected a smart account");
+  const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount }, "https://home.example");
+  const reserved = await fixture.store.reserve({
+    id: randomUUID(), owner: { subject: session.user.subject, accountProvider: session.accountProvider },
+    destination: sessionAddress, providerId: "fixture", region: "ID", assetId: "base:idrx", paymentMethod: "bank", fiatAmount,
+    intentDigest: createHash("sha256").update(quote.quoteToken).digest("hex"), quote: quote.quote, quoteToken: quote.quoteToken,
+    customerRef: null, sandbox: false, creationBlock: "500", createdAt,
+  });
+  return reserved.order;
 }
 
 async function cancellationFixture(sandbox = false, expiresAt: string | null = null, configured = true) {
@@ -1454,6 +1468,231 @@ describe("FundingCore", () => {
     expect(fresh.blockReads()).toBe(0);
     expect(fresh.dispatches()).toBe(0);
   });
+
+  test("completion-write failure returns ambiguity and blocks a new intent without redispatch", async () => {
+    const fixture = setup();
+    const complete = fixture.store.completeDispatch.bind(fixture.store);
+    let attempts = 0;
+    fixture.store.completeDispatch = async (...args) => {
+      if (++attempts === 1) throw new Error("completion unavailable");
+      return complete(...args);
+    };
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const order = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(order).toMatchObject({ state: "dispatch-ambiguous", instructions: null });
+    expect(fixture.dispatches()).toBe(1);
+    expect(fixture.transitionEvents).toEqual([expect.objectContaining({ route: "/api/funding/orders", code: "ORDER_AMBIGUOUS", outcome: "unavailable" })]);
+    const next = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example");
+    await expect(fixture.core.createOrder(session, { quoteToken: next.quoteToken }, "https://home.example")).rejects.toMatchObject({ code: "AMBIGUOUS_ORDER_OPEN" });
+    expect(fixture.dispatches()).toBe(1);
+    expect(attempts).toBe(1);
+  });
+
+  test("a concurrent stale recovery that wins the ambiguity write returns the recovered row", async () => {
+    const fixture = setup("ambiguous");
+    const owner = { subject: session.user.subject, accountProvider: session.accountProvider };
+    const mark = fixture.store.markDispatchAmbiguous.bind(fixture.store);
+    fixture.store.markDispatchAmbiguous = async (id, expectedVersion, updatedAt) => {
+      await fixture.store.recoverStaleReserving(owner, "ID", "fixture", "2099-01-01T00:00:00.000Z", updatedAt);
+      return mark(id, expectedVersion, updatedAt);
+    };
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const order = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(order).toMatchObject({ state: "dispatch-ambiguous", instructions: null });
+    expect(await fixture.store.getOwned(order.id, owner)).toMatchObject({ state: "dispatch-ambiguous", version: 1, instructions: null });
+    expect(fixture.dispatches()).toBe(1);
+    expect(fixture.transitionEvents).toEqual([]);
+  });
+
+  test("failed completion and ambiguity writes allow fresh concurrency but recover before a new dispatch at the deadline", async () => {
+    const fixture = setup();
+    const complete = fixture.store.completeDispatch.bind(fixture.store);
+    const mark = fixture.store.markDispatchAmbiguous.bind(fixture.store);
+    const failure = new Error("completion unavailable");
+    fixture.store.completeDispatch = async () => { throw failure; };
+    fixture.store.markDispatchAmbiguous = async () => { throw new Error("ambiguity unavailable"); };
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    await expect(fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example")).rejects.toBe(failure);
+    const [reserved] = await fixture.store.listOwned({ subject: session.user.subject, accountProvider: session.accountProvider }, 10);
+    if (!reserved) throw new Error("Expected a reservation");
+    expect(reserved).toMatchObject({ state: "reserving", version: 0 });
+    expect(fixture.transitionEvents).toEqual([]);
+    expect(fixture.dispatches()).toBe(1);
+
+    fixture.store.completeDispatch = complete;
+    fixture.store.markDispatchAmbiguous = mark;
+    fixture.advance((FUNDING_DISPATCH_DEADLINE_MS - 1) / 60_000);
+    const fresh = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example");
+    expect(await fixture.core.createOrder(session, { quoteToken: fresh.quoteToken }, "https://home.example")).toMatchObject({ state: "awaiting-payment" });
+    expect((await fixture.store.getOwned(reserved.id, reserved.owner))?.state).toBe("reserving");
+    expect(fixture.dispatches()).toBe(2);
+
+    fixture.advance(1 / 60_000);
+    const next = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "22000" }, "https://home.example");
+    await expect(fixture.core.createOrder(session, { quoteToken: next.quoteToken }, "https://home.example")).rejects.toMatchObject({ code: "AMBIGUOUS_ORDER_OPEN" });
+    expect(await fixture.store.getOwned(reserved.id, reserved.owner)).toMatchObject({ state: "dispatch-ambiguous", version: 1, instructions: null });
+    expect(fixture.dispatches()).toBe(2);
+    expect(fixture.transitionEvents.map((event) => event.code)).toEqual(["ORDER_CREATED", "ORDER_AMBIGUOUS"]);
+  });
+
+  for (const recovery of ["history", "admission"] as const) {
+    test(`a stalled block read cannot dispatch after an older reservation becomes ambiguous through ${recovery}`, async () => {
+      let blockReadHook: (() => Promise<void>) | null = null;
+      const fixture = setup("created", { currentBaseBlock: async () => { await blockReadHook?.(); return "500"; } });
+      const complete = fixture.store.completeDispatch.bind(fixture.store);
+      const mark = fixture.store.markDispatchAmbiguous.bind(fixture.store);
+      const failure = new Error("completion unavailable");
+      fixture.store.completeDispatch = async () => { throw failure; };
+      fixture.store.markDispatchAmbiguous = async () => { throw new Error("ambiguity unavailable"); };
+      const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+      await expect(fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example")).rejects.toBe(failure);
+      const owner = { subject: session.user.subject, accountProvider: session.accountProvider };
+      const [reserved] = await fixture.store.listOwned(owner, 10);
+      if (!reserved) throw new Error("Expected a reservation");
+      expect(reserved).toMatchObject({ state: "reserving" });
+      expect(fixture.dispatches()).toBe(1);
+      fixture.store.completeDispatch = complete;
+      fixture.store.markDispatchAmbiguous = mark;
+      fixture.advance(119 / 60);
+      const next = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example");
+      const started = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      blockReadHook = async () => { started.resolve(); await release.promise; };
+      const pending = fixture.core.createOrder(session, { quoteToken: next.quoteToken }, "https://home.example");
+      await started.promise;
+      expect(await fixture.store.listOwned(owner, 10)).toEqual([reserved]);
+      fixture.advance(2 / 60);
+      if (recovery === "history") {
+        expect(await fixture.core.listOrderHistory(session)).toEqual([expect.objectContaining({ id: reserved.id, state: "dispatch-ambiguous" })]);
+      }
+      release.resolve();
+      await expect(pending).rejects.toMatchObject({ code: "AMBIGUOUS_ORDER_OPEN", status: 409 });
+      expect(await fixture.store.getOwned(reserved.id, owner)).toMatchObject({ state: "dispatch-ambiguous", version: 1 });
+      expect(fixture.dispatches()).toBe(1);
+      expect(await fixture.store.listOwned(owner, 10)).toHaveLength(1);
+      expect(fixture.transitionEvents).toEqual([expect.objectContaining({ code: "ORDER_AMBIGUOUS", outcome: "unavailable" })]);
+    });
+  }
+
+  test("a reservation whose write returns after the dispatch deadline is recovered without a provider create", async () => {
+    const fixture = setup("created");
+    const reserve = fixture.store.reserve.bind(fixture.store);
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    fixture.store.reserve = async (input) => {
+      const result = await reserve(input);
+      started.resolve();
+      await release.promise;
+      return result;
+    };
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const pending = fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    await started.promise;
+    fixture.advance(2);
+    release.resolve();
+    expect(await pending).toMatchObject({ state: "dispatch-ambiguous", instructions: null });
+    expect(fixture.dispatches()).toBe(0);
+    expect(fixture.transitionEvents).toEqual([expect.objectContaining({ code: "ORDER_AMBIGUOUS", outcome: "unavailable" })]);
+  });
+
+  for (const operation of ["create", "history", "status"] as const) {
+    test(`${operation} rejects a failed stale recovery without returning a live reservation or dispatching`, async () => {
+      const fixture = setup();
+      const reserved = await reserveQuote(fixture, "20000", "2026-09-11T23:58:00.000Z");
+      const next = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example");
+      const failure = new Error("stale recovery unavailable");
+      fixture.store.recoverStaleReserving = async () => { throw failure; };
+      const pending = operation === "create"
+        ? fixture.core.createOrder(session, { quoteToken: next.quoteToken }, "https://home.example")
+        : operation === "history"
+          ? fixture.core.listOrderHistory(session)
+          : fixture.core.getOrder(session, reserved.id);
+      await expect(pending).rejects.toBe(failure);
+      expect(await fixture.store.getOwned(reserved.id, reserved.owner)).toEqual(reserved);
+      expect(fixture.dispatches()).toBe(0);
+      expect(fixture.getOrderSandboxes()).toEqual([]);
+      expect(fixture.transitionEvents).toEqual([]);
+    });
+  }
+
+  test("a committed completion whose response throws is reread without redispatch or ambiguity", async () => {
+    const fixture = setup();
+    const complete = fixture.store.completeDispatch.bind(fixture.store);
+    fixture.store.completeDispatch = async (...args) => {
+      await complete(...args);
+      throw new Error("completion response unavailable");
+    };
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const order = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(order).toMatchObject({ state: "awaiting-payment", instructions: { kind: "bank-transfer" } });
+    expect(fixture.dispatches()).toBe(1);
+    expect(fixture.transitionEvents).toEqual([expect.objectContaining({ route: "/api/funding/orders", code: "ORDER_CREATED", outcome: "ok" })]);
+  });
+
+  test("history recovers stale reservations once per corridor without provider calls and leaves fresh reservations alone", async () => {
+    const fixture = setup();
+    const first = await reserveQuote(fixture, "20000", "2026-09-11T23:57:00.000Z");
+    const second = await reserveQuote(fixture, "21000", "2026-09-11T23:58:00.000Z");
+    const fresh = await reserveQuote(fixture, "22000", "2026-09-11T23:58:00.001Z");
+    const recover = fixture.store.recoverStaleReserving.bind(fixture.store);
+    let recoveries = 0;
+    fixture.store.recoverStaleReserving = async (...args) => { recoveries++; return recover(...args); };
+    const orders = await fixture.core.listOrderHistory(session);
+    for (const id of [first.id, second.id]) expect(orders.find((order) => order.id === id)).toMatchObject({ state: "dispatch-ambiguous", instructions: null, version: 1, updatedAt: "2026-09-12T00:00:00.000Z" });
+    expect(orders.find((order) => order.id === fresh.id)).toEqual(fresh);
+    expect(recoveries).toBe(1);
+    expect(fixture.dispatches()).toBe(0);
+    expect(fixture.getOrderSandboxes()).toEqual([]);
+    expect(fixture.transitionEvents).toEqual([expect.objectContaining({ route: "/api/activity/orders", code: "ORDER_AMBIGUOUS", outcome: "unavailable" }), expect.objectContaining({ route: "/api/activity/orders", code: "ORDER_AMBIGUOUS", outcome: "unavailable" })]);
+  });
+
+  test("same-token retries return fresh reservations and recover stale reservations without dispatching", async () => {
+    const fixture = setup();
+    const reserved = await reserveQuote(fixture);
+    const body = { quoteToken: reserved.quoteToken };
+    expect(await fixture.core.createOrder(session, body, "https://home.example")).toEqual(publicOrder(reserved));
+    fixture.advance(FUNDING_DISPATCH_DEADLINE_MS / 60_000);
+    expect(await fixture.core.createOrder(session, body, "https://home.example")).toMatchObject({ id: reserved.id, state: "dispatch-ambiguous", instructions: null });
+    expect(fixture.dispatches()).toBe(0);
+    expect(fixture.blockReads()).toBe(0);
+    expect(fixture.transitionEvents).toEqual([expect.objectContaining({ route: "/api/funding/orders", code: "ORDER_AMBIGUOUS", outcome: "unavailable" })]);
+  });
+
+  for (const read of ["same-token", "history", "status"] as const) {
+    test(`${read} rereads a concurrent completed dispatch that wins stale recovery`, async () => {
+      const fixture = setup();
+      const reserved = await reserveQuote(fixture, "20000", "2026-09-11T23:58:00.000Z");
+      const recover = fixture.store.recoverStaleReserving.bind(fixture.store);
+      fixture.store.recoverStaleReserving = async (...args) => {
+        await fixture.store.completeDispatch(reserved.id, { providerOrderId: "concurrent-order", expectedTokenAmountAtomic: reserved.quote.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: reserved.fiatAmount, currency: "IDR" }, expectedVersion: 0, updatedAt: "2026-09-12T00:00:00.000Z" });
+        return recover(...args);
+      };
+      const order = read === "same-token"
+        ? await fixture.core.createOrder(session, { quoteToken: reserved.quoteToken }, "https://home.example")
+        : read === "history"
+          ? (await fixture.core.listOrderHistory(session))[0]
+          : await fixture.core.getOrder(session, reserved.id);
+      expect(order).toMatchObject({ id: reserved.id, state: "awaiting-payment" });
+      expect(order?.instructions?.kind).toBe("bank-transfer");
+      expect(fixture.dispatches()).toBe(0);
+      expect(fixture.getOrderSandboxes()).toEqual([]);
+      expect(fixture.transitionEvents).toEqual([]);
+    });
+  }
+
+  for (const read of ["status", "open"] as const) {
+    test(`${read} reads recover stale reserving orders without calling the provider`, async () => {
+      const fixture = setup();
+      const reserved = await reserveQuote(fixture);
+      const lookup = () => read === "status" ? fixture.core.getOrder(session, reserved.id) : fixture.core.getOpenOrder(session, "ID");
+      expect(await lookup()).toMatchObject({ id: reserved.id, state: "reserving" });
+      fixture.advance(FUNDING_DISPATCH_DEADLINE_MS / 60_000);
+      expect(await lookup()).toMatchObject({ id: reserved.id, state: "dispatch-ambiguous", instructions: null });
+      expect(fixture.dispatches()).toBe(0);
+      expect(fixture.getOrderSandboxes()).toEqual([]);
+      expect(fixture.transitionEvents).toEqual([expect.objectContaining({ route: "/api/funding/orders/:id", code: "ORDER_AMBIGUOUS", outcome: "unavailable" })]);
+    });
+  }
 
   test("never retries an ambiguous create", async () => {
     const fixture = setup("ambiguous");

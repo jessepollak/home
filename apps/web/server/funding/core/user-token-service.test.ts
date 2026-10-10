@@ -296,7 +296,7 @@ test("rejection cleanup keeps a semantic replacement written after a key-rotatio
 });
 test("completeDispatch failure does not capture token; missing keys and store write failure never block orders", async () => {
   const failure = setup({ failComplete: true });
-  await expect(failure.purchase()).rejects.toThrow("complete failed");
+  expect(await failure.purchase()).toMatchObject({ state: "dispatch-ambiguous", instructions: null });
   expect(await failure.tokenStore.get(binding)).toBeNull();
   const missing = setup({ env: { ...environment, HOME_SECRET_ENCRYPTION_KEY: "" } });
   await missing.purchase();
