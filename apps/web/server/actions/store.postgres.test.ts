@@ -126,6 +126,31 @@ describePostgres("actions schema and store", () => {
     expect((await store.listRetainedSavingsDeposits(owner)).map(({ id }) => id)).toEqual([beforeBoundary, hashOnly, handleOnly, overlap, ...recentOutcomes]);
     expect((await store.listRetainedSavingsDeposits(otherOwner)).map(({ id }) => id)).toEqual([foreign]);
     expect((await store.list(owner)).map(({ id }) => id)).toEqual([recent, overlap]);
+    expect(await store.listRecent(owner)).toMatchObject({ capped: false, skipped: false });
+    expect(await store.listRetainedSavingsDepositsCoverage(owner)).toMatchObject({ capped: false, skipped: false });
+  });
+  test("uses the passed recent cutoff inclusively and partitions retained deposits on the same bound", async () => {
+    const cutoff = new Date(Date.now() - 25 * 60 * 60_000);
+    const ids: string[] = [];
+    for (const offset of [-1_000, 0, 1_000]) {
+      const id = randomUUID();
+      ids.push(id);
+      await store.insert({ id, owner, kind: "savings-deposit", summary, pending: { calls }, createdAt: new Date().toISOString() });
+      await store.confirm(owner, id);
+      await store.recordHandle(owner, id, { providerHandle: `0x${"ab".repeat(32)}` });
+      await sql.query("UPDATE actions SET confirmed_at = $2::timestamptz WHERE id = $1", [id, new Date(cutoff.getTime() + offset)]);
+    }
+    const [before, at, after] = ids;
+    const recent = await store.listRecent(owner, cutoff);
+    expect(recent).toMatchObject({ since: cutoff, capped: false, skipped: false });
+    expect(recent.rows.map(({ id }) => id)).toEqual([after, at]);
+    const retained = await store.listRetainedSavingsDepositsCoverage(owner, cutoff);
+    expect(retained).toMatchObject({ capped: false, skipped: false });
+    expect(retained.rows.map(({ id }) => id)).toEqual([before, after, at]);
+    expect((await store.listRetainedSavingsDeposits(owner, cutoff)).map(({ id }) => id)).toEqual([before, after, at]);
+    const defaultRecent = await store.listRecent(owner);
+    expect(defaultRecent.since).toEqual(new Date(Date.now() - 24 * 60 * 60_000));
+    expect(defaultRecent.rows).toEqual([]);
   });
   test("caps unresolved retained savings deposits at the 20 newest rows", async () => {
     const ids: string[] = [];
@@ -138,6 +163,10 @@ describePostgres("actions schema and store", () => {
       await sql.query("UPDATE actions SET confirmed_at = now() - interval '25 hours' - $2 * interval '1 minute' WHERE id = $1", [id, index]);
     }
     expect((await store.listRetainedSavingsDeposits(owner)).map(({ id }) => id)).toEqual(ids.slice(0, RETAINED_SAVINGS_DEPOSITS_LIMIT));
+    const coverage = await store.listRetainedSavingsDepositsCoverage(owner);
+    expect(coverage.capped).toBe(true);
+    expect(coverage.skipped).toBe(false);
+    expect(coverage.rows.map(({ id }) => id)).toEqual(ids.slice(0, 20));
   });
   test("prioritizes an unresolved deposit beyond 24 hours over 20 unresolved overlap rows", async () => {
     const overlapIds = Array.from({ length: 20 }, () => randomUUID());
@@ -154,6 +183,7 @@ describePostgres("actions schema and store", () => {
     expect(retained.slice(1).map(({ id }) => id).sort()).toEqual([...overlapIds].sort());
     expect(retained.every(({ outcome }) => outcome === null)).toBe(true);
     expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([...overlapIds].sort());
+    expect(await store.listRetainedSavingsDepositsCoverage(owner)).toMatchObject({ capped: true, skipped: false });
   });
   test("retains an older recently recorded outcome alongside 20 unresolved overlap rows", async () => {
     const overlapIds = Array.from({ length: 20 }, () => randomUUID());

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readJson } from "@/tests/helpers/read-json";
-import { parseRecentActionsPayload, RECENT_ACTIONS_LIMIT } from "@/shared/actions/contracts/list";
+import { parseRecentActionsPayload, RECENT_ACTIONS_LIMIT, RECENT_ACTIONS_WINDOW_MS } from "@/shared/actions/contracts/list";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createListActionsHandler } from "./handler";
 import type { ActionRow } from "./store";
@@ -31,22 +31,25 @@ function row(changes: Partial<ActionRow> = {}): ActionRow {
   };
 }
 
-async function list(rows: ActionRow[]) {
+type ListStore = NonNullable<Parameters<typeof createListActionsHandler>[0]["store"]>;
+
+async function list(rows: ActionRow[], coverage: Partial<ListStore> = {}, parsedCount = rows.length, now = () => new Date(instant)) {
   const handler = createListActionsHandler({
     authorize: async () => Response.json(session),
     store: {
       list: async () => rows,
       recordHandle: async () => { throw new Error("Unexpected handle reconciliation"); },
       recordOutcome: async () => { throw new Error("Unexpected outcome write"); },
+      ...coverage,
     },
     refreshCashouts: async () => [],
-    now: () => new Date(instant),
+    now,
   });
   const response = await handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
   expect(response.status).toBe(200);
   const payload = await readJson(response);
   const parsed = parseRecentActionsPayload(payload, session);
-  expect(parsed.operations).toHaveLength(rows.length);
+  expect(parsed.operations).toHaveLength(parsedCount);
   expect(parsed.incomplete).toBe(false);
   if (rows.length < RECENT_ACTIONS_LIMIT) expect(parsed.truncated).toBe(false);
   return { payload, parsed };
@@ -84,3 +87,77 @@ test.each(omittedReceiptBlockCases)("GET /api/actions omits a withdrawal receipt
   expect(parsed.operations[0]?.action.kind).toBe(changes.kind ?? "cash-out-withdraw");
   expect(parsed.operations[0]).not.toHaveProperty("receiptBlockNumber");
 });
+
+function coveredStore(rows: ActionRow[], retained: ActionRow[] = []): Partial<ListStore> {
+  return {
+    listRecent: async (_owner, cutoff = new Date(instant)) => {
+      expect(cutoff).toEqual(new Date(Date.parse(instant) - RECENT_ACTIONS_WINDOW_MS));
+      return { rows, capped: false, skipped: false, since: cutoff };
+    },
+    listRetainedSavingsDepositsCoverage: async (_owner, cutoff) => {
+      expect(cutoff).toEqual(new Date(Date.parse(instant) - RECENT_ACTIONS_WINDOW_MS));
+      return { rows: retained, capped: false, skipped: false };
+    },
+  };
+}
+
+test("GET /api/actions round-trips exhaustive coverage for the authorized owner", async () => {
+  const rows = [row({ kind: "send" })];
+  const retained = [row({ id: "22222222-2222-4222-8222-222222222222", kind: "savings-deposit" })];
+  const { payload, parsed } = await list(rows, coveredStore(rows, retained));
+  const since = Date.parse(instant) - RECENT_ACTIONS_WINDOW_MS;
+  expect(payload).toMatchObject({ version: 1, truncated: false, exhaustive: { owner: {
+    subject: "owner", address, chainId: 8453, accountProvider: "cdp-embedded",
+  }, since: new Date(since).toISOString() } });
+  expect(parsed.exhaustive).toEqual({ since });
+  expect(parsed.retainedSavingsDeposits).toHaveLength(1);
+  expect((await list([], coveredStore([]))).parsed.exhaustive).toEqual({ since });
+});
+
+test("GET /api/actions binds one cutoff before both reads without widening it from store coverage", async () => {
+  let now = Date.parse(instant);
+  const since = now - RECENT_ACTIONS_WINDOW_MS;
+  let recentCutoff: Date | undefined;
+  let retainedCutoff: Date | undefined;
+  const coverage = coveredStore([]);
+  coverage.listRecent = async (_owner, cutoff) => {
+    recentCutoff = cutoff;
+    now += 60_000;
+    await Promise.resolve();
+    now += 60_000;
+    return { rows: [], capped: false, skipped: false, since: new Date(since - 60_000) };
+  };
+  coverage.listRetainedSavingsDepositsCoverage = async (_owner, cutoff) => {
+    retainedCutoff = cutoff;
+    return { rows: [], capped: false, skipped: false };
+  };
+  const { payload, parsed } = await list([], coverage, 0, () => new Date(now));
+  expect(recentCutoff).toEqual(new Date(since));
+  expect(retainedCutoff).toBe(recentCutoff);
+  expect(payload).toMatchObject({ exhaustive: { since: recentCutoff?.toISOString() } });
+  expect(parsed.exhaustive).toEqual({ since });
+});
+
+test.each(["capped recent", "skipped recent", "capped retained", "skipped retained", "retained failure", "legacy store", "recent coverage only", "retained coverage only", "unpresentable recent", "unpresentable retained"] as const)(
+  "GET /api/actions omits exhaustive coverage for %s", async (state) => {
+    const valid = row({ kind: "send" });
+    const malformed = row({ kind: "send", summary: { ...valid.summary, amounts: [null] } });
+    const rows = state === "capped recent" ? Array.from({ length: 100 }, (_, index) => row({ id: String(index), kind: "send" }))
+      : [state === "unpresentable recent" ? malformed : valid];
+    const coverage = coveredStore(rows, state === "unpresentable retained"
+      ? [row({ ...malformed, id: "retained", kind: "savings-deposit" })] : []);
+    if (state === "capped recent" || state === "skipped recent") {
+      coverage.listRecent = async (_owner, cutoff = new Date(instant)) => ({ rows, capped: state === "capped recent", skipped: state === "skipped recent", since: cutoff });
+    }
+    if (state === "capped retained" || state === "skipped retained") {
+      coverage.listRetainedSavingsDepositsCoverage = async () => ({ rows: [], capped: state === "capped retained", skipped: state === "skipped retained" });
+    }
+    if (state === "retained failure") coverage.listRetainedSavingsDepositsCoverage = async () => { throw new Error("Retained read failed"); };
+    if (state === "legacy store" || state === "retained coverage only") delete coverage.listRecent;
+    if (state === "legacy store" || state === "recent coverage only") delete coverage.listRetainedSavingsDepositsCoverage;
+    const { payload, parsed } = await list(rows, coverage, state === "unpresentable recent" ? 0 : rows.length);
+    expect(payload).not.toHaveProperty("exhaustive");
+    expect(parsed.exhaustive).toBeNull();
+    if (state === "retained failure") expect(parsed.retainedSavingsDepositsUnavailable).toBe(true);
+  },
+);

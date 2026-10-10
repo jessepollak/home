@@ -10,7 +10,7 @@ import { parseGetActionPendingResponse, parsePresentedAction, type GetActionPend
 import { HANDLE_ACTION_CONTRACT_VERSION, parseHandleActionResponse, type HandleActionErrorCode } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, parseDeclineActionResponse, type DeclineActionErrorCode } from "@/shared/actions/contracts/decline";
 import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, parseRetryActionResponse, type RetryActionErrorCode } from "@/shared/actions/contracts/retry";
-import { LIST_ACTIONS_CONTRACT_VERSION, RECENT_ACTIONS_LIMIT, parseActionListItem, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
+import { LIST_ACTIONS_CONTRACT_VERSION, RECENT_ACTIONS_LIMIT, RECENT_ACTIONS_WINDOW_MS, parseActionListItem, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { CardAllowanceMoneyActionMetadata, MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
@@ -557,7 +557,7 @@ export function createRetryActionHandler(dependencies: {
 
 export function createListActionsHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation" | "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
+  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "listRecent" | "listRetainedSavingsDepositsCoverage" | "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation" | "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
   refreshCashouts?: typeof refreshCashoutProgress;
@@ -566,14 +566,28 @@ export function createListActionsHandler(dependencies: {
   return async function GET(request: Request): Promise<Response> {
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
-    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation">>;
+    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "listRecent" | "listRetainedSavingsDepositsCoverage" | "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation">>;
     let rows: ActionRow[];
+    let cutoff: Date;
     let retainedRead: Promise<ActionRow[]>;
+    let recentCovered = false;
+    let retainedCovered = false;
     let retainedSavingsDepositsUnavailable = false;
     try {
       store = dependencies.store ?? getActionsStore();
-      const recentRead = store.list(owner);
-      retainedRead = (async () => store.listRetainedSavingsDeposits?.(owner) ?? [])().catch(() => {
+      cutoff = new Date((dependencies.now?.() ?? new Date()).getTime() - RECENT_ACTIONS_WINDOW_MS);
+      const recentRead = (async () => {
+        if (!store.listRecent) return store.list(owner);
+        const coverage = await store.listRecent(owner, cutoff);
+        recentCovered = !coverage.capped && !coverage.skipped;
+        return coverage.rows;
+      })();
+      retainedRead = (async () => {
+        if (!store.listRetainedSavingsDepositsCoverage) return store.listRetainedSavingsDeposits?.(owner) ?? [];
+        const coverage = await store.listRetainedSavingsDepositsCoverage(owner, cutoff);
+        retainedCovered = !coverage.capped && !coverage.skipped;
+        return coverage.rows;
+      })().catch(() => {
         retainedSavingsDepositsUnavailable = true;
         return [];
       });
@@ -642,7 +656,8 @@ export function createListActionsHandler(dependencies: {
     const truncated = observed.length === RECENT_ACTIONS_LIMIT &&
       (observed.at(-1)?.row.kind === "cash-out" || observed.at(-1)?.row.kind === "cash-out-withdraw");
     const retainedSavingsDeposits = await Promise.all(retainedObserved.map(({ row, receipt }) => presentAction(row, owner, receipt, now)));
-    if ([...actions, ...retainedSavingsDeposits].filter((action) => !parseActionListItem(action)).length > 0) {
+    const unpresentable = [...actions, ...retainedSavingsDeposits].some((action) => !parseActionListItem(action));
+    if (unpresentable) {
       emitServerEvent("action-read", {
         route: "/api/actions", code: "ACTION_UNPRESENTABLE", outcome: "failed", provider: owner.accountProvider, owner,
       });
@@ -653,6 +668,8 @@ export function createListActionsHandler(dependencies: {
       truncated,
       ...(retainedSavingsDeposits.length ? { retainedSavingsDeposits } : {}),
       ...(retainedSavingsDepositsUnavailable ? { retainedSavingsDepositsUnavailable: true } : {}),
+      ...(recentCovered && retainedCovered && !retainedSavingsDepositsUnavailable && !unpresentable && !truncated
+        ? { exhaustive: { owner, since: cutoff.toISOString() } } : {}),
     } satisfies ListActionsResponse, 200);
   };
 }

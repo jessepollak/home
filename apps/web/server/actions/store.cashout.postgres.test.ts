@@ -203,6 +203,17 @@ describePostgres("cash-out lockout eligibility", () => {
     expect(listed.map(({ id }) => id)).toContain(old);
     expect(listed.at(-1)?.id).toBe(old);
     expect(listed.every((row, index) => index === 0 || new Date(listed[index - 1]!.confirmed_at!).getTime() >= new Date(row.confirmed_at!).getTime())).toBe(true);
+    const cutoff = new Date(Date.now() - 86_400_000);
+    expect(await store.listRecent(owner, cutoff)).toEqual({ rows: listed, capped: true, skipped: false, since: cutoff });
+    const skippedRow = listed.find((row) => row.kind === "send");
+    if (!skippedRow) throw new Error("expected a listed send row");
+    const skippedId = skippedRow.id;
+    await sql.query("UPDATE actions SET kind = 'unsupported' WHERE id = $1", [skippedId]);
+    const coverage = await store.listRecent(owner);
+    expect(coverage.capped).toBe(true);
+    expect(coverage.skipped).toBe(true);
+    expect(coverage.rows).toHaveLength(99);
+    expect(coverage.rows.map(({ id }) => id)).not.toContain(skippedId);
   });
 
   test("retains an older withdrawal linked to an unsettled cash-out but not one linked to a settled order", async () => {
