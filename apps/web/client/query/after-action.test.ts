@@ -479,6 +479,19 @@ describe("post-action balance qualification", () => {
     expect(freshRegionMarker(observed, current, "US", snapshotAt("105"))).toEqual({ ...observed, fresh: { US: true } });
   });
 
+  test.each([
+    { dispatchedConfirmedAt: { "action-a": now + 1 } },
+    { dispatchedOverflowConfirmedFloor: now - 1 },
+    { dispatchedOverflowGeneration: 2 },
+  ])("a changed confirmation or overflow identity cannot consume rendered proof %j", (change) => {
+    const observed: BalanceActionMarker = { at: now, fresh: {}, dispatchedActionIds: ["action-a"], dispatchedConfirmedAt: { "action-a": now },
+      dispatchedOverflow: true, dispatchedOverflowConfirmedFloor: now, dispatchedOverflowGeneration: 1 };
+    const current = { ...observed, ...change };
+    const snapshot = { ...snapshotAt("105"), fetchedAt: new Date(now + 10).toISOString() };
+    expect(snapshotProvesFreshness(snapshot, current)).toBe(true);
+    expect(freshRegionMarker(current, observed, "US", snapshot)).toBeUndefined();
+  });
+
   test.each(["105", "106"])("a snapshot at block %s marks only its region fresh", (block) => {
     const current: BalanceActionMarker = { at: now, fresh: { GLOBAL: true }, settledBlock: "105" };
     expect(freshRegionMarker(current, { ...current, fresh: {} }, "US", snapshotAt(block))).toEqual({
@@ -596,7 +609,11 @@ describe("post-action balance qualification", () => {
       dataOwnerKey: ownerKey, queryClient, startBalanceFreshness: (actionId) => { starts.push(actionId); },
     });
     expect(starts).toEqual(["action-a"]);
-    expect(queryClient.getQueryData<BalanceActionMarker>(ownerQueryKey(ownerKey, "balances-action"))).toEqual({ at, fresh: {}, dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": now } });
+    const knownConfirmation = ["matching action and owner", "matching case-insensitive address", "absent instant"].includes(_label);
+    expect(queryClient.getQueryData<BalanceActionMarker>(ownerQueryKey(ownerKey, "balances-action"))).toEqual({
+      at, fresh: {}, dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": now },
+      ...(knownConfirmation ? { dispatchedConfirmedAt: { "action-a": Date.parse(handleAction.confirmedAt) } } : {}),
+    });
   });
 
   test("invalidateAfterAction records a different dispatch action and retains the settled block and action identity", async () => {
@@ -689,10 +706,161 @@ describe("balance boundary maintenance", () => {
   });
   const payload = (operations: RecentMoneyActionOperation[] = [], change: Partial<RecentActionsPayload> = {}): RecentActionsPayload => ({
     operations, retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: false,
-    unparsedSavingsDeposits: [], truncated: false, incomplete: false, ...change,
+    unparsedSavingsDeposits: [], truncated: false, incomplete: false, exhaustive: null, ...change,
   });
-  const reconcile = (queryClient: QueryClient, read: RecentActionsPayload, time = now) =>
-    afterAction.reconcileBalanceBoundaries({ queryClient, dataOwnerKey: ownerKey, payload: read, now: time });
+  const exhaustive = { since: now - day + 5 * 60 * 1_000 };
+  const reconcile = (queryClient: QueryClient, read: RecentActionsPayload, time = now, readStartGeneration?: number) =>
+    afterAction.reconcileBalanceBoundaries({ queryClient, dataOwnerKey: ownerKey, payload: read, now: time, readStartGeneration });
+
+  test("exhaustive confirmed coverage after 17 abandoned dispatches clears overflow and requalifies at the highest row block", async () => {
+    const queryClient = client();
+    for (let index = 0; index < 17; index += 1) await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: `action-${index}`, serverConfirmedAt: new Date(now).toISOString(), now });
+    const generation = afterAction.balanceBoundaryGeneration(queryClient, ownerKey);
+    expect(generation).toBe(1);
+    expect(readMarker(queryClient, markerKey).dispatchedOverflowConfirmedFloor).toBe(now);
+    queryClient.setQueryData(markerKey, { ...readMarker(queryClient, markerKey), fresh: { US: true } });
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), { ...snapshotAt("104"), fetchedAt: new Date(now + 10).toISOString() });
+    const invalidate = spyOn(queryClient, "invalidateQueries");
+    reconcile(queryClient, payload(Array.from({ length: 16 }, (_, index) => operation(`action-${index + 1}`, "confirmed", "106")), {
+      exhaustive, retainedSavingsDeposits: [operation("action-0", "confirmed", "109")],
+    }), now, generation);
+    const marker = readMarker(queryClient, markerKey);
+    expect(marker.dispatchedOverflow).toBeUndefined();
+    expect(marker.dispatchedOverflowAt).toBeUndefined();
+    expect(marker.dispatchedOverflowConfirmedFloor).toBeUndefined();
+    expect(marker.dispatchedOverflowGeneration).toBe(1);
+    expect(marker.dispatchedConfirmedAt).toBeUndefined();
+    expect(marker.dispatchedActionIds).toBeUndefined();
+    expect(marker.settledBlock).toBe("109");
+    expect(marker.at).toBe(now + 11);
+    expect(marker.fresh).toEqual({});
+    expect(snapshotProvesFreshness(snapshotAt("108"), marker)).toBe(false);
+    expect(snapshotProvesFreshness(snapshotAt("109"), marker)).toBe(true);
+    expect(invalidate.mock.calls.filter(([filters]) => filters?.queryKey?.[1] === "balances")).toHaveLength(1);
+    invalidate.mockRestore();
+  });
+
+  test.each(["older", "unknown", "invalid"] as const)("exhaustive confirmed coverage keeps an evicted %s confirmation boundary", async (state) => {
+    const queryClient = client();
+    const confirmedAt = state === "older" ? new Date(exhaustive.since - 1).toISOString() : state === "invalid" ? "invalid" : undefined;
+    await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-0", serverConfirmedAt: confirmedAt, now });
+    for (let index = 1; index < 17; index += 1) {
+      await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: `action-${index}`, serverConfirmedAt: new Date(now).toISOString(), now });
+    }
+    expect(readMarker(queryClient, markerKey).dispatchedConfirmedAt).not.toHaveProperty("action-0");
+    const floor = state === "older" ? exhaustive.since - 1 : 0;
+    expect(readMarker(queryClient, markerKey).dispatchedOverflowConfirmedFloor).toBe(floor);
+    await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-17", serverConfirmedAt: new Date(now).toISOString(), now });
+    const generation = afterAction.balanceBoundaryGeneration(queryClient, ownerKey);
+    reconcile(queryClient, payload(Array.from({ length: 16 }, (_, index) => operation(`action-${index + 2}`)), { exhaustive }), now, generation);
+    const marker = readMarker(queryClient, markerKey);
+    expect(marker.dispatchedActionIds).toBeUndefined();
+    expect(marker.dispatchedConfirmedAt).toBeUndefined();
+    expect(marker.dispatchedOverflow).toBe(true);
+    expect(marker.dispatchedOverflowConfirmedFloor).toBe(floor);
+    expect(marker.dispatchedOverflowGeneration).toBe(2);
+  });
+
+  test("legacy overflow without a confirmation floor cannot clear from exhaustive contents", () => {
+    const queryClient = client();
+    const marker: BalanceActionMarker = { at: now, fresh: {}, dispatchedOverflow: true, dispatchedOverflowAt: now, dispatchedOverflowGeneration: 1 };
+    queryClient.setQueryData(markerKey, marker);
+    reconcile(queryClient, payload([operation("untracked")], { exhaustive }), now, 1);
+    expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toBe(marker);
+  });
+
+  test("an eviction after overflow clears cannot reuse a previously captured generation", async () => {
+    const queryClient = client();
+    for (let index = 0; index < 17; index += 1) {
+      await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: `action-${index}`, serverConfirmedAt: new Date(now).toISOString(), now });
+    }
+    const generation = afterAction.balanceBoundaryGeneration(queryClient, ownerKey);
+    reconcile(queryClient, payload(Array.from({ length: 16 }, (_, index) => operation(`action-${index + 1}`)), { exhaustive }), now, generation);
+    expect(readMarker(queryClient, markerKey).dispatchedOverflow).toBeUndefined();
+    expect(afterAction.balanceBoundaryGeneration(queryClient, ownerKey)).toBe(generation);
+    for (let index = 0; index < 17; index += 1) {
+      await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: `new-action-${index}`, serverConfirmedAt: new Date(now).toISOString(), now });
+    }
+    expect(afterAction.balanceBoundaryGeneration(queryClient, ownerKey)).toBe(generation + 1);
+    reconcile(queryClient, payload(Array.from({ length: 16 }, (_, index) => operation(`new-action-${index + 1}`)), { exhaustive }), now, generation);
+    expect(readMarker(queryClient, markerKey).dispatchedOverflow).toBe(true);
+    expect(readMarker(queryClient, markerKey).dispatchedOverflowGeneration).toBe(generation + 1);
+    reconcile(queryClient, payload([], { exhaustive }), now, generation + 1);
+    expect(readMarker(queryClient, markerKey).dispatchedOverflow).toBeUndefined();
+    expect(afterAction.balanceBoundaryGeneration(queryClient, ownerKey)).toBe(generation + 1);
+  });
+
+  test("confirmation times survive dispatch and settlement rebuilds only for tracked boundaries", async () => {
+    const queryClient = client();
+    const confirmedAt = new Date(now - 10).toISOString();
+    await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverConfirmedAt: confirmedAt, now });
+    await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", serverConfirmedAt: new Date(now).toISOString(), now });
+    requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a" });
+    expect(readMarker(queryClient, markerKey).dispatchedConfirmedAt).toEqual({ "action-a": now - 10, "action-b": now });
+    requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", settledBlock: "105" });
+    expect(readMarker(queryClient, markerKey).dispatchedConfirmedAt).toEqual({ "action-a": now - 10 });
+    reconcile(queryClient, payload([operation("action-a")]));
+    expect(readMarker(queryClient, markerKey).dispatchedConfirmedAt).toBeUndefined();
+  });
+
+  test.each(["empty", "equal block", "lower block", "higher block", "absent block"] as const)("exhaustive %s coverage clears overflow and resets freshness only on a higher block", (state) => {
+    const queryClient = client();
+    const marker = { at: now, fresh: { US: true as const }, dispatchedOverflow: true as const, dispatchedOverflowAt: now,
+      dispatchedOverflowGeneration: 3, dispatchedOverflowConfirmedFloor: exhaustive.since, ...(state === "absent block" ? {} : { settledBlock: "105" }) };
+    queryClient.setQueryData(markerKey, marker);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), { ...snapshotAt("104"), fetchedAt: new Date(now + 10).toISOString() });
+    const invalidate = spyOn(queryClient, "invalidateQueries");
+    const raised = state === "higher block" || state === "absent block";
+    reconcile(queryClient, payload(state === "empty" ? [] : [operation("untracked", "confirmed", state === "lower block" ? "104" : raised ? "106" : "105")], { exhaustive }), now, 3);
+    expect(readMarker(queryClient, markerKey)).toEqual({ at: raised ? now + 11 : now, fresh: raised ? {} : { US: true }, settledBlock: raised ? "106" : "105", dispatchedOverflowGeneration: 3 });
+    expect(invalidate.mock.calls.filter(([filters]) => filters?.queryKey?.[1] === "balances")).toHaveLength(raised ? 1 : 0);
+    invalidate.mockRestore();
+  });
+
+  test.each(["truncated", "partial", "unavailable retained", "pending", "block-less", "invalid block", "pending retained", "block-less retained", "missing generation"] as const)("overflow remains on %s coverage", (state) => {
+    const queryClient = client();
+    const marker: BalanceActionMarker = { at: now, fresh: { US: true }, settledBlock: "104", dispatchedOverflow: true, dispatchedOverflowAt: now, dispatchedOverflowGeneration: 1, dispatchedOverflowConfirmedFloor: now };
+    queryClient.setQueryData(markerKey, marker);
+    const row = operation("untracked", state === "pending" || state === "pending retained" ? "pending" : "confirmed");
+    if (state === "block-less" || state === "block-less retained") row.settledBlockNumber = undefined;
+    if (state === "invalid block") row.settledBlockNumber = "0105";
+    const retained = state === "pending retained" || state === "block-less retained";
+    reconcile(queryClient, payload(retained ? [] : [row], {
+      exhaustive: ["truncated", "partial", "unavailable retained"].includes(state) ? null : exhaustive,
+      truncated: state === "truncated", retainedSavingsDepositsUnavailable: state === "unavailable retained",
+      ...(retained ? { retainedSavingsDeposits: [row] } : {}),
+    }), now, state === "missing generation" ? undefined : 1);
+    expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toBe(marker);
+  });
+
+  test("a read started before the next eviction cannot clear overflow", async () => {
+    const queryClient = client();
+    for (let index = 0; index < 17; index += 1) await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: `action-${index}`, serverConfirmedAt: new Date(now).toISOString(), now });
+    const generation = afterAction.balanceBoundaryGeneration(queryClient, ownerKey);
+    await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-17", serverConfirmedAt: new Date(now).toISOString(), now: now + 1 });
+    expect(afterAction.balanceBoundaryGeneration(queryClient, ownerKey)).toBe(2);
+    reconcile(queryClient, payload([operation("untracked")], { exhaustive }), now, generation);
+    const marker = readMarker(queryClient, markerKey);
+    expect(marker.dispatchedOverflow).toBe(true);
+    expect(marker.dispatchedOverflowGeneration).toBe(2);
+    expect(marker.dispatchedOverflowAt).toBe(now + 1);
+  });
+
+  test("recent-actions captures the generation before a fetch that evicts another boundary", async () => {
+    const queryClient = client();
+    for (let index = 0; index < 17; index += 1) await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: `action-${index}`, serverConfirmedAt: new Date(now).toISOString(), now });
+    const owner = { subject: "user-1", address: balancesSnapshotFixture.owner.address, chainId: 8453, accountProvider: "cdp-embedded" as const };
+    const options = recentActionsQuery({ owner: ownerKey, session: { user: { subject: owner.subject }, smartAccount: { address: owner.address, chainId: 8453 }, accountProvider: owner.accountProvider },
+      fetchOperations: async () => {
+        await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-17", serverConfirmedAt: new Date(now).toISOString(), now: now + 1 });
+        return { version: 1, truncated: false, actions: [], exhaustive: { owner, since: new Date(exhaustive.since).toISOString() } };
+      } });
+    if (typeof options.queryFn !== "function") throw new Error("Expected enabled query");
+    const read = await options.queryFn({ client: queryClient, queryKey: options.queryKey, signal: new AbortController().signal, meta: options.meta });
+    expect(read.exhaustive).toEqual(exhaustive);
+    expect(readMarker(queryClient, markerKey).dispatchedOverflowGeneration).toBe(2);
+    expect(readMarker(queryClient, markerKey).dispatchedOverflow).toBe(true);
+  });
 
   test("a complete confirmed read prunes tracked dispatches but overflow refuses block-only proof until aged", async () => {
     const queryClient = client();
@@ -721,6 +889,8 @@ describe("balance boundary maintenance", () => {
     const aged = readMarker(queryClient, markerKey);
     expect(aged.dispatchedOverflow).toBeUndefined();
     expect(aged.dispatchedOverflowAt).toBeUndefined();
+    expect(aged.dispatchedOverflowConfirmedFloor).toBeUndefined();
+    expect(aged.dispatchedOverflowGeneration).toBe(1);
     expect(aged.settledBlock).toBe("106");
     expect(aged.at).toBe(marker.at);
     expect(aged.fresh).toEqual(marker.fresh);
@@ -891,8 +1061,8 @@ describe("balance boundary maintenance", () => {
 describe("restored balance action marker contract", () => {
   const entry = { ownerKey, queryKey: ownerQueryKey(ownerKey, "balances-action") };
 
-  test("restores new ordered settlement identities and dispatch/overflow times, and converts a legacy identity", () => {
-    const marker = { at: now, fresh: {}, settledActionIds: ["action-a", "action-b"], dispatchedActionIds: ["action-c"], dispatchedAt: { "action-c": now }, dispatchedOverflow: true, dispatchedOverflowAt: now };
+  test("restores new ordered settlement identities and dispatch/overflow times and generation, and converts a legacy identity", () => {
+    const marker = { at: now, fresh: {}, settledActionIds: ["action-a", "action-b"], dispatchedActionIds: ["action-c"], dispatchedAt: { "action-c": now }, dispatchedConfirmedAt: { "action-c": now - 10 }, dispatchedOverflow: true, dispatchedOverflowAt: now, dispatchedOverflowConfirmedFloor: now - 20, dispatchedOverflowGeneration: 2 };
     expect(trustRestoredBalanceActionMarker(marker, entry)).toEqual({ data: marker });
     expect(trustRestoredBalanceActionMarker({ at: now, fresh: {}, settledActionId: "action-a" }, entry)).toEqual({ data: { at: now, fresh: {}, settledActionIds: ["action-a"] } });
   });
@@ -904,8 +1074,30 @@ describe("restored balance action marker contract", () => {
     { dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": Infinity } }, { dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": "1" } },
     { dispatchedOverflowAt: now }, { dispatchedOverflow: true, dispatchedOverflowAt: -1 }, { dispatchedOverflow: true, dispatchedOverflowAt: Number.NaN },
     { dispatchedOverflow: true, dispatchedOverflowAt: "1" },
+    { dispatchedConfirmedAt: [] }, { dispatchedConfirmedAt: { missing: now } },
+    { dispatchedActionIds: ["action-a"], dispatchedConfirmedAt: { "action-a": -1 } },
+    { dispatchedActionIds: ["action-a"], dispatchedConfirmedAt: { "action-a": Infinity } },
+    { dispatchedActionIds: ["action-a"], dispatchedConfirmedAt: { "action-a": Number.NaN } },
+    { dispatchedActionIds: ["action-a"], dispatchedConfirmedAt: { "action-a": "1" } },
+    { dispatchedOverflowConfirmedFloor: 0 }, { dispatchedOverflow: true, dispatchedOverflowConfirmedFloor: -1 },
+    { dispatchedOverflow: true, dispatchedOverflowConfirmedFloor: Infinity }, { dispatchedOverflow: true, dispatchedOverflowConfirmedFloor: Number.NaN },
+    { dispatchedOverflow: true, dispatchedOverflowConfirmedFloor: "1" },
+    { dispatchedOverflow: true, dispatchedOverflowGeneration: -1 },
+    { dispatchedOverflow: true, dispatchedOverflowGeneration: 1.5 }, { dispatchedOverflow: true, dispatchedOverflowGeneration: Number.NaN },
+    { dispatchedOverflow: true, dispatchedOverflowGeneration: Infinity }, { dispatchedOverflow: true, dispatchedOverflowGeneration: Number.MAX_SAFE_INTEGER + 1 },
+    { dispatchedOverflow: true, dispatchedOverflowGeneration: "1" },
   ])("rejects malformed new marker fields %j", (fields) => {
     expect(trustRestoredBalanceActionMarker({ at: now, fresh: {}, ...fields }, entry)).toBeNull();
+  });
+
+  test.each([0, 2, Number.MAX_SAFE_INTEGER])("restores generation %s after overflow clears", (generation) => {
+    const marker = { at: now, fresh: {}, dispatchedOverflowGeneration: generation };
+    expect(trustRestoredBalanceActionMarker(marker, entry)).toEqual({ data: marker });
+  });
+
+  test("restores zero-valued confirmation fields conservatively", () => {
+    const marker = { at: now, fresh: {}, dispatchedActionIds: ["action-a"], dispatchedConfirmedAt: { "action-a": 0 }, dispatchedOverflow: true, dispatchedOverflowConfirmedFloor: 0 };
+    expect(trustRestoredBalanceActionMarker(marker, entry)).toEqual({ data: marker });
   });
 
   test("normalizes valid markers with optional settlement proof", () => {

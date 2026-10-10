@@ -101,8 +101,11 @@ export type BalanceActionMarker = {
   fresh: Partial<Record<RegionId, true>>;
   dispatchedActionIds?: string[];
   dispatchedAt?: Record<string, number>;
+  dispatchedConfirmedAt?: Record<string, number>;
   dispatchedOverflow?: true;
   dispatchedOverflowAt?: number;
+  dispatchedOverflowConfirmedFloor?: number;
+  dispatchedOverflowGeneration?: number;
   settledBlock?: string;
   settledActionIds?: string[];
 };
@@ -141,6 +144,9 @@ export function freshRegionMarker(
   if (!current || current.at !== observed.at || current.settledBlock !== observed.settledBlock ||
     currentBoundaries.length !== observedBoundaries.length || !currentBoundaries.every((id) => observedBoundaries.includes(id)) ||
     current.dispatchedOverflow !== observed.dispatchedOverflow ||
+    current.dispatchedOverflowGeneration !== observed.dispatchedOverflowGeneration ||
+    current.dispatchedOverflowConfirmedFloor !== observed.dispatchedOverflowConfirmedFloor ||
+    !currentBoundaries.every((id) => current.dispatchedConfirmedAt?.[id] === observed.dispatchedConfirmedAt?.[id]) ||
     (current.settledActionIds ?? []).length !== (observed.settledActionIds ?? []).length ||
     !(current.settledActionIds ?? []).every((id, index) => id === observed.settledActionIds?.[index]) ||
     current.fresh[region] === true || !snapshotProvesFreshness(snapshot, current)) return undefined;
@@ -155,25 +161,43 @@ function appendActionId(ids: string[] | undefined, actionId: string): string[] {
   return [...(ids ?? []).filter((id) => id !== actionId), actionId].slice(-16);
 }
 
-function boundaryFields(current: BalanceActionMarker | undefined, ids: string[], actionId?: string, now?: number) {
+function boundaryFields(current: BalanceActionMarker | undefined, ids: string[], actionId?: string, now?: number, serverConfirmedAt?: number) {
   const retained = ids.slice(-16);
   const times = Object.fromEntries(retained.flatMap((id) => {
     const time = id === actionId ? now : current?.dispatchedAt?.[id];
     return time === undefined ? [] : [[id, time]];
   }));
-  const overflowAt = ids.length > 16 ? now : current?.dispatchedOverflow === true ? current.dispatchedOverflowAt ?? current.at : undefined;
+  const confirmedAt = (id: string) => id === actionId && serverConfirmedAt !== undefined ? serverConfirmedAt : current?.dispatchedConfirmedAt?.[id];
+  const confirmationTimes = Object.fromEntries(retained.flatMap((id) => {
+    const time = confirmedAt(id);
+    return time === undefined ? [] : [[id, time]];
+  }));
+  const evicted = ids.slice(0, Math.max(0, ids.length - 16));
+  const overflowAt = evicted.length ? now : current?.dispatchedOverflow === true ? current.dispatchedOverflowAt ?? current.at : undefined;
+  const overflowConfirmedFloor = evicted.length ? Math.min(
+    current?.dispatchedOverflow === true ? current.dispatchedOverflowConfirmedFloor ?? 0 : Infinity,
+    ...evicted.map((id) => confirmedAt(id) ?? 0),
+  ) : current?.dispatchedOverflowConfirmedFloor ?? 0;
+  const generation = evicted.length ? (current?.dispatchedOverflowGeneration ?? 0) + 1 : current?.dispatchedOverflowGeneration;
   return {
     ...(retained.length ? { dispatchedActionIds: retained } : {}),
     ...(Object.keys(times).length ? { dispatchedAt: times } : {}),
-    ...(overflowAt !== undefined ? { dispatchedOverflow: true as const, dispatchedOverflowAt: overflowAt } : {}),
+    ...(Object.keys(confirmationTimes).length ? { dispatchedConfirmedAt: confirmationTimes } : {}),
+    ...(generation !== undefined ? { dispatchedOverflowGeneration: generation } : {}),
+    ...(overflowAt !== undefined ? {
+      dispatchedOverflow: true as const,
+      dispatchedOverflowAt: overflowAt,
+      dispatchedOverflowConfirmedFloor: overflowConfirmedFloor,
+    } : {}),
   };
 }
 
-export async function invalidateAfterAction({ queryClient, dataOwnerKey, actionId, serverAt, reopen = false, now = Date.now() }: {
+export async function invalidateAfterAction({ queryClient, dataOwnerKey, actionId, serverAt, serverConfirmedAt, reopen = false, now = Date.now() }: {
   queryClient: QueryClient;
   dataOwnerKey: string;
   actionId: string;
   serverAt?: string;
+  serverConfirmedAt?: string;
   reopen?: boolean;
   now?: number;
 }): Promise<void> {
@@ -182,7 +206,8 @@ export async function invalidateAfterAction({ queryClient, dataOwnerKey, actionI
     const ids = [...(current?.dispatchedActionIds ?? []).filter((id) => id !== actionId), actionId];
     const settledActionIds = (current?.settledActionIds ?? []).filter((id) => !reopen || id !== actionId);
     const at = Math.max(current?.at ?? 0, newestBalancesSource(queryClient, dataOwnerKey) + 1, Date.parse(serverAt ?? "") || 0);
-    writeBalanceMarker(queryClient, dataOwnerKey, { at, fresh: {}, ...boundaryFields(current, ids, actionId, now),
+    const confirmedAt = Date.parse(serverConfirmedAt ?? "");
+    writeBalanceMarker(queryClient, dataOwnerKey, { at, fresh: {}, ...boundaryFields(current, ids, actionId, now, Number.isFinite(confirmedAt) && confirmedAt >= 0 ? confirmedAt : undefined),
       ...(current?.settledBlock !== undefined ? { settledBlock: current.settledBlock } : {}),
       ...(settledActionIds.length ? { settledActionIds } : {}) });
   }
@@ -225,10 +250,15 @@ export function requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey, ac
   void queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, "balances") });
 }
 
-export function reconcileBalanceBoundaries({ queryClient, dataOwnerKey, payload, now = Date.now() }: {
+export function balanceBoundaryGeneration(queryClient: Pick<QueryClient, "getQueryData">, dataOwnerKey: string): number {
+  return queryClient.getQueryData<BalanceActionMarker>(ownerQueryKey(dataOwnerKey, "balances-action"))?.dispatchedOverflowGeneration ?? 0;
+}
+
+export function reconcileBalanceBoundaries({ queryClient, dataOwnerKey, payload, readStartGeneration, now = Date.now() }: {
   queryClient: QueryClient;
   dataOwnerKey: string;
   payload: RecentActionsPayload;
+  readStartGeneration?: number;
   now?: number;
 }): void {
   const current = queryClient.getQueryData<BalanceActionMarker>(ownerQueryKey(dataOwnerKey, "balances-action"));
@@ -257,14 +287,27 @@ export function reconcileBalanceBoundaries({ queryClient, dataOwnerKey, payload,
     overflow = false;
     changed = true;
   }
-  if (!changed) return;
   let block = current.settledBlock;
+  let exhaustiveRaisedBlock = false;
+  if (current.dispatchedOverflow === true && payload.exhaustive !== null && readStartGeneration !== undefined &&
+    (current.dispatchedOverflowConfirmedFloor ?? 0) > 0 &&
+    (current.dispatchedOverflowConfirmedFloor ?? 0) >= payload.exhaustive.since &&
+    (current.dispatchedOverflowGeneration ?? 0) === readStartGeneration &&
+    rows.every((row) => row.status === "confirmed" && parseBlockNumber(row.settledBlockNumber) !== null)) {
+    overflow = false;
+    changed = true;
+    for (const row of rows) block = highestBlockNumber(block, row.settledBlockNumber);
+    const previousBlock = parseBlockNumber(current.settledBlock);
+    const nextBlock = parseBlockNumber(block);
+    exhaustiveRaisedBlock = nextBlock !== null && (previousBlock === null || nextBlock > previousBlock);
+  }
+  if (!changed) return;
   let at = current.at;
   for (const row of proofs) {
     block = highestBlockNumber(block, row.settledBlockNumber);
     at = Math.max(at, Date.parse(row.settledAt ?? row.submittedAt ?? "") || 0);
   }
-  const requalified = proofs.length > 0;
+  const requalified = proofs.length > 0 || exhaustiveRaisedBlock;
   if (requalified) at = Math.max(at, newestBalancesSource(queryClient, dataOwnerKey) + 1);
   writeBalanceMarker(queryClient, dataOwnerKey, {
     at, fresh: requalified ? {} : current.fresh,
@@ -446,6 +489,7 @@ export async function applyActionHandleEffects(input: {
     accountProvider: owner.accountProvider ?? undefined,
   }) === input.dataOwnerKey;
   const serverAt = response?.action.id === actionId && ownerMatches ? response.action.submittedAt : undefined;
+  const serverConfirmedAt = response?.action.id === actionId && ownerMatches ? response.action.confirmedAt : undefined;
   if (typeof body.transactionHash === "string") {
     const settledBlock = response?.action.id === actionId && ownerMatches ? response.action.settledBlockNumber : undefined;
     if (typeof settledBlock === "string") {
@@ -453,7 +497,7 @@ export async function applyActionHandleEffects(input: {
     }
     void input.startBalanceFreshness(actionId);
     await Promise.all([
-      invalidateAfterAction({ queryClient: input.queryClient, dataOwnerKey: input.dataOwnerKey, actionId, serverAt }),
+      invalidateAfterAction({ queryClient: input.queryClient, dataOwnerKey: input.dataOwnerKey, actionId, serverAt, serverConfirmedAt }),
       invalidateNetworkFeePolicy(input.queryClient),
     ]);
     return;

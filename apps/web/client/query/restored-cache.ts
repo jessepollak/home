@@ -110,9 +110,16 @@ export function trustRestoredBalanceActionMarker(data: unknown, entry: RestoredQ
     (data.dispatchedOverflow !== undefined && data.dispatchedOverflow !== true) ||
     (data.dispatchedOverflowAt !== undefined && (data.dispatchedOverflow !== true || typeof data.dispatchedOverflowAt !== "number" ||
       !Number.isFinite(data.dispatchedOverflowAt) || data.dispatchedOverflowAt < 0)) ||
+    (data.dispatchedOverflowConfirmedFloor !== undefined && (data.dispatchedOverflow !== true || typeof data.dispatchedOverflowConfirmedFloor !== "number" ||
+      !Number.isFinite(data.dispatchedOverflowConfirmedFloor) || data.dispatchedOverflowConfirmedFloor < 0)) ||
+    (data.dispatchedOverflowGeneration !== undefined && (typeof data.dispatchedOverflowGeneration !== "number" ||
+      !Number.isSafeInteger(data.dispatchedOverflowGeneration) || data.dispatchedOverflowGeneration < 0)) ||
     (data.dispatchedActionIds !== undefined && (!Array.isArray(data.dispatchedActionIds) || data.dispatchedActionIds.length > 16 ||
       !data.dispatchedActionIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 64))) ||
     (data.dispatchedAt !== undefined && (!isRecord(data.dispatchedAt) || !Object.entries(data.dispatchedAt).every(([id, time]) =>
+      Array.isArray(data.dispatchedActionIds) && data.dispatchedActionIds.includes(id) &&
+      typeof time === "number" && Number.isFinite(time) && time >= 0))) ||
+    (data.dispatchedConfirmedAt !== undefined && (!isRecord(data.dispatchedConfirmedAt) || !Object.entries(data.dispatchedConfirmedAt).every(([id, time]) =>
       Array.isArray(data.dispatchedActionIds) && data.dispatchedActionIds.includes(id) &&
       typeof time === "number" && Number.isFinite(time) && time >= 0)))) return null;
   const dispatchedActionIds = [...new Set(data.dispatchedActionIds ?? [])];
@@ -121,8 +128,11 @@ export function trustRestoredBalanceActionMarker(data: unknown, entry: RestoredQ
     ...(settledActionIds.length ? { settledActionIds } : {}),
     ...(dispatchedActionIds.length ? { dispatchedActionIds } : {}),
     ...(data.dispatchedAt !== undefined ? { dispatchedAt: { ...data.dispatchedAt } } : {}),
+    ...(data.dispatchedConfirmedAt !== undefined ? { dispatchedConfirmedAt: { ...data.dispatchedConfirmedAt } } : {}),
     ...(data.dispatchedOverflow === true ? { dispatchedOverflow: true } : {}),
-    ...(data.dispatchedOverflowAt !== undefined ? { dispatchedOverflowAt: data.dispatchedOverflowAt } : {}) } };
+    ...(data.dispatchedOverflowConfirmedFloor !== undefined ? { dispatchedOverflowConfirmedFloor: data.dispatchedOverflowConfirmedFloor } : {}),
+    ...(data.dispatchedOverflowAt !== undefined ? { dispatchedOverflowAt: data.dispatchedOverflowAt } : {}),
+    ...(data.dispatchedOverflowGeneration !== undefined ? { dispatchedOverflowGeneration: data.dispatchedOverflowGeneration } : {}) } };
 }
 
 export function trustRestoredBorrowOverview(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {

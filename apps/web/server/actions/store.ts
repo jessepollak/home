@@ -18,7 +18,7 @@ import {
   type MoneyActionOwner,
 } from "@/shared/money-actions/types";
 import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-progress";
-import { RECENT_ACTIONS_LIMIT, RETAINED_SAVINGS_DEPOSITS_LIMIT } from "@/shared/actions/contracts/list";
+import { RECENT_ACTIONS_LIMIT, RECENT_ACTIONS_WINDOW_MS, RETAINED_SAVINGS_DEPOSITS_LIMIT } from "@/shared/actions/contracts/list";
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 import type { TradeSigningRequest } from "@/shared/trading/contract";
@@ -561,6 +561,10 @@ export class ActionsStore {
   }
 
   async list(owner: MoneyActionOwner): Promise<ActionRow[]> {
+    return (await this.listRecent(owner)).rows;
+  }
+
+  async listRecent(owner: MoneyActionOwner, cutoff = new Date(Date.now() - RECENT_ACTIONS_WINDOW_MS)): Promise<{ rows: ActionRow[]; capped: boolean; skipped: boolean; since: Date }> {
     const key = actionOwnerKey(owner);
     await this.sql.query(
       `DELETE FROM actions WHERE owner_key = $1 AND confirmed_at IS NULL AND created_at < now() - interval '1 hour'`,
@@ -572,7 +576,7 @@ export class ActionsStore {
          WHERE owner_key = $1 AND confirmed_at IS NOT NULL
            AND (declined_reported_at IS NULL OR provider_handle IS NOT NULL OR transaction_hash IS NOT NULL OR outcome IS NOT NULL)
            AND (
-           confirmed_at >= now() - interval '24 hours' OR
+           confirmed_at >= $2::timestamptz OR
            (kind IN ('cash-out', 'cash-out-withdraw') AND confirmed_at >= now() - interval '30 days') OR
            (kind = 'cash-out' AND (
              EXISTS (SELECT 1 FROM cashout_orders WHERE action_id = actions.id AND owner_key = $1 AND settled_at IS NULL) OR
@@ -593,21 +597,26 @@ export class ActionsStore {
                AND LOWER(deposit_id) = LOWER(actions.summary->'metadata'->>'depositId')))) DESC NULLS LAST,
            confirmed_at DESC LIMIT ${RECENT_ACTIONS_LIMIT}
        ) ranked ORDER BY confirmed_at DESC`,
-      [key],
+      [key, cutoff],
       { timeoutMs: 5_000 },
     );
-    return result.rows.flatMap((row) => {
+    const rows = result.rows.flatMap((row) => {
       const normalized = normalizeActionRowOrNull(row);
       return normalized ? [normalized] : [];
     });
+    return { rows, capped: result.rows.length >= RECENT_ACTIONS_LIMIT, skipped: rows.length !== result.rows.length, since: cutoff };
   }
 
-  async listRetainedSavingsDeposits(owner: MoneyActionOwner): Promise<ActionRow[]> {
+  async listRetainedSavingsDeposits(owner: MoneyActionOwner, cutoff?: Date): Promise<ActionRow[]> {
+    return (await this.listRetainedSavingsDepositsCoverage(owner, cutoff)).rows;
+  }
+
+  async listRetainedSavingsDepositsCoverage(owner: MoneyActionOwner, cutoff = new Date(Date.now() - RECENT_ACTIONS_WINDOW_MS)): Promise<{ rows: ActionRow[]; capped: boolean; skipped: boolean }> {
     const result = await this.sql.query<RawActionRow>(
       `SELECT * FROM (
          (SELECT * FROM actions
           WHERE owner_key = $1 AND kind = 'savings-deposit' AND confirmed_at IS NOT NULL
-            AND confirmed_at < now() - interval '24 hours'
+            AND confirmed_at < $2::timestamptz
             AND confirmed_at >= now() - interval '30 days'
             AND (outcome IS NULL OR outcome_recorded_at >= now() - interval '24 hours')
             AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL)
@@ -615,19 +624,20 @@ export class ActionsStore {
          UNION ALL
          (SELECT * FROM actions
           WHERE owner_key = $1 AND kind = 'savings-deposit' AND confirmed_at IS NOT NULL
-            AND confirmed_at >= now() - interval '24 hours'
+            AND confirmed_at >= $2::timestamptz
             AND confirmed_at < now() - interval '23 hours'
             AND (outcome IS NULL OR outcome_recorded_at >= now() - interval '24 hours')
             AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL)
           ORDER BY (outcome IS NULL) DESC, confirmed_at DESC LIMIT ${RETAINED_SAVINGS_DEPOSITS_LIMIT})
-       ) retained ORDER BY (outcome IS NULL) DESC, (confirmed_at < now() - interval '24 hours') DESC, confirmed_at DESC`,
-      [actionOwnerKey(owner)],
+       ) retained ORDER BY (outcome IS NULL) DESC, (confirmed_at < $2::timestamptz) DESC, confirmed_at DESC`,
+      [actionOwnerKey(owner), cutoff],
       { timeoutMs: 5_000 },
     );
-    return result.rows.flatMap((row) => {
+    const rows = result.rows.flatMap((row) => {
       const normalized = normalizeActionRowOrNull(row);
       return normalized ? [normalized] : [];
     });
+    return { rows, capped: result.rows.length >= RETAINED_SAVINGS_DEPOSITS_LIMIT, skipped: rows.length !== result.rows.length };
   }
 
   async dispose(): Promise<void> {

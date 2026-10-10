@@ -37,6 +37,50 @@ function row(address = smartAccountAddress(), status = "confirmed") {
 }
 
 describe("recent Home action activity", () => {
+  const since = "2026-09-11T05:07:00.000Z";
+  test("exhaustive coverage accepts complete same-owner rows before retained deduplication", () => {
+    const retained = { ...row(), kind: "savings-deposit" };
+    const parsed = parseRecentActionsPayload({ version: 1, truncated: false, exhaustive: { owner: row().owner, since },
+      actions: [retained], retainedSavingsDeposits: [retained] }, session);
+    expect(parsed.exhaustive).toEqual({ since: Date.parse(since) });
+    expect(parsed.operations).toHaveLength(1);
+    expect(parsed.retainedSavingsDeposits).toEqual([]);
+    expect(parseRecentActionsPayload({ version: 1, truncated: false, exhaustive: { owner: row().owner, since }, actions: [] }, session).exhaustive).toEqual({ since: Date.parse(since) });
+  });
+
+  type CoverageCase = [string, Record<string, unknown>];
+  const coverageCases: CoverageCase[] = [
+    ["missing statement", { exhaustive: undefined }], ["malformed statement", { exhaustive: true }],
+    ["missing statement owner", { exhaustive: { since } }],
+    ["missing since", { exhaustive: { owner: row().owner } }],
+    ...["invalid", "", null, 123, Infinity].map((since): CoverageCase => ["invalid since", { exhaustive: { owner: row().owner, since } }]),
+    ...[
+      { subject: "other" }, { address: "0x3333333333333333333333333333333333333333" },
+      { chainId: 1 }, { accountProvider: "base-account" },
+    ].map((owner): CoverageCase => ["mismatched statement owner", { exhaustive: { owner: { ...row().owner, ...owner }, since } }]),
+    ["wrong version", { version: 2 }], ["missing version", { version: undefined }],
+    ["truncated", { truncated: true }], ["missing truncation", { truncated: undefined }],
+    ["unavailable retained", { retainedSavingsDepositsUnavailable: true }],
+    ["malformed action", { actions: [row(), null] }],
+    ["incomplete action", { actions: [{ ...row(), summary: null }] }],
+    ["foreign action", { actions: [row("0x3333333333333333333333333333333333333333")] }],
+    ["foreign retained", { retainedSavingsDeposits: [{ ...row("0x3333333333333333333333333333333333333333"), kind: "savings-deposit" }] }],
+    ["wrong retained kind", { retainedSavingsDeposits: [row()] }],
+    ["malformed retained", { retainedSavingsDeposits: [null] }],
+    ["incomplete retained duplicate", { actions: [{ ...row(), kind: "savings-deposit" }],
+      retainedSavingsDeposits: [{ ...row(), kind: "savings-deposit", summary: null }] }],
+  ];
+  test.each(coverageCases)("rejects exhaustive coverage for %s", (_label, change) => {
+    expect(parseRecentActionsPayload({ version: 1, truncated: false, actions: [], exhaustive: { owner: row().owner, since },
+      ...change }, session).exhaustive).toBeNull();
+  });
+
+  test("a session without an account cannot accept exhaustive coverage, including early returns", () => {
+    const unverified = { ...session, smartAccount: null };
+    expect(parseRecentActionsPayload(null, unverified).exhaustive).toBeNull();
+    expect(parseRecentActionsPayload({ version: 1, truncated: false, actions: [], exhaustive: { owner: row().owner, since } }, unverified).exhaustive).toBeNull();
+  });
+
   test("parses retained savings separately without adding them to Activity", () => {
     const retained = { ...row(undefined, "unknown"), kind: "savings-deposit" };
     const payload = { actions: [], retainedSavingsDeposits: [retained] };
@@ -88,7 +132,7 @@ describe("recent Home action activity", () => {
   test("omitted or undefined retained fields default empty and only a true unavailable flag is accepted", () => {
     for (const payload of [{ version: 1, truncated: false, actions: [] }, { version: 1, truncated: false, actions: [], retainedSavingsDeposits: undefined }]) {
       expect(parseRecentActionsPayload(payload, session)).toEqual({
-        operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [], truncated: false, incomplete: false,
+        operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [], truncated: false, incomplete: false, exhaustive: null,
       });
     }
     expect(parseRecentActionsPayload({ actions: [], retainedSavingsDepositsUnavailable: true }, session).retainedSavingsDepositsUnavailable).toBe(true);
@@ -96,7 +140,7 @@ describe("recent Home action activity", () => {
   });
   test.each([null, {}, "invalid"])("a present non-array retained field %j holds savings unresolved", (field) => {
     expect(parseRecentActionsPayload({ version: 1, truncated: false, actions: [], retainedSavingsDeposits: field }, session)).toEqual({
-      operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: true, unparsedSavingsDeposits: [], truncated: false, incomplete: false,
+      operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: true, unparsedSavingsDeposits: [], truncated: false, incomplete: false, exhaustive: null,
     });
   });
   test("retains a card allowance with zero amount entries but rejects mismatched or malformed metadata", () => {
