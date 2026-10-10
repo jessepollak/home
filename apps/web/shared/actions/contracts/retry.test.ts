@@ -13,9 +13,19 @@ describe("retry action contract", () => {
     }
   });
 
-  test("accepts a response with an action id", () => {
-    expect(parseRetryActionResponse({ version: 1, action: { id: "action-id" } })?.action.id).toBe("action-id");
-    for (const value of [{ version: 2, action: { id: "action-id" } }, { version: 1, action: {} },
-      { version: 1, action: { id: 1 } }, null, []]) expect(parseRetryActionResponse(value)).toBeNull();
+  test("accepts a complete presented action and rejects malformed summaries", () => {
+    const action = {
+      id: "action-id", provider: "cdp-embedded", kind: "send", status: "pending",
+      summary: { title: "Send USDC", amounts: [], warnings: [], expiresAt: "2026-10-01T12:03:00.000Z" },
+      createdAt: "2026-10-01T12:00:00.000Z", confirmedAt: "2026-10-01T12:00:00.000Z",
+      owner: { subject: "owner", address: "0x1111111111111111111111111111111111111111", chainId: 8453, accountProvider: "cdp-embedded" },
+    };
+    const response = { version: RETRY_ACTION_CONTRACT_VERSION, action };
+    expect(parseRetryActionResponse(response)?.action.id).toBe("action-id");
+    for (const value of [{ version: 2, action }, { version: 1, action: {} },
+      { version: 1, action: { id: 1 } },
+      { ...response, action: { ...action, summary: { ...action.summary, warnings: [1] } } },
+      { ...response, action: { ...action, summary: { ...action.summary, title: undefined } } },
+      null, []]) expect(parseRetryActionResponse(value)).toBeNull();
   });
 });

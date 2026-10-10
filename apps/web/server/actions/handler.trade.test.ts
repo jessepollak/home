@@ -711,6 +711,7 @@ describe("trade confirmation", () => {
   });
   test("reload returns the verified trade signing request", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = tradeMetadata(ROUTER, "buy");
     row.summary.signing = { signer: "cdp-embedded", evmAccount: parseAddress(SIGNER.address)!, typedData: typed };
     const handler = createGetActionHandler({
       authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),

@@ -106,6 +106,16 @@ function prepared(active: VerifiedAccountSession): PreparedMoneyAction {
   };
 }
 
+function handleResponse(active: VerifiedAccountSession) {
+  const action = prepared(active);
+  return { version: 1, action: {
+    id: action.id, provider: active.accountProvider, kind: action.kind,
+    summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt },
+    status: "pending", createdAt: action.createdAt, confirmedAt: action.createdAt, submittedAt: action.createdAt,
+    providerHandle: `0x${"ab".repeat(32)}`, owner: action.owner,
+  } };
+}
+
 function sdk(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWalletSdkBoundary {
   return {
     isInitialized: true,
@@ -970,7 +980,7 @@ describe("owner generation fence", () => {
           freshFetches += 1;
           return new Response(null, { status: 500 });
         }
-        if (init?.method === "POST" && path.endsWith("/handle")) return Response.json({});
+        if (init?.method === "POST" && path.endsWith("/handle")) return Response.json(handleResponse(activeSession));
         return Response.json({});
       };
       const owner = (ownerSdk: AccountWalletSdkBoundary) => (
@@ -1062,7 +1072,7 @@ describe("owner generation fence", () => {
         confirmPosts += 1;
         return Response.json({ calls: prepared(activeSession).calls });
       }
-      if (init?.method === "POST" && path.endsWith("/handle")) return Response.json({});
+      if (init?.method === "POST" && path.endsWith("/handle")) return Response.json(handleResponse(activeSession));
       return Response.json({});
     };
     const activeSdk = (ownerKey: string) => sdk({

@@ -142,6 +142,15 @@ export async function installApiFixtures(
   let fundingStatusReads = 0;
   const activityOrders = activityOrdersFixture();
   const currentAction = preparedSendFixtureAction();
+  const presentedAction = () => ({
+    id: currentAction.id, provider: "cdp-embedded", kind: currentAction.kind,
+    summary: { title: currentAction.title, amounts: currentAction.amounts, warnings: currentAction.warnings, expiresAt: currentAction.expiresAt },
+    status: status === "confirmed" ? "confirmed" : "pending", createdAt: currentAction.createdAt, confirmedAt: currentAction.createdAt,
+    providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined,
+    submittedAt: handleRecorded ? CREATED_AT : undefined,
+    transactionHash: status === "confirmed" ? TRANSACTION_HASH : undefined,
+    owner: currentAction.owner,
+  });
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -192,23 +201,16 @@ export async function installApiFixtures(
     }
     if (path === `/api/actions/${ACTION_ID}/handle`) {
       const body = request.postDataJSON() as { transactionHash?: string };
+      handleRecorded = true;
       if (body.transactionHash) {
         status = "confirmed";
-        return json(route, {
-          action: {
-            id: ACTION_ID, status, providerHandle: USER_OPERATION_HASH,
-            transactionHash: body.transactionHash,
-          },
-        });
+        return json(route, { version: 1, action: { ...presentedAction(), transactionHash: body.transactionHash } });
       }
-      handleRecorded = true;
       if (failHandleResponseOnce) {
         failHandleResponseOnce = false;
         return route.abort("failed");
       }
-      return json(route, {
-        action: { id: ACTION_ID, status: "pending", providerHandle: USER_OPERATION_HASH },
-      });
+      return json(route, { version: 1, action: presentedAction() });
     }
     if (path === `/api/actions/${ACTION_ID}`) {
       return json(route, status === "unconfirmed"
@@ -225,33 +227,10 @@ export async function installApiFixtures(
             calls: currentAction.calls,
             expiresAt: EXPIRES_AT,
           }
-        : {
-            action: {
-              id: ACTION_ID,
-              status: "pending",
-              providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined,
-            },
-          });
+        : presentedAction());
     }
     if (path === "/api/actions") {
-      const actions = status === "unconfirmed" ? actionsBody.actions : [{
-        id: ACTION_ID,
-        provider: "cdp-embedded",
-        kind: "send",
-        summary: {
-          title: currentAction.title,
-          amounts: currentAction.amounts,
-          warnings: currentAction.warnings,
-          expiresAt: EXPIRES_AT,
-        },
-        status,
-        createdAt: CREATED_AT,
-        confirmedAt: CREATED_AT,
-        providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined,
-        submittedAt: handleRecorded ? CREATED_AT : undefined,
-        transactionHash: status === "confirmed" ? TRANSACTION_HASH : undefined,
-        owner: currentAction.owner,
-      }];
+      const actions = status === "unconfirmed" ? actionsBody.actions : [presentedAction()];
       return json(route, { ...actionsBody, actions });
     }
     if (path === "/api/funding/providers") {

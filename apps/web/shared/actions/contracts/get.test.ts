@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { parsePendingActionResponse } from "./get";
+import { parseGetActionPendingResponse, parsePendingActionResponse } from "./get";
 import { parsePreparedAction } from "./prepare";
 import { ACTION_KINDS, type ActionKind } from "@/shared/money-actions/types";
 
@@ -117,6 +117,14 @@ function pendingFixture(kind: ActionKind) {
 }
 
 describe("pending action response parser", () => {
+  test("server pending validation rejects malformed envelope fields", () => {
+    const pending = pendingSavings("deposit");
+    for (const value of [null, [], { ...pending, id: 1 }, { ...pending, kind: "invalid" },
+      { ...pending, expiresAt: "invalid" }, { ...pending, signing: null }, { ...pending, calls: [] },
+      { ...pending, summary: { ...pending.summary, warnings: [1] } }]) {
+      expect(parseGetActionPendingResponse(value, ADDRESS)).toBeNull();
+    }
+  });
   test.each(invalidCalls)("rejects %s in any batch position", (_reason, invalidCall) => {
     expect(parsePendingActionResponse({ ...pendingSavings("deposit"), calls: [call, invalidCall] }, ID, session)).toBeNull();
   });
@@ -143,7 +151,9 @@ describe("pending action response parser", () => {
       owner: { subject: session.user.subject, address: ADDRESS, chainId: 8453, accountProvider: session.accountProvider },
     })), session);
     expect(prepared).not.toBeNull();
-    const resumed = parsePendingActionResponse(JSON.parse(JSON.stringify({ ...pending, calls: prepared?.calls })), ID, session);
+    const wire: unknown = JSON.parse(JSON.stringify({ ...pending, calls: prepared?.calls }));
+    expect(parseGetActionPendingResponse(wire, ADDRESS)).not.toBeNull();
+    const resumed = parsePendingActionResponse(wire, ID, session);
     expect(resumed).not.toBeNull();
     expect(resumed?.calls).toEqual(prepared?.calls);
     expect(resumed?.kind).toBe(kind);

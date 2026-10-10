@@ -431,6 +431,11 @@ export function cashoutWithdrawalInFlight(rows: readonly CashoutReceiptRow[], ow
     row.summary.metadata.depositId.toLowerCase() === depositId.toLowerCase());
 }
 
+export function unlinkedWithdrawalInFlight(rows: readonly ActionRow[], owner: MoneyActionOwner, at: Date): boolean {
+  const ownerKey = actionOwnerKey(owner);
+  return rows.some((row) => row.kind === "cash-out-withdraw" && row.owner_key === ownerKey && !row.outcome && dispatchUnresolved(row, at));
+}
+
 function unresolvedCashoutWithdrawal(row: ActionRow, ownerKey: string, at: Date): boolean {
   return row.kind === "cash-out-withdraw" && row.owner_key === ownerKey && !row.outcome &&
     row.summary.metadata?.product === "cashout" && row.summary.metadata.operation === "withdraw" && dispatchUnresolved(row, at);

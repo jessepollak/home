@@ -132,6 +132,7 @@ export const SERVER_EVENT_KINDS = [
   "action-confirm",
   "action-handle",
   "action-decline",
+  "action-retry",
   "action-outcome",
   "action-reconcile",
   "borrow-overview",
