@@ -76,7 +76,7 @@ export function HomeOverview({
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
       <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-(--home-money-sticky-top)" : ""}`}>
         <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} onRetryBalances={retryBalances} />
-        {actions ? <div className="grid grid-cols-2 gap-2" aria-label="Money actions">{actions}</div> : null}
+        {actions ? <div className="@container" role="group" aria-label="Money actions"><div className="grid grid-cols-1 gap-2 @xs:grid-flow-col @xs:auto-cols-fr @xs:grid-cols-none">{actions}</div></div> : null}
         <HomeMoneySummary
           summary={assetBalances?.summary ?? null}
           isLoading={isLoading}

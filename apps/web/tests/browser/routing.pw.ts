@@ -334,16 +334,17 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await expect(sendDialog).toHaveCount(0);
     await expect(send).toBeFocused();
 
-    await send.click();
-    await expect(sendDialog).toBeVisible();
-    await sendDialog.getByRole("textbox", { name: "Amount" }).fill("1");
-    await sendDialog.getByRole("button", { name: "Continue" }).click();
-    await sendDialog.getByRole("button", { name: /Send to Cash App/ }).click();
+    const cashOut = page.getByRole("button", { name: "Cash out", exact: true });
+    await cashOut.click();
+    const cashOutAmount = page.getByRole("dialog", { name: "Cash out", exact: true });
+    await cashOutAmount.getByRole("textbox", { name: "Amount" }).fill("1");
+    await cashOutAmount.getByRole("button", { name: "Continue" }).click();
+    await cashOutAmount.getByRole("button", { name: /Cash App/ }).click();
     const cashOutDialog = page.getByRole("dialog", { name: "Cash out with Peer" });
     await expect(cashOutDialog).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(cashOutDialog).toHaveCount(0);
-    await expect(send).toBeFocused();
+    await expect(cashOut).toBeFocused();
 
     await page.goto("/cash/savings");
     const savingsRow = page.getByRole("region", { name: "Your savings" }).getByRole("button", { name: /^Gauntlet USDC Prime/ });

@@ -3,6 +3,9 @@ import { expect, userEvent, within } from "storybook/test";
 import type { PreparedMoneyAction, OperationResult } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { encodeUsdcTransfer } from "@/shared/transfers/transfer-helpers";
+import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
+import { cashoutFixturePrepared, cashoutFixtureProviders } from "@/tests/browser/feature-map/cashout-fixture";
 import { SendDialog } from "./send-dialog";
 
 const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
@@ -20,9 +23,9 @@ const meta = {
   component: SendDialog,
   parameters: { layout: "fullscreen" },
   args: {
-    open: true, immediate: true, address: action.owner.address, queryOwnerKey: "send-story", resumeActionId: action.id,
+    entry: "send", open: true, immediate: true, address: action.owner.address, queryOwnerKey: "send-story", resumeActionId: action.id,
     prepareMoneyAction: async () => action, resumeMoneyAction: async () => action,
-    fetchAccountResource: async (url: string) => url === "/api/actions" ? { actions: [] } : { version: 1, recipients: [] },
+    fetchAccountResource: async (url: string): Promise<unknown> => url === "/api/actions" ? { actions: [] } : { version: 1, recipients: [] },
     executeMoneyAction: async (): Promise<OperationResult> => ({ id: action.id, status: "submitted" as const }), onClose: () => {},
   },
 } satisfies Meta<typeof SendDialog>;
@@ -108,7 +111,7 @@ const depositAction: PreparedMoneyAction = {
 
 export const DepositReview: Story = {
   args: {
-    queryOwnerKey: "deposit-story", resumeActionId: depositAction.id,
+    entry: "cash-out", queryOwnerKey: "deposit-story", resumeActionId: depositAction.id,
     prepareMoneyAction: async () => depositAction, resumeMoneyAction: async () => depositAction,
   },
   play: async ({ canvasElement }) => {
@@ -123,7 +126,7 @@ export const DepositReview: Story = {
 
 export const WithdrawalPending: Story = {
   args: {
-    queryOwnerKey: "withdraw-story", resumeActionId: withdrawAction.id,
+    entry: "cash-out", queryOwnerKey: "withdraw-story", resumeActionId: withdrawAction.id,
     prepareMoneyAction: async () => withdrawAction, resumeMoneyAction: async () => withdrawAction,
     executeMoneyAction: async (): Promise<OperationResult> => ({ id: withdrawAction.id, status: "submitted" as const }),
   },
@@ -133,5 +136,100 @@ export const WithdrawalPending: Story = {
     await expect(await screen.findByRole("heading", { name: "Returning $2.00 to your account" })).toBeVisible();
     await expect(screen.queryByText(/payout/i)).toBeNull();
     await expect(screen.getByRole("button", { name: "View in Activity" })).toBeVisible();
+  },
+};
+
+const usdc = getTransferAsset("usdc");
+if (!usdc) throw new Error("USDC catalog asset is missing");
+const cashoutEntryArgs = {
+  entry: "cash-out" as const, resumeActionId: null, availableAssets: [{ ...usdc, balanceBaseUnits: "100000000", balanceLabel: "$100.00" }],
+  prepareMoneyAction: async () => cashoutFixturePrepared,
+  fetchAccountResource: async (url: string) => url.startsWith("/api/funding/providers") ? cashoutFixtureProviders
+    : url === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: null } : { version: 1, recipients: [] },
+};
+
+export const CashOutLoading: Story = {
+  args: { ...cashoutEntryArgs, fetchAccountResource: (url: string) => url.startsWith("/api/funding/providers") ? new Promise<unknown>(() => {}) : cashoutEntryArgs.fetchAccountResource(url) },
+  play: async ({ canvasElement }) => {
+    const screen = canvas(canvasElement);
+    await expect(await screen.findByText("Checking cash-out options…")).toBeVisible();
+    await expect(screen.queryByText("Cash out is unavailable right now.")).toBeNull();
+    await expect(screen.queryByRole("textbox", { name: "To" })).toBeNull();
+  },
+};
+
+export const CashOutProviderError: Story = {
+  args: { ...cashoutEntryArgs, fetchAccountResource: async (url: string) => {
+    if (url.startsWith("/api/funding/providers")) throw new Error("Provider unavailable");
+    return cashoutEntryArgs.fetchAccountResource(url);
+  } },
+  play: async ({ canvasElement }) => {
+    const screen = canvas(canvasElement);
+    await expect(await screen.findByText("Cash out is unavailable right now.")).toBeVisible();
+    await expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  },
+};
+
+const unsupportedArgs = {
+  ...cashoutEntryArgs, regionId: "BR" as const,
+  fetchAccountResource: async (url: string) => url.startsWith("/api/funding/providers")
+    ? { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] } : cashoutEntryArgs.fetchAccountResource(url),
+};
+
+export const CashOutUnsupported: Story = {
+  args: unsupportedArgs,
+  play: async ({ canvasElement }) => {
+    const screen = canvas(canvasElement);
+    await expect(await screen.findByText("Cash out to Brazilian real isn't available yet")).toBeVisible();
+    await expect(screen.getByText("You can still send USDC to any wallet.")).toBeVisible();
+    await expect(screen.getByRole("button", { name: "Send USDC" })).toBeVisible();
+  },
+};
+
+export const CashOutUnsupportedWithoutSend: Story = {
+  args: { ...unsupportedArgs, sendOffered: false },
+  play: async ({ canvasElement }) => {
+    const screen = canvas(canvasElement);
+    await expect(await screen.findByText("Cash out to Brazilian real isn't available yet")).toBeVisible();
+    await expect(screen.queryByRole("button", { name: "Send USDC" })).toBeNull();
+    await expect(screen.queryByText("You can still send USDC to any wallet.")).toBeNull();
+  },
+};
+
+async function showCashoutMethods(canvasElement: HTMLElement) {
+  const screen = canvas(canvasElement);
+  await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), "50");
+  await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await expect(await screen.findByRole("button", { name: /Cash App.*Peer/ })).toBeVisible();
+  await expect(screen.getByRole("button", { name: /Venmo.*Peer/ })).toBeVisible();
+  await expect(screen.queryByRole("textbox", { name: "To" })).toBeNull();
+  return screen;
+}
+
+export const CashOutMethods: Story = {
+  args: cashoutEntryArgs,
+  play: async ({ canvasElement }) => { await showCashoutMethods(canvasElement); },
+};
+
+export const CashOutHandle: Story = {
+  args: cashoutEntryArgs,
+  play: async ({ canvasElement }) => {
+    const screen = await showCashoutMethods(canvasElement);
+    await userEvent.click(screen.getByRole("button", { name: /Cash App.*Peer/ }));
+    await expect(await screen.findByRole("textbox", { name: "Cash App cashtag" })).toBeVisible();
+    await expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
+  },
+};
+
+export const CashOutEntryReview: Story = {
+  args: cashoutEntryArgs,
+  play: async ({ canvasElement }) => {
+    const screen = await showCashoutMethods(canvasElement);
+    await userEvent.click(screen.getByRole("button", { name: /Cash App.*Peer/ }));
+    await userEvent.type(await screen.findByRole("textbox", { name: "Cash App cashtag" }), "$fixture-payee");
+    await userEvent.click(screen.getByRole("button", { name: "Review" }));
+    await expect(await screen.findByRole("button", { name: "Cash out $50.00" })).toBeVisible();
+    await expect(screen.getByRole("group", { name: "Payout destination" })).toHaveTextContent("fixture-payee");
+    await expect(screen.queryByRole("textbox", { name: "To" })).toBeNull();
   },
 };

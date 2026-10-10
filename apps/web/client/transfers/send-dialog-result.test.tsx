@@ -17,10 +17,11 @@ const { SendDialog } = await import("./send-dialog");
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
 const ID = "11111111-1111-4111-8111-111111111111";
+const usdcSpend: PreparedMoneyAction["amounts"][number] = { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" };
 const action: PreparedMoneyAction = {
   id: ID, kind: "send", title: "Send USDC", createdAt: "2026-09-12T12:00:00.000Z", expiresAt: "2099-09-12T12:10:00.000Z",
   calls: [{ to: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", data: encodeUsdcTransfer(RECIPIENT, BigInt(1_000_000)), value: "0" }],
-  amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }], warnings: [],
+  amounts: [usdcSpend], warnings: [],
   owner: { subject: "subject-a", address: ACCOUNT, chainId: 8453, accountProvider: "cdp-embedded" },
 };
 const balance = { ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" };
@@ -37,19 +38,53 @@ const parsed = (rows: unknown[]) => parseRecentActionsPayload({ actions: rows },
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
 test("paused send review still loads and explains an offer withdrawn at confirm", async () => {
-  render(<SendDialog open immediate sendOffered={false} address={ACCOUNT} queryOwnerKey="offer-withdrawn" resumeActionId={ID} availableAssets={[balance]}
+  render(<SendDialog entry="send" open immediate sendOffered={false} address={ACCOUNT} queryOwnerKey="offer-withdrawn" resumeActionId={ID} availableAssets={[balance]}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; }}
     onClose={() => {}} />);
   fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
   expect((await page().findByRole("alert")).textContent).toBe("This is no longer offered.");
 });
+test("cash-out entry rejects a resumed send before dispatch", async () => {
+  let invalid = 0;
+  let executed = 0;
+  render(<SendDialog entry="cash-out" open immediate address={ACCOUNT} queryOwnerKey="cashout-invalid-send" resumeActionId={ID} availableAssets={[balance]}
+    prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
+    executeMoneyAction={async () => { executed++; return { id: ID, status: "submitted" }; }}
+    onInvalidResume={() => { invalid++; }} onClose={() => {}} />);
+  await waitFor(() => expect(invalid).toBe(1));
+  expect(page().queryByRole("button", { name: "Send $1.00" })).toBeNull();
+  expect(executed).toBe(0);
+});
+
+test.each([["send", "cash-out"], ["send", "cash-out-withdraw"], ["cash-out", "cash-out"], ["cash-out", "cash-out-withdraw"]] as const)("%s entry canonicalizes a resumed %s review without dispatch", async (entry, kind) => {
+  const metadata = {
+    product: "cashout", providerId: "peer", providerName: "Peer", environment: "sandbox",
+    platform: "cashapp", platformLabel: "Cash App", currency: "USD", approximateFiatAmount: "1",
+    etaSeconds: 60, minConversionRate: "1", intentAmountRange: { min: "1000000", max: "1000000" },
+    estimateAsOf: action.createdAt, escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
+  } as const;
+  const resumed: PreparedMoneyAction = {
+    ...action, kind,
+    amounts: [{ ...usdcSpend, direction: kind === "cash-out" ? "spend" : "receive" }],
+    metadata: kind === "cash-out" ? { ...metadata, operation: "deposit", canonicalHandle: "fixture-payee" } : { ...metadata, operation: "withdraw", depositId: "fixture-deposit" },
+  };
+  const reviews: Array<[string, PreparedMoneyAction["kind"]]> = [];
+  let executed = 0;
+  render(<SendDialog entry={entry} open immediate address={ACCOUNT} queryOwnerKey={`legacy-${entry}-${kind}`} resumeActionId={ID}
+    prepareMoneyAction={async () => resumed} resumeMoneyAction={async () => resumed}
+    executeMoneyAction={async () => { executed++; return { id: ID, status: "submitted" }; }}
+    onReview={(id, reviewedKind) => { reviews.push([id, reviewedKind]); }} onClose={() => {}} />);
+  await waitFor(() => expect(reviews).toEqual([[ID, kind]]));
+  expect(executed).toBe(0);
+});
+
 test("submitted stays in the dialog, ignores a different owner, and adopts the matching confirmed row", async () => {
   const calls: string[] = [];
   let closeCount = 0;
   function Routed() {
     const [actionId, setActionId] = useState<string | null>(ID);
-    return <SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-submitted" resumeActionId={actionId}
+    return <SendDialog entry="send" open immediate address={ACCOUNT} queryOwnerKey="result-submitted" resumeActionId={actionId}
       availableAssets={[balance]} prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
       executeMoneyAction={async () => ({ id: ID, status: "submitted" })}
       fetchAccountResource={async (url) => {
@@ -73,7 +108,7 @@ test("submitted stays in the dialog, ignores a different owner, and adopts the m
 
 test("submitted result becomes success for a matching confirmed row", async () => {
   let closes = 0;
-  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-success" resumeActionId={ID}
+  render(<SendDialog entry="send" open immediate address={ACCOUNT} queryOwnerKey="result-success" resumeActionId={ID}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => ({ id: ID, status: "submitted" })}
     fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [actionRow("confirmed")] } : { version: 1, recipients: [] }}
@@ -88,7 +123,7 @@ test("submitted result becomes success for a matching confirmed row", async () =
 test("repeated confirmation observations do not repeat the submission side effect", async () => {
   let submitted = 0;
   const key = ownerQueryKey(dataOwnerKey({ subject: action.owner.subject, smartAccountAddress: action.owner.address, chainId: action.owner.chainId, accountProvider: action.owner.accountProvider }), "actions");
-  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-repeat" resumeActionId={ID}
+  render(<SendDialog entry="send" open immediate address={ACCOUNT} queryOwnerKey="result-repeat" resumeActionId={ID}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => ({ id: ID, status: "submitted" })}
     fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [actionRow("confirmed")] } : { version: 1, recipients: [] }}
@@ -104,7 +139,7 @@ test("repeated confirmation observations do not repeat the submission side effec
 
 test("matching failed row offers Try again with the previous amount and clears review", async () => {
   let cleared = 0;
-  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-failed" resumeActionId={ID} availableAssets={[balance]}
+  render(<SendDialog entry="send" open immediate address={ACCOUNT} queryOwnerKey="result-failed" resumeActionId={ID} availableAssets={[balance]}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => ({ id: ID, status: "submitted" })}
     fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [actionRow("failed")] } : { version: 1, recipients: [] }}
@@ -123,7 +158,7 @@ test("ambiguous result clears the route and opens Activity after closing, withou
     state: { flow: "send", panel: "home" },
     openPanel: (panel: string) => { events.push(`panel:${panel}`); },
   } as HomeShellRouting;
-  render(<HomeShellRoutingProvider value={routing}><SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-unknown" resumeActionId={ID}
+  render(<HomeShellRoutingProvider value={routing}><SendDialog entry="send" open immediate address={ACCOUNT} queryOwnerKey="result-unknown" resumeActionId={ID}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => { throw new TransferExecutionError("submission-unknown"); }}
     onSubmitted={() => events.push("clear-id")} onClose={() => events.push("close")} /></HomeShellRoutingProvider>);
@@ -140,7 +175,7 @@ test("ambiguous result clears the route and opens Activity after closing, withou
 test("double activation of Send confirm dispatches one execute", async () => {
   let finish!: (value: { id: string; status: "submitted" }) => void;
   const executions: string[] = [];
-  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="double-send" resumeActionId={ID}
+  render(<SendDialog entry="send" open immediate address={ACCOUNT} queryOwnerKey="double-send" resumeActionId={ID}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={(prepared) => {
       executions.push(prepared.id);

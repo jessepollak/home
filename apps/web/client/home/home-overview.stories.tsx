@@ -275,6 +275,7 @@ type HomeOverviewStoryProps = {
   onOpenAccount: () => void;
   interruption?: { kind: "offline" | "interrupted" } | null;
   regionId?: RegionId;
+  actionLabels?: readonly [string, string, string];
 };
 
 function HomeOverviewStory({
@@ -288,6 +289,7 @@ function HomeOverviewStory({
   onOpenAccount,
   interruption = null,
   regionId = "US",
+  actionLabels = ["Add money", "Send", "Cash out"],
 }: HomeOverviewStoryProps) {
   const status = headerStatus({ interruption, coverage: homeBalancesStatus(assetBalances) });
   return (
@@ -323,9 +325,10 @@ function HomeOverviewStory({
             <>
               <Button size="touch">
                 <Plus className="size-4" aria-hidden="true" />
-                Add money
+                {actionLabels[0]}
               </Button>
-              <Button variant="outline" size="touch">Send</Button>
+              <Button variant="outline" size="touch">{actionLabels[1]}</Button>
+              <Button variant="outline" size="touch">{actionLabels[2]}</Button>
             </>
           }
           activity={
@@ -493,6 +496,8 @@ export const KeyboardOrder: Story = {
     await expect(canvas.getByRole("button", { name: /Add money/ })).toHaveFocus();
     await userEvent.tab();
     await expect(canvas.getByRole("button", { name: "Send" })).toHaveFocus();
+    await userEvent.tab();
+    await expect(canvas.getByRole("button", { name: "Cash out" })).toHaveFocus();
     for (const destination of ["Open Cash", "Open Investments", "Open Borrow"]) {
       await userEvent.tab();
       await expect(canvas.getByRole("button", { description: destination })).toHaveFocus();
@@ -1007,4 +1012,40 @@ export const RefreshFailed: Story = {
     await userEvent.click(hero.getByRole("button", { name: "Try again" }));
     await expect(args.onRetry).toHaveBeenCalledOnce();
   },
+};
+
+async function expectThreeActions({ canvasElement, args }: { canvasElement: HTMLElement; args: HomeOverviewStoryProps }) {
+  const actions = within(within(canvasElement).getByRole("group", { name: "Money actions" }));
+  const labels = args.actionLabels ?? ["Add money", "Send", "Cash out"];
+  await expect(actions.getAllByRole("button")).toHaveLength(3);
+  for (const name of labels) await expect(actions.getByRole("button", { name })).toBeVisible();
+  actions.getByRole("button", { name: labels[0] }).focus();
+  for (const name of labels.slice(1)) {
+    await userEvent.tab();
+    await expect(actions.getByRole("button", { name })).toHaveFocus();
+  }
+}
+
+export const ThreeActions320: Story = {
+  decorators: [(Story) => <div style={{ width: 320 }}><Story /></div>],
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: expectThreeActions,
+};
+
+export const ThreeActions390: Story = {
+  decorators: [(Story) => <div style={{ width: 390 }}><Story /></div>],
+  parameters: { viewport: { defaultViewport: "mobile" } },
+  play: expectThreeActions,
+};
+
+export const ThreeActionsRtl: Story = {
+  decorators: [(Story) => <div dir="rtl" style={{ width: 390 }}><Story /></div>],
+  play: expectThreeActions,
+};
+
+export const ThreeActionsLongLabels: Story = {
+  args: { actionLabels: ["Add money to your account", "Send to another wallet", "Cash out to a payment app"] },
+  decorators: [(Story) => <div style={{ width: 320 }}><Story /></div>],
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: expectThreeActions,
 };

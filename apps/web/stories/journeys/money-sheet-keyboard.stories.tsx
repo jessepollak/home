@@ -69,6 +69,7 @@ function SendKeyboardJourney() {
       <Button size="touch" variant="outline" onClick={(event) => { setOpener(event.currentTarget); setOpen(true); }}>Send</Button>
       {Array.from({ length: 24 }, (_, index) => <p key={index} className="text-muted-foreground">Activity row {index + 1}</p>)}
       <SendSheet
+        entry="send"
         open={open}
         opener={opener}
         address={ACCOUNT}

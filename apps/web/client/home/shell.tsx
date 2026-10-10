@@ -386,9 +386,9 @@ function DashboardShellBody({
     cardsEnabled,
     cashContent, investContent, investmentsContent, onHomeDetailsOpenChange: setHomeDetailsOpen, onInvestmentsChromeChange: setInvestmentsChrome, openInvestmentHolding, closeInvestmentHolding, investmentsReturnHolding: location.panel === "investments" ? investmentsReturnHolding : null, openCashSavings,
     onRetryBalances: balanceRowRetry, initialAddMoney: urlIntent.addMoney,
-    returnedFromProvider: urlIntent.returnedFromProvider, initialSendFlow: urlIntent.sendFlow,
+    returnedFromProvider: urlIntent.returnedFromProvider, initialTransferFlow: urlIntent.transferFlow,
     initialSendActionId: urlIntent.actionId,
-  }), [paintedAssetBalances, activitySession, account.fetchActivity, account.fetchOperations, regionId, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution, showSmallBalances, cardsEnabled, cashContent, investContent, investmentsContent, openInvestmentHolding, closeInvestmentHolding, location.panel, investmentsReturnHolding, openCashSavings, balanceRowRetry, urlIntent.addMoney, urlIntent.returnedFromProvider, urlIntent.sendFlow, urlIntent.actionId]);
+  }), [paintedAssetBalances, activitySession, account.fetchActivity, account.fetchOperations, regionId, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution, showSmallBalances, cardsEnabled, cashContent, investContent, investmentsContent, openInvestmentHolding, closeInvestmentHolding, location.panel, investmentsReturnHolding, openCashSavings, balanceRowRetry, urlIntent.addMoney, urlIntent.returnedFromProvider, urlIntent.transferFlow, urlIntent.actionId]);
   const onLeaveSearch = useCallback(() => setUrlSearchOverride(null), []);
   const openAccountSettings = (opener?: HTMLButtonElement) => {
     searchDetailTargetRef.current = null;
@@ -486,7 +486,7 @@ function DashboardShellBody({
           <FundingActions showTrigger={false} initialOpen={urlIntent.addMoney} returnedFromProvider={urlIntent.returnedFromProvider}
             regionId={regionId} regionReady={regionReady} />
           <PresentationRegionProvider regionId={regionId}><TransferActions showTrigger={false} sendOffered={sendOffered}
-            initialOpen={urlIntent.sendFlow} initialActionId={urlIntent.actionId}
+            initialFlow={urlIntent.transferFlow} initialActionId={urlIntent.actionId}
             availableAssets={sendAvailability} assetMarkResolution={assetMarkResolution ?? { images: {}, pending: false }}
             regionId={regionId} regionReady={regionReady} /></PresentationRegionProvider>
         </> : null}
