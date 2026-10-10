@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fireEvent, fn, userEvent, within } from "storybook/test";
 import { waitForReady } from "@/tests/helpers/story-readiness";
 import { HttpResponse, http } from "msw";
+import { focusManager } from "@tanstack/react-query";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { getHomeQueryClient } from "@/client/query/query-client";
@@ -43,6 +44,7 @@ const back = fn();
 const retryBalances = fn();
 const earnings = new EventTarget();
 const snapshotChanges = new EventTarget();
+const actionsRecheck = new EventTarget();
 const journey = { prepared: [] as Array<{ endpoint: string; input: unknown }>, executed: [] as PreparedMoneyAction[] };
 const session: VerifiedAccountSession = {
   user: { subject: "cash-l2-story-owner" },
@@ -174,13 +176,14 @@ type SurfaceProps = {
   balanceActionStale?: boolean;
   refreshFailed?: boolean;
   pendingActionsError?: boolean;
+  holdActionsRecheck?: boolean;
   initialView?: "cash" | "savings";
   nowMs?: number;
   pendingCashout?: PendingCashoutEstimate;
   regionId?: RegionId;
 };
 
-function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, saveMode = "on", failPreparation = false, balanceStale = false, balanceActionStale = false, refreshFailed = false, pendingActionsError = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
+function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, saveMode = "on", failPreparation = false, balanceStale = false, balanceActionStale = false, refreshFailed = false, pendingActionsError = false, holdActionsRecheck = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
   const [view, setView] = useState(initialView);
   const clock = useRef(nowMs);
   const now = useCallback(() => clock.current, []);
@@ -255,11 +258,18 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
     if (pendingExecution) return new Promise<OperationResult>(() => {});
     return { id: action.id, status: "confirmed" };
   };
-  const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => path.includes("/api/trades?")
+  const readAccountResource = (path: string) => path.includes("/api/trades?")
     ? { version: 2, status: "unavailable", reason: "asset-unsupported" }
     : path === "/api/actions"
       ? { version: 1, truncated: false, actions: [] }
       : { version: 1, usdcReserveBaseUnits: "20000" };
+  const actionsReads = useRef(0);
+  const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => {
+    if (path === "/api/actions" && holdActionsRecheck && actionsReads.current++ > 0) {
+      await new Promise((resolve) => actionsRecheck.addEventListener("release", resolve, { once: true }));
+    }
+    return readAccountResource(path);
+  };
   const summary = liveSnapshot ? presentBalances({ status: "ready", snapshot: liveSnapshot, error: null }).summary : null;
   const cashRate = homeParity ? "4.08% APY" : null;
   const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale || balanceActionStale || balancesStale} balanceActionStale={balanceActionStale} refreshFailed={refreshFailed} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
@@ -925,6 +935,23 @@ export const CashSavingsVisibleWhileSavePausedEmptyStale: Story = { args: { snap
   const hero = await within(canvasElement).findByLabelText("Savings balance");
   await expect(within(hero).getByText("Balance may be out of date")).toBeVisible();
   await expect(within(hero).getByRole("img", { name: "$0.00" }).closest("[aria-describedby]")).toHaveAttribute("aria-describedby", "savings-balance-stale");
+} };
+export const SavingsPausedNoteWaitsForDepositRecheck: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", saveMode: "exit-only", holdActionsRecheck: true }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  await expect(await screen.findByText("This is no longer offered.")).toBeVisible();
+  focusManager.setFocused(false);
+  focusManager.setFocused(true);
+  try {
+    await waitForReady(() => expect(screen.queryByText("This is no longer offered.")).toBeNull());
+    await expect(screen.queryByText("Loading savings")).toBeNull();
+    await expect(screen.queryByText("Couldn't check your deposits")).toBeNull();
+    await expect(screen.queryByRole("button", { name: "Start saving" })).toBeNull();
+    actionsRecheck.dispatchEvent(new Event("release"));
+    await expect(await screen.findByText("This is no longer offered.")).toBeVisible();
+  } finally {
+    actionsRecheck.dispatchEvent(new Event("release"));
+    focusManager.setFocused(undefined);
+  }
 } };
 export const CashSavingsPendingWhileSavePaused: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
