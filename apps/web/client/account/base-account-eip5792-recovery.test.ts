@@ -22,6 +22,46 @@ const CALL = {
   data: "0x1234" as `0x${string}`,
 };
 
+describe("Base Account ordered-batch gas budget", () => {
+  test.each([
+    ["supply-and-borrow", ["0x095ea7b3", "0x238d6579", "0x50d8cd4b"]],
+    ["close-position", ["0x095ea7b3", "0x20b76e81", "0x8720316d"]],
+    ["fee-bearing sell", ["0x095ea7b3", "0x095ea7b3", "0x1234", "0xa9059cbb"]],
+  ] as const)("carries the full budget without unhinted dependent calls for %s", async (_name, selectors) => {
+    const provider = new Eip5792ProviderFixture();
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
+    const calls = selectors.map((data) => ({ ...CALL, data }));
+    let dispatches = 0;
+    const paymaster = { url: "https://home.example/api/paymaster", context: { erc20: OTHER_ADDRESS } };
+    await expect(connection.sendCalls?.(calls, ACTION_ID, async () => { dispatches++; }, "257391", paymaster)).resolves.toBe(WALLET_HEX_ID);
+    expect(dispatches).toBe(1);
+    const sent = provider.requests.filter(({ method }) => method === "wallet_sendCalls");
+    expect(sent).toHaveLength(1);
+    const params = isUnknownArray(sent[0]?.params) ? sent[0].params[0] : null;
+    if (!isRecord(params) || !isUnknownArray(params.calls)) throw new Error("Missing wallet batch");
+    expect(params).toMatchObject({ from: ADDRESS, chainId: "0x2105", atomicRequired: true, id: ACTION_ID, capabilities: { paymasterService: paymaster } });
+    let total = BigInt(0);
+    for (const [index, call] of params.calls.entries()) {
+      if (!isRecord(call) || !isRecord(call.capabilities) || !isRecord(call.capabilities.gasLimitOverride)) throw new Error("A call would be estimated independently");
+      expect(call).toMatchObject({ to: OTHER_ADDRESS, value: "0x0", data: selectors[index] });
+      const value = call.capabilities.gasLimitOverride.value;
+      if (typeof value !== "string") throw new Error("Invalid gas override");
+      expect(BigInt(value) > BigInt(0)).toBe(true);
+      total += BigInt(value);
+    }
+    expect(total).toBe(BigInt(257_391));
+  });
+
+  test.each(["0", "2", "01", "0x10", "2000001"])("rejects invalid aggregate gas budget %s before dispatch", async (budget) => {
+    const provider = new Eip5792ProviderFixture();
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
+    let dispatches = 0;
+    await expect(connection.sendCalls?.([CALL, CALL, CALL], ACTION_ID, async () => { dispatches++; }, budget)).rejects.toMatchObject({ reason: "not-submitted" });
+    expect(dispatches).toBe(0);
+    expect(provider.requests.some(({ method }) => method === "wallet_sendCalls")).toBe(false);
+  });
+});
+
 type EventName = "accountsChanged" | "chainChanged" | "disconnect";
 
 class RpcError extends Error {

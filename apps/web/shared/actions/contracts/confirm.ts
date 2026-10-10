@@ -54,24 +54,15 @@ export type ConfirmActionResponse = {
   batchGasLimit?: string;
 };
 
-export function supportsBaseBatchGasHint(calls: readonly { data: string }[]): boolean {
-  if (calls.length < 1) return false;
-  const approval = (data: string) => /^0x095ea7b3[0-9a-f]{128}$/i.test(data);
-  const transfer = (data: string) => /^0xa9059cbb0{24}[0-9a-f]{40}[0-9a-f]{64}$/i.test(data);
-  const independent = (data: string) => approval(data) || transfer(data);
-  const first = calls[0];
-  if (!first) return false;
-  let earlierIndependent = independent(first.data);
-  for (let index = 1; index < calls.length - 1; index += 1) {
-    const call = calls[index];
-    if (!call) return false;
-    const data = call.data;
-    if (transfer(data)) {
-      if (!earlierIndependent) return false;
-    } else if (!approval(data)) return false;
-    earlierIndependent = earlierIndependent && independent(data);
-  }
-  return true;
+export function baseBatchGasLimits(batchGasLimit: string, callCount: number): `0x${string}`[] | null {
+  if (!Number.isInteger(callCount) || callCount < 1 || callCount > 8 || !isValidBatchGasLimit(batchGasLimit)) return null;
+  const budget = BigInt(batchGasLimit);
+  const count = BigInt(callCount);
+  if (budget < count) return null;
+  const quotient = budget / count;
+  const remainder = budget % count;
+  return Array.from({ length: callCount }, (_, index): `0x${string}` =>
+    `0x${(quotient + (BigInt(index) < remainder ? BigInt(1) : BigInt(0))).toString(16)}`);
 }
 
 export function parseConfirmActionResponse(
