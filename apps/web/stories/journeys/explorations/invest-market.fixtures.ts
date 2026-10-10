@@ -1,5 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { expectedMarketPriceHistorySource } from "@/shared/invest/contracts/market-price-history";
+import { investAssets } from "@/config/invest-assets";
+import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { assetResolutionFixture } from "@/tests/browser/feature-map/search-fixtures";
 import { assetDetailAsset, assetDetailTime } from "./invest-asset-detail-fixture";
 
@@ -24,11 +26,14 @@ export const investMarketHandlers = [
   }),
   http.get("/api/market-prices/stats", ({ request }) => {
     const assetId = new URL(request.url).searchParams.get("assetId");
+    const identity = assetId ? resolveMarketPriceAssetIdentity(assetId) : null;
+    const isStock = investAssets.some((asset) => asset.id === assetId && asset.category === "stock");
+    const risk = identity && !isStock ? { source: "goplus", chainId: identity.chainId, contractAddress: identity.contractAddress.toLowerCase(), status: "unsupported", checkedAt: null } : undefined;
     if (assetId !== assetDetailAsset.id) {
       if (!assetId || !assetResolutionFixture(assetId).asset) return new HttpResponse(null, { status: 404 });
-      return HttpResponse.json({ version: 1, provider: "codex", assetId, currency: "USD", fetchedAt: null, status: "unavailable", stats: {} });
+      return HttpResponse.json({ version: 1, risk, provider: "codex", assetId, currency: "USD", fetchedAt: null, status: "unavailable", stats: {} });
     }
-    return HttpResponse.json({ version: 1, provider: "codex", assetId, currency: "USD", fetchedAt: assetDetailTime, status: "ready",
+    return HttpResponse.json({ version: 1, risk, provider: "codex", assetId, currency: "USD", fetchedAt: assetDetailTime, status: "ready",
       stats: { marketCapUsd: { atoms: "2410000000000", scale: 0 }, volume24hUsd: { atoms: "38200000000", scale: 0 } },
     });
   }),

@@ -4,6 +4,7 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { assetResolutionFixture, searchFixture } from "./feature-map/search-fixtures";
 import { expectNavigation } from "./fixtures/navigation-budget";
 import { waitForShellHydration } from "./fixtures/shell-hydration";
+import { installRiskMarketFixtures, tokenRiskStatsFixture } from "./fixtures/token-risk";
 const detailAddress = "0x2222222222222222222222222222222222222222";
 async function box(locator: Locator) {
   const rect = await locator.boundingBox();
@@ -634,4 +635,118 @@ for (const width of [320, 390, 1280]) test(`Search header remains reachable thro
   }
   await back.click();
   await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible();
+});
+
+test("configured DEGEN recovers Token checks without losing its chart or Back origin", async ({ page }) => {
+  await seedSignedInSession(page); await installApiFixtures(page); await installRiskMarketFixtures(page);
+  await page.route("**/api/invest/search?*", (route) => json(route, {
+    version: 1, query: "DEGEN", offset: 0, results: [{ kind: "configured", assetId: "degen", match: "exact" }],
+    snapshots: [], provider: "ok", coverage: "complete", nextOffset: null,
+  }));
+  let recovering = false;
+  await page.route("**/api/market-prices/stats?*", (route) => !recovering
+    ? route.fulfill({ status: 500, contentType: "application/json", body: "{}" })
+    : json(route, tokenRiskStatsFixture("degen", { transferPausable: "reported" })));
+  await page.goto("/home");
+  await page.getByRole("button", { name: "Search assets", exact: true }).click();
+  await page.getByRole("textbox", { name: "Search assets" }).fill("DEGEN");
+  const result = page.getByRole("region", { name: "Search results" }).getByRole("button", { name: /^Degen/ });
+  await result.click(); await expectNavigation(page, /\/invest\/degen$/);
+  const risk = page.getByRole("region", { name: "Token checks" });
+  const chart = page.getByRole("group", { name: /^1 week price history/ });
+  await expect(risk.getByRole("status")).toContainText("Couldn't check this token");
+  await expect(chart).toBeVisible();
+  const trigger = risk.getByRole("button", { name: /Token checks/ });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(risk.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  await trigger.focus(); await page.keyboard.press("Enter");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  recovering = true;
+  await risk.getByRole("button", { name: "Try again" }).click();
+  await expect(risk.getByText(/^Reported by GoPlus · checked/)).toBeVisible();
+  await expect(risk.getByText("Transfers can be paused", { exact: true })).toBeVisible();
+  await expect(risk.getByText("No data: transfer tax", { exact: true })).toBeVisible();
+  await expect(chart).toBeVisible();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expectNavigation(page, /\/home\?search=DEGEN$/); await expect(result).toBeFocused();
+});
+
+test("admitted Base deep links keep same-symbol checks bound to each contract", async ({ page }) => {
+  await seedSignedInSession(page); await installApiFixtures(page); await installRiskMarketFixtures(page);
+  await page.route("**/api/invest/asset?*", (route) => json(route,
+    assetResolutionFixture(new URL(route.request().url()).searchParams.get("assetId") ?? "")));
+  await page.route("**/api/market-prices/stats?*", (route) => {
+    const assetId = new URL(route.request().url()).searchParams.get("assetId") ?? "";
+    return json(route, tokenRiskStatsFixture(assetId, assetId.endsWith(detailAddress)
+      ? { blacklist: "reported" } : { honeypot: "reported" }));
+  });
+  for (const [address, own, other] of [
+    ["0x1111111111111111111111111111111111111111", "May not be sellable", "Addresses can be blocked"],
+    [detailAddress, "Addresses can be blocked", "May not be sellable"],
+  ]) {
+    await page.goto(`/invest/base:${address}`); await expectNavigation(page, new RegExp(`/invest/base:${address}$`));
+    await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Orbit");
+    const risk = page.getByRole("region", { name: "Token checks" });
+    const trigger = risk.getByRole("button", { name: /Token checks/ });
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await trigger.click();
+    await expect(risk.getByText(/^Reported by GoPlus · checked/)).toBeVisible();
+    await expect(risk.getByText(own, { exact: true })).toBeVisible();
+    await expect(risk.getByText(other, { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("group", { name: /^1 week price history/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: "View contract", exact: true })).toHaveAttribute("href", `https://basescan.org/token/${address}`);
+  }
+});
+
+test("exact-address fallback reads advisory checks for an unadmitted contract", async ({ page }) => {
+  await seedSignedInSession(page); await installApiFixtures(page); await installRiskMarketFixtures(page);
+  const assetId = `base:${detailAddress}`;
+  await page.route("**/api/invest/asset?*", (route) => json(route, {
+    version: 1, assetId, provider: "error", asset: null, source: null, snapshot: null,
+  }));
+  await page.route("**/api/market-prices/stats?*", (route) => json(route,
+    tokenRiskStatsFixture(assetId, { cannotSellAll: "reported" }, "unavailable")));
+  await page.goto(`/invest/${assetId}`); await expectNavigation(page, new RegExp(`/invest/${assetId}$`));
+  const risk = page.getByRole("region", { name: "Token checks" });
+  await risk.getByRole("button", { name: /Token checks/ }).click();
+  await expect(risk.getByText(/^Reported by GoPlus · checked/)).toBeVisible();
+  await expect(risk.getByText("Sell limit", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "View contract", exact: true })).toHaveAttribute("href", `https://basescan.org/token/${detailAddress}`);
+  await expect(page.getByRole("region", { name: "Market price history" })).toHaveCount(0);
+});
+
+test("late Token checks for A never replace B after search navigation", async ({ page }) => {
+  await seedSignedInSession(page); await installApiFixtures(page); await installRiskMarketFixtures(page);
+  await page.route("**/api/invest/search?*", (route) => json(route, searchFixture("ORB")));
+  const firstAddress = "0x1111111111111111111111111111111111111111";
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
+  const { promise: observed, resolve: observe } = Promise.withResolvers<void>();
+  const { promise: delivered, resolve: deliver } = Promise.withResolvers<void>();
+  await page.route("**/api/market-prices/stats?*", async (route) => {
+    const assetId = new URL(route.request().url()).searchParams.get("assetId") ?? "";
+    if (assetId === `base:${firstAddress}`) { observe(); await held; }
+    await json(route, tokenRiskStatsFixture(assetId, assetId === `base:${firstAddress}`
+      ? { honeypot: "reported" } : { blacklist: "reported" }));
+    if (assetId === `base:${firstAddress}`) deliver();
+  });
+  try {
+    await page.goto("/home?search=ORB");
+    const rows = page.getByRole("region", { name: "Search results" }).getByRole("button", { name: /Orbit/ });
+    await expect(rows).toHaveCount(3); await rows.nth(0).click();
+    await expectNavigation(page, new RegExp(`/invest/base:${firstAddress}$`)); await observed;
+    await expect(page.getByRole("region", { name: "Token checks" }).getByRole("status")).toHaveText("Checking token");
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expectNavigation(page, /\/home\?search=ORB$/); await expect(rows.nth(0)).toBeFocused();
+    await rows.nth(1).click(); await expectNavigation(page, new RegExp(`/invest/base:${detailAddress}$`));
+    const risk = page.getByRole("region", { name: "Token checks" });
+    const trigger = risk.getByRole("button", { name: /Token checks/ });
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await trigger.click();
+    await expect(risk.getByText("Addresses can be blocked", { exact: true })).toBeVisible();
+    release(); await delivered;
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(risk.getByText("May not be sellable", { exact: true })).toHaveCount(0);
+    await expect(risk.getByText("Addresses can be blocked", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "View contract", exact: true })).toHaveAttribute("href", `https://basescan.org/token/${detailAddress}`);
+  } finally { release(); }
 });

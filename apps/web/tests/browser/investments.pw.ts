@@ -1,7 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { manyOwnedInvestmentsSnapshot } from "./fixtures/balances";
-import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
+import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { expectNavigation } from "./fixtures/navigation-budget";
+import { heldRiskSnapshot, installRiskMarketFixtures, tokenRiskStatsFixture } from "./fixtures/token-risk";
+import { degenAssetId, syntheticDegen } from "./feature-map/fixtures";
 
 const title = (page: Page) => page.locator("[data-shell-header-title]").first();
 const homeInvestments = (page: Page) => page.getByRole("region", { name: "Your money" })
@@ -168,4 +170,43 @@ test("a refreshed large investment list keeps its scroll geometry while selectio
   await expect(list.getByRole("button").filter({ has: page.locator(`[data-holding-key="${focusedKey}"]`) })).toBeFocused();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeCloseTo(before, 0);
   await refreshSamples.dispose();
+});
+
+test("held honeypot advisory preserves owned-token Sell entry and Back focus", async ({ page }) => {
+  await seedSignedInSession(page);
+  await installApiFixtures(page, { balances: heldRiskSnapshot() });
+  await installRiskMarketFixtures(page);
+  await page.route("**/api/market-prices/stats?*", (route) => json(route,
+    tokenRiskStatsFixture(degenAssetId, { honeypot: "reported", sellTax: { state: "reported", fraction: { atoms: "1", scale: 0 } } }, "unavailable")));
+  await page.route("**/api/trades?*", (route) => json(route, {
+    version: 2, status: "available", token: { assetId: degenAssetId, address: syntheticDegen, symbol: "DEGEN", decimals: 18 },
+    buy: "available", balanceBaseUnits: "123000000000000000000",
+  }));
+  const confirms: string[] = [];
+  await page.route("**/api/actions/*/confirm", (route) => { confirms.push(route.request().url()); return route.abort(); });
+  await openHoldings(page);
+  const row = page.getByRole("region", { name: "Your investments" }).getByRole("button", { name: /^DEGEN / });
+  await row.click(); await expectNavigation(page, new RegExp(`/investments/${syntheticDegen}$`));
+  await expect(title(page)).toHaveText("DEGEN");
+  const checks = page.getByRole("region", { name: "Token checks" });
+  const trigger = checks.getByRole("button", { name: /Token checks/ });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: "Sell", exact: true })).toBeEnabled();
+  await trigger.click();
+  await expect(checks.getByText("May not be sellable", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Token checks" }).getByText("Sell tax 100%", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Token checks" }).getByText("GoPlus reports a 100% sell tax", { exact: true })).toBeVisible();
+  await expect(page.getByText("123 DEGEN", { exact: true })).toBeVisible();
+  const sell = page.getByRole("button", { name: "Sell", exact: true });
+  await expect(sell).toBeEnabled(); await sell.click();
+  const dialog = page.getByRole("dialog", { name: "Sell DEGEN", exact: true });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("textbox", { name: "Amount", exact: true }).fill("0.5");
+  await expect(dialog.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Max", exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Close trade dialog" }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expectNavigation(page, /\/investments$/); await expect(row).toBeFocused();
+  expect(confirms).toEqual([]);
 });
