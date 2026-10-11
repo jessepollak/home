@@ -1,5 +1,6 @@
 import "server-only";
 
+import { assertCredentialLive } from "@/server/account-deletion/tombstone";
 import { createHash } from "node:crypto";
 import type { SqlExecutor } from "@/server/db/sql";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -59,6 +60,9 @@ export function createCardWriteService({ sql, config, bridge, stripe }: Dependen
       if (!session.smartAccount) throw new CardWriteFailure("CARD_NOT_READY", 409);
       const wallet = session.smartAccount.address.toLowerCase();
       return sql.transaction(async (tx) => {
+        await assertCredentialLive(tx, session, new Date(), true);
+        const liveOwner = await tx.query("SELECT c.id FROM customers c JOIN customer_credentials cr ON cr.customer_id=c.id WHERE c.id=$1 AND c.retained_until IS NULL AND cr.account_provider=$2 AND cr.subject=$3 FOR SHARE OF c", [customerId, session.accountProvider, session.user.subject]);
+        if (!liveOwner.rowCount) throw new CardWriteFailure("CARD_NOT_READY", 409);
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`cards:${mode}:${wallet}`]);
         const account = await lockedAccount(tx, customerId, mode);
         if (!account?.bridge_customer_id) throw new CardWriteFailure("CARD_NOT_READY", 409);
@@ -88,6 +92,8 @@ export function createCardWriteService({ sql, config, bridge, stripe }: Dependen
         const holder = await stripe.readCardholder(customer.stripeCardholderId);
         if (holder.status !== "active") throw new CardWriteFailure("CARD_NOT_READY", 409);
         const card = await stripe.issueCard(customer.stripeCardholderId, wallet, key("stripe-issue", mode, customerId, wallet, String(sameWallet.length)));
+        const retainedCard = await tx.query("SELECT 1 FROM cards card JOIN customers c ON c.id=card.customer_id WHERE card.stripe_card_id=$1 AND c.retained_until IS NOT NULL", [card.id]);
+        if (retainedCard.rowCount) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
         if (card.status !== "active" || card.customerFrozen) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
         await tx.query("UPDATE card_accounts SET stripe_cardholder_id=$3,updated_at=now() WHERE customer_id=$1 AND mode=$2", [customerId, mode, customer.stripeCardholderId]);
         await tx.query("INSERT INTO cards(id,customer_id,mode,stripe_card_id,wallet_address) VALUES (gen_random_uuid(),$1,$2,$3,$4) ON CONFLICT (stripe_card_id) DO NOTHING", [customerId, mode, card.id, wallet]);

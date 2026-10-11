@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { readDatabaseUrl } from "@/server/config/env";
 
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
@@ -94,6 +96,8 @@ async function operatorSession(request: Request, deps: Dependencies): Promise<{ 
 async function run(route: string, operation: () => Promise<Response>): Promise<Response> {
   try { return await operation(); }
   catch (cause) {
+    const deletionError = deletionAuthErrorResponse(cause);
+    if (deletionError) return deletionError;
     if (cause instanceof SupportCustomerClosedError) return fail(route, "CUSTOMER_CLOSED", 403);
     if (cause instanceof SupportRateLimitedError) return fail(route, "RATE_LIMITED", 429, cause.retryAfter);
     return fail(route, "SUPPORT_UNAVAILABLE", 503);

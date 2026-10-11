@@ -15,10 +15,8 @@ export function recordVerifiedCustomer(
   request: Request,
   write: (inviteCode: string | null) => Promise<unknown>,
   recordNow: (operation: () => Promise<unknown>) => Promise<void>,
-  recordLater: (operation: () => Promise<unknown>) => Promise<void>,
 ): void | Promise<void> {
   const inviteCode = verifiedInviteCode(request);
   const operation = () => write(inviteCode);
-  if (inviteCode) return recordNow(operation);
-  void recordLater(operation);
+  return recordNow(operation);
 }

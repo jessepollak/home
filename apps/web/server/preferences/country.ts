@@ -38,20 +38,22 @@ export class CountryPreferenceStore {
   ): Promise<CountryCode> {
     const normalized = normalizeCountryCode(regionId);
     if (!normalized) throw new Error("Invalid country preference");
-    const customer = await this.customers.resolveCustomer(session, { create: true });
-    const result = await this.sql.query<{ country_preference: string }>(
+    return this.sql.transaction(async (tx) => {
+    const customer = await this.customers.resolveCustomerInTransaction(tx, session);
+    const result = await tx.query<{ country_preference: string }>(
       `INSERT INTO customer_preferences (customer_id,country_preference) VALUES ($1,$2)
        ON CONFLICT (customer_id) DO UPDATE SET country_preference=EXCLUDED.country_preference,updated_at=now()
        ${onlyIfUnset ? "WHERE customer_preferences.country_preference IS NULL" : ""}
        RETURNING country_preference`,
       [customer.id, normalized],
     );
-    const stored = result.rows[0]?.country_preference ?? (await this.sql.query<{ country_preference: string | null }>(
+    const stored = result.rows[0]?.country_preference ?? (await tx.query<{ country_preference: string | null }>(
       "SELECT country_preference FROM customer_preferences WHERE customer_id=$1", [customer.id],
     )).rows[0]?.country_preference;
     const value = normalizeCountryCode(stored);
     if (!value) throw new Error("Country preference could not be saved");
     return value;
+    });
   }
 }
 

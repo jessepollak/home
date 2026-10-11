@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { keccak256 } from "viem";
 import { PRODUCT_NOT_OFFERED_CODE, PRODUCT_NOT_OFFERED_MESSAGE } from "@/shared/actions/contracts/prepare";
 import { offeredMarketMode, offeredVaultMode, resolveProductOffering } from "@/shared/operator-settings/products";
@@ -25,7 +27,7 @@ import type { TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { privateError, privateJson } from "@/server/http/private-response";
 import type { PendingTradeResponse } from "@/shared/actions/contracts/trade-pending";
-import { cashoutMetadataRegion, getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction } from "./store";
+import { actionReviewExpired, cashoutMetadataRegion, getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction } from "./store";
 import { isRegionOffered } from "@/server/operator-settings/regions";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
@@ -159,6 +161,8 @@ async function checkCardAllowanceSetGate(row: ActionRow, owner: MoneyActionOwner
       smartAccount: { address: owner.address, chainId: owner.chainId },
     }, metadata.mode, signal);
   } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
     if (error instanceof CardAllowancePreparationError && error.code === "CARD_ALLOWANCE_NOT_READY")
       return fail("CARD_ALLOWANCE_NOT_READY", "An eligible card is required. Prepare again.", 409);
     return fail("CARD_ALLOWANCE_UNAVAILABLE", "Card spending limits are unavailable right now. Prepare again.", 503);
@@ -243,7 +247,7 @@ export function createConfirmActionHandler(dependencies: {
     if (draft.kind === "trade" && !assertStockTradeConfirmAllowed({ metadata: draft.summary.metadata, request })) {
       return fail("TRADE_STOCK_RESTRICTED", "Stock buys aren't available in this location.", 403);
     }
-    if (!replay && Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
+    if (!replay && actionReviewExpired(draft.summary.expiresAt, dependencies.now?.() ?? new Date())) {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
     }
     const tradeMetadata = draft.summary.metadata;

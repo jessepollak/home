@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { EMAIL_REQUEST_VERSION, parseEmailRequestWrite, type EmailRequestClaimResponse, type EmailRequestErrorCode, type EmailRequestReadResponse, type EmailRequestWriteResponse } from "@/shared/account/contracts/email-request";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { requestOrigin } from "@/server/auth/signed-cookie";
@@ -25,7 +27,9 @@ export function createEmailRequestReadHandler(dependencies: {
       const result = await (dependencies.read ?? readEmailRequest)(session);
       if (!result) return privateError(EMAIL_REQUEST_ERRORS.unavailable, "Email sharing is temporarily unavailable.", 503);
       return privateJson({ version: EMAIL_REQUEST_VERSION, asked: result.asked } satisfies EmailRequestReadResponse, 200);
-    } catch {
+    } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
       return privateError(EMAIL_REQUEST_ERRORS.unavailable, "Email sharing is temporarily unavailable.", 503);
     }
   };
@@ -52,6 +56,8 @@ export function createEmailRequestWriteHandler(dependencies: {
       const result = await (dependencies.write ?? writeEmailRequest)(session, input);
       return privateJson({ version: EMAIL_REQUEST_VERSION, asked: result.asked } satisfies EmailRequestWriteResponse, 200);
     } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
       if (error instanceof EmailRequestIdentityMismatchError) return privateError(EMAIL_REQUEST_ERRORS.invalid, "Email request is invalid.", 400);
       return privateError(EMAIL_REQUEST_ERRORS.unavailable, "Email sharing is temporarily unavailable.", 503);
     }

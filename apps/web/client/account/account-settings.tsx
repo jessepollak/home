@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LogOut } from "lucide-react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { AccountDeletionQueued, AccountDeletionReview } from "./account-deletion-view";
+import { useAccountDeletion } from "./use-account-deletion";
+import { useAccountDeletionCompletion } from "./account-deletion-recovery";
 import { useAccountExport } from "@/client/account/use-account-export";
 import { useInviteLink } from "@/client/account/use-invite-link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -127,6 +130,13 @@ export function AccountSettings({
   onAppearancePreferenceChange: (value: AppearancePreference) => boolean;
   onSignOut: () => void;
 }) {
+  const [leavingOwner, setLeavingOwner] = useState<string | null>(null);
+  const leaveButton = useRef<HTMLButtonElement>(null);
+  const leaveRegion = useRef<HTMLDivElement>(null);
+  const completeDeletion = useAccountDeletionCompletion();
+  const deletion = useAccountDeletion({ ownerKey: accountOwnerKey, fetchAccountResource, onCompleted: completeDeletion });
+  const leaving = Boolean(accountOwnerKey && leavingOwner === accountOwnerKey);
+  useLayoutEffect(() => { if (leaving) leaveRegion.current?.focus(); }, [leaving]);
   const [appearanceMessage, setAppearanceMessage] = useState("");
   const support = useOptionalSupport();
   const region = presentationRegions[regionId];
@@ -141,6 +151,15 @@ export function AccountSettings({
   });
   const inviteUrl = inviteLink.data;
   const accountExport = useAccountExport({ ownerKey: accountOwnerKey, fetchAccountResource });
+
+  function back() {
+    setLeavingOwner(null);
+    requestAnimationFrame(() => leaveButton.current?.focus());
+  }
+  if (leaving) return <div ref={leaveRegion} tabIndex={-1} className="outline-none" aria-label="Leave Home">
+    {deletion.receipt?.status === "queued" ? <AccountDeletionQueued receipt={deletion.receipt} loading={deletion.loading} error={deletion.error} onRefresh={() => void deletion.refresh()} onBack={back} />
+      : <AccountDeletionReview accountExport={accountExport} loading={deletion.loading} error={deletion.error} ready={!deletion.error} onDelete={() => void deletion.start()} onRefresh={() => void deletion.refresh()} onBack={back} />}
+  </div>;
 
   return (
     <div className="min-w-0 space-y-8 py-2 pb-6">
@@ -383,6 +402,11 @@ export function AccountSettings({
                       : accountExport.state === "error" ? "Try again" : "Export"}
                   </Button>
                 </ItemActions>
+              </Item>
+              <ItemSeparator className="my-0" />
+              <Item className="min-w-0 flex-wrap">
+                <ItemContent><ItemTitle>Leave Home</ItemTitle><ItemDescription>{deletion.receipt?.status === "queued" ? "Deletion queued — not complete" : "Delete your Home account"}</ItemDescription></ItemContent>
+                <ItemActions><Button ref={leaveButton} variant="outline" size="touch" onClick={() => setLeavingOwner(accountOwnerKey)}>Leave Home</Button></ItemActions>
               </Item>
             </CardContent>
           </Card>

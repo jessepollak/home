@@ -46,10 +46,11 @@ export async function openIndexedOwnerCache(owner: string, customStore?: UseStor
   };
 }
 
-export async function clearIndexedOwnerCache(preserveOwner?: string, customStore?: UseStore): Promise<boolean> {
+export async function clearIndexedOwnerCache(preserveOwner?: string, customStore?: UseStore, isCurrent: () => boolean = () => true): Promise<boolean> {
   try {
     await update(key, (raw: unknown) => {
       const current = record(raw);
+      if (!isCurrent()) return current;
       return preserveOwner && current.owner === preserveOwner ? current
         : { epoch: crypto.randomUUID(), owner: null, value: null, savedAt: 0 };
     }, customStore ?? store());

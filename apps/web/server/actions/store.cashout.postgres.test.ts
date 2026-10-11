@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql } from "@/tests/helpers/migrations";
+import { readAllMigrationSql } from "@/tests/helpers/migrations";
 import { ActionsStore, actionOwnerKey } from "./store";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
@@ -50,15 +50,7 @@ describePostgres("cash-out lockout eligibility", () => {
     await admin.unsafe(`CREATE SCHEMA ${schema}`);
     await admin.begin(async (transaction) => {
       await transaction.unsafe(`SET LOCAL search_path TO ${schema}`);
-      await transaction.unsafe(await readMigrationSql("001_actions.sql"));
-      await transaction.unsafe(await readMigrationSql("012_action_outcomes.sql"));
-      await transaction.unsafe(await readMigrationSql("013_action_call_commitment.sql"));
-      await transaction.unsafe(await readMigrationSql("014_cashout_orders.sql"));
-      await transaction.unsafe(await readMigrationSql("021_cashout_provider_progress.sql"));
-      await transaction.unsafe(await readMigrationSql("016_action_receipt_observations.sql"));
-      for (const file of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
-        await transaction.unsafe(await readMigrationSql(file));
-      }
+      for (const migration of await readAllMigrationSql()) await transaction.unsafe(migration);
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);

@@ -16,7 +16,7 @@ const buttonVariantStyles = cva(
         ghost:
           "hover:bg-muted hover:text-foreground active:bg-muted active:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 dark:active:bg-muted/50",
         destructive:
-          "bg-destructive/10 text-destructive hover:bg-destructive/20 active:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:active:bg-destructive/30 dark:focus-visible:ring-destructive/40",
+          "bg-destructive/10 text-[color-mix(in_oklch,var(--destructive),var(--foreground)_20%)] hover:bg-destructive/20 active:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:text-destructive dark:hover:bg-destructive/30 dark:active:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline active:underline",
         "balance-segment": "border-0 before:absolute before:inset-x-0 before:-top-3 before:-bottom-1 before:content-[''] transition-[opacity,scale] duration-200 ease-out data-muted:opacity-35 data-selected:scale-y-150 data-selected:before:-top-2 data-selected:before:-bottom-px motion-reduce:transition-none",
         "balance-legend": "border-0 text-xs leading-tight font-normal whitespace-normal text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-selected:text-foreground data-selected:font-semibold motion-reduce:transition-none",

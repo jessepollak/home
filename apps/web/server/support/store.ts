@@ -1,5 +1,7 @@
 import "server-only";
 
+import { assertCredentialLive } from "@/server/account-deletion/tombstone";
+
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { SUPPORT_CONTRACT_VERSION, decodeSupportCursor, type CustomerSupportConversation, type CustomerSupportResponse, type CustomerSupportSendRequest, type CustomerSupportSummary, type OperatorSupportConversationResponse, type OperatorSupportListQuery, type OperatorSupportListResponse, type OperatorSupportReplyRequest, type OperatorSupportSummary, type SupportMessage, type SupportContextRef, type SupportHandler, type SupportAssistantCapability } from "@/shared/support/contract";
 import { actionOwnerKey, type ActionOutcome } from "@/server/actions/store";
@@ -99,6 +101,7 @@ export class SupportStore {
 
   async sendCustomer(customerId: string, session: VerifiedAccountSession, input: CustomerSupportSendRequest, capability: SupportAssistantCapability = { available: false, handoff: false }): Promise<{ response: CustomerSupportResponse & { conversation: CustomerSupportConversation }; replayed: boolean; messageId: string }> {
     const sent = await this.sql.transaction(async (tx) => {
+      await assertCredentialLive(tx, session, new Date(), true);
       const customer = (await tx.query<{ status: string }>("SELECT status FROM customers WHERE id=$1 FOR UPDATE", [customerId])).rows[0];
       if (!customer || customer.status === "closed") throw new SupportCustomerClosedError();
       let row = (await tx.query<ConversationRow>("SELECT * FROM support_conversations WHERE customer_id=$1 FOR UPDATE", [customerId])).rows[0];

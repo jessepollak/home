@@ -6,7 +6,7 @@ import type { CardJourneyConfig } from "../bridge/journey-config";
 import { readProviderJson } from "../read-provider-json";
 import type { CardPurchase } from "@/shared/cards/transactions-contract";
 
-export type StripePurchase = CardPurchase & Readonly<{ cardId: string; authorizationId: string | null }>;
+export type StripePurchase = CardPurchase & Readonly<{ cardId: string; authorizationId: string | null; authorizationClosed?: boolean }>;
 const ids = { authorization: /^iauth_[A-Za-z0-9]+$/, transaction: /^(?:ipi_|itx_)[A-Za-z0-9]+$/, card: /^ic_[A-Za-z0-9]+$/ };
 
 export function createStripeTransactionClient(config: Pick<CardJourneyConfig, "stripeSecretKey" | "stripeApiVersion">, fetcher: typeof fetch = fetch, signal?: AbortSignal) {
@@ -69,7 +69,7 @@ function parseStripePurchase(value: unknown, kind: "authorization" | "transactio
   let reason: string | null = null;
   let authorizationId: string | null = null;
   if (kind === "authorization") {
-    if (typeof value.approved !== "boolean" || !isStringEnum(value.status, ["pending", "closed", "reversed"])) throw new Error("Invalid Stripe authorization status");
+    if (typeof value.approved !== "boolean" || !isStringEnum(value.status, ["pending", "closed", "expired", "reversed"])) throw new Error("Invalid Stripe authorization status");
     status = !value.approved ? "declined" : value.status === "reversed" ? "reversed" : "pending";
     const history = value.request_history;
     const entry: unknown = Array.isArray(history) ? history.at(-1) : null;
@@ -81,13 +81,13 @@ function parseStripePurchase(value: unknown, kind: "authorization" | "transactio
     const auth = record(value.authorization) ? value.authorization.id : value.authorization;
     authorizationId = typeof auth === "string" && ids.authorization.test(auth) ? auth : null;
   }
-  return { id, cardId, authorizationId, kind, amountMinor: String(Math.abs(value.amount)), currency: value.currency.toUpperCase(),
+  return { id, cardId, authorizationId, authorizationClosed: kind === "authorization" && value.approved === true && (value.status === "closed" || value.status === "expired"), kind, amountMinor: String(Math.abs(value.amount)), currency: value.currency.toUpperCase(),
     merchantName: merchantName.trim(), merchantCategory: category, status, declineReasonCode: reason,
     createdAt: new Date(value.created * 1000).toISOString(), updatedAt: new Date().toISOString() };
 }
 
 export function isStripePurchase(value: unknown): value is StripePurchase {
-  if (!record(value) || typeof value.cardId !== "string" || !ids.card.test(value.cardId) ||
+  if (!record(value) || !(value.authorizationClosed === undefined || typeof value.authorizationClosed === "boolean") || typeof value.cardId !== "string" || !ids.card.test(value.cardId) ||
       !(value.authorizationId === null || typeof value.authorizationId === "string" && ids.authorization.test(value.authorizationId))) return false;
   try {
     parseCardPurchases({ version: CARD_PURCHASES_VERSION, status: "ready", rows: [value] });

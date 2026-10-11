@@ -1,5 +1,6 @@
 import "server-only";
 
+import { assertSessionLive } from "@/server/account-deletion/tombstone";
 import { serverEnvironment } from "@/server/config/env";
 
 import { type AccountRenderSeed } from "@/shared/account/session-types";
@@ -14,11 +15,11 @@ import {
 
 export type RenderSession = AccountRenderSeed;
 
-export function readRenderSession(
+export async function readRenderSession(
   cookies: RenderCookieStore,
   env: Record<string, string | undefined> = serverEnvironment(),
   now: Date = new Date(),
-): RenderSession | null {
+): Promise<RenderSession | null> {
   const nativeCookies = cookies.getAll(HOME_SESSION_COOKIE);
   if (nativeCookies.length === 1 && nativeCookies[0]?.value) {
     const native = readNativeBaseSessionToken(
@@ -27,10 +28,13 @@ export function readRenderSession(
       now,
     );
     if (native.kind === "valid") {
-      return { session: native.session, source: "home-session" };
+      try { await assertSessionLive(native.session, now); return { session: native.session, source: "home-session" }; }
+      catch { return null; }
     }
   }
 
   const cdp = readCdpRenderSession(cookies, env.HOME_SESSION_SECRET, now);
-  return cdp ? { session: cdp, source: "cdp-hint" } : null;
+  if (!cdp) return null;
+  try { await assertSessionLive(cdp, now); return { session: cdp, source: "cdp-hint" }; }
+  catch { return null; }
 }

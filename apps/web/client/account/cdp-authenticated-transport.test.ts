@@ -113,3 +113,54 @@ test.each([
   expect(queryClient.getQueryData(markerKey)).toBeUndefined();
   expect(queryClient.getQueryState(balancesKey)?.isInvalidated).toBe(false);
 });
+
+
+const verifiedSession = { user: { subject: "subject" }, smartAccount: { address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+function generationFence() {
+  let generation = 0;
+  const fence: OwnerGenerationFence = { capture: () => generation, isCurrent: (value) => value === generation, advance: () => ++generation, assertCurrent: (value) => { if (value !== generation) throw new Error("stale-session"); }, updateAuthorizationBoundary: () => {}, updateOwnerKey: () => false };
+  return fence;
+}
+
+test.each(["confirm", "handle", "funding"] as const)("ACCOUNT_DELETED crosses the %s route parser and recovers only the receipt", async (route) => {
+  const path = route === "funding" ? "/api/funding/orders" : `/api/actions/action-a/${route}`;
+  const fence = generationFence();
+  let recovery: () => Promise<unknown> = async () => { throw new Error("recovery not registered"); };
+  const requests: string[] = [];
+  const hook = renderHook(() => useAuthenticatedTransport({ session: verifiedSession, status: "verified", verification: "server", ownerKey, ownerFence: fence, getAccessToken: async () => "fixture-token", onAccountDeleted: (recover, isCurrent) => { expect(isCurrent()).toBe(true); recovery = recover; }, sessionFetch: async (input) => {
+    requests.push(String(input));
+    return input === "/api/account/deletion" ? Response.json({ receipt: true }) : Response.json({ error: { code: "ACCOUNT_DELETED" } }, { status: 401 });
+  } }));
+  await expect(hook.result.current.fetchAccountResource(path, { method: "POST" })).rejects.toMatchObject({ status: 401, code: "ACCOUNT_DELETED" });
+  await expect(recovery()).resolves.toEqual({ receipt: true });
+  expect(requests).toEqual([path, "/api/account/deletion"]);
+  fence.advance();
+  await expect(recovery()).rejects.toThrow("stale-session");
+  expect(requests).toHaveLength(2);
+});
+
+test.each(["balances", "activity", "actions", "confirm", "handle", "funding"] as const)("late %s revocation is fenced across A→B and A→B→A, including body parsing", async (route) => {
+  for (const parseLate of [false, true]) {
+    for (const backToA of [false, true]) {
+      const fence = generationFence();
+      let finish: (response: Response) => void = () => {};
+      let finishBody: (body: unknown) => void = () => {};
+      let parsing = false;
+      let recoveries = 0;
+      const response = Response.json({ error: { code: "ACCOUNT_DELETED" } }, { status: 401 });
+      if (parseLate) response.json = async () => { parsing = true; return new Promise((resolve) => { finishBody = resolve; }); };
+      const hook = renderHook(() => useAuthenticatedTransport({ session: verifiedSession, status: "verified", verification: "server", ownerKey, ownerFence: fence, getAccessToken: async () => "fixture-token", onAccountDeleted: () => { recoveries += 1; }, sessionFetch: async () => new Promise((resolve) => { finish = resolve; }) }));
+      const work = route === "balances" ? hook.result.current.fetchBalances("US") : route === "activity" ? hook.result.current.fetchActivity("") : hook.result.current.fetchAccountResource(route === "funding" ? "/api/funding/orders" : route === "actions" ? "/api/actions" : `/api/actions/action-a/${route}`, { method: route === "actions" ? "GET" : "POST" });
+      const failure = work.catch((error: unknown) => error);
+      await flushMicrotasks();
+      if (parseLate) { finish(response); await flushMicrotasks(); expect(parsing).toBe(true); }
+      fence.advance();
+      if (backToA) fence.advance();
+      if (parseLate) finishBody({ error: { code: "ACCOUNT_DELETED" } }); else finish(response);
+      const error = await failure;
+      expect(error).toMatchObject(route === "balances" || route === "activity" ? { kind: "session" } : { reason: "stale-session" });
+      expect(recoveries).toBe(0);
+      hook.unmount();
+    }
+  }
+});

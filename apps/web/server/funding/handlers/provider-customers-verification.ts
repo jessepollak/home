@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { authorizeFundingRequest, fundingError, fundingJson, fundingRequestOrigin, type FundingSessionAuthorizer } from "@/server/funding/core/auth";
 import { FundingCoreError } from "@/server/funding/core/service";
@@ -26,6 +28,8 @@ export async function handleFundingVerificationPost(request: Request, dependenci
     if (!readFundingVerificationResponse(response)) throw new Error("invalid-verification-response");
     return fundingJson(response, 201);
   } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
     return error instanceof FundingCoreError ? fundingError(error.code, error.publicMessage ?? "Verification could not be started.", error.status) : fundingError("VERIFICATION_UNAVAILABLE", "Verification is unavailable.", 503);
   }
 }

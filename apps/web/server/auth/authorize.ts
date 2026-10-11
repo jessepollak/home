@@ -1,5 +1,7 @@
 import "server-only";
 
+import { assertSessionLive } from "@/server/account-deletion/tombstone";
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
 import { readHomeSessionSecret } from "@/server/config/env";
 
 import {
@@ -26,10 +28,24 @@ export const sessionHandler = createSessionHandler({
   baseAccountEnabled: () => isHomeSessionConfigured(readHomeSessionSecret()),
 });
 
+const rawSessionHandler = createSessionHandler({
+  getValidator: () => getCdpAccessTokenValidator(),
+  baseAccountEnabled: () => isHomeSessionConfigured(readHomeSessionSecret()),
+  assertLive: async () => {},
+});
+
 export async function authorizeSession(
   request: Request,
   boundary: SessionBoundary = sessionHandler,
+  live: typeof assertSessionLive = assertSessionLive,
 ): Promise<VerifiedAccountSession | Response> {
+  const session = await authorizeRawSession(request, boundary);
+  if (session instanceof Response) return session;
+  try { await live(session); return session; }
+  catch (error) { return deletionAuthErrorResponse(error) ?? authUnavailableResponse(); }
+}
+
+export async function authorizeRawSession(request: Request, boundary: SessionBoundary = rawSessionHandler): Promise<VerifiedAccountSession | Response> {
   const result = await boundary(request);
   if (result instanceof Response && !result.ok) return result;
 

@@ -5,6 +5,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { readDatabaseUrl } from "@/server/config/env";
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { AccountExportError } from "./errors";
+import { accountActionScope } from "./action-scope";
 import { resolveExportOwner } from "./owner";
 import { mapJsonFields } from "./safe-fields";
 
@@ -23,6 +24,8 @@ export class AccountExportReader {
       await tx.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", [], { signal });
       await tx.query("SET LOCAL statement_timeout = '10s'", [], { signal });
       const scope = await resolveExportOwner(tx, session, this.cap, signal);
+      const actionScope = accountActionScope(scope);
+      if ((await tx.query(`SELECT id FROM actions WHERE ${actionScope.ownerSql} AND customer_id IS NOT NULL AND customer_id<>$1 LIMIT 1`, actionScope.values, { signal })).rowCount) throw new AccountExportError("ACCOUNT_EXPORT_LINKAGE");
       const classes = new Map<AccountExportHomeClass, AccountExportRecord[]>();
       const addRows = (name: AccountExportHomeClass, rows: Record<string, unknown>[]) => {
         if (rows.length > this.cap) throw new AccountExportError("ACCOUNT_EXPORT_TOO_LARGE");
@@ -43,7 +46,7 @@ export class AccountExportReader {
       await read("access_audit", "SELECT occurred_at,action,purpose FROM admin_audit_log WHERE target_kind='customer' AND target_id=$1", [id]);
       const actions = await read("actions", `SELECT id,account_address,provider,kind,summary,created_at,confirmed_at,transaction_hash,handle_recorded_at,declined_reported_at,dispatch_attempt,outcome,outcome_source,settled_at,outcome_recorded_at,
         observed_receipt_transaction_hash,observed_receipt_block_number::text,observed_receipt_block_hash,observed_receipt_outcome,observed_at
-        FROM actions WHERE customer_id=$1 OR (customer_id IS NULL AND owner_key=ANY($2::text[]))`, [id, scope.ownerKeys]);
+        FROM actions WHERE ${actionScope.sql}`, actionScope.values);
       const actionIds = actions.map((row) => row.id);
       await read("cashout_orders", `SELECT action_id,provider_id,environment,region,deposit_id,deposit_proven,state,platform,platform_label,amount_atomic,filled_atomic,returned_atomic,remaining_atomic,withdrawable,eta_seconds,created_at,updated_at,refreshed_at,settled_at,provider_updated_at
         FROM cashout_orders WHERE action_id=ANY($1::uuid[])`, [actionIds]);
@@ -75,10 +78,14 @@ export class AccountExportReader {
          WHERE ca.customer_id=$1 LIMIT $2)
         UNION
         (SELECT e.provider,e.mode,e.event_id,e.kind,e.card_id,e.transaction_id,e.occurred_at,e.received_at
+         FROM card_accounts ca JOIN card_events e ON e.provider='bridge' AND e.mode=ca.mode AND e.cardholder_account_id=ca.stripe_cardholder_id
+         WHERE ca.customer_id=$1 LIMIT $2)
+        UNION
+        (SELECT e.provider,e.mode,e.event_id,e.kind,e.card_id,e.transaction_id,e.occurred_at,e.received_at
          FROM cards c JOIN card_events e ON e.provider='bridge' AND e.mode=c.mode AND e.card_id=c.stripe_card_id
          WHERE c.customer_id=$1 LIMIT $2)
       ) owned_events`, [id, this.cap + 1]);
-      await read("card_transactions", `SELECT t.id,t.card_id,t.provider,t.mode,t.provider_transaction_id,t.authorization_id,t.kind,t.amount_minor::text,t.currency,t.merchant_name,t.merchant_category,t.status,t.decline_reason_code,t.provider_created_at,t.updated_at
+      await read("card_transactions", `SELECT t.id,t.card_id,t.provider,t.mode,t.provider_transaction_id,t.authorization_id,t.kind,t.amount_minor::text,t.currency,t.merchant_name,t.merchant_category,t.status,t.authorization_closed,t.decline_reason_code,t.provider_created_at,t.updated_at
         FROM cards c JOIN card_transactions t ON t.card_id=c.id WHERE c.customer_id=$1`, [id]);
       const conversations = await read("support_conversations", `SELECT id,status,handler,handed_off_at,created_at,updated_at,last_message_at,last_customer_message_at,last_operator_message_at,customer_read_at,resolved_at
         FROM support_conversations WHERE customer_id=$1`, [id]);

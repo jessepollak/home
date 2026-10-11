@@ -9,15 +9,15 @@ import { assertHistoryLimit, type FundingOrder, type FundingOrderOwner, type Fun
 
 type Row = Record<string, unknown>;
 const TERMINAL_SQL = "'dispatch-ambiguous','received','expired','cancelled','failed','refunded'";
-const OPEN_SQL = `(state NOT IN (${TERMINAL_SQL}) OR state='dispatch-ambiguous') AND state<>'abandoned' AND NOT (sandbox=true AND state='sent-unverified')`;
+export const OPEN_FUNDING_ORDER_SQL = `(state NOT IN (${TERMINAL_SQL}) OR state='dispatch-ambiguous') AND state<>'abandoned' AND NOT (sandbox=true AND state='sent-unverified')`;
 const PROGRESS_SQL = "ARRAY['reserving','unknown','awaiting-payment','abandoned','payment-received','settling','sent']";
 
 export class PostgresFundingOrderStore implements FundingOrderStore {
   constructor(private readonly sql: SqlExecutor) {}
 
   async reserve(input: FundingReservation) {
-    const ids = await recordCustomerIds(this.sql, { ...input.owner, address: input.destination }, new Date(input.createdAt));
     return this.sql.transaction(async (transaction) => {
+      const ids = await recordCustomerIds(transaction, { ...input.owner, address: input.destination }, new Date(input.createdAt));
       const inserted = await transaction.query(
         `INSERT INTO funding_orders
          (id, owner_subject, account_provider, destination, provider_id, region, asset_id,
@@ -43,17 +43,17 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
     assertHistoryLimit(limit);
     return this.all(`SELECT * FROM (
       SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2
-      ORDER BY CASE WHEN ${OPEN_SQL} THEN 0 ELSE 1 END, created_at DESC, id ASC LIMIT $3
+      ORDER BY CASE WHEN ${OPEN_FUNDING_ORDER_SQL} THEN 0 ELSE 1 END, created_at DESC, id ASC LIMIT $3
     ) history ORDER BY created_at DESC, id ASC`, [owner.accountProvider, owner.subject, limit]);
   }
   async getByIntent(owner: FundingOrderOwner, intentDigest: string) { return this.one("SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND intent_digest=$3", [owner.accountProvider, owner.subject, intentDigest]); }
-  async getOpen(owner: FundingOrderOwner, region: string) { return this.one(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND ${OPEN_SQL} ORDER BY updated_at DESC LIMIT 1`, [owner.accountProvider, owner.subject, region]); }
+  async getOpen(owner: FundingOrderOwner, region: string) { return this.one(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND ${OPEN_FUNDING_ORDER_SQL} ORDER BY updated_at DESC LIMIT 1`, [owner.accountProvider, owner.subject, region]); }
   async listOpen(owner: FundingOrderOwner, region: string): Promise<ReadonlyArray<FundingOrder>> {
-    return this.all(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND ${OPEN_SQL} ORDER BY updated_at DESC`, [owner.accountProvider, owner.subject, region]);
+    return this.all(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND ${OPEN_FUNDING_ORDER_SQL} ORDER BY updated_at DESC`, [owner.accountProvider, owner.subject, region]);
   }
-  async getOpenForProvider(owner: FundingOrderOwner, region: string, providerId: string, paymentMethod?: string, assetId?: string) { return this.one(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND provider_id=$4 AND ($5::text IS NULL OR payment_method=$5) AND ($6::text IS NULL OR asset_id=$6) AND ${OPEN_SQL} ORDER BY updated_at DESC LIMIT 1`, [owner.accountProvider, owner.subject, region, providerId, paymentMethod ?? null, assetId ?? null]); }
+  async getOpenForProvider(owner: FundingOrderOwner, region: string, providerId: string, paymentMethod?: string, assetId?: string) { return this.one(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND provider_id=$4 AND ($5::text IS NULL OR payment_method=$5) AND ($6::text IS NULL OR asset_id=$6) AND ${OPEN_FUNDING_ORDER_SQL} ORDER BY updated_at DESC LIMIT 1`, [owner.accountProvider, owner.subject, region, providerId, paymentMethod ?? null, assetId ?? null]); }
   async getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string) { return this.one("SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND provider_id=$4 AND state='dispatch-ambiguous' ORDER BY updated_at ASC LIMIT 1", [owner.accountProvider, owner.subject, region, providerId]); }
-  async getByProviderOrderId(providerId: string, providerOrderId: string) { return this.one("SELECT * FROM funding_orders WHERE provider_id=$1 AND provider_order_id=$2", [providerId, providerOrderId]); }
+  async getByProviderOrderId(providerId: string, providerOrderId: string) { return this.one("SELECT * FROM funding_orders WHERE provider_id=$1 AND provider_order_id=$2 AND owner_subject NOT LIKE 'retained:%' AND NOT EXISTS (SELECT 1 FROM customers c WHERE c.id=funding_orders.customer_id AND c.retained_until IS NOT NULL)", [providerId, providerOrderId]); }
   async completeDispatch(id: string, input: Parameters<FundingOrderStore["completeDispatch"]>[1]) {
     return this.updated(`UPDATE funding_orders SET state='awaiting-payment', provider_order_id=$2, expected_token_amount_atomic=$3, fees=$4::jsonb, expires_at=$5, instructions=$6::jsonb, version=version+1, updated_at=$8 WHERE id=$1 AND state='reserving' AND version=$7 RETURNING *`, [id, input.providerOrderId, input.expectedTokenAmountAtomic, JSON.stringify(input.fees), input.expiresAt, JSON.stringify(input.instructions), input.expectedVersion, input.updatedAt]);
   }
@@ -74,7 +74,7 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
           COALESCE($4,provider_transaction_hash) IS DISTINCT FROM provider_transaction_hash OR
           COALESCE($8,expected_token_amount_atomic) IS DISTINCT FROM expected_token_amount_atomic OR
           COALESCE($9::jsonb,fees) IS DISTINCT FROM fees) AS material
-      FROM funding_orders WHERE id=$1 AND version=$5 AND state NOT IN (${TERMINAL_SQL})
+      FROM funding_orders WHERE id=$1 AND version=$5 AND state NOT IN (${TERMINAL_SQL}) AND owner_subject NOT LIKE 'retained:%' AND NOT EXISTS (SELECT 1 FROM customers c WHERE c.id=funding_orders.customer_id AND c.retained_until IS NOT NULL)
     ) UPDATE funding_orders AS orders SET
       state=CASE WHEN observation.advances THEN $2 ELSE orders.state END,
       abandon_reason=CASE WHEN observation.advances AND $2<>'abandoned' THEN NULL ELSE orders.abandon_reason END,
@@ -86,11 +86,11 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
       version=orders.version+CASE WHEN observation.advances AND observation.material THEN 1 ELSE 0 END,
       updated_at=CASE WHEN observation.advances AND observation.material THEN $7::timestamptz ELSE orders.updated_at END,
       checked_at=$7::timestamptz
-    FROM observation WHERE orders.id=observation.id AND orders.version=$5 AND orders.state NOT IN (${TERMINAL_SQL}) RETURNING orders.*`, [id, input.state, input.providerStatus, input.providerTransactionHash ?? null, input.expectedVersion, terminal, input.updatedAt, input.expectedTokenAmountAtomic ?? null, input.fees ? JSON.stringify(input.fees) : null]);
+    FROM observation WHERE orders.id=observation.id AND orders.version=$5 AND orders.state NOT IN (${TERMINAL_SQL}) AND orders.owner_subject NOT LIKE 'retained:%' AND NOT EXISTS (SELECT 1 FROM customers c WHERE c.id=orders.customer_id AND c.retained_until IS NOT NULL) RETURNING orders.*`, [id, input.state, input.providerStatus, input.providerTransactionHash ?? null, input.expectedVersion, terminal, input.updatedAt, input.expectedTokenAmountAtomic ?? null, input.fees ? JSON.stringify(input.fees) : null]);
   }
   async claimReceipt(id: string, input: Parameters<FundingOrderStore["claimReceipt"]>[1]) {
     try {
-      return await this.updatedOrNull(`UPDATE funding_orders SET state='received', abandon_reason=NULL, transaction_hash=$2, log_index=$3, instructions=NULL, version=version+1, updated_at=$5 WHERE id=$1 AND version=$4 AND state NOT IN (${TERMINAL_SQL}) AND transaction_hash IS NULL AND log_index IS NULL RETURNING *`, [id, input.transactionHash.toLowerCase(), input.logIndex, input.expectedVersion, input.updatedAt]);
+      return await this.updatedOrNull(`UPDATE funding_orders SET state='received', abandon_reason=NULL, transaction_hash=$2, log_index=$3, instructions=NULL, version=version+1, updated_at=$5 WHERE id=$1 AND version=$4 AND state NOT IN (${TERMINAL_SQL}) AND transaction_hash IS NULL AND log_index IS NULL AND owner_subject NOT LIKE 'retained:%' AND NOT EXISTS (SELECT 1 FROM customers c WHERE c.id=funding_orders.customer_id AND c.retained_until IS NOT NULL) RETURNING *`, [id, input.transactionHash.toLowerCase(), input.logIndex, input.expectedVersion, input.updatedAt]);
     } catch (error) {
       if (isUniqueViolation(error)) return null;
       throw error;

@@ -6,6 +6,7 @@ import { connectBaseAccount, restoreBaseAccount, BaseAccountConnectorError, type
 import { SessionValidationError, validateAccountSession, type SessionFetch, type VerifiedAccountSession } from "./session-client";
 import { createSiweMessage } from "viem/siwe";
 import {
+  ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
   type AccountProviderRequest,
   type AccountRenderSeed,
@@ -18,6 +19,9 @@ import {
   browserHomeQueryClient,
   useHomeQueryClient,
 } from "@/client/query/query-client";
+import { AccountDeletionCompletionContext, useAccountDeletionRecovery } from "./account-deletion-recovery";
+import { recoverAccountDeletionReceipt } from "./account-deletion-receipt-recovery";
+import { AccountDeletionReceiptView } from "./account-deletion-view";
 import { useAuthenticatedTransport } from "./cdp-authenticated-transport";
 import { useMoneyActionExecution } from "./cdp-money-action-execution";
 import { BaseAccountLoginError, baseLoginFailureFromConnector, clearCdpRenderHint, writeAccountProviderHint, writeCdpRestoreMarker } from "./cdp-wallet-provider-capabilities";
@@ -123,6 +127,7 @@ export function AccountWalletSessionOwner({
   const validationRef = useRef<AbortController | null>(null);
   const committedInitializationErrorRef = useRef<typeof initializationError>(undefined);
   const stageTimedOutRef = useRef(false);
+  const deletedSession = useRef<(provider: AccountProvider) => void>(() => {});
   const previousOwner = useRef(seededSdkOwnerKey ?? ownerKey);
   const initialProvisionalSession = initialRenderSeed?.session ?? (
     isInitialized && isSignedIn && ownerKey && provisionalSession?.smartAccount
@@ -362,6 +367,10 @@ export function AccountWalletSessionOwner({
       setMessage(null);
     } catch (error) {
       if (controller.signal.aborted || !fence.isCurrent(generation)) return;
+      if (error instanceof SessionValidationError && error.reason === "account-deleted") {
+        deletedSession.current(validationProvider);
+        return { status: "error" as const };
+      }
       if (error instanceof AccountRestoreStageTimeoutError) stageTimedOutRef.current = true;
       const missingBaseConnection = error instanceof BaseAccountConnectorError &&
         error.reason === "missing-connection";
@@ -578,7 +587,27 @@ export function AccountWalletSessionOwner({
   }, []);
   const requestWalletEmail = useCallback(() => baseConnectionRef.current?.requestEmail?.() ?? null, []);
 
-  const transport = useAuthenticatedTransport({ session, status, verification, ownerKey, ownerFence: fence, getAccessToken, sessionFetch, authentication });
+  const deletion = useAccountDeletionRecovery({ ownerKey, ownerFence: fence, queryClient, signOut });
+  const { revoked } = deletion;
+  useLayoutEffect(() => {
+    deletedSession.current = (provider) => {
+      const generation = fence.capture();
+      revoked(async () => {
+        fence.assertCurrent(generation);
+        return recoverAccountDeletionReceipt({
+          sessionFetch, assertCurrent: () => fence.assertCurrent(generation), headers: async () => {
+            const accessToken = await getAccessToken();
+            return {
+              Accept: "application/json",
+              ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
+              [ACCOUNT_PROVIDER_HEADER]: provider,
+            };
+          },
+        });
+      }, () => fence.isCurrent(generation));
+    };
+  }, [authentication, revoked, getAccessToken, sessionFetch, fence]);
+  const transport = useAuthenticatedTransport({ session, status, verification, ownerKey, ownerFence: fence, getAccessToken, sessionFetch, authentication, onAccountDeleted: deletion.revoked });
   const emailRequest = useEmailRequestFlow({
     ready: status === "verified" && verification === "server" && session?.accountProvider === "base-account",
     ownerKey: persistedOwnerKey,
@@ -684,11 +713,10 @@ export function AccountWalletSessionOwner({
 
   return (
     <AccountWalletContext.Provider value={client}>
-      <OwnerQueryPersistence
-        key={persistedOwnerKey ?? "signed-out"}
-        ownerKey={persistedOwnerKey}
-      />
-      {children}
+      {deletion.recovery ? <main className="mx-auto w-full max-w-160 p-4"><AccountDeletionReceiptView {...deletion.recovery} onRetry={deletion.retry} /></main> : <AccountDeletionCompletionContext.Provider value={deletion.complete}>
+        <OwnerQueryPersistence key={persistedOwnerKey ?? "signed-out"} ownerKey={persistedOwnerKey} />
+        {children}
+      </AccountDeletionCompletionContext.Provider>}
     </AccountWalletContext.Provider>
   );
 }
