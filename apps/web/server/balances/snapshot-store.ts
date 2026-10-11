@@ -50,29 +50,36 @@ export class PostgresBalanceSnapshotStore implements BalanceSnapshotStore {
   }
 
   async putObservation(row: BalanceObservation): Promise<boolean> {
-    const result = await this.sql.query(
-      `INSERT INTO balance_snapshots
-       (chain_id,address,block_number,block_hash,block_timestamp,observed_at,enumeration_cursor,holdings,coverage,borrow)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb)
-       ON CONFLICT (chain_id,address) DO UPDATE SET
-         block_number=EXCLUDED.block_number,
-         block_hash=EXCLUDED.block_hash,
-         block_timestamp=EXCLUDED.block_timestamp,
-         observed_at=EXCLUDED.observed_at,
-         enumeration_cursor=EXCLUDED.enumeration_cursor,
-         holdings=EXCLUDED.holdings,
-         coverage=EXCLUDED.coverage,
-         borrow=EXCLUDED.borrow
-       WHERE EXCLUDED.block_number > balance_snapshots.block_number
-          OR (EXCLUDED.block_number = balance_snapshots.block_number
-              AND EXCLUDED.observed_at > balance_snapshots.observed_at)
-       RETURNING 1`,
-      [row.chainId, row.address.toLowerCase(), row.blockNumber, row.blockHash,
-        row.blockTimestamp, row.observedAt, row.enumerationCursor ?? null,
-        JSON.stringify(row.holdings), JSON.stringify(row.coverage),
-        row.borrow ? JSON.stringify(row.borrow) : null],
-    );
-    return result.rowCount === 1;
+    return this.sql.transaction(async (tx) => {
+      const live = await tx.query(
+        `SELECT w.id FROM customer_wallets w JOIN customers c ON c.id=w.customer_id
+         WHERE w.chain_id=$1 AND w.address=$2 AND c.retained_until IS NULL AND w.created_at<=$3
+         FOR SHARE OF c,w`, [row.chainId, row.address.toLowerCase(), row.observedAt]);
+      if (!live.rowCount) return false;
+      const result = await tx.query(
+        `INSERT INTO balance_snapshots
+         (chain_id,address,block_number,block_hash,block_timestamp,observed_at,enumeration_cursor,holdings,coverage,borrow)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb)
+         ON CONFLICT (chain_id,address) DO UPDATE SET
+           block_number=EXCLUDED.block_number,
+           block_hash=EXCLUDED.block_hash,
+           block_timestamp=EXCLUDED.block_timestamp,
+           observed_at=EXCLUDED.observed_at,
+           enumeration_cursor=EXCLUDED.enumeration_cursor,
+           holdings=EXCLUDED.holdings,
+           coverage=EXCLUDED.coverage,
+           borrow=EXCLUDED.borrow
+         WHERE EXCLUDED.block_number > balance_snapshots.block_number
+            OR (EXCLUDED.block_number = balance_snapshots.block_number
+                AND EXCLUDED.observed_at > balance_snapshots.observed_at)
+         RETURNING 1`,
+        [row.chainId, row.address.toLowerCase(), row.blockNumber, row.blockHash,
+          row.blockTimestamp, row.observedAt, row.enumerationCursor ?? null,
+          JSON.stringify(row.holdings), JSON.stringify(row.coverage),
+          row.borrow ? JSON.stringify(row.borrow) : null],
+      );
+      return result.rowCount === 1;
+    });
   }
 
   async markStale(chainId: number, address: `0x${string}`, at: Date): Promise<void> {

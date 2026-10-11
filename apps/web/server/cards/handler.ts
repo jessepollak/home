@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { resolveCustomer } from "@/server/customers/resolve";
 import { privateJson } from "@/server/http/private-response";
@@ -20,7 +22,9 @@ export function createCardsHandler(dependencies: {
       const response = await dependencies.read(customer.id);
       if (!parseCardsResponse(response)) throw new Error("Invalid cards response");
       return privateJson(response);
-    } catch {
+    } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
       return privateJson({ version: CARDS_CONTRACT_VERSION, error: { code: "CARDS_UNAVAILABLE" } } satisfies CardsError, 503);
     }
   };

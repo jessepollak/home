@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql } from "@/tests/helpers/migrations";
+import { readAllMigrationSql } from "@/tests/helpers/migrations";
 import { PostgresWebhookSubscriptionStore } from "./webhook-subscription-store";
 import { webhookSubscriptionStoreContract } from "./webhook-subscription-store.contract";
 
@@ -14,18 +14,18 @@ type BunSqlClient = {
 };
 let client: BunSqlClient;
 let executor: SqlExecutor;
+const schema = `webhook_subscription_test_${randomBytes(4).toString("hex")}`;
 
 describePostgres("Postgres webhook subscription production contract", () => {
   beforeAll(async () => {
     client = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
-    const migration = await readMigrationSql("005_balances.sql");
-    await client.unsafe("DROP TABLE IF EXISTS webhook_subscriptions");
-    await client.unsafe(migration);
-    await client.unsafe(await readMigrationSql("017_webhook_subscription_envelopes.sql"));
+    await client.unsafe(`CREATE SCHEMA ${schema}`);
+    await client.unsafe(`SET search_path TO ${schema}`);
+    for (const migration of await readAllMigrationSql()) await client.unsafe(migration);
     executor = bunExecutor(client);
   });
   afterAll(async () => {
-    await client?.unsafe("DROP TABLE IF EXISTS webhook_subscriptions");
+    await client?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     await client?.close();
   });
 
@@ -52,7 +52,7 @@ describePostgres("Postgres webhook subscription production contract", () => {
 
   test("schema rejects invalid envelopes, version mismatches and absent or double credentials", async () => {
     await client.unsafe("TRUNCATE webhook_subscriptions");
-    const pg = createPostgresSqlExecutor(connectionString!);
+    const pg = createPostgresSqlExecutor(connectionString!, { schema });
     try {
       const insert = (id: string, secret: string | null, envelope: string | null, version: number | null) => pg.query(
         "INSERT INTO webhook_subscriptions (subscription_id,secret,envelope,key_version,target,event_type) VALUES ($1,$2,$3,$4,'https://home.example','wallet_activity')", [id, secret, envelope, version],

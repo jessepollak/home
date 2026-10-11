@@ -78,7 +78,7 @@ export async function refreshObservedCardEvent(event: CardObservation): Promise<
   if (!config || config.mode !== event.mode) return;
   const sql = getSqlExecutor();
   const card = await sql.query<{ id: string }>(
-    "SELECT id FROM cards WHERE mode=$1 AND stripe_card_id=$2", [event.mode, event.externalIds.card]);
+    "SELECT c.id FROM cards c JOIN customers o ON o.id=c.customer_id WHERE c.mode=$1 AND c.stripe_card_id=$2 AND o.retained_until IS NULL", [event.mode, event.externalIds.card]);
   if (!card.rows[0]) return;
   const kind = event.kind.startsWith("issuing_authorization.") ? "authorization" : "transaction";
   const purchase = await createStripeTransactionClient(config).read(kind, event.externalIds.transaction);

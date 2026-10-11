@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { requestOrigin } from "@/server/auth/signed-cookie";
 import { resolveCustomer } from "@/server/customers/resolve";
@@ -46,6 +48,8 @@ export function createCardRevealHandler(deps: {
       if (!parseCardEphemeralKeyResponse(result)) throw new Error("Invalid ephemeral key response");
       return privateJson(result);
     } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
       if (error instanceof CardWriteFailure) return failure(error.code, error.status);
       return failure("CARDS_UNAVAILABLE", 503);
     }

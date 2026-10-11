@@ -69,8 +69,8 @@ type Row = Record<string, unknown>;
 export class PostgresFundingProviderCustomerStore implements FundingProviderCustomerStore {
   constructor(private readonly sql: SqlExecutor) {}
   async reserve(input: { id: string; owner: FundingOrderOwner; providerId: string; region: string; createdAt: string }) {
-    const ids = await recordCustomerIds(this.sql, input.owner, new Date(input.createdAt));
     return this.sql.transaction(async (transaction) => {
+      const ids = await recordCustomerIds(transaction, input.owner, new Date(input.createdAt));
       const inserted = await transaction.query(`INSERT INTO funding_provider_customers (id,owner_subject,account_provider,provider_id,region,state,created_at,updated_at,customer_id,credential_id,wallet_id) VALUES ($1,$2,$3,$4,$5,'reserving',$6,$6,$7,$8,$9) ON CONFLICT (account_provider,owner_subject,provider_id,region) DO NOTHING RETURNING *`, [input.id,input.owner.subject,input.owner.accountProvider,input.providerId,input.region,input.createdAt,ids.customerId,ids.credentialId,ids.walletId]);
       const row = inserted.rows[0] ?? (await transaction.query("SELECT * FROM funding_provider_customers WHERE account_provider=$1 AND owner_subject=$2 AND provider_id=$3 AND region=$4 FOR UPDATE", [input.owner.accountProvider,input.owner.subject,input.providerId,input.region])).rows[0];
       if (!row) throw new Error("funding-provider-customer-reservation-missing");

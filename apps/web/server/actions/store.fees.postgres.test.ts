@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql } from "@/tests/helpers/migrations";
+import { readAllMigrationSql } from "@/tests/helpers/migrations";
 import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
 import { ActionsStore } from "./store";
 import { readOperatorRevenue } from "@/server/fees/revenue";
@@ -33,12 +33,7 @@ describePostgres("operator fee records and revenue", () => {
     await admin.unsafe(`CREATE SCHEMA ${schema}`);
     await admin.begin(async (transaction) => {
       await transaction.unsafe(`SET LOCAL search_path TO ${schema}`);
-      for (const name of ["001_actions.sql", "012_action_outcomes.sql", "013_action_call_commitment.sql", "014_cashout_orders.sql"]) {
-        await transaction.unsafe(await readMigrationSql(name));
-      }
-      for (const name of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql", "018_operator_fee_records.sql"]) {
-        await transaction.unsafe(await readMigrationSql(name));
-      }
+      for (const migration of await readAllMigrationSql()) await transaction.unsafe(migration);
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);

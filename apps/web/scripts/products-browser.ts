@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Client } from "pg";
-import { readMigrationSql } from "../tests/helpers/migrations";
+import { readAllMigrationSql } from "../tests/helpers/migrations";
 
 const fixtureUrl = process.env.HOME_PRODUCTS_PG_TEST_URL?.trim();
 if (!fixtureUrl) throw new Error("Set HOME_PRODUCTS_PG_TEST_URL to a disposable loopback PostgreSQL database; Products browser coverage never skips.");
@@ -42,7 +42,7 @@ try {
   created = true;
   await setupQuery("BEGIN");
   await setupQuery(`SET LOCAL search_path TO ${schema}`);
-  await setupQuery(await readMigrationSql("010_operator_settings.sql"));
+  for (const migration of await readAllMigrationSql()) await setupQuery(migration);
   await setupQuery("COMMIT");
   requireUninterrupted();
   url.searchParams.set("options", `-c search_path=${schema}`);

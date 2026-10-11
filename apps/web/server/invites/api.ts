@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { INVITE_LINK_CONTRACT_VERSION, type InviteLinkResponse } from "@/shared/invites/contract";
 import { authorizeSession } from "@/server/auth/authorize";
@@ -37,7 +39,9 @@ export function createInviteLinkHandler(deps: Dependencies = {
       if (customer.status !== "active") return privateJson({ error: { code: "INVITES_UNAVAILABLE" } }, 403);
       const code = await deps.code(customer.id);
       return privateJson({ version: INVITE_LINK_CONTRACT_VERSION, code } satisfies InviteLinkResponse, 200);
-    } catch {
+    } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
       return unavailable();
     }
   };

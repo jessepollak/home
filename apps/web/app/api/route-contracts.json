@@ -3,6 +3,7 @@
     "access/logout/route.ts": { "exempt": { "kind": "redirect", "reason": "Logout clears the deployment-access cookie and redirects without a parsed response body." } },
     "access/route.ts": { "contracts": ["shared/access/contract.ts"] },
     "account/country-preference/route.ts": { "contracts": ["shared/account/contracts/country-preference.ts"], "methods": { "GET": { "contracts": ["shared/account/contracts/country-preference.ts"] }, "PUT": { "contracts": ["shared/account/contracts/country-preference.ts"] } } },
+    "account/deletion/route.ts": { "contracts": ["shared/account/contracts/account-deletion.ts"], "methods": { "GET": { "contracts": ["shared/account/contracts/account-deletion.ts"] }, "POST": { "contracts": ["shared/account/contracts/account-deletion.ts"] } } },
     "account/email-request/route.ts": { "contracts": ["shared/account/contracts/email-request.ts"], "methods": { "GET": { "contracts": ["shared/account/contracts/email-request.ts"] }, "POST": { "contracts": ["shared/account/contracts/email-request.ts"] } } },
     "account/export/route.ts": { "contracts": ["shared/account/contracts/data-export.ts"], "methods": { "GET": { "contracts": ["shared/account/contracts/data-export.ts"] } } },
     "actions/[id]/confirm/route.ts": { "contracts": ["shared/actions/contracts/confirm.ts"] },

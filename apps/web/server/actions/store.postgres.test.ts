@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql } from "@/tests/helpers/migrations";
+import { readAllMigrationSql } from "@/tests/helpers/migrations";
 import { ActionsStore, actionOwnerKey } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { RETAINED_SAVINGS_DEPOSITS_LIMIT } from "@/shared/actions/contracts/list";
@@ -32,12 +32,6 @@ const cashoutSummary = {
 describePostgres("actions schema and store", () => {
   beforeAll(async () => {
     admin = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
-    const migration = await readMigrationSql("001_actions.sql");
-    const outcomesMigration = await readMigrationSql("012_action_outcomes.sql");
-    const callCommitmentMigration = await readMigrationSql("013_action_call_commitment.sql");
-    const cashoutMigration = await readMigrationSql("014_cashout_orders.sql");
-    const providerProgressMigration = await readMigrationSql("021_cashout_provider_progress.sql");
-    const observationsMigration = await readMigrationSql("016_action_receipt_observations.sql");
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${TEST_SCHEMA}`);
     await admin.begin(async (transaction) => {
@@ -46,16 +40,7 @@ describePostgres("actions schema and store", () => {
         name text PRIMARY KEY,
         applied_at timestamptz NOT NULL DEFAULT now()
       )`);
-      await transaction.unsafe(migration);
-      await transaction.unsafe(outcomesMigration);
-      await transaction.unsafe(callCommitmentMigration);
-      await transaction.unsafe(cashoutMigration);
-      await transaction.unsafe(observationsMigration);
-      await transaction.unsafe(observationsMigration);
-      await transaction.unsafe(providerProgressMigration);
-      for (const file of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
-        await transaction.unsafe(await readMigrationSql(file));
-      }
+      for (const migration of await readAllMigrationSql()) await transaction.unsafe(migration);
       await transaction.unsafe("INSERT INTO schema_migrations (name) VALUES ($1), ($2), ($3), ($4), ($5), ($6)", ["db/001_actions.sql", "db/012_action_outcomes.sql", "db/013_action_call_commitment.sql", "db/014_cashout_orders.sql", "db/016_action_receipt_observations.sql", "db/021_cashout_provider_progress.sql"]);
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });

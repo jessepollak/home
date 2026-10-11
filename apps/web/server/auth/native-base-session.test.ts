@@ -1,3 +1,4 @@
+import { AccountDeletedError, AccountDeletionAuthUnavailable } from "@/server/account-deletion/errors";
 import { readJson } from "@/tests/helpers/read-json";
 import { parseAddress } from "@/shared/chain/hex";
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
@@ -548,5 +549,27 @@ describe("verified Base capture", () => {
     const response = await createNativeBaseVerifyHandler(deps)(post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie));
     expect(response.status).toBe(200);
     expect(parseNativeBaseSession(await readJson(response))?.smartAccount.address).toBe(parseAddress(ADDRESS)!);
+  });
+});
+
+describe("native verify deletion boundary", () => {
+  test.each([
+    { stage: "check", unavailable: false }, { stage: "resolver", unavailable: false },
+    { stage: "check", unavailable: true }, { stage: "resolver", unavailable: true },
+  ])("$stage deletion boundary (unavailable=$unavailable) clears challenge without a new session", async ({ stage, unavailable }) => {
+    const issued=await challenge(handlers().nonce);
+    let cookies=0;
+    const response=await createNativeBaseVerifyHandler({
+      sessionSecret:SECRET,now:()=>START,verify:async()=>true,
+      assertLive:async()=>{if(stage==="check") throw unavailable ? new AccountDeletionAuthUnavailable() : new AccountDeletedError();},
+      onVerified:async()=>{if(stage==="resolver") throw unavailable ? new AccountDeletionAuthUnavailable() : new AccountDeletedError();},
+      verifiedCookies:()=>{cookies++;return ["render-hint=yes"];},
+    })(post("/api/auth/base/verify",verifyBody(issued.message),issued.cookie));
+    expect(response.status).toBe(unavailable ? 503 : 401); expect(await response.json()).toMatchObject({error:{code:unavailable ? "AUTH_UNAVAILABLE" : "ACCOUNT_DELETED"}});
+    expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(response.headers.getSetCookie()).toHaveLength(1);
+    expect(response.headers.getSetCookie()[0]).toContain("home-auth-challenge=");
+    expect(response.headers.getSetCookie()[0]).toContain("Max-Age=0");
+    expect(cookies).toBe(0);
   });
 });

@@ -25,7 +25,7 @@ const SESSION: VerifiedAccountSession = {
 };
 
 describe("CDP render session", () => {
-  test("issues and validates only a complete, well-formed cookie pair", () => {
+  test("issues and validates only a complete, well-formed cookie pair", async () => {
     const issued = issueCdpRenderHint(KEY, SESSION, REQUEST, NOW);
     expect(issued).toHaveLength(2);
     expect(issued[0]).toContain("home-cdp-session=");
@@ -165,7 +165,7 @@ describe("CDP render session", () => {
     ];
 
     for (const entry of cases) {
-      expect(entry.read(), entry.name).toEqual(entry.expected);
+      expect(await entry.read(), entry.name).toEqual(entry.expected);
     }
   });
 });

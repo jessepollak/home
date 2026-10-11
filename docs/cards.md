@@ -176,3 +176,7 @@ Immersve:
 4. Partner-conducted KYC with Sumsub: accepted, and with what statement and evidence payload?
 5. Fees, numeric limits, spendable-balance rules, refund visibility, PCI-safe detail display options. For the deposit fallback only: deposit crediting/finality on Base, and whether an unexecuted withdrawal intent past `expiresAt` re-credits the Funding Source after its immediate debit.
 6. Approval-based funding on Base: which funding type Home's channel uses, which contract the customer approves, whether the draw happens at authorization or at clearing (and how holds, partial clears, reversals and refunds move funds), and whether the approving wallet and Wallet Signature Funding Source creation accept a deployed ERC-1271 smart account.
+
+### Unreconciled event retention
+
+Lazy event pruning does not discard an issuing event with a transaction ID until a terminal provider-read projection at or after its receipt time proves reconciliation. Missing projections and failed refreshes remain unresolved and block Leave Home. Terminal amounts and provider transaction identifiers remain in the retained transaction store; deletion removes event invalidation IDs only after eligibility is proven.

@@ -43,6 +43,7 @@ export function readCdpCredentials(env: Environment = serverEnvironment()): CdpC
 
 export const readCodexApiKey = envGetter("CODEX_API_KEY", optionalCredential, () => undefined);
 
+export const readAccountDeletionTombstoneSecret = envGetter("ACCOUNT_DELETION_TOMBSTONE_SECRET", optionalCredential, () => undefined);
 export const readDatabaseUrl = envGetter("DATABASE_URL", optionalCredential, () => undefined);
 export const readHomeSessionSecret = envGetter("HOME_SESSION_SECRET", optionalCredential, () => undefined);
 export const readBaseRpcUrl = envGetter("BASE_RPC_URL", optionalCredential, () => undefined);

@@ -28,6 +28,8 @@ import {
 } from "@/client/query/after-action";
 import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import { dataOwnerKey } from "./owner-keys";
+import { ACCOUNT_DELETED_ERROR_CODE } from "@/shared/account/contracts/account-deletion";
+import { recoverAccountDeletionReceipt } from "./account-deletion-receipt-recovery";
 import { ResourceFailure, type ResourceFailureKind } from "./resource-failure";
 
 type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
@@ -38,6 +40,7 @@ const accountResourcePrefixes = [
   ...walletFreeAccountResourcePrefixes,
   "/api/account/email-request",
   "/api/account/export",
+  "/api/account/deletion",
   "/api/invites/link",
   "/api/actions",
   "/api/activity/orders",
@@ -161,6 +164,7 @@ export function useAuthenticatedTransport({
   sessionFetch,
   authentication = "cdp",
   accessNavigation,
+  onAccountDeleted,
 }: {
   session: VerifiedAccountSession | null;
   status: AccountSessionStatus;
@@ -171,6 +175,7 @@ export function useAuthenticatedTransport({
   sessionFetch?: SessionFetch;
   authentication?: "cdp" | "native-base";
   accessNavigation?: AccessNavigation;
+  onAccountDeleted?: (recover: () => Promise<unknown>, isOriginCurrent: () => boolean) => void;
 }) {
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const freshnessState = useRef(createBalanceFreshnessState());
@@ -178,6 +183,21 @@ export function useAuthenticatedTransport({
     resetBalanceFreshness(freshnessState.current);
   }, []);
   useEffect(() => reset, [reset]);
+
+  const recoverDeletedAccount = useCallback((accessToken: string | null, generation: number) => {
+    const isOriginCurrent = () => ownerFence.isCurrent(generation);
+    if (!session || !isOriginCurrent()) return;
+    onAccountDeleted?.(async () => {
+      ownerFence.assertCurrent(generation);
+      return recoverAccountDeletionReceipt({
+        sessionFetch, assertCurrent: () => ownerFence.assertCurrent(generation), headers: {
+          Accept: "application/json",
+          ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
+          [ACCOUNT_PROVIDER_HEADER]: session.accountProvider,
+        },
+      });
+    }, isOriginCurrent);
+  }, [authentication, onAccountDeleted, ownerFence, session, sessionFetch]);
 
   const fetchVerifiedResource = useCallback(
     async (
@@ -198,9 +218,9 @@ export function useAuthenticatedTransport({
       if (!session || !ownerKey || (!provisionalRead && (status !== "verified" || verification !== "server"))) {
         throw new ResourceFailure("session");
       }
-      const generation = provisionalRead ? ownerFence.capture() : null;
+      const generation = ownerFence.capture();
       const assertCurrent = () => {
-        if (generation !== null && !ownerFence.isCurrent(generation)) {
+        if (!ownerFence.isCurrent(generation)) {
           throw new ResourceFailure("session");
         }
       };
@@ -246,6 +266,10 @@ export function useAuthenticatedTransport({
           details = responseErrorDetails(await readJson(response));
         } catch {
         }
+        if (response.status === 401 && details.code === ACCOUNT_DELETED_ERROR_CODE) {
+          assertCurrent();
+          recoverDeletedAccount(accessToken, generation);
+        }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
         assertCurrent();
         const unavailable = new ResourceFailure("http", undefined, response.status);
@@ -261,7 +285,7 @@ export function useAuthenticatedTransport({
         throw new ResourceFailure("parse");
       }
     },
-    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, session, sessionFetch, status, verification],
+    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, recoverDeletedAccount, session, sessionFetch, status, verification],
   );
 
   const startActionBalanceFreshness = useCallback((actionId: string) => startBalanceFreshness({
@@ -349,9 +373,16 @@ export function useAuthenticatedTransport({
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
           const payload: unknown = await readJson(response);
-          details = actionErrorDetails(pathname, payload);
+          const boundaryDetails = responseErrorDetails(payload);
+          details = boundaryDetails.code === ACCOUNT_DELETED_ERROR_CODE
+            ? boundaryDetails : actionErrorDetails(pathname, payload);
         } catch {
         }
+        if (response.status === 401 && details.code === ACCOUNT_DELETED_ERROR_CODE) {
+          assertActive();
+          recoverDeletedAccount(accessToken, identity);
+        }
+        assertActive();
         throwIfDeploymentExpired(response, skewHeaders, details.code);
         qualifyUncertainHandle(response.status, false);
         const failure = new TransferExecutionError(
@@ -362,7 +393,7 @@ export function useAuthenticatedTransport({
       }
       return { response, assertActive, recordsHandle, qualifyUncertainHandle };
     },
-    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, queryClient, session, sessionFetch, startActionBalanceFreshness, status, verification],
+    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, queryClient, recoverDeletedAccount, session, sessionFetch, startActionBalanceFreshness, status, verification],
   );
 
   const fetchAccountResource = useCallback(

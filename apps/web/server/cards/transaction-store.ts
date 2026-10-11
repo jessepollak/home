@@ -9,36 +9,41 @@ type Row = { provider_transaction_id: string; kind: CardPurchase["kind"]; amount
   merchant_category: string | null; status: CardPurchase["status"]; decline_reason_code: string | null; provider_created_at: Date; updated_at: Date;
   authorization_id: string | null };
 
+export const UNRECONCILED_CARD_EVENT_SQL = `e.provider='bridge' AND e.transaction_id IS NOT NULL
+  AND (e.kind LIKE 'issuing_authorization.%' OR e.kind LIKE 'issuing_transaction.%')
+  AND (t.id IS NULL OR t.updated_at < e.received_at)`;
+
 export function createCardTransactionStore(sql: Pick<SqlExecutor, "query">) {
   return {
     async cards(customerId: string, mode: CardMode) {
       const result = await sql.query<{ id: string; stripe_card_id: string }>(
-        "SELECT id, stripe_card_id FROM cards WHERE customer_id=$1 AND mode=$2 ORDER BY created_at DESC LIMIT 3", [customerId, mode]);
+        "SELECT c.id,c.stripe_card_id FROM cards c JOIN customers o ON o.id=c.customer_id WHERE c.customer_id=$1 AND c.mode=$2 AND o.retained_until IS NULL ORDER BY c.created_at DESC LIMIT 3", [customerId, mode]);
       return result.rows;
     },
     async pending(cardId: string, mode: CardMode) {
       const result = await sql.query<{ transaction_id: string; kind: string }>(
         `SELECT e.transaction_id, e.kind FROM card_events e JOIN cards c ON c.stripe_card_id=e.card_id
          LEFT JOIN card_transactions t ON t.card_id=c.id AND t.provider='bridge' AND t.mode=e.mode AND t.provider_transaction_id=e.transaction_id
-         WHERE c.id=$1 AND e.mode=$2 AND e.provider='bridge' AND e.transaction_id IS NOT NULL
-           AND (e.kind LIKE 'issuing_authorization.%' OR e.kind LIKE 'issuing_transaction.%')
-           AND (t.id IS NULL OR t.updated_at < e.received_at)
+         WHERE c.id=$1 AND e.mode=$2 AND ${UNRECONCILED_CARD_EVENT_SQL}
          ORDER BY e.received_at ASC, e.event_id ASC LIMIT 11`, [cardId, mode]);
       return result.rows;
     },
     async upsert(cardId: string, mode: CardMode, purchase: StripePurchase) {
       const result = await sql.query(
-        `INSERT INTO card_transactions (card_id,provider,mode,provider_transaction_id,authorization_id,kind,amount_minor,currency,merchant_name,merchant_category,status,decline_reason_code,provider_created_at)
-         SELECT c.id,'bridge',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12 FROM cards c
-         WHERE c.id=$1 AND c.mode=$2 AND c.stripe_card_id=$13
+        `WITH live_card AS (SELECT c.id,c.mode,c.stripe_card_id FROM cards c JOIN customers o ON o.id=c.customer_id JOIN card_accounts ca ON ca.customer_id=c.customer_id AND ca.mode=c.mode WHERE c.id=$1 AND c.mode=$2 AND c.stripe_card_id=$13 AND o.retained_until IS NULL FOR UPDATE OF c,ca)
+         INSERT INTO card_transactions (card_id,provider,mode,provider_transaction_id,authorization_id,kind,amount_minor,currency,merchant_name,merchant_category,status,decline_reason_code,provider_created_at,authorization_closed)
+         SELECT c.id,'bridge',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$14 FROM live_card c
          ON CONFLICT (provider,mode,provider_transaction_id) DO UPDATE SET
          amount_minor=EXCLUDED.amount_minor, currency=EXCLUDED.currency, merchant_name=EXCLUDED.merchant_name,
          merchant_category=EXCLUDED.merchant_category, status=EXCLUDED.status, decline_reason_code=EXCLUDED.decline_reason_code,
-         authorization_id=EXCLUDED.authorization_id, updated_at=now()
+         authorization_id=EXCLUDED.authorization_id, authorization_closed=EXCLUDED.authorization_closed, updated_at=now()
          WHERE card_transactions.card_id=EXCLUDED.card_id`,
         [cardId, mode, purchase.id, purchase.authorizationId, purchase.kind, purchase.amountMinor, purchase.currency,
-          purchase.merchantName, purchase.merchantCategory, purchase.status, purchase.declineReasonCode, purchase.createdAt, purchase.cardId]);
-      if (result.rowCount !== 1) throw new Error("Card purchase owner mismatch");
+          purchase.merchantName, purchase.merchantCategory, purchase.status, purchase.declineReasonCode, purchase.createdAt, purchase.cardId, purchase.authorizationClosed ?? null]);
+      if (result.rowCount !== 1) {
+        const retained = await sql.query("SELECT 1 FROM cards c JOIN customers o ON o.id=c.customer_id WHERE c.id=$1 AND o.retained_until IS NOT NULL", [cardId]);
+        if (!retained.rowCount) throw new Error("Card purchase owner mismatch");
+      }
     },
     async rows(customerId: string, mode: CardMode, window?: { from: string; to: string }): Promise<CardPurchase[]> {
       const result = await sql.query<Row>(

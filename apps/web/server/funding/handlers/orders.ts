@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { FUNDING_ORDER_VERSION, readFundingOrderResponse } from "@/shared/funding/contracts/order";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -90,6 +92,8 @@ export async function handleFundingOrderPost(
     if (!readFundingOrderResponse(response)) throw new Error("invalid-order-response");
     return privateJson(response, 201);
   } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
     if (error instanceof FundingCoreError) {
       return fundingError(error.code, error.publicMessage ?? "The funding order could not be created.", error.status);
     }
@@ -154,6 +158,8 @@ export async function handleFundingOrderGetById(
     if (!readFundingOrderResponse(response)) throw new Error("invalid-order-response");
     return privateJson(response);
   } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
     if (error instanceof FundingCoreError) {
       return privateError(error.code, "Funding order not found.", error.status);
     }
@@ -192,6 +198,8 @@ export async function handleFundingOrderResolutionPost(
     const order = await dependencies.resolveAmbiguousOrder(authorized.session, id);
     return privateJson({ version: FUNDING_ORDER_RESOLUTION_VERSION, order });
   } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
     if (error instanceof FundingCoreError) {
       return privateError(
         error.code,
@@ -233,6 +241,8 @@ export async function handleFundingOrderCancellationPost(
     if (!readCancelFundingOrderResponse(response)) throw new Error("invalid-order-cancellation-response");
     return privateJson(response);
   } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
     if (error instanceof FundingCoreError) return privateError(error.code, cancellationMessage(error.code), error.status);
     emitUnknownFundingOrderRouteFailure({ route: "/api/funding/orders/:id/cancel", code: "ORDER_STATUS_UNAVAILABLE", session: authorized.session, startedAt });
     return privateError("ORDER_STATUS_UNAVAILABLE", "Home couldn't cancel this deposit right now. Try again.", 503);

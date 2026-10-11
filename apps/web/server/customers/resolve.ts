@@ -1,5 +1,8 @@
 import "server-only";
 
+import { AccountDeletedError, AccountDeletionAuthUnavailable } from "@/server/account-deletion/errors";
+import { assertCredentialLive } from "@/server/account-deletion/tombstone";
+import { lockWalletAddress } from "./wallet-lock";
 import { readDatabaseUrl } from "@/server/config/env";
 
 import { after } from "next/server";
@@ -43,14 +46,16 @@ export class CustomerResolver {
     });
   }
 
-  resolveCustomerInTransaction(tx: SqlExecutor, session: VerifiedAccountSession, at = new Date()): Promise<Resolution> {
-    return this.resolveInTransaction(tx, session, at, "sign_in");
+  resolveCustomerInTransaction(tx: SqlExecutor, session: VerifiedAccountSession, at = new Date(), source: "sign_in" | "activity" = "sign_in"): Promise<Resolution> {
+    return this.resolveInTransaction(tx, session, at, source);
   }
 
   private async resolveInTransaction(
     tx: SqlExecutor, session: VerifiedAccountSession, at: Date,
     source: "sign_in" | "activity", email?: string | null, country?: string | null, inviteCode?: string | null,
   ): Promise<Resolution> {
+    await assertCredentialLive(tx, session, new Date(), true);
+    if (session.smartAccount) await lockWalletAddress(tx, session.smartAccount.chainId, session.smartAccount.address);
     const candidateId = crypto.randomUUID();
     const normalizedEmail = session.accountProvider === "cdp-embedded" && email ? email.toLowerCase() : null;
     const inserted = await tx.query<CredentialRow>(
@@ -71,7 +76,8 @@ export class CustomerResolver {
              AND NOT EXISTS (SELECT 1 FROM customer_wallets w WHERE w.customer_id=i.customer_id
                AND w.chain_id=$2 AND w.address=$3)
              AND NOT EXISTS (SELECT 1 FROM customer_credentials cr WHERE cr.customer_id=i.customer_id
-               AND cr.email=$4::text)`,
+               AND cr.email=$4::text)
+           FOR SHARE OF c`,
           [inviteCode, session.smartAccount?.chainId ?? null, session.smartAccount?.address.toLowerCase() ?? null, normalizedEmail],
         )).rows[0];
       }
@@ -181,24 +187,29 @@ export async function resolveCustomer(session: VerifiedAccountSession, options: 
 }
 
 export async function bestEffortCustomerRecord(operation: (resolver: CustomerResolver) => Promise<unknown>): Promise<void> {
+  return recordCustomer(operation, true);
+}
+
+async function recordCustomer(operation: (resolver: CustomerResolver) => Promise<unknown>, rejectDeletionBoundary: boolean): Promise<void> {
   try {
     const resolver = getCustomerResolver();
     if (resolver) await operation(resolver);
-  } catch {
+  } catch (error) {
     emitServerEvent("operator-registry", {
       route: "/operator-registry", code: "OPERATOR_REGISTRY_WRITE_FAILED", outcome: "failed",
     });
+    if (rejectDeletionBoundary && (error instanceof AccountDeletedError || error instanceof AccountDeletionAuthUnavailable)) throw error;
   }
 }
 
 export async function deferCustomerRecord(operation: (resolver: CustomerResolver) => Promise<unknown>): Promise<void> {
   if (!getCustomerResolver()) return;
   try {
-    after(() => bestEffortCustomerRecord(operation));
+    after(() => recordCustomer(operation, false));
   } catch {
     emitServerEvent("operator-registry", {
       route: "/operator-registry", code: "OPERATOR_REGISTRY_OUTSIDE_REQUEST", outcome: "failed",
     });
-    await bestEffortCustomerRecord(operation);
+    await recordCustomer(operation, false);
   }
 }

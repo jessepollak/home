@@ -1,3 +1,4 @@
+import { AccountDeletedError, AccountDeletionAuthUnavailable } from "@/server/account-deletion/errors";
 import { parseSession } from "@/shared/account/contracts/session";
 import { readJson } from "@/tests/helpers/read-json";
 import { createHash } from "node:crypto";
@@ -551,5 +552,27 @@ describe("verified session capture", () => {
     expect(response.status).toBe(200);
     expect(await readJson(response)).toMatchObject({ accountProvider: "cdp-embedded" });
     expect(response.headers.getSetCookie()).toContain("home_invite=; Path=/; Max-Age=0");
+  });
+});
+
+describe("session deletion boundary", () => {
+  test.each([["check",false],["resolver",false],["check",true],["resolver",true]] as const)("%s revocation on native=%s yields no session cookies or render hint", async (stage,native) => {
+    let cookies=0;
+    const handler=makeHandler(async()=>embeddedProfile(),undefined,{
+      baseAccountEnabled:native,homeSessionSecret:SECRET,
+      assertLive:async()=>{if(stage==="check") throw new AccountDeletedError();},
+      onVerifiedSession:async()=>{if(stage==="resolver") throw new AccountDeletedError();},
+      issueCookies:()=>{cookies++;return ["render-hint=yes"];},
+      verifiedCookies:()=>{cookies++;return ["verified=yes"];},
+    });
+    const response=await handler(native ? makeRequest(undefined,"base-account",nativeSessionCookie()) : makeRequest("Bearer one.two.three"));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({error:{code:"ACCOUNT_DELETED"}});
+    expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(response.headers.getSetCookie()).toEqual([]); expect(cookies).toBe(0);
+  });
+  test("registry lookup failure is private unavailable without a hint", async () => {
+    const response=await makeHandler(async()=>embeddedProfile(),undefined,{assertLive:async()=>{throw new AccountDeletionAuthUnavailable();}})(makeRequest("Bearer one.two.three"));
+    expect(response.status).toBe(503); expect(response.headers.getSetCookie()).toEqual([]);
   });
 });
