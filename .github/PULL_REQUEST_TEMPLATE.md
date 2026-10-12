@@ -39,7 +39,7 @@
 <!-- List commands with their result, plus one line per manual check. Do not enumerate the cases the tests cover. When the change adds no tests, say so with one reason (for example "No tests: copy-only change"); zero tests is acceptable for a trivial change. -->
 
 Failure-cases: <tested>/<dependency calls>
-<!-- Count money-path external reads and writes the diff adds or touches, and how many have a rejection, timeout, or partial-result test; see the test policy's "Choose the case, then the layer". Use N/A: <reason> only for docs-only and CI-only PRs. -->
+<!-- Count money-path external reads and writes the diff adds or touches, and how many have a rejection, timeout, or partial-result test; see the test policy's "Choose the case, then the layer". `0/0` is the normal answer when the diff touches no money-path dependency; the count is not a quota for new tests. Use N/A: <reason> only for docs-only and CI-only PRs. -->
 <!-- Scoped fix(...) PRs: add one visible `Caught-by: <lint|unit|bot|review|browser|production>` line outside comments and fenced code. Identical repeats count once; different detectors fail CI. -->
 <!-- Optional for new Playwright declarations: Playwright-rung: <layout|scrolling|focus|history|persisted-state|media-query|hydration|dispatch|journey> -->
 
