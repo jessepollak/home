@@ -106,6 +106,20 @@ describe("explicit fiat presentation modes", () => {
     }
   });
 
+  test("requires a presentation choice in the type", () => {
+    const invalidPresentations = () => {
+      // @ts-expect-error options are required
+      formatFiatAmount("1", "USD");
+      // @ts-expect-error an empty options object does not choose a region
+      formatFiatAmount("1", "USD", {});
+      // @ts-expect-error precision without a region is not presentation
+      formatFiatAmount("1", "USD", { fractionDigits: 2 });
+      // @ts-expect-error the two presentation modes are exclusive
+      formatFiatAmount("1", "USD", { regionId: "US", currencyNative: true });
+    };
+    expect(invalidPresentations).toBeFunction();
+  });
+
   test("requires a presentation choice at runtime", () => {
     expect(() => formatFiatAmount("1", "USD", {} as { regionId: "US" }))
       .toThrow("A presentation region is required.");

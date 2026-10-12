@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parsePutSettingsRequest } from "./contract";
+import { parsePutSettingsRequest, parseSupportSettings } from "./contract";
 
 const operator = "0x1111111111111111111111111111111111111111";
 
@@ -15,5 +15,17 @@ test("put settings requests require a version, a revision and a valid operator a
     { version: 2, expectedRevision: 0, operator },
   ]) {
     expect(parsePutSettingsRequest(value)).toBeNull();
+  }
+});
+
+test("support settings shown to customers reject malformed email and unsafe urls", () => {
+  expect(parseSupportSettings({ email: null, url: null })).toEqual({ email: null, url: null });
+  for (const value of [
+    { email: "not-email", url: null },
+    { email: " user@example.com", url: null },
+    { email: null, url: "http://example.com" },
+    { email: null, url: "https://user:pass@example.com" },
+  ]) {
+    expect(parseSupportSettings(value)).toBeNull();
   }
 });
