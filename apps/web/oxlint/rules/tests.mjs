@@ -1,4 +1,7 @@
 import { allowedMockModules } from "../policy/mock-modules.mjs";
+import { allowedOwnedModuleSpies } from "../policy/owned-module-spies.mjs";
+import { allowedTestOnlyExports } from "../policy/test-only-exports.mjs";
+import { allowedExpectationTables } from "../policy/expectation-tables.mjs";
 
 const testFileSuffix = /\.(?:test|pw)\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/u;
 const moduleSuffix = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/u;
@@ -30,6 +33,46 @@ function resolvedImportPath(testRelativePath, source) {
 
 function directoryName(modulePath) {
   return modulePath.split("/").slice(0, -1).join("/");
+}
+
+function isOwnedSource(source) {
+  return typeof source === "string"
+    && (source === "." || source === ".." || source.startsWith("./") || source.startsWith("../") || source.startsWith("@/"));
+}
+
+function isSubjectImport(relative, source) {
+  if (!relative || !testFileSuffix.test(relative) || !isOwnedSource(source)) return false;
+  const subjectPath = relative.replace(testFileSuffix, "");
+  const resolved = resolvedImportPath(relative, source)?.replace(moduleSuffix, "");
+  return resolved !== undefined && (resolved === subjectPath
+    || directoryName(resolved) === directoryName(subjectPath)
+      && normalizedStem(resolved.split("/").pop()) === normalizedStem(subjectPath.split("/").pop()));
+}
+
+function expectationCall(node) {
+  let callee = node?.callee;
+  let matcher = false;
+  while (callee?.type === "MemberExpression") {
+    matcher = true;
+    callee = callee.object;
+  }
+  return matcher && callee?.type === "CallExpression" && callee.callee.type === "Identifier"
+    && callee.callee.name === "expect" ? callee : null;
+}
+
+const structuralMetadata = new Set(["parent", "start", "end", "range", "loc", "raw", "comments", "leadingComments", "trailingComments"]);
+
+function structurallyIdentical(left, right) {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((value, index) => structurallyIdentical(value, right[index]));
+  }
+  const keys = Object.keys(left).filter((key) => !structuralMetadata.has(key));
+  const otherKeys = Object.keys(right).filter((key) => !structuralMetadata.has(key));
+  return keys.length === otherKeys.length
+    && keys.every((key) => Object.hasOwn(right, key) && structurallyIdentical(left[key], right[key]));
 }
 
 function expectedArgument(node) {
@@ -85,7 +128,7 @@ function containsSubjectBinding(node, subjectBindings, subjectNamespaces) {
 export const noSelfReferentialExpectation = {
   meta: {
     type: "problem", schema: [], messages: {
-      rejected: "Expectations must assert an independently derived value, not an identifier imported from the module under test.",
+      rejected: "Expectations must assert an independently derived value, not a subject import or the same expression on both sides.",
     },
   },
   create(context) {
@@ -93,27 +136,27 @@ export const noSelfReferentialExpectation = {
     if (!relative) return {};
     const subjectPath = relative.replace(testFileSuffix, "");
     if (subjectPath === relative) return {};
-    const stem = normalizedStem(subjectPath.split("/").pop() ?? "");
     const subjectBindings = new Set();
     const subjectNamespaces = new Set();
     return {
       ImportDeclaration(node) {
         const source = sourceValue(node.source);
-        if (typeof source !== "string"
-          || !(source === "." || source.startsWith("./") || source.startsWith("../") || source.startsWith("@/"))) return;
-        const resolved = resolvedImportPath(relative, source);
-        if (resolved === null) return;
-        const resolvedModule = resolved.replace(moduleSuffix, "");
-        const importStem = normalizedStem(resolvedModule.split("/").pop() ?? "");
-        const matchingSameDirectoryStem = directoryName(resolvedModule) === directoryName(subjectPath)
-          && importStem === stem;
-        if (resolvedModule !== subjectPath && !matchingSameDirectoryStem) return;
+        if (!isSubjectImport(relative, source)) return;
         for (const specifier of node.specifiers) {
           if (specifier.type === "ImportNamespaceSpecifier") subjectNamespaces.add(specifier.local.name);
           else subjectBindings.add(specifier.local.name);
         }
       },
       CallExpression(node) {
+        const callee = node.callee;
+        const actualCall = expectationCall(node);
+        if (actualCall && callee.type === "MemberExpression" && callee.object === actualCall
+          && ["toBe", "toEqual", "toStrictEqual"].includes(memberName(callee))
+          && actualCall.arguments[0] && node.arguments[0]
+          && structurallyIdentical(actualCall.arguments[0], node.arguments[0])) {
+          context.report({ node: node.arguments[0], messageId: "rejected" });
+          return;
+        }
         const expected = expectedArgument(node);
         if (!containsSubjectBinding(expected, subjectBindings, subjectNamespaces)) return;
         context.report({ node: expected, messageId: "rejected" });
@@ -755,6 +798,7 @@ export const noConstantPin = {
   meta: {
     type: "problem", schema: [], messages: {
       pinned: "tests must not pin an imported constant to a literal; assert the behavior the value controls instead",
+      table: "expectation tables must use independent cases, not values imported from the module under test",
     },
   },
   create(context) {
@@ -763,8 +807,57 @@ export const noConstantPin = {
     if (!testFileSuffix.test(filename) && !/(?:^|\/)(?:tests|testing)\//u.test(filename)
       && !/(?:^|\/)[^/]*test-harness\.(?:ts|tsx)$/u.test(filename)
       && !/(?:^|\/)[^/]*smoke-fixture[^/]*\.(?:ts|tsx)$/u.test(filename)) return {};
+    const relative = appsWebRelativeFilename(context);
+    function checkTable(source, patterns, body) {
+      if (!source || !body) return;
+      const bindings = new Set(patterns.flatMap(bindingIdentifiers).map((identifier) =>
+        resolveVariable(context.sourceCode, identifier)).filter(Boolean));
+      if (!bindings.size || !someNode(body, (node) => node.type === "CallExpression"
+        && expectationCall(node) && someNode(node, (child) => child.type === "Identifier"
+          && isValueReference(context.sourceCode, child)
+          && bindings.has(resolveVariable(context.sourceCode, child))))) return;
+      const imports = [];
+      visitIterationSource(source, (node) => {
+        if (node.type !== "Identifier" || !isValueReference(context.sourceCode, node)) return false;
+        for (const definition of resolveVariable(context.sourceCode, node)?.defs ?? []) {
+          if (definition.type !== "ImportBinding" || definition.parent.importKind === "type"
+            || definition.node.importKind === "type"
+            || !isSubjectImport(relative, sourceValue(definition.parent.source))) continue;
+          const name = definition.node.type === "ImportNamespaceSpecifier" ? "*"
+            : definition.node.type === "ImportDefaultSpecifier" ? "default" : importedName(definition.node);
+          imports.push({ node, name });
+        }
+        return false;
+      });
+      for (const imported of imports) {
+        if (!allowedExpectationTables.get(relative)?.has(imported.name)) {
+          context.report({ node: imported.node, messageId: "table" });
+        }
+      }
+    }
     return {
+      ForOfStatement(node) {
+        const pattern = node.left.type === "VariableDeclaration" ? node.left.declarations[0]?.id : node.left;
+        checkTable(node.right, [pattern], node.body);
+      },
       CallExpression(node) {
+        const method = memberName(node.callee);
+        if (["forEach", "map"].includes(method)) {
+          const callback = node.arguments[0];
+          if (["ArrowFunctionExpression", "FunctionExpression"].includes(callback?.type)) {
+            checkTable(node.callee.object, callback.params.slice(0, 1), callback.body);
+          }
+        }
+        if (node.callee.type === "CallExpression" && memberName(node.callee.callee) === "each") {
+          let owner = node.callee.callee.object;
+          while (owner?.type === "MemberExpression") owner = owner.object;
+          if (owner?.type === "Identifier" && ["test", "it", "describe"].includes(owner.name)) {
+            const callback = node.arguments.at(-1);
+            if (["ArrowFunctionExpression", "FunctionExpression"].includes(callback?.type)) {
+              checkTable(node.callee.arguments[0], callback.params, callback.body);
+            }
+          }
+        }
         let callee = node.callee;
         const members = [];
         while (callee?.type === "MemberExpression" && !callee.computed
@@ -904,6 +997,169 @@ export const exactMockModules = {
     };
   },
 };
+function visitIterationSource(node, visit) {
+  node = unwrapBindingExpression(node);
+  if (!node) return;
+  if (node.type === "Identifier") visit(node);
+  else if (node.type === "MemberExpression") visitIterationSource(node.object, visit);
+  else if (node.type === "CallExpression") {
+    if (node.callee.type === "MemberExpression" && ["values", "keys", "entries"].includes(memberName(node.callee))
+      && node.callee.object.type === "Identifier" && node.callee.object.name === "Object") {
+      visitIterationSource(node.arguments[0], visit);
+    } else if (node.callee.type === "MemberExpression") visitIterationSource(node.callee.object, visit);
+  } else if (node.type === "ArrayExpression") {
+    for (const element of node.elements) {
+      if (element?.type === "SpreadElement") visitIterationSource(element.argument, visit);
+    }
+  }
+}
+
+function someNode(node, predicate) {
+  if (!node || typeof node.type !== "string") return false;
+  if (predicate(node)) return true;
+  for (const [key, value] of Object.entries(node)) {
+    if (structuralMetadata.has(key) || !value) continue;
+    if (Array.isArray(value)) {
+      if (value.some((child) => someNode(child, predicate))) return true;
+    } else if (typeof value.type === "string" && someNode(value, predicate)) return true;
+  }
+  return false;
+}
+
+function bindingIdentifiers(pattern) {
+  if (!pattern) return [];
+  if (pattern.type === "Identifier") return [pattern];
+  if (pattern.type === "RestElement") return bindingIdentifiers(pattern.argument);
+  if (pattern.type === "AssignmentPattern") return bindingIdentifiers(pattern.left);
+  if (pattern.type === "ArrayPattern") return pattern.elements.flatMap(bindingIdentifiers);
+  if (pattern.type === "ObjectPattern") return pattern.properties.flatMap((property) =>
+    bindingIdentifiers(property.type === "RestElement" ? property.argument : property.value));
+  return [];
+}
+
+function isValueReference(sourceCode, identifier) {
+  return resolveVariable(sourceCode, identifier)?.references.some((reference) =>
+    reference.isRead() && reference.identifier.start === identifier.start);
+}
+
+function isTestFile(filename) {
+  return !/\.stories\.[^/]+$/u.test(filename)
+    && (testFileSuffix.test(filename) || /(?:^|\/)(?:tests|testing)\//u.test(filename)
+      || /(?:^|\/)[^/]*test-harness\.(?:ts|tsx)$/u.test(filename)
+      || /(?:^|\/)[^/]*smoke-fixture[^/]*\.(?:ts|tsx)$/u.test(filename));
+}
+
+export const noOwnedModuleSpies = {
+  meta: {
+    type: "problem", schema: [], messages: {
+      rejected: "Spying on Home-owned module '{{module}}' is not approved in this test file; fake the external boundary instead.",
+    },
+  },
+  create(context) {
+    if (!isTestFile(String(context.filename ?? "").replaceAll("\\", "/"))) return {};
+    return {
+      CallExpression(node) {
+        const callee = unwrapBindingExpression(node.callee);
+        const spy = callee?.type === "Identifier" && (callee.name === "spyOn"
+          || clockImport(context.sourceCode, callee) === "spyOn")
+          || memberName(callee) === "spyOn"
+          || memberName(callee) === "method" && callee.object.type === "Identifier"
+            && (callee.object.name === "mock"
+              || clockImport(context.sourceCode, callee.object, new Set(["node:test"])) === "mock");
+        const target = unwrapBindingExpression(node.arguments[0]);
+        if (!spy || target?.type !== "Identifier") return;
+        for (const definition of resolveVariable(context.sourceCode, target)?.defs ?? []) {
+          if (definition.type !== "ImportBinding" || definition.node.type !== "ImportNamespaceSpecifier"
+            || definition.parent.importKind === "type") continue;
+          const source = sourceValue(definition.parent.source);
+          if (!isOwnedSource(source)
+            || allowedOwnedModuleSpies.get(appsWebRelativeFilename(context))?.has(source)) continue;
+          context.report({ node: target, messageId: "rejected", data: { module: source } });
+        }
+      },
+    };
+  },
+};
+
+export const noSnapshots = {
+  meta: { type: "problem", schema: [], messages: { rejected: "Tests must assert behavior, not snapshots." } },
+  create(context) {
+    if (!isTestFile(String(context.filename ?? "").replaceAll("\\", "/"))) return {};
+    const matchers = new Set(["toMatchSnapshot", "toMatchInlineSnapshot",
+      "toThrowErrorMatchingSnapshot", "toThrowErrorMatchingInlineSnapshot"]);
+    return {
+      CallExpression(node) {
+        if (matchers.has(memberName(node.callee))) context.report({ node, messageId: "rejected" });
+      },
+    };
+  },
+};
+
+export const noTestOnlyExports = {
+  meta: {
+    type: "problem", schema: [], messages: {
+      rejected: "Test-only export '{{name}}' is not approved in this production file; test through the public interface.",
+    },
+  },
+  create(context) {
+    const relative = appsWebRelativeFilename(context);
+    if (!relative || !/^(?:app|client|components|server|shared)\//u.test(relative)
+      || isTestFile(relative) || /\.stories\.[^/]+$/u.test(relative)
+      || /(?:^|\/)(?:stories|explorations)\//u.test(relative)) return {};
+    const reported = new Set();
+    function check(node, name = node?.name ?? sourceValue(node)) {
+      if (typeof name !== "string" || !name.endsWith("ForTests") || reported.has(node)
+        || allowedTestOnlyExports.get(relative)?.has(name)) return;
+      reported.add(node);
+      context.report({ node, messageId: "rejected", data: { name } });
+    }
+    function checkClass(node) {
+      if (!["ClassDeclaration", "ClassExpression"].includes(node?.type)) return;
+      for (const member of node.body.body) {
+        if (member.accessibility === "private" || member.accessibility === "protected"
+          || member.key?.type === "PrivateIdentifier") continue;
+        check(member.key);
+      }
+    }
+    function checkDeclaration(node) {
+      if (!node) return;
+      if (node.id) check(node.id);
+      checkClass(node);
+      for (const declaration of node.declarations ?? []) {
+        for (const identifier of bindingIdentifiers(declaration.id)) check(identifier);
+        checkClass(declaration.init);
+      }
+    }
+    const exports = [];
+    return {
+      ExportNamedDeclaration(node) { exports.push(node); },
+      ExportDefaultDeclaration(node) { exports.push(node); },
+      ExportAllDeclaration(node) { if (node.exported) check(node.exported); },
+      "Program:exit"() {
+        for (const node of exports) {
+          if (node.type === "ExportDefaultDeclaration" && node.declaration.type === "Identifier") {
+            check(node.declaration);
+            for (const definition of resolveVariable(context.sourceCode, node.declaration)?.defs ?? []) {
+              checkClass(definition.node);
+              checkClass(definition.node?.init);
+            }
+          }
+          checkDeclaration(node.declaration);
+          for (const specifier of node.specifiers ?? []) {
+            check(specifier.exported);
+            if (node.source || specifier.local?.type !== "Identifier") continue;
+            check(specifier.local);
+            for (const definition of resolveVariable(context.sourceCode, specifier.local)?.defs ?? []) {
+              checkClass(definition.node);
+              checkClass(definition.node?.init);
+            }
+          }
+        }
+      },
+    };
+  },
+};
+
 export const noComputedStyleInComponentTests = {
   meta: {
     type: "problem",

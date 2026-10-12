@@ -154,7 +154,8 @@ describe("cash-out refresh planning state table", () => {
     const context: Context = { now: NOW, order: scenario === "timeout" ? unavailable : available(order({ state: scenario === "completed" ? "delivered" : "matched" })) };
     const input = { persisted, rows: [{ row, receipt: null }], context };
     const before = structuredClone(input);
-    expect(planCashoutRefresh(persisted, input.rows, context)).toEqual(planCashoutRefresh(persisted, input.rows, context));
+    const firstPlan = planCashoutRefresh(persisted, input.rows, context);
+    expect(planCashoutRefresh(persisted, input.rows, context)).toEqual(firstPlan);
     expect(input).toEqual(before);
   });
 

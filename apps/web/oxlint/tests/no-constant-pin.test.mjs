@@ -68,6 +68,49 @@ describe("no-constant-pin", () => {
     `)).toHaveLength(0);
   }, budgetMs);
 
+  it("rejects subject-imported expectation tables in every iteration form", async () => {
+    expect(await lintTestFile("client/limits.test.ts", `
+      import { cases as rows } from "@/client/limits";
+      import * as limits from "./limits";
+      for (const row of rows) expect(read(row)).toBe(row);
+      rows.forEach((row) => expect(read(row)).toEqual(row));
+      rows.map(({ input }) => expect(read(input)).not.toBeNull());
+      test.each(rows)("case", (row) => expect(read(row)).toBe(row));
+      describe.each(rows)("case", (row) => { test("read", () => expect(read(row)).toBe(row)); });
+      for (const row of Object.values(limits.cases)) expect(read(row)).toBe(row);
+    `)).toHaveLength(6);
+  }, budgetMs);
+
+  it("keeps literal cases, other modules, type imports, shadowed bindings and nonasserting loops", async () => {
+    expect(await lintTestFile("client/limits.test.ts", `
+      import { cases, read } from "./limits";
+      import { fixtures } from "../other/limits";
+      import type { TypeCases } from "./limits";
+      for (const row of [1, 2]) expect(read(row)).toBe(row);
+      fixtures.forEach((row) => expect(read(row)).toBe(row));
+      for (const row of TypeCases) expect(read(row)).toBe(row);
+      cases.forEach((row) => consume(row));
+      cases.map((row) => row.input);
+      for (const row of cases) expect(unrelated).toBe(1);
+      function scenario(cases) { for (const row of cases) expect(read(row)).toBe(row); }
+      for (const [fn, input] of [[read, 1]]) expect(fn(input)).toBe(2);
+    `)).toHaveLength(0);
+  }, budgetMs);
+
+  it("shares normalized subject and index resolution with self-referential expectations", async () => {
+    expect(await lintTestFile("feature/next-config.test.ts", 'import { cases } from "./next.config"; cases.forEach(row => expect(read(row)).toBe(1));')).toHaveLength(1);
+    expect(await lintTestFile("feature/index.test.ts", 'import { cases } from "."; test.each(cases)("case", row => expect(read(row)).toBe(1));')).toHaveLength(1);
+  }, budgetMs);
+
+  it("grandfathers only an exact table import name and file", async () => {
+    expect(await lintTestFile("config/invest-assets.test.ts", `
+      import { investAssets as allowed, stockAssets } from "./invest-assets";
+      allowed.forEach(row => expect(read(row)).toBe(1));
+      stockAssets.forEach(row => expect(read(row)).toBe(1));
+    `)).toHaveLength(1);
+    expect(await lintTestFile("config/other/invest-assets.test.ts", 'import { investAssets } from "./invest-assets"; investAssets.forEach(row => expect(read(row)).toBe(1));')).toHaveLength(1);
+  }, budgetMs);
+
   it("covers support files and skips production files", async () => {
     const pin = 'import { TUNING_LIMIT } from "./limits"; expect(TUNING_LIMIT).toBe(10);';
     const filenames = ["tests/helpers/limit.ts", "testing/limit.ts", "client/limit.test-harness.ts", "client/limit-smoke-fixture.ts", "client/limit.pw.ts"];
