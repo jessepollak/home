@@ -834,7 +834,9 @@ describe("balance boundary maintenance", () => {
     const before = queryClient.getQueryData<BalanceActionMarker>(markerKey);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverAt: new Date(now + 100).toISOString(), now });
     expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toBe(before);
-    for (const scope of afterAction.afterActionScopes) expect(queryClient.getQueryState(ownerQueryKey(ownerKey, scope))?.isInvalidated).toBe(true);
+    for (const scope of ["card-spending", "balances", "activity", "borrow", "borrow-market", "actions", "trade-availability", "activity-orders", "transfers-recent-recipients"] as const) {
+      expect(queryClient.getQueryState(ownerQueryKey(ownerKey, scope))?.isInvalidated).toBe(true);
+    }
     expect(queryClient.getQueryData(ownerQueryKey(ownerKey, afterAction.activityWindowScope))).toBeDefined();
   });
 

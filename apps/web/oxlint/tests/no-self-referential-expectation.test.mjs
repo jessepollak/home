@@ -109,6 +109,19 @@ describe("no-self-referential-expectation", () => {
     `)).toHaveLength(0);
   }, budgetMs);
 
+  it("rejects structurally identical local, member, call and collection expressions", async () => {
+    expect(await lintTestFile("feature/example.test.ts", `
+      expect(value).toBe(value);
+      expect(row.amount).toEqual(row.amount);
+      expect(read(1 + 2)).toStrictEqual(read(1 + 2));
+      expect({ amount: [1, 2] }).toEqual({ amount: [1, 2] });
+      expect(value).toBe(other);
+      expect(read(1)).toBe(read(2));
+      expect(value).not.toBe(value);
+      expect(promise).resolves.toBe(promise);
+    `)).toHaveLength(4);
+  }, budgetMs);
+
   it("stays off for files that are not tests", async () => {
     expect(await lintTestFile("policy.ts", `
       import { expect } from "bun:test";
