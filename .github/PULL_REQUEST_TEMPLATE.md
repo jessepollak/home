@@ -36,7 +36,7 @@
 - [ ] `bun check` / CI green
 - [ ] Smoke the changed surface (or N/A — say why)
 
-<!-- List commands with their result, plus one line per manual check. Do not enumerate the cases the tests cover. -->
+<!-- List commands with their result, plus one line per manual check. Do not enumerate the cases the tests cover. When the change adds no tests, say so with one reason (for example "No tests: copy-only change"); zero tests is acceptable for a trivial change. -->
 
 Failure-cases: <tested>/<dependency calls>
 <!-- Count money-path external reads and writes the diff adds or touches, and how many have a rejection, timeout, or partial-result test; see the test policy's "Choose the case, then the layer". Use N/A: <reason> only for docs-only and CI-only PRs. -->
