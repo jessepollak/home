@@ -1,6 +1,6 @@
 ---
 name: design-engineering
-description: Use for every Home user-visible implementation or review, including small copy or alignment fixes; apply Home's design-engineering craft — trained taste, cohesive defaults, hierarchy, interaction edges, and purposeful motion. Use with browser-iteration for implementation or interactive review of a rendered surface; animate, review-animations, and mobile-native stay focused lenses.
+description: Use for every Home user-visible implementation or review, including small copy or alignment fixes; apply Home's design-engineering craft — trained taste, cohesive defaults, hierarchy, interaction edges, and purposeful motion. Use with browser-iteration for implementation or interactive review of a rendered surface; animate, review-animations, animation-performance, and mobile-native stay focused lenses.
 license: MIT
 metadata:
   source: https://github.com/emilkowalski/skills/tree/85e8e2363b713506e1d5b6e07a0eb2da66be1bc3/skills/emil-design-eng
@@ -59,7 +59,7 @@ Purpose, frequency, and content sensitivity gate motion; `docs/ui-direction.md` 
 - **Properties:** prefer `transform` and `opacity`. Never `transition: all`, never enter from `scale(0)`, and take trigger-anchored origins from Base UI's transform-origin contract.
 - **Reduced motion:** remove spatial and transform motion. Keep short opacity or color transitions only when they aid comprehension; never add a decorative fallback, and smooth scrolling stays `auto`.
 
-`animate` implements this policy and `review-animations` reviews it. Both remain focused lenses, not alternate standards.
+`animate` implements this policy, `review-animations` reviews it, and `animation-performance` diagnoses dropped frames within it. All remain focused lenses, not alternate standards.
 
 ## Evidence and review
 

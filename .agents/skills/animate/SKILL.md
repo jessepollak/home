@@ -26,7 +26,7 @@ Implement the smallest purposeful motion within the assigned task. Home's `AGENT
 1. **Gate the motion.** Name its purpose: feedback, spatial continuity, state indication, or preventing a jarring change. If none applies, do not animate.
 2. **Check frequency and content.** Repeated navigation, keyboard actions, and frequently read financial surfaces should stay instant or nearly imperceptible; functional financial data does not move merely for decoration.
 3. **Choose the cheapest existing tool.** Prefer an existing CSS transition for simple state changes; use the repository's Motion dependency only for layout, exit, gesture, or spring behavior that CSS cannot express clearly.
-4. **Choose safe properties.** Prefer `transform` and `opacity`. Avoid layout animation unless the component's behavior requires it. Never use `transition: all` or enter from `scale(0)`.
+4. **Choose safe properties.** Prefer `transform` and `opacity`. Avoid layout animation unless the component's behavior requires it. Never use `transition: all` or enter from `scale(0)`. When a property choice, Motion acceleration, or dropped frames is in question, apply [animation-performance](../animation-performance/SKILL.md).
 5. **Set timing from Home.** Movement on screen normally eases in and out; entrances and exits normally ease out. Reuse a nearby established curve rather than inventing one.
 6. **Make interaction motion interruptible.** Rapidly repeated actions must retarget from their current state rather than restart a keyframe sequence.
 7. **Ship the reduced-motion path and capability-gated hover** with the change.
