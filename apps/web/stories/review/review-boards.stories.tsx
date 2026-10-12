@@ -61,6 +61,7 @@ export const CommentsFollowCanvas: Story = {
     doc.body.append(host);
     try {
       const screen = within(doc.body);
+      await waitForReady(() => expect(screen.getByText("Comment Pick or Reject: reason to decide")).toBeVisible());
       const canvas = doc.querySelector<HTMLElement>("[data-review-canvas]");
       if (!canvas) throw new Error("Board canvas is required");
       const expectedClip = () => {
@@ -77,6 +78,8 @@ export const CommentsFollowCanvas: Story = {
       doc.defaultView!.removeEventListener("scroll", onScroll);
       host.remove();
     }
+    await waitForReady(() => expect(within(doc.body).queryByText("Comment Pick or Reject: reason to decide"))
+      .not.toBeInTheDocument());
   },
 };
 function ChromeFixture() {

@@ -25,6 +25,18 @@ export function writeBoardUrl(url: URL, update: Partial<BoardUrlState>): URL {
 export function storyCanvasUrl(story: string): string {
   return `./iframe.html?id=${encodeURIComponent(story)}&viewMode=story`;
 }
+export function managerBoardHandoff(current: URL, top?: URL | null): string | undefined {
+  if (!top?.searchParams.get("path")?.startsWith("/story/")) return undefined;
+  const id = current.searchParams.get("id");
+  if (!id || !/^review-boards--[a-z0-9-]+$/.test(id)) return undefined;
+  const target = new URL(storyCanvasUrl(id), current);
+  for (const key of ["frame", "side", "variant", "rev", "deployment", "focus", "globals"]) {
+    const source = current.searchParams.has(key) ? current : top;
+    const value = source.searchParams.get(key);
+    if (value !== null) target.searchParams.set(key, value);
+  }
+  return writeBoardUrl(target, readBoardUrl(target)).href;
+}
 export function storyManagerUrl(story: string): string {
   return `./?path=${encodeURIComponent(`/story/${story}`)}`;
 }

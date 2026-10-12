@@ -18,8 +18,8 @@ import { ShortcutsHelp } from "./shortcuts-help";
 import { formatFrameStatus, useFrameLoading } from "./use-frame-loading";
 import type { ReviewBoard } from "./manifest";
 import { changesBoard, hasChangeData, markBuildChanges, resolveBoard, type ReviewBuild, type StoryIndexEntry } from "./review-build";
-import { readBoardUrl, revisionLink, storyCanvasUrl, storyManagerUrl, writeBoardUrl } from "./url-state";
-import { useVercelCommentsSync } from "./vercel-comments";
+import { managerBoardHandoff, readBoardUrl, revisionLink, storyCanvasUrl, storyManagerUrl, writeBoardUrl } from "./url-state";
+import { useVercelCommentsAvailable, useVercelCommentsSync } from "./vercel-comments";
 import styles from "./board.module.css";
 
 type FrameSource = "story" | "blank";
@@ -51,6 +51,21 @@ export function ReviewBoardView({ board, build, frameSource = "story", narrow = 
   onNavigate?: Navigate;
   narrow?: boolean;
 }) {
+  const handoff = useMemo(() => {
+    if (typeof window === "undefined") return undefined;
+    try {
+      if (window.top && window.parent === window.top && window.top !== window &&
+        window.top.location.origin === window.location.origin)
+        return managerBoardHandoff(new URL(window.location.href), new URL(window.top.location.href));
+    } catch {}
+    return undefined;
+  }, []);
+  useEffect(() => {
+    try {
+      if (handoff && window.top && window.parent === window.top && window.top !== window &&
+        window.top.location.origin === window.location.origin) window.top.location.replace(handoff);
+    } catch {}
+  }, [handoff]);
   const [index, setIndex] = useState<StoryIndex | "unavailable" | null | undefined>(
     storyIndex ?? (frameSource === "blank" ? null : undefined));
   useEffect(() => {
@@ -75,7 +90,7 @@ export function ReviewBoardView({ board, build, frameSource = "story", narrow = 
     return present && markBuildChanges(present, build, index);
   }, [board, build, index, frameSource, focus]);
   const title = board === "changes" ? "Story changes" : board.title;
-  if (resolved === undefined) return <BoardMessage title={title} build={build}>Loading board…</BoardMessage>;
+  if (handoff || resolved === undefined) return <BoardMessage title={title} build={build}>Loading board…</BoardMessage>;
   if (resolved === "unavailable") return <BoardMessage title={title} build={build}>
     Couldn&apos;t load this build&apos;s story list. Reload to try again.
   </BoardMessage>;
@@ -149,6 +164,7 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
   const canvas = useRef<HTMLDivElement>(null);
   const canvasLeft = useRef<number | null>(null);
   const actionButton = useRef<HTMLButtonElement>(null);
+  const commentsAvailable = useVercelCommentsAvailable();
   useVercelCommentsSync({ camera, canvasRef: canvas, enabled: !mobile && viewport.width > 0 });
   const activeFrame = useRef<HTMLIFrameElement>(null);
   const lastWidth = useRef<number | null>(null);
@@ -470,6 +486,7 @@ function BoardCanvas({ board, build, frameSource, narrow, index, onNavigate }: {
         </Toggle>
       </>}
     </header>
+    {commentsAvailable && <div className={styles.commentHint}>Comment Pick or Reject: reason to decide</div>}
     {(mismatch || staleFrame) && <div className={styles.banner} role="status">
       {mismatch && <>Opened from a comment on revision {original.rev?.slice(0, 7)}; this is {revision.slice(0, 7)}. </>}
       {staleFrame && <>Frame “{staleFrame}” is not on this revision; showing the first frame.</>}

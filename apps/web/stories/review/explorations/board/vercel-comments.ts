@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Camera } from "./camera";
 
 type Box = Pick<DOMRect, "top" | "right" | "bottom" | "left">;
@@ -28,6 +28,18 @@ export function frameThrottle(callback: () => void, requestFrame: (callback: Fra
       pending = undefined;
     },
   };
+}
+
+export function useVercelCommentsAvailable(): boolean {
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    const update = () => setAvailable(document.querySelector("vercel-live-feedback") !== null);
+    update();
+    const mutations = new MutationObserver(update);
+    mutations.observe(document.body, { childList: true, subtree: true });
+    return () => mutations.disconnect();
+  }, []);
+  return available;
 }
 
 export function useVercelCommentsSync({ camera, canvasRef, enabled }: {

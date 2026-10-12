@@ -50,4 +50,4 @@ list. Adoption either wires the variant into a product screen or deletes it.
 
 Propose, review, and select candidates on the [Storybook review board](../design-system/component-workshop.md#review-boards). See [design-system](../design-system.md) and the
 [design-engineering skill](../../.agents/skills/design-engineering/SKILL.md)
-for the exploration workflow and its review checkpoint.
+for the exploration workflow and its review checkpoint. [Decision records](decisions/README.md) preserve Jesse's selections and rationale, one file per decision.

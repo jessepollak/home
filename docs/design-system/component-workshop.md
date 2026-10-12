@@ -23,7 +23,7 @@ The generated `apps/web/storybook-static/` directory is ignored and must not be 
 
 1. Frame the change in its issue; build options and states as stories using production components (isolated story-only candidates for explicit explorations).
 2. Add or update a board manifest in `apps/web/stories/review/boards/`, or use **Changes in this PR** if it covers the proposal.
-3. Declare the stories to review in the PR's `## Preview` ([Storybook links](../ui-pr-previews.md#storybook-links)); CI keeps the top **Review board** link and each row's frame link on the current Storybook deployment. Jesse can pin Vercel Comments on the preview for context, but only his own GitHub comments and reviews start a factory follow-up run, so feedback the factory should act on goes in a GitHub comment on the PR, with the board frame URL pasted or linked.
+3. Declare the stories to review in the PR's `## Preview` ([Storybook links](../ui-pr-previews.md#storybook-links)); CI keeps the top **Review board** link and each row's frame link on the current Storybook deployment. Vercel comment threads Jesse starts on a factory PR's preview trigger a follow-up run like his GitHub comments and reviews. A board comment starting with `Pick` or `Reject:` (optionally with a reason, for example `Reject: too dense`) is a decision; any other comment is ordinary feedback.
 4. Record Jesse's selection and reviewed revision on the issue or PR; implement in the same components and verify in Home.
 
 The board is the design surface for proposals, review, and selection, not approval by itself. The [issue scope](../../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope) and Jesse's approval authority still govern adoption.
@@ -36,7 +36,7 @@ The board URL keeps Storybook `id` and `viewMode` plus `frame` (selected frame),
 
 Open the board on the PR's commit-specific Storybook preview deployment, whose URL is unique to one build; the branch preview alias moves with later pushes. Review comments can use the Vercel Comments toolbar on previews or GitHub with a pasted board frame URL. On load the board writes the build's `rev` and `deployment` into its URL, so a comment's page URL records the revision it was made on, and each frame is covered by an element carrying `data-review-frame` and `data-review-story` for comments to anchor to. Opening that URL on a newer build shows a banner linking back to the reviewed deployment. To recover a comment's context, run `bun run --cwd apps/web review:context '<board iframe URL>'` (`--json` for machine output). It prints the board, frame, story, viewport, notes, story source (after `build-storybook`), story and board links on the reviewed deployment, and whether the story or manifest changed between the reviewed revision and `HEAD`. Record dispositions on the GitHub issue or PR.
 
-On a desktop board opened on its own page (the toolbar's **Review board** link), comment pins and threads follow camera movement and are clipped to the canvas instead of covering the board controls and panels. Inside the Storybook manager the toolbar belongs to the outer page, so neither applies.
+Comment pins and threads follow camera movement and are clipped to the canvas; opening a board story in the Storybook manager hands off to the board's own page for the same story, frame, revision and deployment, so this applies wherever the board is opened. When the Vercel Comments toolbar is available, the board header shows a quiet hint to comment `Pick` or `Reject: reason` to decide.
 
 ## Library
 
