@@ -18,6 +18,30 @@ Home ships Light and Dark appearances from one token set: `:root` is Light and `
 
 Use the stock system sans and monospace stacks: there is no `next/font` setup or font asset directory. Money and other aligned numbers use `tabular-nums`; monospace is reserved for addresses, hashes, and code. Use the stock Tailwind type scale and component spacing.
 
+## Motion
+
+Shared CSS motion uses `--motion-duration-*` and `--motion-ease-*` tokens in `globals.css`.
+
+| Duration | Value | Role |
+| --- | --- | --- |
+| `fast` | 100ms | Exits, press feedback and small popup close |
+| `base` | 150ms | Hover, fades and popup enter |
+| `moderate` | 180ms | Tab-lens travel and pill movement |
+| `slow` | 300ms | Search morph and keyboard follow |
+
+| Easing | Value | Role |
+| --- | --- | --- |
+| `standard` | `cubic-bezier(.4, 0, .2, 1)` | State changes |
+| `enter` | `cubic-bezier(0, 0, .2, 1)` | Decelerate in |
+| `exit` | `cubic-bezier(.4, 0, 1, 1)` | Accelerate out |
+| `emphasized` | `cubic-bezier(.2, 0, 0, 1)` | Lens travel |
+
+Tailwind exposes `duration-fast`, `duration-base`, `ease-standard`, `ease-enter` and `ease-exit`. Popover, Select and Combobox own 150ms enter with `ease-enter` and 100ms exit with `ease-exit` as primitive defaults, not per-use classes. Reduced motion collapses every duration token to 0ms; the navigation modules also keep their `transition: none` blocks.
+
+Bespoke overshoot and keyboard-follow curves stay local in the liquid-glass navigation modules because they are tuned physics. Stretch keyframes keep their local easing, including `ease-in-out` per keyframe segment.
+
+Drawer keeps the sheet spring contract described above. Product drawers, including the admin region review and feature intro sheet, already animate through the owned Drawer; `immediate` is an explicit opt-out. The Home mark's `.control:hover` width change is an invisible hit-area expansion. Its visible enter and exit use the JavaScript sequence matching the reference interaction and respect reduced motion, so both stay unchanged.
+
 ## Elevation
 
 Four levels, each a `--elevation-*` value in `:root` and `.dark` exposed as a `shadow-*` utility. Each level carries its own 1px foreground ring, so a surface with a level draws no separate `border` or `ring-1`; focus rings still compose on top.
@@ -82,7 +106,7 @@ Use the owned component contracts rather than restyling their slots:
 - `CardContent inset="list"` owns list-card horizontal insets; put screen-specific flow spacing on a plain inner wrapper.
 - Grouped money rows (review summary, transaction receipt) use `Card variant="flush"` with `CardContent inset="list"`; rows inside carry `px-3` and no dividers.
 - A hosted detail page (asset detail in Invest and Investments) uses `Card variant="page"`: a flat surface that bleeds to the screen edges below `sm` and a bordered card on the muted page from `sm` up. It clips only horizontally, so sticky children such as the trade bar keep sticking.
-- `Button variant="navigation"` owns primary-navigation presentation and has no transition, so selection, hover and focus-ring changes are instant and never leave the compositor; `size="tab"` owns the 54px icon-over-label capsule tab used below 1024px, and the desktop rail uses `size="lg"` rows. The capsule tabs sit on liquid glass. It has a lazy lens pill in every engine and rim refraction in Chromium, and it falls back to an opaque capsule under reduced transparency, forced colours, or no `backdrop-filter`. See [Liquid material](../design-explorations/glass-navigation.md#liquid-material). `size="inline"` is for small actions embedded in prose.
+- `Button variant="navigation"` owns primary-navigation presentation and has no transition, so focus-ring changes and the newly selected tab are instant; below 1024px on hover-capable devices, an unselected tab's icon and label ease over `--motion-duration-base`, both into the hover colour and back to the unselected colour when a tab loses selection; `size="tab"` owns the 54px icon-over-label capsule tab used below 1024px, and the desktop rail uses `size="lg"` rows. The capsule tabs sit on liquid glass. It has a lazy lens pill in every engine and rim refraction in Chromium, and it falls back to an opaque capsule under reduced transparency, forced colours, or no `backdrop-filter`. See [Liquid material](../design-explorations/glass-navigation.md#liquid-material). `size="inline"` is for small actions embedded in prose.
 - `Button variant="balance-segment"` and `variant="balance-legend"` (with the matching sizes) own the Total balance allocation selection: segments keep their proportional width and gain only a vertical hit area, dim when another category is selected and grow in height when selected; legend buttons carry keyboard focus and `aria-pressed`, and switch to semibold foreground text with no background when selected. Both use `data-selected="true"`, and reduced motion drops the transition.
 - `Button press="standard" | "icon" | "none"` owns press feedback: standard actions compress on pointer/touch-down, icon-only controls compress deliberately more, and `none` keeps wide rows, navigation, and link-like text still as whole surfaces. Every variant mirrors its hover treatment in `active:` and reduced motion drops every press transform while keeping those color cues.
 - `Button size="touch"` is the 44px-minimum touch target for primary mobile actions; it wraps long labels instead of clipping. Use it instead of `h-11` overrides.

@@ -11,6 +11,11 @@
   --spacing-hairline: 1px;
   --spacing-shell-mobile-navigation: max(3.25rem, calc(44px + .5rem));
   --spacing-shell-search-field: 3rem;
+  --transition-duration-fast: var(--motion-duration-fast);
+  --transition-duration-base: var(--motion-duration-base);
+  --ease-standard: var(--motion-ease-standard);
+  --ease-enter: var(--motion-ease-enter);
+  --ease-exit: var(--motion-ease-exit);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -76,6 +81,14 @@
 
 :root {
   color-scheme: light;
+  --motion-duration-fast: 100ms;
+  --motion-duration-base: 150ms;
+  --motion-duration-moderate: 180ms;
+  --motion-duration-slow: 300ms;
+  --motion-ease-standard: cubic-bezier(.4, 0, .2, 1);
+  --motion-ease-enter: cubic-bezier(0, 0, .2, 1);
+  --motion-ease-exit: cubic-bezier(.4, 0, 1, 1);
+  --motion-ease-emphasized: cubic-bezier(.2, 0, 0, 1);
   --background: oklch(1 0 0); --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0); --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0); --popover-foreground: oklch(0.145 0 0);
@@ -119,6 +132,15 @@
 @media (display-mode: standalone) {
   :root {
     --shell-safe-area-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-base: 0ms;
+    --motion-duration-moderate: 0ms;
+    --motion-duration-slow: 0ms;
   }
 }
 

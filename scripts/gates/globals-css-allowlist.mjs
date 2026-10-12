@@ -100,6 +100,7 @@ export function inventoryGlobalsCss(css) {
     root: customProperties(top[":root"] ?? []), dark: customProperties(top[".dark"] ?? []),
     supports: nested("@supports (height: 100dvh)"),
     media: nested("@media (display-mode: standalone)"),
+    reducedMotion: nested("@media (prefers-reduced-motion: reduce)"),
     baseLayer: ruleDeclarations(top["@layer base"] ?? []),
     utilitiesLayer: ruleDeclarations(top["@layer utilities"] ?? []),
     registeredProperties: Object.fromEntries(Object.entries(top).filter(([selector]) => selector.startsWith("@property ")).map(([selector, body]) => [selector, declarations(body).map(({ name, value }) => `${name}: ${value}`).sort()])),

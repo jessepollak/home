@@ -16,6 +16,7 @@
     "@layer base",
     "@layer utilities",
     "@media (display-mode: standalone)",
+    "@media (prefers-reduced-motion: reduce)",
     "@property --shell-viewport-inset-bottom",
     "@property --shell-viewport-keyboard-height",
     "@property --shell-viewport-pan",
@@ -64,6 +65,9 @@
       "--color-status-negative",
       "--color-status-positive",
       "--color-warning",
+      "--ease-enter",
+      "--ease-exit",
+      "--ease-standard",
       "--font-mono",
       "--font-sans",
       "--radius-2xl",
@@ -77,7 +81,9 @@
       "--shadow-toast",
       "--spacing-hairline",
       "--spacing-shell-mobile-navigation",
-      "--spacing-shell-search-field"
+      "--spacing-shell-search-field",
+      "--transition-duration-base",
+      "--transition-duration-fast"
     ],
     "other": []
   },
@@ -109,6 +115,14 @@
       "--input-hover",
       "--market-gain",
       "--market-loss",
+      "--motion-duration-base",
+      "--motion-duration-fast",
+      "--motion-duration-moderate",
+      "--motion-duration-slow",
+      "--motion-ease-emphasized",
+      "--motion-ease-enter",
+      "--motion-ease-exit",
+      "--motion-ease-standard",
       "--muted",
       "--muted-foreground",
       "--overlay",
@@ -198,6 +212,17 @@
     ":root": {
       "properties": [
         "--shell-safe-area-bottom"
+      ],
+      "other": []
+    }
+  },
+  "reducedMotion": {
+    ":root": {
+      "properties": [
+        "--motion-duration-base",
+        "--motion-duration-fast",
+        "--motion-duration-moderate",
+        "--motion-duration-slow"
       ],
       "other": []
     }

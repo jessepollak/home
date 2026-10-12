@@ -50,7 +50,7 @@
     bottom: var(--shell-navigation-offset);
     transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
     box-shadow: var(--glass-shadow);
-    transition: opacity 150ms cubic-bezier(.4, 0, .2, 1);
+    transition: opacity var(--motion-duration-base) var(--motion-ease-standard);
   }
 
   :global(.dark) .navigation, :global(.dark) .glass {
@@ -104,7 +104,7 @@
     bottom: calc(var(--shell-bottom-control-offset) + var(--shell-search-centering-inset));
     gap: var(--shell-search-gap);
     translate: 0 var(--shell-viewport-pan, 0px);
-    transition: transform 250ms cubic-bezier(.38, .7, .125, 1);
+    transition: transform var(--motion-duration-slow) cubic-bezier(.38, .7, .125, 1);
   }
   .navigation[data-glass-rim] { --glass-filter: var(--glass-rim-lens) var(--glass-tone); }
 
@@ -116,12 +116,12 @@
 
   .navigation[data-navigation-items="1"] .pill { width: calc(100% - .5rem); }
 
-  .motionReady > .pill { transition: transform 180ms cubic-bezier(.25, 1.15, .35, 1); }
+  .motionReady > .pill { transition: transform var(--motion-duration-moderate) cubic-bezier(.25, 1.15, .35, 1); }
 
   .navigation[data-lens] { touch-action: none; -webkit-touch-callout: none; }
 
-  .navigation[data-lens] > .pill { opacity: 0; transition: opacity 160ms ease-out; }
-  .navigation[data-lens] > button > .content { opacity: 0; transition: scale 140ms ease-out, opacity 120ms ease-out; }
+  .navigation[data-lens] > .pill { opacity: 0; transition: opacity var(--motion-duration-base) var(--motion-ease-enter); }
+  .navigation[data-lens] > button > .content { opacity: 0; transition: scale var(--motion-duration-base) var(--motion-ease-enter), opacity var(--motion-duration-fast) var(--motion-ease-enter); }
 
   .floor {
     background-image: linear-gradient(to bottom, var(--glass-highlight), var(--glass-rim) 42%, var(--glass-rim) 64%, var(--glass-rim-low)), linear-gradient(to bottom, var(--glass-tint-top), var(--glass-tint-bottom));
@@ -147,16 +147,16 @@
     mask-composite: exclude;
   }
 
-  .content { transition: scale 140ms ease-out; }
+  .content { transition: scale var(--motion-duration-base) var(--motion-ease-enter); }
   .navigation :active > .content { scale: .95; transition-duration: 0ms; }
   .navigation[data-keyboard-hidden="true"] { opacity: 0; pointer-events: none; }
   .group[data-keyboard-hidden="true"] { opacity: 0; pointer-events: none; }
-  .navigation.withSearch { box-shadow: none; transition: opacity 150ms cubic-bezier(.4, 0, .2, 1); }
-  .navigation.withSearch::after { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; box-shadow: var(--glass-shadow); pointer-events: none; transition: opacity 150ms cubic-bezier(.4, 0, .2, 1); }
+  .navigation.withSearch { box-shadow: none; transition: opacity var(--motion-duration-base) var(--motion-ease-standard); }
+  .navigation.withSearch::after { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; box-shadow: var(--glass-shadow); pointer-events: none; transition: opacity var(--motion-duration-base) var(--motion-ease-standard); }
   .group[data-search-open] > .navigation { pointer-events: none; }
   .group[data-search-open] > .navigation::after { opacity: 0; }
-  .group[data-search-open] > .navigation > * { opacity: 0; transition: opacity 150ms cubic-bezier(.4, 0, .2, 1); }
-  .searchMorphOrigin { transition: opacity 1ms linear 299ms; }
+  .group[data-search-open] > .navigation > * { opacity: 0; transition: opacity var(--motion-duration-base) var(--motion-ease-standard); }
+  .searchMorphOrigin { transition: opacity var(--motion-duration-slow) step-end; }
   .group[data-search-open] > .searchMorphOrigin { opacity: 0; transition: none; }
   .shellSearchField {
     --shell-search-padding: min(.8125rem, 13px);
@@ -177,20 +177,20 @@
     --search-morph-sign: 1;
     transform-origin: calc(100% - var(--search-morph-cap)) 50%;
     transform: translate3d(0, 0, 0) scale(1);
-    transition: transform 300ms cubic-bezier(.4, 0, .2, 1);
+    transition: transform var(--motion-duration-slow) var(--motion-ease-standard);
   }
   .searchMorphField:is(:dir(rtl), :where([dir="rtl"] *)) { --search-morph-sign: -1; transform-origin: var(--search-morph-cap) 50%; }
   .searchMorphField > .shellSearchField { box-shadow: none; }
-  .searchMorphField :is(.searchMorphHalf, .searchMorphStartGlass, .searchMorphEndGlass, .searchMorphClip, .searchMorphContent) { transform: translate3d(0, 0, 0); transition: transform 300ms cubic-bezier(.4, 0, .2, 1); }
-  .searchMorphShadow { opacity: 1; transition: opacity 120ms ease-out 180ms; }
-  .searchMorphAction { opacity: 1; transition: opacity 160ms ease-out 140ms; }
+  .searchMorphField :is(.searchMorphHalf, .searchMorphStartGlass, .searchMorphEndGlass, .searchMorphClip, .searchMorphContent) { transform: translate3d(0, 0, 0); transition: transform var(--motion-duration-slow) var(--motion-ease-standard); }
+  .searchMorphShadow { opacity: 1; transition: opacity var(--motion-duration-fast) var(--motion-ease-enter) calc(var(--motion-duration-slow) - var(--motion-duration-fast)); }
+  .searchMorphAction { opacity: 1; transition: opacity var(--motion-duration-base) var(--motion-ease-enter) calc(var(--motion-duration-slow) - var(--motion-duration-base)); }
   [data-search-morph="closed"] > .searchMorphField { transform: translate3d(calc(var(--search-morph-sign) * var(--search-morph-shift)), 0, 0) scale(var(--search-morph-scale)); }
   [data-search-morph="closed"] > .searchMorphField .searchMorphHalf { transform: translate3d(calc(var(--search-morph-sign) * (100% - var(--search-morph-cap))), 0, 0); }
   [data-search-morph="closed"] > .searchMorphField .searchMorphStartGlass { transform: translate3d(calc(var(--search-morph-sign) * (50% - var(--search-morph-cap))), 0, 0); }
   [data-search-morph="closed"] > .searchMorphField .searchMorphEndGlass { transform: translate3d(calc(var(--search-morph-sign) * (var(--search-morph-cap) - 50%)), 0, 0); }
   [data-search-morph="closed"] > .searchMorphField .searchMorphClip { transform: translate3d(calc(var(--search-morph-sign) * (100% - 2 * var(--search-morph-cap))), 0, 0); }
   [data-search-morph="closed"] > .searchMorphField .searchMorphContent { transform: translate3d(calc(var(--search-morph-sign) * (var(--search-morph-cap) - 2 * var(--shell-search-padding))), 0, 0); }
-  [data-search-morph="closed"] > .searchMorphAction, [data-search-morph="closed"] > .searchMorphField > .searchMorphShadow { opacity: 0; transition: opacity 100ms ease-in; }
+  [data-search-morph="closed"] > .searchMorphAction, [data-search-morph="closed"] > .searchMorphField > .searchMorphShadow { opacity: 0; transition: opacity var(--motion-duration-fast) var(--motion-ease-exit); }
   @starting-style {
     .searchMorphField { transform: translate3d(calc(var(--search-morph-sign) * var(--search-morph-shift)), 0, 0) scale(var(--search-morph-scale)); }
     .searchMorphField .searchMorphHalf { transform: translate3d(calc(var(--search-morph-sign) * (100% - var(--search-morph-cap))), 0, 0); }
@@ -207,11 +207,12 @@
 }
 
 @media (max-width: 63.9375rem) and (hover: hover) {
+  .navigation :not([aria-current="page"]) > .content :is(span, svg) { transition: color var(--motion-duration-base) var(--motion-ease-standard); }
   .navigation :not([aria-current="page"]):hover > .content :is(span, svg) { color: var(--foreground); }
 }
 
 @media (max-width: 63.9375rem) and (prefers-reduced-motion: reduce) {
-  .navigation, .navigation.withSearch, .navigation.withSearch::after, .assetSearchBar, .searchMorphOrigin, .motionReady > .pill, .content, .pill, .navigation[data-lens] > .pill, .navigation[data-lens] > button > .content { transition: none; }
+  .navigation, .navigation.withSearch, .navigation.withSearch::after, .assetSearchBar, .searchMorphOrigin, .motionReady > .pill, .content, .navigation :not([aria-current="page"]) > .content :is(span, svg), .pill, .navigation[data-lens] > .pill, .navigation[data-lens] > button > .content { transition: none; }
   .group[data-search-open] > .navigation > *, .searchMorphField, .searchMorphField :is(.searchMorphHalf, .searchMorphStartGlass, .searchMorphEndGlass, .searchMorphClip, .searchMorphContent), .searchMorphShadow, .searchMorphAction, [data-search-morph="closed"] > .searchMorphAction, [data-search-morph="closed"] > .searchMorphField > .searchMorphShadow { transition: none; }
   .navigation :active > .content { scale: 1; }
 }
