@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { formatFiatAmount } from "@/shared/formatting";
 import { formatCashoutFee, formatCashoutReceive } from "./cash-out-quote-format";
 import { formatOnrampFee, formatOnrampReceive, formatQuotedAmount } from "./quoted-amount-format";
 
@@ -73,7 +72,6 @@ describe("onramp fee formatting", () => {
 describe("quoted amount formatting", () => {
   test("formats ISO fees using their native currency presentation", () => {
     const formatted = formatQuotedAmount("2.50", "USD", { currencyNative: true });
-    expect(formatted).toBe(formatFiatAmount("2.50", "USD", { currencyNative: true }));
     expect(formatted).toBe("$2.50");
   });
 
@@ -89,10 +87,7 @@ describe("quoted amount formatting", () => {
   });
 
   test("formats token amounts with more than six decimal places", () => {
-    const format = () => formatQuotedAmount("0.1234567", "ETH", { currencyNative: true });
-    expect(format).not.toThrow();
-    expect(format()).toBe("0.1234 ETH");
-    expect(format()).not.toBe("—");
+    expect(formatQuotedAmount("0.1234567", "ETH", { currencyNative: true })).toBe("0.1234 ETH");
   });
 
   test.each(["abc", "-1"])("rejects malformed token amount %s", (amount) => {

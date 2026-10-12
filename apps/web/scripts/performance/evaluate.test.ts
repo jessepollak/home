@@ -101,14 +101,8 @@ test("median paint sample selects the middle ratio without mutating input", () =
   expect(samples).toEqual(original);
 });
 
-test("median paint sample selects the lower middle ratio for even counts", () => {
+test("median paint sample selects the lower middle input pair rather than averaging even counts", () => {
   const samples = [{ paintedMs: 280, shellMs: 200 }, { paintedMs: 1200, shellMs: 1000 }, { paintedMs: 13, shellMs: 10 }, { paintedMs: 110, shellMs: 100 }];
-  const [, second] = samples;
-  expect(medianPaintSample(samples)).toBe(second);
-});
-
-test("median paint sample returns an input pair rather than averaging marks", () => {
-  const samples = [{ paintedMs: 140, shellMs: 100 }, { paintedMs: 1200, shellMs: 1000 }];
   const [, second] = samples;
   expect(medianPaintSample(samples)).toBe(second);
 });

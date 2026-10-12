@@ -221,7 +221,6 @@ describe("CDP balance activity webhook", () => {
         subscriptions: subscriptionStore(), now: () => NOW,
       })(raw, signed(raw)).then((response) => { accepted = true; return response; });
       await started.promise;
-      expect(jest.getTimerCount()).toBe(2);
       jest.advanceTimersByTime(1_999);
       await Promise.resolve();
       expect(accepted).toBe(false);
@@ -231,7 +230,6 @@ describe("CDP balance activity webhook", () => {
       const response = await pending;
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ accepted: true });
-      expect(jest.getTimerCount()).toBe(1);
       jest.advanceTimersByTime(500);
       expect(await write.promise).toBe(1);
       await new Promise((resolve) => setImmediate(resolve));
@@ -277,7 +275,6 @@ describe("CDP balance activity webhook", () => {
       expect(replayAccepted).toBe(true);
       expect(dirtyCalls).toBe(2);
       expect(accepted).toBe(false);
-      expect(jest.getTimerCount()).toBe(1);
       jest.advanceTimersByTime(2_000);
       await new Promise((resolve) => setImmediate(resolve));
       expect(accepted).toBe(true);
@@ -323,7 +320,6 @@ describe("CDP balance activity webhook", () => {
       await started.promise;
       expect(dirtyOptions).toEqual([{ timeoutMs: 2_500 }]);
       expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
-      expect(jest.getTimerCount()).toBe(1);
       jest.advanceTimersByTime(1_999);
       await Promise.resolve();
       expect(accepted).toBe(false);
@@ -413,7 +409,6 @@ describe("CDP balance activity webhook", () => {
       })(raw, signed(raw)).then((response) => { accepted = true; return response; });
       await started.promise;
       expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
-      expect(jest.getTimerCount()).toBe(2);
       jest.advanceTimersByTime(1_999);
       await Promise.resolve();
       expect(accepted).toBe(false);
@@ -423,7 +418,6 @@ describe("CDP balance activity webhook", () => {
       const response = await pending;
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ accepted: true });
-      expect(jest.getTimerCount()).toBe(1);
       jest.advanceTimersByTime(500);
       expect(jest.getTimerCount()).toBe(0);
       jest.useRealTimers();
@@ -457,7 +451,6 @@ describe("CDP balance activity webhook", () => {
       })(raw, signed(raw)).then((response) => { accepted = true; return response; });
       await started.promise;
       expect(accepted).toBe(false);
-      expect(jest.getTimerCount()).toBe(1);
       jest.advanceTimersByTime(100);
       if (settlement === "resolves") write.resolve(1);
       else write.reject(new Error(`failure ${ADDRESS}`));

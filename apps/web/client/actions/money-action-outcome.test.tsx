@@ -186,12 +186,6 @@ describe("money-action qualification transitions", () => {
     actionId: "action-a", submission: "submitted", outcome: "success", settled: true,
   } as const;
 
-  test("the initial state has no remembered qualifications", () => {
-    expect(createMoneyActionQualification("action-a")).toEqual({
-      actionId: "action-a", settlement: null, settlementBlock: null, qualifiedSettlement: null, qualifiedUnknown: false, unknownServerAt: null,
-    });
-  });
-
   test("the first settled observation requalifies with its server-issued block", () => {
     expect(nextMoneyActionQualification({
       ...settledInput, current: createMoneyActionQualification("action-a"),

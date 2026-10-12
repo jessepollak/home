@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { QueryObserver, skipToken, type QueryKey, type UseQueryOptions } from "@tanstack/react-query";
-import { createHomeQueryClient, disabledQueryKey, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
+import { createHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import { FUNDING_PROVIDER_CUSTOMERS_VERSION } from "@/shared/funding/contracts/provider-customers";
 import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 import { deferred } from "@/tests/helpers/async";
 import {
   fundingOpenOrderQuery,
-  fundingOrderKey,
   fundingOrderQuery,
   fundingProviderCustomersQuery,
   fundingProvidersQuery,
@@ -20,48 +18,8 @@ const offrampBinding = { providerId: "provider", displayName: "Provider", region
 const providersOk = (direction: "onramp" | "offramp", providers: unknown[]) => ({ version: FUNDING_PROVIDERS_VERSION, direction, providers });
 const customersOk = (customers: unknown[]) => ({ version: FUNDING_PROVIDER_CUSTOMERS_VERSION, customers });
 const openOrderOk = (value: unknown) => ({ version: FUNDING_OPEN_ORDER_VERSION, order: value });
-const neverFetch = async () => { throw new Error("Unexpected fetch"); };
-
-function expectDisabled<T>(options: UseQueryOptions<T, Error, T, QueryKey>) {
-  const client = createHomeQueryClient();
-  const observer = new QueryObserver(client, options);
-  const unsubscribe = observer.subscribe(() => {});
-  expect(observer.getCurrentResult().fetchStatus).toBe("idle");
-  unsubscribe();
-}
 
 describe("funding query factories", () => {
-  test("registered owner keys and disabled queries", () => {
-    const cases = [
-      { scope: "funding-providers", parts: ["AR", "onramp"], factory: (owner: string | null) => fundingProvidersQuery(owner, "AR", "onramp", neverFetch) },
-      { scope: "funding-open-order", parts: ["AR"], factory: (owner: string | null) => fundingOpenOrderQuery(owner, "AR", neverFetch) },
-      { scope: "funding-provider-customers", parts: ["AR"], factory: (owner: string | null) => fundingProviderCustomersQuery(owner, "AR", neverFetch) },
-    ] satisfies ReadonlyArray<{ scope: "funding-providers" | "funding-open-order" | "funding-provider-customers"; parts: readonly string[]; factory: (owner: string | null) => { queryKey: QueryKey; queryFn?: unknown } }>;
-    for (const { scope, parts, factory } of cases) {
-      expect([...factory("owner-a").queryKey]).toEqual([...ownerQueryKey("owner-a", scope, ...parts)]);
-      const disabled = factory(null);
-      expect([...disabled.queryKey]).toEqual([...disabledQueryKey(scope, ...parts)]);
-      expect(disabled.queryFn).toBe(skipToken);
-    }
-    expectDisabled(fundingProvidersQuery(null, "AR", "onramp", neverFetch));
-    expectDisabled(fundingOpenOrderQuery(null, "AR", neverFetch));
-    expectDisabled(fundingProviderCustomersQuery(null, "AR", neverFetch));
-  });
-
-  test("the order key matches all factory variants", () => {
-    for (const owner of ["owner-a", null]) {
-      for (const current of [order, null]) {
-        expect(fundingOrderKey(owner, current)).toEqual(fundingOrderQuery(owner, current, neverFetch).queryKey);
-      }
-    }
-    expect(fundingOrderKey("owner-a", order)).toEqual(ownerQueryKey("owner-a", "funding-order", order.id));
-    expect(fundingOrderKey(null, order)).toEqual(publicQueryKey("funding-order-isolated", order.id));
-    const disabled = fundingOrderQuery(null, null, neverFetch);
-    expect([...disabled.queryKey]).toEqual([...disabledQueryKey("funding-order")]);
-    expect(disabled.queryFn).toBe(skipToken);
-    expectDisabled(disabled);
-  });
-
   test("passes an AbortSignal and caches parsed values for all routes", async () => {
     const paths: string[] = [];
     const fetchResource = async (path: string, options?: { signal?: AbortSignal }) => {

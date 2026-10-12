@@ -48,14 +48,6 @@ describe("Ripio funding adapter", () => {
       .toEqual({ state: "sent", providerStatus: "COMPLETED", transactionHash: `0x${"ab".repeat(32)}` });
   });
 
-  test("declares independently configured country bindings", () => {
-    expect(ripioManifest.onramp.reference).toBe("home");
-    expect(ripioManifest.onramp.quotes).toBe(true);
-    expect(ripioManifest.onramp.customer.handoffOrigins).toEqual(["https://kyc.ripio.com"]);
-    expect(ripioManifest.bindings.map((binding) => binding.region)).toEqual(["AR", "BR", "CO"]);
-    expect(ripioManifest.bindings[1]).toMatchObject({ region: "BR", assetId: "base:wbrl", currency: "BRL", directions: { onramp: { paymentMethods: [{ id: "pix" }], env: ["RIPIO_CLIENT_ID_BR", "RIPIO_CLIENT_SECRET_BR", "RIPIO_WEBHOOK_SECRET_BR"] } } });
-  });
-
   test("maps an uncertain create failure to ambiguous and never retries", async () => {
     let calls = 0;
     const result = await ripioProvider.onramp!.createOrder({

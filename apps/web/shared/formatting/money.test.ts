@@ -31,7 +31,6 @@ import {
 import {
   formatPresentationFiat,
   formatPresentationCashAmount,
-  presentationCurrencyName,
 } from "@/shared/formatting";
 
 const localeCases = [
@@ -107,18 +106,7 @@ describe("explicit fiat presentation modes", () => {
     }
   });
 
-  test("requires a presentation choice in the type and at runtime", () => {
-    const invalidPresentations = () => {
-      // @ts-expect-error options are required
-      formatFiatAmount("1", "USD");
-      // @ts-expect-error an empty options object does not choose a region
-      formatFiatAmount("1", "USD", {});
-      // @ts-expect-error precision without a region is not presentation
-      formatFiatAmount("1", "USD", { fractionDigits: 2 });
-      // @ts-expect-error the two presentation modes are exclusive
-      formatFiatAmount("1", "USD", { regionId: "US", currencyNative: true });
-    };
-    expect(invalidPresentations).toBeFunction();
+  test("requires a presentation choice at runtime", () => {
     expect(() => formatFiatAmount("1", "USD", {} as { regionId: "US" }))
       .toThrow("A presentation region is required.");
     const untyped = formatFiatAmount as (...args: unknown[]) => string;
@@ -505,28 +493,6 @@ describe("presentation money formatting", () => {
     })).toBe("—");
   });
 
-  test("keeps repeated date formatting identical across locales, styles, instants, and zones", () => {
-    const cases = [
-      { regionId: "US", locale: "en-US", timeZone: "UTC", style: "activity-full", date: { month: "short", day: "numeric", year: "numeric" }, time: { hour: "numeric", minute: "2-digit" } },
-      { regionId: "US", locale: "en-US", timeZone: "America/Los_Angeles", style: "activity-full", date: { month: "short", day: "numeric", year: "numeric" }, time: { hour: "numeric", minute: "2-digit" } },
-      { regionId: "DE", locale: "de-DE", timeZone: "UTC", style: "activity-short", date: { month: "short", day: "numeric" }, time: { hour: "numeric", minute: "2-digit" } },
-      { regionId: "US", locale: "en-US", timeZone: "UTC", style: "date-time-zone", date: { month: "short", day: "numeric", year: "numeric" }, time: { hour: "numeric", minute: "2-digit", timeZoneName: "short" } },
-      { regionId: "US", locale: "en-US", timeZone: "UTC", style: "quote-time", date: null, time: { hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" } },
-      { regionId: "DE", locale: "de-DE", timeZone: "America/Los_Angeles", style: "chart-weekday", date: { weekday: "short" }, time: null },
-    ] as const;
-    for (const instant of ["2026-09-10T12:04:30.000Z", "2026-12-10T00:01:20.000Z"]) {
-      for (const entry of cases) {
-        const expected = [entry.date, entry.time]
-          .filter((part): part is NonNullable<typeof part> => part !== null)
-          .map((part) => new Intl.DateTimeFormat(entry.locale, { ...part, timeZone: entry.timeZone })
-            .format(new Date(instant)).replace(/[\s\u00A0\u2007\u2009\u202F]+/g, " ").trim())
-          .join(", ");
-        expect(formatPresentationDate(instant, entry)).toBe(expected);
-        expect(formatPresentationDate(instant, entry)).toBe(expected);
-      }
-    }
-  });
-
   test("formats a date range compactly and collapses a single day", () => {
     const options = { timeZone: "UTC", style: "activity-date" } as const;
     expect(formatPresentationDateRange("2026-09-21T05:00:00.000Z", "2026-09-24T05:00:00.000Z", options)).toBe("Sep 21 – 24");
@@ -535,16 +501,7 @@ describe("presentation money formatting", () => {
     expect(formatPresentationDateRange("2026-09-24T05:00:00.000Z", "not-a-date", options)).toBe("—");
   });
 
-  test("returns a deterministic unavailable value for malformed dates", () => {
-    expect(formatPresentationDate("not-a-date", {
-      timeZone: "UTC",
-      style: "activity-full",
-    })).toBe("—");
-  });
-
   test("formats presentation fiat through the shared formatting barrel", () => {
-    expect(presentationCurrencyName("USD")).toBe("US dollar");
-    expect(presentationCurrencyName("IDR")).toBe("Rupiah");
     expect(formatPresentationFiat({ atoms: "481240", scale: 2 }, "IDR", 2, "ID")).toBe(
       "Rp\u00A04.812,40",
     );

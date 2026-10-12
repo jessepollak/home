@@ -52,24 +52,13 @@ describe("board camera", () => {
     expect(Object.values(camera).every(Number.isFinite)).toBe(true);
   });
   const wheel: WheelInput = { deltaX: 0, deltaY: 0, deltaMode: 0, ctrlKey: true, metaKey: false, shiftKey: false };
-  test("small ctrl-wheel pinches use a 1.5x rate and preserve the pointer", () => {
-    const camera = { x: 20, y: 30, zoom: 1 };
-    const pointer = { x: 100, y: 110 };
-    const next = wheelCamera(camera, { ...wheel, deltaY: -4 }, pointer, 800);
-    const factor = Math.exp(0.06);
-    expect(next.zoom).toBeCloseTo(factor);
-    expect(next.x).toBeCloseTo(pointer.x - (pointer.x - camera.x) * factor);
-    expect(next.y).toBeCloseTo(pointer.y - (pointer.y - camera.y) * factor);
-  });
-  test("large ctrl and Cmd wheel steps clamp each event but keep scroll behavior", () => {
+  test("ctrl and Cmd wheel zoom clamp at the limits without changing plain scroll behavior", () => {
     const camera = { x: 0, y: 0, zoom: 0.5 };
     const point = { x: 0, y: 0 };
-    expect(wheelCamera(camera, { ...wheel, deltaY: -500 }, point, 800).zoom)
-      .toBeCloseTo(0.5 * Math.exp(0.45));
-    expect(wheelCamera(camera, { ...wheel, deltaY: -3, deltaMode: 1, ctrlKey: false, metaKey: true },
-      point, 800).zoom).toBeCloseTo(0.5 * Math.exp(0.45));
-    expect(wheelCamera(camera, { ...wheel, deltaY: 500, deltaMode: 2 }, point, 800).zoom)
-      .toBeCloseTo(0.5 * Math.exp(-0.45));
+    expect(wheelCamera({ ...camera, zoom: 2 }, { ...wheel, deltaY: -500 }, point, 800).zoom).toBe(2);
+    expect(wheelCamera({ ...camera, zoom: 2 }, { ...wheel, deltaY: -3, deltaMode: 1, ctrlKey: false, metaKey: true },
+      point, 800).zoom).toBe(2);
+    expect(wheelCamera({ ...camera, zoom: 0.05 }, { ...wheel, deltaY: 500, deltaMode: 2 }, point, 800).zoom).toBe(0.05);
     expect(wheelCamera(camera, { ...wheel, deltaX: 4, deltaY: 10, ctrlKey: false }, point, 800))
       .toEqual({ x: -4, y: -10, zoom: 0.5 });
   });

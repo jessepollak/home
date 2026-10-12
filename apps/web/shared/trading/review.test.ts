@@ -57,7 +57,6 @@ describe("trade review parsers", () => {
     expect(parseTradeMetadata({ ...metadata, executionDeadline })).toBeNull();
   });
   test.each(["buy", "sell"] as const)("accepts a %s fee only when its base, USDC token, and customer minimum match", (direction) => {
-    const grossBuy = "1000000";
     const netBuy = "990000";
     const fee = { amountBaseUnits: direction === "buy" ? "10000" : "9", bps: 100,
       token: OPERATOR_FEE_TOKEN, recipient: OWNER, collectedBy: "in-batch-transfer" as const };
@@ -66,7 +65,9 @@ describe("trade review parsers", () => {
       : { ...metadata, direction, fromAsset: metadata.toAsset, toAsset: metadata.fromAsset, operatorFee: fee };
     const reviewed = parseTradeMetadata(candidate);
     expect(reviewed?.operatorFee).toEqual(fee);
-    expect(reviewed?.operatorFee && direction === "buy" ? (BigInt(reviewed.fromAmountBaseUnits) + BigInt(reviewed.operatorFee.amountBaseUnits)).toString() : grossBuy).toBe(grossBuy);
+    if (direction === "buy") {
+      expect(reviewed?.operatorFee && (BigInt(reviewed.fromAmountBaseUnits) + BigInt(reviewed.operatorFee.amountBaseUnits)).toString()).toBe("1000000");
+    }
     for (const bad of [
       { ...fee, amountBaseUnits: direction === "buy" ? "9900" : "10" },
       { ...fee, bps: 301 },

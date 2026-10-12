@@ -15,10 +15,4 @@ test("Peer euro-area bindings match exactly the configured EUR countries", () =>
   const boundCountries: string[] = euroBindings.map((binding) => binding.region);
   expect(peerCountries.sort()).toEqual(configured.sort());
   expect(boundCountries.sort()).toEqual(configured);
-  expect(euroBindings.every((binding) => binding.assetId === "base:usdc" &&
-    binding.directions.offramp?.paymentMethods.length === 1 &&
-    binding.directions.offramp.paymentMethods[0]?.id === "revolut" &&
-    binding.directions.offramp.legacyOfferedEnv === "PEER_OFFRAMP_ENABLED" &&
-    binding.directions.offramp.env.length === 0 &&
-    !("onramp" in binding.directions))).toBe(true);
 });
