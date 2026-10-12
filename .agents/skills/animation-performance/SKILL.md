@@ -26,7 +26,7 @@ Make the scoped motion finish every frame. This lens does not decide whether mot
 | --- | --- | --- |
 | Stutters while growing, shrinking, or moving | `width`, `height`, `padding`, `margin`, `top`, `left` | `scale()` or `translate()` |
 | Choppy shadow change | Animated `box-shadow` repaints every frame | Crossfade a pseudo-element's `opacity`; `filter: drop-shadow()` only as a Safari-tested fallback |
-| Show/hide snaps or reflows | `display` / `visibility` swap | `opacity`, with the hidden state still inert |
+| Show/hide snaps | `display` / `visibility` swap with no transition | Transition `opacity`, then keep a discrete `display: none` or `hidden` end state so collapsed layout is preserved |
 | Jank only during navigation, fetching, or hydration | Main-thread animation competing with page work | CSS transition or WAAPI |
 | Motion `x`/`y`/`scale` drops frames during page work | Independent transform values run on the main thread | Full `transform` string (not combinable with `layout` or drag) |
 | Hand-rolled animation drops frames | React state set per frame | Write to `ref.current.style` or a motion value |
@@ -41,11 +41,11 @@ Make the scoped motion finish every frame. This lens does not decide whether mot
 | Tier | Properties | Notes |
 | --- | --- | --- |
 | Composite | `transform`, `opacity` | Reliably cheap and accelerated. |
-| Composite in some engines | `filter`, `clip-path`, `background-color` | Current Chrome and Firefox; verify in WebKit before relying on it. |
-| Paint | `box-shadow`, `border-radius`, `color` | Redraws every frame. |
+| Sometimes composited | `filter`, `clip-path` | Engine-dependent; measure, and verify in WebKit before relying on it. |
+| Paint | `box-shadow`, `border-radius`, `color`, `background-color` | Redraws every frame; browser compositing of `background-color` is still partial. |
 | Layout | size, padding, margin, inset, `border-width` | Can re-lay-out neighbours every frame; a sidebar's `margin-left` moves the whole page. |
 
-A layout animation on a small absolutely positioned element may not drop frames, but the `scale()` or `translate()` version looks the same and cannot regress on a slower device. Choose it.
+A layout animation on a small absolutely positioned element may not drop frames. Where a `scale()` or `translate()` version is visually equivalent, choose it: it cannot regress on a slower device. It is not equivalent when descendants such as text would distort under `scale()`, or when surrounding content must reflow around the changing size or position, since transforms leave document flow unchanged; keep the layout animation short and measured, or restructure (for example, scale a background layer while content crossfades).
 
 ## Where it runs
 
