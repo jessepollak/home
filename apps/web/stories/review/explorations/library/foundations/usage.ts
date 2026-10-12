@@ -111,7 +111,7 @@ export function cubicBezier(easing: string): [number, number, number, number] | 
   return match ? [Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4])] : null;
 }
 
-const SHADOWS = ["2xs", "xs", "sm", "md", "lg", "xl", "2xl", "none"];
+const SHADOWS = ["raised", "floating", "overlay", "toast", "2xs", "xs", "sm", "md", "lg", "xl", "2xl", "none"];
 
 export function elevationUsage(files: CandidateFile[]) {
   return {

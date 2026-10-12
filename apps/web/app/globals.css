@@ -49,7 +49,13 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
   --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --shadow-raised: var(--elevation-raised);
+  --shadow-floating: var(--elevation-floating);
+  --shadow-overlay: var(--elevation-overlay);
+  --shadow-toast: var(--elevation-toast);
+  --color-state-hover: var(--state-hover);
+  --color-state-pressed: var(--state-pressed);
+  --color-input-hover: var(--input-hover);
 }
 
 @property --shell-viewport-inset-bottom {
@@ -99,6 +105,14 @@
   --shell-navigation-clearance: calc(var(--spacing-shell-mobile-navigation) + var(--shell-navigation-offset) + .5rem);
   --shell-viewport-inset-bottom: 0px;
   --overlay: oklch(0.145 0 0 / 10%);
+  --elevation-ring: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
+  --elevation-raised: var(--elevation-ring), 0 1px 2px rgb(0 0 0 / 5%);
+  --elevation-floating: var(--elevation-ring), 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%);
+  --elevation-overlay: var(--elevation-ring), 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%);
+  --elevation-toast: var(--elevation-ring), 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%);
+  --state-hover: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --state-pressed: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --input-hover: color-mix(in oklab, var(--foreground) 24%, var(--input));
 }
 
 
@@ -128,6 +142,15 @@
   --status-positive: #67bc85; --status-caution: #e6ac43; --status-negative: #ed776e;
   --globe-sphere-shade: #2c3542; --globe-sphere-light: #4d5d72; --globe-land: #c9d6e6;
   --overlay: oklch(0 0 0 / 60%);
+  --elevation-ring: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
+  --elevation-ring-strong: 0 0 0 1px color-mix(in oklab, var(--foreground) 15%, transparent);
+  --elevation-raised: var(--elevation-ring);
+  --elevation-floating: var(--elevation-ring-strong), 0 4px 12px rgb(0 0 0 / 40%);
+  --elevation-overlay: var(--elevation-ring);
+  --elevation-toast: var(--elevation-ring-strong), 0 8px 24px rgb(0 0 0 / 50%);
+  --state-hover: color-mix(in oklab, var(--foreground) 7%, transparent);
+  --state-pressed: color-mix(in oklab, var(--foreground) 11%, transparent);
+  --input-hover: color-mix(in oklab, var(--foreground) 24%, var(--input));
 }
 
 @layer base {

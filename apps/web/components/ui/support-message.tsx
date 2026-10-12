@@ -23,7 +23,7 @@ export function SupportMessageBubble({ author, side, speaker, children, delivery
     </div>;
   }
   return <div className={`flex min-w-0 flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
-    <div className={`max-w-[85%] min-w-0 whitespace-pre-wrap wrap-anywhere px-3 py-2 text-sm ${side === "customer" ? "rounded-2xl" : "rounded-xl"} ${mine ? "bg-primary text-primary-foreground" : author === "assistant" ? "border border-border bg-muted text-foreground" : "bg-muted text-foreground"}`}>
+    <div className={`max-w-[85%] min-w-0 whitespace-pre-wrap wrap-anywhere rounded-xl px-3 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : author === "assistant" ? "border border-border bg-muted text-foreground" : "bg-muted text-foreground"}`}>
       {author === "assistant" ? <span className="mb-1 block text-xs font-semibold">Assistant</span> : <span className="sr-only">{spoken}</span>}
       {children}
     </div>

@@ -19,7 +19,7 @@ export function ResultHeader({ outcome, title, description }: {
         <Icon aria-hidden="true" className={`size-6 ${outcome === "failed" ? "text-destructive" : outcome === "success" ? "text-foreground" : "text-muted-foreground"}`} />
       </div>
       <div className="flex max-w-xs flex-col items-center gap-1">
-        <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+        <h3 className="text-base font-semibold text-foreground">{title}</h3>
         {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
       </div>
     </div>

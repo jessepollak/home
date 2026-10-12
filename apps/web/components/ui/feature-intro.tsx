@@ -116,10 +116,10 @@ function IntroBody({ content, sheet = false, size = "default" }: { content: Feat
         </div>
       ) : null}
       <div className="space-y-2">
-        {sheet ? <DrawerTitle className="text-center text-2xl leading-8 text-balance">{content.headline}</DrawerTitle> : <h2 className="text-center text-2xl font-semibold text-balance">{content.headline}</h2>}
+        {sheet ? <DrawerTitle className="text-center text-base font-semibold text-balance">{content.headline}</DrawerTitle> : <h2 className="text-center text-base font-semibold text-balance">{content.headline}</h2>}
         {content.description ? sheet ? <DrawerDescription className="text-center">{content.description}</DrawerDescription> : <p className="text-center text-sm text-muted-foreground">{content.description}</p> : null}
       </div>
-      <ul className="space-y-1 rounded-lg border px-3 py-1">
+      <ul className="space-y-1 rounded-xl border px-3 py-1">
         {content.benefits.map(({ icon: Icon, text }) => (
           <li key={text}>
             <Item size="sm" className="px-0">
@@ -166,7 +166,7 @@ export function FeatureIntroSkeleton({ size = "default" }: { size?: "default" | 
         <div className="space-y-5" aria-hidden="true">
           <Skeleton className={size === "compact" ? "mx-auto aspect-[3/2] w-full max-w-40" : "mx-auto aspect-[3/2] w-full max-w-60"} />
           <Skeleton className="mx-auto h-8 w-56" />
-          <div className="space-y-1 rounded-lg border px-3 py-1">
+          <div className="space-y-1 rounded-xl border px-3 py-1">
             {[0, 1, 2].map((index) => (
               <div key={index} className="flex items-center gap-2.5 py-2.5">
                 <Skeleton className="size-7 rounded-full" /><Skeleton className="h-4 w-40" />

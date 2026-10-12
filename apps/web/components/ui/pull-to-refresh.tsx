@@ -255,7 +255,7 @@ export function PullToRefreshAction({ label, refreshing, onRefresh, actionRef }:
     variant="outline"
     aria-label={label}
     data-slot="pull-to-refresh-action"
-    className="peer pointer-events-none absolute inset-x-0 top-4 z-20 mx-auto rounded-full border-border bg-card text-muted-foreground shadow-xs not-focus-visible:sr-only focus-visible:pointer-events-auto disabled:opacity-100 aria-busy:opacity-100 dark:border-border dark:bg-card"
+    className="peer pointer-events-none absolute inset-x-0 top-4 z-20 mx-auto rounded-full border-0 bg-card text-muted-foreground shadow-raised not-focus-visible:sr-only focus-visible:pointer-events-auto disabled:opacity-100 aria-busy:opacity-100 dark:border-0 dark:bg-card"
     disabled={refreshing}
     focusableWhenDisabled={refreshing}
     aria-busy={refreshing}
@@ -269,7 +269,7 @@ export function PullToRefreshIndicator({ phase, indicatorRef }: { phase: PullToR
       ref={indicatorRef}
       aria-hidden="true"
       data-slot="pull-to-refresh-indicator"
-      className={cn("pointer-events-none absolute inset-x-0 top-4 z-10 mx-auto flex size-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-xs peer-focus-visible:invisible motion-reduce:transition-opacity", phase === "idle" || phase === "settling" ? "opacity-0" : "opacity-100")}
+      className={cn("pointer-events-none absolute inset-x-0 top-4 z-10 mx-auto flex size-9 items-center justify-center rounded-full bg-card text-muted-foreground shadow-raised peer-focus-visible:invisible motion-reduce:transition-opacity", phase === "idle" || phase === "settling" ? "opacity-0" : "opacity-100")}
     >
       {phase === "refreshing" ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" /> :
         phase === "armed" ? <><ArrowDown className="size-4 motion-reduce:hidden" /><Check className="hidden size-4 motion-reduce:block" /></> :

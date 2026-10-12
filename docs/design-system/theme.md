@@ -18,6 +18,62 @@ Home ships Light and Dark appearances from one token set: `:root` is Light and `
 
 Use the stock system sans and monospace stacks: there is no `next/font` setup or font asset directory. Money and other aligned numbers use `tabular-nums`; monospace is reserved for addresses, hashes, and code. Use the stock Tailwind type scale and component spacing.
 
+## Elevation
+
+Four levels, each a `--elevation-*` value in `:root` and `.dark` exposed as a `shadow-*` utility. Each level carries its own 1px foreground ring, so a surface with a level draws no separate `border` or `ring-1`; focus rings still compose on top.
+
+| Level | Utility | Surfaces | Light | Dark |
+| --- | --- | --- | --- | --- |
+| Raised | `shadow-raised` | Card, pull-to-refresh indicator, Switch thumb, conversation scroll button | ring foreground/10 + `0 1px 2px` black/5% | ring foreground/10, no shadow |
+| Floating | `shadow-floating` | Popover, Select and Combobox lists, coverage status preview | ring foreground/10 + `shadow-md` | ring foreground/15 + `0 4px 12px` black/40% |
+| Overlay | `shadow-overlay` | Dialog, Drawer | ring foreground/10 + `shadow-lg` | ring foreground/10, no shadow (the scrim separates it) |
+| Toast | `shadow-toast` | Toast | ring foreground/10 + `shadow-lg` | ring foreground/15 + `0 8px 24px` black/50% |
+
+Dark drops or deepens shadows because a black shadow on the darker page reads as a smudge; the ring carries the edge.
+
+## Interaction states
+
+Neutral controls (Button `outline`, `ghost`, `navigation` and `floating-control`, Item rows that are links or buttons, Toggle and Toggle Group, Select and Combobox items) draw every state from one contract. Filled variants (`default`, `secondary`, `destructive`) keep their own tone steps.
+
+| State | Treatment | Light | Dark |
+| --- | --- | --- | --- |
+| Hover / highlight | `bg-state-hover` with foreground text; a menu's keyboard highlight matches pointer hover | foreground 5% | foreground 7% |
+| Pressed | `active:bg-state-pressed` while held | foreground 8% | foreground 11% |
+| Focus-visible | `border-ring` + 3px `ring-ring/50`, inset on flush rows | unchanged | unchanged |
+| Disabled | `opacity-50` over the rest fill; no extra fill, no hover | | |
+| Selected | `bg-state-pressed` with foreground text (`aria-pressed`, `aria-expanded`, `data-pressed`) | foreground 8% | foreground 11% |
+
+Fields (Input, Textarea, Input Group, Select and Combobox triggers, native select) darken their border on hover (`hover:border-input-hover`, foreground 24% over `--input`) instead of tinting; focus and invalid borders win over hover. `Button press` keeps its scale feedback alongside the pressed tint.
+
+## Radius
+
+`--radius` stays `0.25rem`; every step is a multiple of it.
+
+| Surface | Step |
+| --- | --- |
+| Controls: Button, Input, Textarea, Select and Combobox triggers and items, Toggle, Input OTP, Input Group, Skeleton | `rounded-lg` |
+| Row / card: Card, standalone Item, Alert, Empty, support messages | `rounded-xl` |
+| Popup: Popover, Select and Combobox lists, coverage status preview, Toast | `rounded-xl` |
+| Sheet: Drawer, Dialog, the desktop money sheet | `rounded-2xl` |
+| Pill / avatar: Badge, Switch, Progress, rail and tab buttons, search field, avatars, status marks | `rounded-full` |
+| Marks nested in a control: Input Group buttons, Kbd, Item images, segmented choices, inline and balance buttons | `rounded-sm` |
+
+Owned components do not use `rounded-xs`, `rounded-md` or `rounded-4xl`. Prompt Input keeps its `rounded-3xl` until it is assigned a role.
+
+## Type roles
+
+Roles use the stock scale and three weights (normal, medium, semibold).
+
+| Role | Classes | Where |
+| --- | --- | --- |
+| Amount | `text-4xl font-semibold leading-none tabular-nums` | Balances and confirm summaries; the amount field keeps `text-5xl` as its fit ceiling |
+| Heading | `text-base font-semibold` | One per surface: Card, Dialog, Drawer, Popover, Result and Feature intro titles |
+| Body | `text-sm` | Descriptions and message text; fields render `text-base` below `md` so iOS does not zoom on focus |
+| Label | `text-sm font-medium` | Buttons, toggles, row titles, field labels |
+| Metadata | `text-xs text-muted-foreground` | Captions and compact descriptions; badges keep `font-medium` |
+| Numeric | `tabular-nums` | A modifier for any aligned or changing number |
+| Mono | `font-mono text-sm` | Addresses, hashes and code only |
+
 Country selection and searchable asset selection use the `Combobox`; its value truncates by default. Simple non-searchable pickers use Base UI `Select`. Financial rows stay on `Item`; do not introduce Data Table on mobile.
 
 Use the owned component contracts rather than restyling their slots:

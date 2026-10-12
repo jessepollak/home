@@ -88,42 +88,21 @@
 .notes code {
   font-family: var(--font-mono);
 }
-.compare {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 20px;
-}
-.pane {
+.sample {
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
-  margin: 0;
+  max-width: 32rem;
+  margin: 20px 0 0;
   padding: 20px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--background);
 }
-.pane figcaption {
+.sample figcaption {
   color: var(--foundation-subtle);
   font-size: 12px;
   font-weight: 500;
   line-height: 16px;
-}
-.paneNote {
-  color: var(--foundation-subtle);
-  font-size: 12px;
-  line-height: 16px;
-}
-.swatches {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  align-items: end;
-}
-@media (max-width: 760px) {
-  .compare, .swatches {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }

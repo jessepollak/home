@@ -3,7 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 
 const alertVariants = cva(
-  "group/alert flex w-full flex-wrap items-center gap-x-2.5 gap-y-3 rounded-lg border bg-card px-4 py-3.5 text-start text-sm leading-5 text-card-foreground",
+  "group/alert flex w-full flex-wrap items-center gap-x-2.5 gap-y-3 rounded-xl border bg-card px-4 py-3.5 text-start text-sm leading-5 text-card-foreground",
   {
     variants: {
       variant: {

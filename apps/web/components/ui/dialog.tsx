@@ -9,7 +9,7 @@ import { XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const dialogContentVariants = cva(
-  "fixed inset-x-0 z-50 mx-auto w-[calc(100%-2rem)] rounded-xl bg-popover text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none",
+  "fixed inset-x-0 z-50 mx-auto w-[calc(100%-2rem)] rounded-2xl bg-popover text-sm text-popover-foreground shadow-overlay outline-none",
   {
     variants: {
       variant: {
@@ -98,7 +98,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-sm font-semibold", className)}
+      className={cn("text-base font-semibold", className)}
       {...props}
     />
   )

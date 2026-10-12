@@ -12,25 +12,25 @@ Columns:
 
 | Item | Code | Historical design | MVP | Base UI underneath | Owner | P |
 | --- | --- | --- | --- | --- | --- | --- |
-| Button | yes | `12:27` variant × size × state (57 variants) | yes | Button | `components/ui/button.tsx` | P0 |
-| Badge | yes | `158:1841` variant | yes | useRender | `components/ui/badge.tsx` | P0 |
-| Item | yes | `161:1818` variant × size + hover/focus (code has no disabled state) | yes | useRender | `components/ui/item.tsx` | P0 |
+| Button | yes | `12:27` variant × size × state (57 variants); current controls use `rounded-lg`, Label type and the neutral state contract | yes | Button | `components/ui/button.tsx` | P0 |
+| Badge | yes | `158:1841` variant; current `rounded-full`, Metadata type with medium weight | yes | useRender | `components/ui/badge.tsx` | P0 |
+| Item | yes | `161:1818` variant × size + hover/focus (code has no disabled state); current standalone rows use `rounded-xl`, Label titles and the neutral hover/pressed contract | yes | useRender | `components/ui/item.tsx` | P0 |
 | Separator | yes | `158:1872` orientation | yes | Separator | `components/ui/separator.tsx` | P0 |
 | Skeleton | yes | `158:1866` historical shape; production uses `bg-foreground/10` (run 12 corrected the muted fill) | yes | none (div) | `components/ui/skeleton.tsx` | P0 |
-| Drawer (sheet) | yes | `161:1847` title=default\|money; Show footer; native `DrawerContent` and `DrawerFooter` slots (run 11). Every sheet on the pattern boards is one Drawer instance | yes | Drawer | `components/ui/drawer.tsx` | P0 |
-| Toast | yes | `161:1885` type (6); 12/16 padding, icon slot centred on the title, warning icon in `warning`, error icon in `destructive` (code parity in #947) | yes | Toast | `components/ui/toast.tsx` | P0 |
-| Input | yes | `160:1654` variant × state; the former `variant=otp` was replaced by InputOTP in #950 | yes | Input | `components/ui/input.tsx` | P0 |
+| Drawer (sheet) | yes | `161:1847` title=default\|money; Show footer; native `DrawerContent` and `DrawerFooter` slots (run 11). Every sheet on the pattern boards is one Drawer instance; current `rounded-2xl`, Overlay (`shadow-overlay`) and Heading title | yes | Drawer | `components/ui/drawer.tsx` | P0 |
+| Toast | yes | `161:1885` type (6); 12/16 padding, icon slot centred on the title, warning icon in `warning`, error icon in `destructive` (code parity in #947); current `rounded-xl`, Toast (`shadow-toast`) and Label title | yes | Toast | `components/ui/toast.tsx` | P0 |
+| Input | yes | `160:1654` variant × state; the former `variant=otp` was replaced by InputOTP in #950; current `rounded-lg`, Body type (base below `md`) and `border-input-hover` | yes | Input | `components/ui/input.tsx` | P0 |
 | InputOTP (+ sub-part InputOTPSlot) | yes | `211:3668` state=empty\|active\|typing\|filled\|error\|disabled; `211:3547` slot sub-part | yes | input-otp package, adopted in #950 | `components/ui/input-otp.tsx`; screen owner `client/account/sign-in-otp.tsx` | P1 |
 | InputGroup | yes | `160:1673` state | yes | Input + addons | `components/ui/input-group.tsx` | P0 |
 | Field | yes | `160:1684` state; Label and Description properties and a native `FieldControl` slot for Input, InputOTP, Select or Combobox (run 11) | yes | Field | `components/ui/field.tsx` | P0 |
 | Label | yes | `158:1880` state | yes | none (label) | `components/ui/label.tsx` | P0 |
-| Combobox | yes | `160:1759` state=closed\|open\|empty | yes | Combobox | `components/ui/combobox.tsx` | P0 |
-| Toggle | yes | `160:1826` variant × state + sizes | yes | Toggle | `components/ui/toggle.tsx` | P0 |
+| Combobox | yes | `160:1759` state=closed\|open\|empty; current `rounded-lg` trigger/items, `rounded-xl` list with Floating (`shadow-floating`), Body type and shared field/highlight states | yes | Combobox | `components/ui/combobox.tsx` | P0 |
+| Toggle | yes | `160:1826` variant × state + sizes; current `rounded-lg`, Label type and the neutral state contract | yes | Toggle | `components/ui/toggle.tsx` | P0 |
 | ToggleGroup (segmented control) | yes | `160:1849` variant; `outline` draws one group border with 2px padding and borderless items (code parity in #947) | yes | ToggleGroup | `components/ui/toggle-group.tsx` | P0 |
-| Select | yes | `160:1718` state | yes | Select | `components/ui/select.tsx` | P1 |
+| Select | yes | `160:1718` state; current `rounded-lg` trigger/items, `rounded-xl` list with Floating (`shadow-floating`), Body type and shared field/highlight states | yes | Select | `components/ui/select.tsx` | P1 |
 | Switch | yes | `160:1772` checked × state | yes | Switch | `components/ui/switch.tsx` | P1 |
 | Empty | yes | `161:1904` media; `EmptyAction` is a `Button` instance, `size=touch` at 44px as code's `size="touch"` (run 12; it was a raw frame) | yes | none (div) | `components/ui/empty.tsx` | P1 |
-| Popover | yes (#804) | `292:5883` (run 12): `PopoverContent` (288px, `p-2.5`, `rounded-lg`, `Elevation/md`) with `Description` and `Show action`; `PopoverAction` is a 44px ghost icon `Button`, swappable to a secondary "Open Account" | yes (Home header status) | Popover | `components/ui/popover.tsx` | P1 |
+| Popover | yes (#804) | `292:5883` (run 12): `PopoverContent` (288px, `p-2.5`, current `rounded-xl`, Floating / `shadow-floating`, Body type) with `Description` and `Show action`; `PopoverAction` is a 44px ghost icon `Button`, swappable to a secondary "Open Account" | yes (Home header status) | Popover | `components/ui/popover.tsx` | P1 |
 | RadioGroup | yes (#952) | `160:1801` checked × state | yes | RadioGroup + Radio | `components/ui/radio-group.tsx` | P1 |
 | Progress | yes (#951; product adoption pending a truthful count) | `161:1923` status × value | yes | Progress | `components/ui/progress.tsx` | P1 |
 | Icon (Lucide) | yes | `156:1726` 30 glyphs (revision 3 adds `circle-help`; run 11 adds `house` and `chart-column-increasing`) | yes | n/a | `lucide-react` imports | P0 |
@@ -39,7 +39,7 @@ Columns:
 | CoverageTable, CoverageStatusPreview | yes | no | no (internal coverage tooling) | none | `components/ui/coverage-*.tsx` | P2 |
 | PayoutMark | yes | no (payout brand colours are variables) | no | none | `components/ui/payout-mark.tsx` | P2 |
 | Tabs | no | no | no (primary navigation is `Button variant="navigation"`; ToggleGroup covers segments) | Tabs | unassigned | P2 |
-| Dialog | no | no | no (Drawer covers mobile overlays) | Dialog | unassigned | P2 |
+| Dialog | yes | no; current `rounded-2xl`, Overlay (`shadow-overlay`) and Heading title | no (Drawer covers mobile overlays) | Dialog | `components/ui/dialog.tsx` | P2 |
 | Tooltip | no | no | no (touch first; facts go inline) | Tooltip | unassigned | P2 |
 | Menu | no | no | no | Menu | unassigned | P2 |
 | Accordion | no | no | no | Accordion | unassigned | P2 |

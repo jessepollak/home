@@ -15,4 +15,4 @@ Jesse selected all four proposals as rendered, including the heading role that b
 
 - Prompt Input's `rounded-3xl` stays unassigned and keeps its current radius (follow-up 24e).
 
-Production adoption is [#2083](https://github.com/jessepollak/home/issues/2083); until it lands, code keeps its current treatments. Coverage is in [follow-up 24](../follow-ups/24-foundation-roles.md).
+Production adoption landed in [#2083](https://github.com/jessepollak/home/issues/2083); code and the Library foundations use the selected roles. Coverage is in [follow-up 24](../follow-ups/24-foundation-roles.md).

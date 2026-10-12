@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { expect, fireEvent, fn, userEvent, within } from "storybook/test";
 import { waitForReady } from "@/tests/helpers/story-readiness";
 import { ArrowUpFromLine, Banknote, CircleDollarSign, Coins, CreditCard, Lock, LockOpen, Percent, ReceiptText, ShieldCheck, Store } from "lucide-react";
 import { Button } from "./button";
@@ -105,7 +105,7 @@ export const CardPending: Story = {
     await expect(button).toHaveAttribute("aria-disabled", "true");
     await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     actions.getCard.mockClear();
-    await userEvent.click(button);
+    await fireEvent.click(button);
     await expect(actions.getCard).not.toHaveBeenCalled();
   },
 };
@@ -188,7 +188,7 @@ export const SheetPending: Story = {
     await expect(primary).toHaveAttribute("aria-busy", "true");
     await expect(primary).toHaveAttribute("aria-disabled", "true");
     await expect(primary.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-    await userEvent.click(primary);
+    await fireEvent.click(primary);
     await expect(actions.getCard).not.toHaveBeenCalled();
     const dismiss = within(dialog).getByRole("button", { name: "Not now" });
     await expect(dismiss).toBeEnabled();

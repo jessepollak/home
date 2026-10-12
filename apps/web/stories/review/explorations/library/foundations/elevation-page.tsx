@@ -4,7 +4,6 @@ import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/i
 import { Switch } from "@/components/ui/switch";
 import { foundations } from "./model";
 import { utilityValues } from "./probe";
-import type { Usage } from "./usage";
 import local from "./elevation-states.module.css";
 import styles from "./foundations.module.css";
 
@@ -15,7 +14,7 @@ type Level = {
   files: string[];
   light: string;
   dark: string;
-  why: (count: (step: string) => number) => string;
+  why: string;
 };
 
 const LEVELS: Level[] = [
@@ -24,28 +23,28 @@ const LEVELS: Level[] = [
     files: ["card.tsx", "pull-to-refresh.tsx", "switch.tsx", "conversation.tsx"],
     light: "1px ring foreground/10 + 0 1px 2px black/5%",
     dark: "1px ring foreground/10, no shadow",
-    why: (count) => `Folds the card ring, ${count("xs")} shadow-xs and ${count("sm")} shadow-sm uses into one step. In Dark a black shadow on the darker page reads as a smudge, so the ring alone carries the edge.`,
+    why: "A faint lift separates resting surfaces in Light. In Dark the ring alone carries the edge without a smudged shadow.",
   },
   {
     id: "floating", name: "Floating", role: "Anchored popups: popover, select, combobox",
     files: ["popover.tsx", "select.tsx", "combobox.tsx", "coverage-status-preview.tsx"],
     light: "1px ring foreground/10 + shadow-md",
     dark: "1px ring foreground/15 + 0 4px 12px black/40%",
-    why: (count) => `Keeps the ${count("md")} shadow-md popups; the coverage preview's border and shadow-lg join them. Dark popups share the card's lightness, so the ring rises to 15% and the shadow deepens to stay visible.`,
+    why: "Anchored popups share one level. Dark popups use a stronger ring and deeper shadow to stay visible above the card.",
   },
   {
     id: "overlay", name: "Overlay", role: "Dialog and drawer over a scrim",
     files: ["dialog.tsx", "drawer.tsx"],
     light: "1px ring foreground/10 + shadow-lg",
     dark: "1px ring foreground/10, no shadow",
-    why: (count) => `Splits today's ${count("lg")} shadow-lg uses by role and gives the drawer the dialog's ring. The scrim already separates an overlay from the page and hides a Dark shadow, so Dark drops it.`,
+    why: "The scrim separates the overlay from the page. Dialog and Drawer share a ring; Dark needs no extra shadow.",
   },
   {
     id: "toast", name: "Toast", role: "Notices over live content, no scrim",
     files: ["toast.tsx"],
     light: "1px ring foreground/10 + shadow-lg",
     dark: "1px ring foreground/15 + 0 8px 24px black/50%",
-    why: (count) => `The only top-level surface drawn with a border; a ring matches the ${count("ring-foreground/10")} ring-foreground/10 surfaces. Without a scrim it needs the strongest Dark lift of the four.`,
+    why: "A notice sits above live content without a scrim, so it has the strongest Dark lift of the four levels.",
   },
 ];
 
@@ -73,43 +72,25 @@ function layers(value: string): string {
   return parts.filter((part) => part && part !== "none" && !isEmptyLayer(part)).join(", ");
 }
 
-function fileUses(file: string, usage: Usage[]): string[] {
-  return usage.filter((entry) => entry.files.some((path) => path.endsWith(`/${file}`))).map((entry) => entry.step);
-}
-
-function Specimen({ level, className }: { level: Level["id"]; className: string }) {
+function Specimen({ level }: { level: Level["id"] }) {
   const surface: Record<Level["id"], ReactNode> = {
-    raised: <Card size="sm" className={className}>
+    raised: <Card size="sm">
       <CardHeader><CardTitle>Cash</CardTitle><CardDescription>$1,240.00 available</CardDescription></CardHeader>
       <CardContent className={local.inline}><span>Round up</span><Switch defaultChecked aria-label="Round up" /></CardContent>
     </Card>,
-    floating: <div className={className}>
+    floating: <div className="rounded-xl bg-popover p-1 text-popover-foreground shadow-floating">
       <Item size="xs"><ItemContent><ItemTitle>Checking ••42</ItemTitle></ItemContent></Item>
       <Item size="xs"><ItemContent><ItemTitle>Savings ••07</ItemTitle></ItemContent></Item>
     </div>,
-    overlay: <div className={className}>
+    overlay: <div className="rounded-2xl bg-popover text-popover-foreground shadow-overlay">
       <Item><ItemContent><ItemTitle>Send $25.00 to Alex</ItemTitle><ItemDescription>Arrives in seconds</ItemDescription></ItemContent></Item>
     </div>,
-    toast: <div className={className}>
+    toast: <div className="rounded-xl bg-popover text-popover-foreground shadow-toast">
       <Item size="sm"><ItemContent><ItemTitle>Sent $25.00</ItemTitle><ItemDescription>Alex will see it now</ItemDescription></ItemContent></Item>
     </div>,
   };
   return <div className={local.plate} data-level={level}>{surface[level]}</div>;
 }
-
-const CURRENT_CLASS: Record<Level["id"], string> = {
-  raised: "",
-  floating: "rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10",
-  overlay: "rounded-xl bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10",
-  toast: "rounded-2xl border bg-popover text-popover-foreground shadow-lg",
-};
-
-const PROPOSED_CLASS: Record<Level["id"], string> = {
-  raised: local.raised,
-  floating: `rounded-lg bg-popover p-1 text-popover-foreground ${local.floating}`,
-  overlay: `rounded-xl bg-popover text-popover-foreground ${local.overlay}`,
-  toast: `rounded-2xl bg-popover text-popover-foreground ${local.toast}`,
-};
 
 export function ElevationPage({ theme }: { theme: string }) {
   const { shadows, rings } = foundations.elevation;
@@ -118,11 +99,10 @@ export function ElevationPage({ theme }: { theme: string }) {
     ...rings.map((entry) => ({ entry, name: entry.step, probe: entry.step === "ring-1" ? "ring-1" : `ring-1 ${entry.step}` })),
   ], [shadows, rings]);
   const values = useMemo(() => utilityValues(rows.map(({ probe }) => probe), "boxShadow"), [rows]);
-  const count = (step: string) => (shadows.find((entry) => entry.step === step) ?? rings.find((entry) => entry.step === step))?.count ?? 0;
-  return <div className={local.page} data-theme={theme === "dark" ? "dark" : "light"}>
+  return <div>
     <p className={styles.summary}>
       Shadow and ring utilities Tailwind generates from component source, with the files they appear in. Counts span {foundations.scanned} files in <code>components/</code>; each utility is measured on its own, with ring colours on a 1px ring.
-      Each owned surface picks its own step today; the proposal names four levels with separately reasoned Light and Dark values.
+      Owned surfaces use four named levels with separately reasoned Light and Dark values.
     </p>
     <section className={styles.section} aria-labelledby="elevation-current">
       <h3 id="elevation-current" className={styles.sectionTitle}>Current usage<span className={styles.sectionCount}>{rows.length}</span></h3>
@@ -136,34 +116,26 @@ export function ElevationPage({ theme }: { theme: string }) {
         </tr>)}</tbody>
       </table>
     </section>
-    <section className={styles.section} aria-labelledby="elevation-proposal">
-      <h3 id="elevation-proposal" className={styles.sectionTitle}>Proposed levels<span className={styles.sectionCount}>{LEVELS.length}</span></h3>
+    <section className={styles.section} aria-labelledby="elevation-levels">
+      <h3 id="elevation-levels" className={styles.sectionTitle}>Levels<span className={styles.sectionCount}>{LEVELS.length}</span></h3>
       <ol className={local.levels}>
         {LEVELS.map((level) => <li key={level.id} className={local.level} aria-labelledby={`level-${level.id}`}>
           <div className={local.levelHead}>
             <h4 id={`level-${level.id}`} className={local.levelName}>{level.name}</h4>
             <span className={styles.meta}>{level.role}</span>
           </div>
-          <div className={local.compare}>
-            <figure className={local.figure}>
-              <Specimen level={level.id} className={CURRENT_CLASS[level.id]} />
-              <figcaption><span className={local.label}>Current</span>
-                {level.files.map((file) => <span key={file} className={styles.meta}>
-                  {file} · <code>{[...fileUses(file, shadows).map((step) => `shadow-${step}`), ...fileUses(file, rings)].join(" ") || "none"}</code>
-                </span>)}
-              </figcaption>
-            </figure>
-            <figure className={local.figure}>
-              <Specimen level={level.id} className={PROPOSED_CLASS[level.id]} />
-              <figcaption><span className={local.label}>Proposed</span>
-                <dl className={local.values}>
-                  <div data-active={theme !== "dark" || undefined}><dt>Light</dt><dd>{level.light}</dd></div>
-                  <div data-active={theme === "dark" || undefined}><dt>Dark</dt><dd>{level.dark}</dd></div>
-                </dl>
-              </figcaption>
-            </figure>
-          </div>
-          <p className={local.why}>{level.why(count)}</p>
+          <figure className={local.figure}>
+            <Specimen level={level.id} />
+            <figcaption>
+              <code>{`shadow-${level.id}`}</code>
+              {level.files.map((file) => <span key={file} className={styles.meta}>{file}</span>)}
+              <dl className={local.values}>
+                <div data-active={theme !== "dark" || undefined}><dt>Light</dt><dd>{level.light}</dd></div>
+                <div data-active={theme === "dark" || undefined}><dt>Dark</dt><dd>{level.dark}</dd></div>
+              </dl>
+            </figcaption>
+          </figure>
+          <p className={local.why}>{level.why}</p>
         </li>)}
       </ol>
     </section>
