@@ -18,7 +18,7 @@ test("shard assignment covers owned client layers, root files and new directorie
 test("discovery matches Bun extensions and names and partitions disjointly and completely", () => {
   const names = ["x.test.js", "x_test.jsx", "x.spec.ts", "x_spec.tsx", "x.test.mjs", "x_test.cjs", "x.spec.mts", "x_spec.cts"];
   const paths = [...names.map((name) => `client/${name}`), server, "root.test.ts", "new-dir/x.spec.ts"];
-  assert.deepEqual(discoverFiles([...paths, "node_modules/x.test.ts", "client/not-a-test.ts", "client/x.test.json"]), [...paths].sort());
+  assert.deepEqual(discoverFiles([...paths, "node_modules/x.test.ts", ".next/x.test.ts", "storybook-static/x.test.ts", "stories/x.test.ts", "client/x.test.pw.ts", "client/x.test.stories.tsx", "client/not-a-test.ts", "client/x.test.json"]), [...paths].sort());
   const groups = partition(paths);
   assert.deepEqual(groups.client, names.map((name) => `client/${name}`));
   assert.deepEqual(groups.server, [server, "root.test.ts", "new-dir/x.spec.ts"]);

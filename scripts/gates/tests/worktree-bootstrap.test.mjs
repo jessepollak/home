@@ -769,5 +769,5 @@ function statSafe(path) {
 test("the bootstrap script is exposed as a package command", async () => {
   const packageJson = JSON.parse(readFileSync(fileURLToPath(new URL("../../../package.json", import.meta.url)), "utf8"));
   assert.equal(packageJson.scripts["worktree:bootstrap"], "node scripts/worktree/bootstrap.mjs");
-  assert.match(packageJson.scripts.gates, /scripts\/gates\/preflight\.mjs && node --test/);
+  assert.match(packageJson.scripts.gates, /scripts\/gates\/preflight\.mjs && node scripts\/gates\/unit-test-scope\.mjs && node --test/);
 });

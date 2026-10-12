@@ -29,6 +29,10 @@ test("discovery uses Bun suffixes and skips hidden, generated and dependency dir
     }
     await writeFixture(cwd, "nested/extra.test.cts", "");
     await writeFixture(cwd, "nested/invalid.test.txt", "");
+    await makeDirectory(cwd, "stories");
+    for (const file of ["nested/one.test.pw.ts", "nested/one.test.stories.tsx", "stories/one.test.ts"]) {
+      await writeFixture(cwd, file, "");
+    }
     expect(await discoverTests(cwd)).toEqual(["./nested/extra.test.cts", "./nested/one.test.ts", "./nested/two_spec.js"]);
   });
 });

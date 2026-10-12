@@ -3,15 +3,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseJunit } from "./test-runtime.mjs";
+import { discoverFiles } from "./unit-test-discovery.mjs";
+export { discoverFiles } from "./unit-test-discovery.mjs";
 
 const web = fileURLToPath(new URL("../../apps/web/", import.meta.url));
-const testFile = /(?:\.test\.|_test\.|\.spec\.|_spec\.)(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/;
 const clientDirs = new Set(["client", "components", "app", "tests"]);
 const shards = ["server", "client"];
 
-export function discoverFiles(paths) {
-  return paths.filter((path) => !path.split("/").includes("node_modules") && testFile.test(path)).sort();
-}
 
 export function shardFor(file) {
   return clientDirs.has(file.split("/")[0]) ? "client" : "server";
@@ -51,8 +49,8 @@ export function verifyReports(files, reports) {
   return { counts, findings };
 }
 
-export function trackedFiles() {
-  const result = spawnSync("git", ["ls-files", "-z", "--", "."], { cwd: web });
+export function trackedFiles(cwd = web) {
+  const result = spawnSync("git", ["ls-files", "-z", "--", "."], { cwd });
   if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git ls-files failed");
   return discoverFiles(result.stdout.toString().split("\0").filter(Boolean));
 }

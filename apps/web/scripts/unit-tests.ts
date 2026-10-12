@@ -2,9 +2,8 @@ import { readdir, readFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { parseJunit } from "../../../scripts/gates/test-runtime.mjs";
 import { isDomTestSource } from "./dom-test-source.mjs";
+import { isUnitTestFile } from "../../../scripts/gates/unit-test-discovery.mjs";
 
-const extensions = new Set(["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]);
-const testName = /(?:\.test\.|_test\.|\.spec\.|_spec\.)/;
 const countNames = ["tests", "assertions", "failures", "skipped", "time"] as const;
 const valueFlags = new Set(["-t", "--test-name-pattern", "--timeout", "--retry", "--rerun-each", "--seed", "--path-ignore-patterns"]);
 export const DEFAULT_BATCH_SIZE = 25;
@@ -28,7 +27,7 @@ export async function discoverTests(cwd: string): Promise<string[]> {
       if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "storybook-static") continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) await visit(path);
-      else if (entry.isFile() && extensions.has(entry.name.split(".").at(-1) ?? "") && testName.test(entry.name)) {
+      else if (entry.isFile() && isUnitTestFile(relative(cwd, path).replaceAll("\\", "/"))) {
         files.push(`./${relative(cwd, path).replaceAll("\\", "/")}`);
       }
     }
