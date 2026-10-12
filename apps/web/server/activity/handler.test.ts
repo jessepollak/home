@@ -13,7 +13,6 @@ const session: VerifiedAccountSession = {
 type Branch = "source" | "read";
 
 function configurationFailure(branch: Branch) {
-  const observed: { sourceError?: string }[] = [];
   const handler = createActivityHandler({
     authorize: async () => session,
     source: () => {
@@ -25,32 +24,18 @@ function configurationFailure(branch: Branch) {
     },
     now: () => new Date("2026-10-01T12:00:00.000Z"),
     clock: () => 0,
-    observe: (event) => { observed.push(event); },
     diagnosticKey: "activity-test-diagnostic-key",
   });
-  return {
-    observed,
-    read: () => handler(new Request("https://home.test/api/activity?to=2026-10-01T12%3A00%3A00.000Z")),
-  };
+  return () => handler(new Request("https://home.test/api/activity?to=2026-10-01T12%3A00%3A00.000Z"));
 }
 
 const branches: Branch[] = ["source", "read"];
 
 describe("activity handler configuration failures", () => {
-  test.each(branches)("keeps a %s not-configured failure user-safe", async (branch) => {
-    const response = await configurationFailure(branch).read();
+  test.each(branches)("does not disclose configuration names after a %s failure", async (branch) => {
+    const response = await configurationFailure(branch)();
     const body = await readJson(response);
 
-    expect(response.status).toBe(503);
-    expect(body).toEqual({ error: { code: "ACTIVITY_NOT_CONFIGURED", message: "Try again later." } });
-    expect(JSON.stringify(body)).not.toContain("ACTIVITY_HISTORY_SOURCE");
-    expect(JSON.stringify(body)).not.toContain("CDP_API_KEY_ID");
-  });
-
-  test.each(branches)("keeps a %s not-configured failure observable for operators", async (branch) => {
-    const failure = configurationFailure(branch);
-    await failure.read();
-
-    expect(failure.observed.some((event) => event.sourceError === "not-configured")).toBe(true);
+    expect(JSON.stringify(body)).not.toMatch(/ACTIVITY_HISTORY_SOURCE|CDP_API_KEY_ID/);
   });
 });

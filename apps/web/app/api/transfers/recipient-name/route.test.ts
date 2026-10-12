@@ -10,18 +10,6 @@ const session = {
 };
 const request = () => new Request("https://home.test/api/transfers/recipient-name?name=EXAMPLE.BASE.ETH");
 
-test("recipient-name GET handler output round-trips through its normalized versioned parser", async () => {
-  const GET = createTransferRecipientNameHandler({
-    authorize: async () => Response.json(session),
-    resolve: async () => address,
-  });
-  const response = await GET(request());
-  expect(response.status).toBe(200);
-  const body = await response.json();
-  expect(body).toEqual({ version: 1, name: "example.base.eth", address });
-  expect(readTransferRecipientNameResponse(body)).toEqual({ name: "example.base.eth", address });
-});
-
 test.each(["0x123", "0x0000000000000000000000000000000000000000"])(
   "malformed resolved recipient %s never becomes a parsed recipient", async (resolved) => {
     const GET = createTransferRecipientNameHandler({

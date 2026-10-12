@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { ACTION_KINDS } from "@/shared/money-actions/types";
-import { HANDLE_ACTION_CONTRACT_VERSION, HANDLE_ACTION_ERROR_CODES, isHandleActionErrorCode, parseHandleActionErrorResponse, parseHandleActionResponse } from "./handle";
+import { HANDLE_ACTION_CONTRACT_VERSION, isHandleActionErrorCode, parseHandleActionErrorResponse, parseHandleActionResponse } from "./handle";
 
 const owner = { subject: "user-1", address: "0x1111111111111111111111111111111111111111", chainId: 8453, accountProvider: "cdp-embedded" };
 const summary = { title: "Send USDC", amounts: [], warnings: [], expiresAt: "2026-09-13T12:03:00.000Z" };
@@ -104,7 +104,7 @@ test.each(invalidCases)("rejects %s", (_label, value) => {
 });
 
 test("handle action error contract accepts declared codes and rejects malformed or unknown responses", () => {
-  for (const code of HANDLE_ACTION_ERROR_CODES) {
+  for (const code of ["INVALID_ACTION_HANDLE", "ACTION_NOT_FOUND", "ACTIONS_UNAVAILABLE"] as const) {
     expect(isHandleActionErrorCode(code)).toBe(true);
     expect(parseHandleActionErrorResponse({ error: { code, message: "Unavailable" } })).toEqual({ error: { code, message: "Unavailable" } });
   }

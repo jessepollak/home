@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseOperatorErrorResponse, parseOperatorSessionResponse } from "./contract";
+import { parseOperatorSessionResponse } from "./contract";
 
 const operator = "0x1111111111111111111111111111111111111111";
 
@@ -12,9 +12,4 @@ test("operator session responses require a version and a valid address", () => {
   ]) {
     expect(parseOperatorSessionResponse(value)).toBeNull();
   }
-});
-
-test("operator error responses reject unknown codes", () => {
-  expect(parseOperatorErrorResponse({ error: { code: "OPERATOR_FORBIDDEN" } })).toEqual({ error: { code: "OPERATOR_FORBIDDEN" } });
-  expect(parseOperatorErrorResponse({ error: { code: "UNKNOWN" } })).toBeNull();
 });

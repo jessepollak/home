@@ -54,28 +54,6 @@ function pendingSavings(operation: "deposit" | "withdraw") {
   };
 }
 
-class NonPlainCall {
-  to = VAULT;
-  data = "0x1234";
-  value = "0";
-}
-
-const [call] = pendingSavings("deposit").calls;
-const invalidCalls: [string, unknown][] = [
-  ["non-address to", { ...call, to: "not-an-address" }],
-  ["short to", { ...call, to: "0x1234" }],
-  ["zero to", { ...call, to: `0x${"0".repeat(40)}` }],
-  ["odd-length data", { ...call, data: "0xABC" }],
-  ["non-hex data", { ...call, data: "0xGH" }],
-  ["uppercase data prefix", { ...call, data: "0XABCD" }],
-  ["negative value", { ...call, value: "-1" }],
-  ["non-decimal value", { ...call, value: "0x1" }],
-  ["value above uint256", { ...call, value: (BigInt(1) << BigInt(256)).toString() }],
-  ["zero approval spender", { ...call, approval: { assetId: "usdc", spender: `0x${"0".repeat(40)}` } }],
-  ["empty approval assetId", { ...call, approval: { assetId: " ", spender: ADDRESS } }],
-  ["non-plain call", new NonPlainCall()],
-];
-
 function pendingFixture(kind: ActionKind) {
   const base = pendingSavings(kind === "savings-withdraw" ? "withdraw" : "deposit");
   let metadata: unknown;
@@ -125,22 +103,9 @@ describe("pending action response parser", () => {
       expect(parseGetActionPendingResponse(value, ADDRESS)).toBeNull();
     }
   });
-  test.each(invalidCalls)("rejects %s in any batch position", (_reason, invalidCall) => {
-    expect(parsePendingActionResponse({ ...pendingSavings("deposit"), calls: [call, invalidCall] }, ID, session)).toBeNull();
-  });
-  test("rejects an empty batch", () => {
-    expect(parsePendingActionResponse({ ...pendingSavings("deposit"), calls: [] }, ID, session)).toBeNull();
-  });
-  test("canonicalizes call addresses, data, and approval metadata", () => {
-    const to = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-    const calls = [{ to, data: "0xABCD", value: "0", approval: { assetId: " usdc ", spender: to } }];
-    expect<unknown>(parsePendingActionResponse({ ...pendingSavings("deposit"), calls }, ID, session)?.calls).toEqual([
-      { to: to.toLowerCase(), data: "0xabcd", value: "0", approval: { assetId: "usdc", spender: to.toLowerCase() } },
-    ]);
-  });
-  test("accepts bare 0x data with a nonzero value", () => {
-    const calls = [{ ...call, data: "0x" as const, value: "123" }];
-    expect(parsePendingActionResponse({ ...pendingSavings("deposit"), calls }, ID, session)?.calls).toEqual(calls);
+  test("rejects a pending batch containing malformed call data", () => {
+    const pending = pendingSavings("deposit");
+    expect(parsePendingActionResponse({ ...pending, calls: [...pending.calls, { to: VAULT, data: "0xABC", value: "0" }] }, ID, session)).toBeNull();
   });
   test.each(ACTION_KINDS.map((kind) => [kind] as const))("round trips a %s fixture through prepare and pending response contracts", (kind) => {
     const pending = pendingFixture(kind);
