@@ -25,7 +25,7 @@ Review only the named motion surface. Do not edit code or widen into a general U
 - **Justification:** Motion provides feedback, spatial continuity, state indication, or prevents a jarring change. Movement that only decorates is a finding, especially on frequently read financial surfaces where functional financial data should not move merely for decoration.
 - **Budgets:** Tabs are at most 180ms, chips at most 120ms, and CTA press feedback 100–160ms. Other UI motion stays similarly short and optical.
 - **Reduced motion:** `prefers-reduced-motion: reduce` removes spatial and transform motion. Short opacity or color transitions remain only when they aid comprehension; a decorative fallback is a finding, and smooth scrolling becomes `auto`.
-- **Properties:** Prefer `transform` and `opacity`; flag `transition: all`, accidental layout animation, and `scale(0)` entrances.
+- **Properties:** Prefer `transform` and `opacity`; flag `transition: all`, accidental layout animation, and `scale(0)` entrances. Diagnose a suspected frame-budget problem with [animation-performance](../animation-performance/SKILL.md).
 - **Physicality:** Trigger-anchored content uses the Base UI transform origin. Enter and exit paths remain coherent.
 - **Interruptibility:** Repeated actions retarget cleanly. Gesture motion preserves continuity; keyframes do not restart a rapid interaction from zero.
 - **Input:** Hover motion is capability-gated. Keyboard use, focus, semantics, and touch hit targets remain intact.
