@@ -67,6 +67,7 @@ export function evaluateUnitTestScope({ files, manifest, reference = null }) {
     if (reference && !reference.includes(path)) findings.push(`New grandfathered path: ${path}; the list may only shrink`);
   }
   for (const file of files) {
+    if (!file.split("/").at(-1).includes(".test.")) findings.push(`${file}: name unit tests *.test.* so the test-only lint rules apply`);
     if (!classified.has(file) && !grandfathered.has(file)) findings.push(`${file}: outside the protected categories in docs/architecture.md#test-policy; adding a scope requires a policy category`);
   }
   return { findings: findings.sort(), scoped: classified.size, grandfathered: grandfathered.size, total: files.length };

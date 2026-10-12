@@ -48,7 +48,7 @@ test("fixture discovery covers Bun names and extensions, excludes stories and Pl
   const f = fixture(t, paths);
   f.write("apps/web/client/query/not-indexed.test.ts", "export {};\n");
   assert.equal(f.check().total, 10);
-  assert.deepEqual(f.check().findings, []);
+  assert.deepEqual(f.check().findings.map((line) => line.split(":")[0]), ["server/actions/case1_test.jsx", "server/actions/case2.spec.ts", "server/actions/case3_spec.tsx", "server/actions/case5_test.cts", "server/actions/case6.spec.mjs", "server/actions/case7_spec.cjs"]);
   f.git("add", "apps/web/client/query/not-indexed.test.ts");
   assert.match(f.check().findings.join("\n"), /not-indexed.test.ts.*docs\/architecture.md#test-policy.*scope requires a policy category/);
 });
