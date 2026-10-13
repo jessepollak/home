@@ -109,12 +109,43 @@ export function readBaseBudget(baseRef = "main", baselinePath = BASELINE_PATH, g
   }
   if (!listing) {
     notes.push(`${baselinePath} is absent at ${base}; baseline raises were not checked.`);
-    return { base, files: null, notes };
+    return { base, files: null, exceptions: [], notes };
   }
   const parsed = JSON.parse(gitRunner(["show", `${base}:${baselinePath}`]));
   const shape = entries([], { files: parsed?.files, exceptions: parsed?.exceptions });
   if (shape.invalid.length) throw new Error(`${baselinePath} at ${base} is invalid: ${shape.invalid[0]}`);
-  return { base, files: parsed.files, notes };
+  return { base, files: parsed.files, exceptions: parsed.exceptions, notes };
+}
+
+export function readBaseCounts(base, files, gitRunner = git) {
+  const counts = new Map();
+  for (const file of files) {
+    let content;
+    try {
+      content = gitRunner(["show", `${base}:${file}`]);
+    } catch {
+      counts.set(file, {});
+      continue;
+    }
+    counts.set(file, countDisables(file, content));
+  }
+  return counts;
+}
+
+export function baseBudgetCandidates(files, budget, reference) {
+  const candidates = new Set((files ?? []).filter(({ path: file, content }) => Object.keys(countDisables(file, content)).length).map(({ path: file }) => file));
+  for (const value of [reference, budget?.files]) {
+    if (value && typeof value === "object" && [Object.prototype, null].includes(Object.getPrototypeOf(value))) {
+      for (const file of Object.keys(value)) candidates.add(file);
+    }
+  }
+  return [...candidates].sort();
+}
+
+export function readBaseInput(baseRef = "main", { files, budget, gitRunner = git, baselinePath = BASELINE_PATH } = {}) {
+  const { base, files: reference, exceptions: baseExceptions, notes } = readBaseBudget(baseRef, baselinePath, gitRunner);
+  const baseCounts = reference === null ? null : readBaseCounts(base, baseBudgetCandidates(files, budget, reference), gitRunner);
+  return { base, reference, baseCounts, baseExceptions, notes, changeTime: !/^[0-9a-f]{40}$/iu.test(baseRef) };
 }
 
 function entries(files, budget) {
@@ -144,20 +175,20 @@ function entries(files, budget) {
     seen.add(key);
     if (isLintedSource(file) && typeof rule === "string" && ruleName.test(rule) && Number.isSafeInteger(count) && count > 0) extra.set(key, (extra.get(key) ?? 0) + count);
   }
+  return { scanned, base, exceptions, extra, invalid };
+}
+
+export function evaluateDisableBudget({ files, budget, reference = null, baseCounts = null, baseExceptions = [], enforceFloor = false }) {
+  const { scanned, base, exceptions, extra, invalid } = entries(files, budget);
+  const increases = [];
+  const notes = [];
+  const raises = [];
   for (const [key, count] of extra) {
     const index = key.lastIndexOf(":");
     const file = key.slice(0, index);
     const rule = key.slice(index + 1);
-    if (scanned.has(file) && ownCount(scanned.get(file).counts, rule) < count) invalid.push(`${file}: ${rule} exception exceeds current count; edit the exception by hand`);
+    if (scanned.has(file) && ownCount(scanned.get(file).counts, rule) < count) notes.push(`${file}: ${rule} exception exceeds current count; edit the exception by hand`);
   }
-  return { scanned, base, exceptions, extra, invalid };
-}
-
-export function evaluateDisableBudget({ files, budget, reference = null }) {
-  const { scanned, base, exceptions, extra, invalid } = entries(files, budget);
-  const increases = [];
-  const stale = [];
-  const raises = [];
   if (reference && typeof reference === "object" && !Array.isArray(reference)) {
     for (const file of new Set([...Object.keys(reference), ...Object.keys(base)])) {
       for (const rule of new Set([...Object.keys(reference[file] ?? {}), ...Object.keys(base[file] ?? {})])) {
@@ -173,27 +204,40 @@ export function evaluateDisableBudget({ files, budget, reference = null }) {
     invalid.push(...findings);
     for (const rule of new Set([...Object.keys(counts), ...Object.keys(base[file] ?? {}), ...[...extra.keys()].filter((key) => key.startsWith(`${file}:`)).map((key) => key.slice(file.length + 1))])) {
       const old = ownCount(base[file], rule);
-      const allowed = (Number.isSafeInteger(old) && old > 0 ? old : 0) + (extra.get(`${file}:${rule}`) ?? 0);
+      const baseline = Number.isSafeInteger(old) && old > 0 ? old : 0;
+      const extraCount = extra.get(`${file}:${rule}`) ?? 0;
+      const baselineAllowed = baseline + extraCount;
+      const inherited = baseExceptions.filter((entry) => entry?.path === file && entry.rule === rule && Number.isSafeInteger(entry.count) && entry.count > 0)
+        .reduce((sum, entry) => sum + entry.count, 0);
+      const baseCount = ownCount(baseCounts?.get(file), rule);
+      const allowed = baseCounts === null ? baseline + extraCount : Math.min(baseCount + Math.max(0, extraCount - inherited), baseline + extraCount);
       const count = ownCount(counts, rule);
       if (count > allowed) increases.push(`${file}: ${rule} ${count} > ${allowed}; remove the disable or add a reviewed exception with a linked issue`);
-      if (count < allowed) stale.push(`${file}: ${rule} ${count} < ${allowed}; run bun run disables:shrink`);
+      if (count < baseline) notes.push(`${file}: ${rule} ${count} < ${baseline}; lower the baseline with bun run disables:shrink`);
+      if (enforceFloor && reference && typeof reference === "object" && !Array.isArray(reference)) {
+        const floor = Math.min(ownCount(reference[file], rule), count);
+        if (baseline < floor) invalid.push(`${file}: ${rule} baseline ${baseline} is below the shrink floor ${floor}; a baseline may only be lowered by bun run disables:shrink`);
+      }
     }
   }
-  for (const file of Object.keys(base)) if (!scanned.has(file)) stale.push(`${file}: baseline file missing; run bun run disables:shrink`);
-  for (const entry of exceptions) if (typeof entry?.path === "string" && isLintedSource(entry.path) && !scanned.has(entry.path)) stale.push(`${entry.path}: ${entry.rule} exception file missing; remove the exception by hand`);
-  return { increases: increases.sort(), stale: stale.sort(), invalid: invalid.sort(), raises: raises.sort() };
+  for (const file of Object.keys(base)) if (!scanned.has(file)) notes.push(`${file}: baseline file missing; drop it with bun run disables:shrink`);
+  for (const entry of exceptions) if (typeof entry?.path === "string" && isLintedSource(entry.path) && !scanned.has(entry.path)) notes.push(`${entry.path}: ${entry.rule} exception file missing; remove the exception by hand`);
+  return { increases: increases.sort(), notes: notes.sort(), invalid: invalid.sort(), raises: raises.sort() };
+}
+
+export function hasFatalFindings({ increases = [], invalid = [], raises = [] }) {
+  return increases.length > 0 || invalid.length > 0 || raises.length > 0;
 }
 
 export function shrinkBudget({ files, budget }) {
-  const { scanned, base, exceptions, extra } = entries(files, budget);
+  const { scanned, base, exceptions } = entries(files, budget);
   const result = {};
   for (const file of [...scanned.keys()].sort()) {
     const current = scanned.get(file).counts;
     const counts = new Map();
     for (const rule of [...new Set([...Object.keys(base[file] ?? {}), ...Object.keys(current)])].sort()) {
       const old = ownCount(base[file], rule);
-      const remaining = ownCount(current, rule) - (extra.get(`${file}:${rule}`) ?? 0);
-      const next = Math.max(0, Math.min(old, remaining));
+      const next = Math.max(0, Math.min(old, ownCount(current, rule)));
       if (next > 0) counts.set(rule, next);
     }
     if (counts.size) result[file] = Object.fromEntries(counts);
@@ -210,24 +254,32 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     const files = repositoryFiles();
     const budget = JSON.parse(readFileSync(baselinePath, "utf8"));
     let reference = null;
+    let baseCounts = null;
+    let baseExceptions = [];
+    let enforceFloor = false;
     const baseFindings = [];
     try {
-      const result = readBaseBudget(process.env.BASE_REF || "main");
-      reference = result.files;
-      for (const note of result.notes) console.error(note);
+      const result = readBaseInput(process.env.BASE_REF || "main", { files, budget });
+      reference = result.reference;
+      baseCounts = result.baseCounts;
+      baseExceptions = result.baseExceptions;
+      enforceFloor = result.changeTime;
+      for (const note of result.notes) console.log(note);
     } catch (error) {
       baseFindings.push(`Base baseline unavailable or invalid: ${error.message}`);
     }
-    const before = evaluateDisableBudget({ files, budget, reference });
+    const before = evaluateDisableBudget({ files, budget, reference, baseCounts, baseExceptions, enforceFloor });
     if (shrink && !baseFindings.length && !before.invalid.length && !before.raises.length) {
       const smaller = shrinkBudget({ files, budget });
       writeFileSync(baselinePath, `${JSON.stringify(smaller, null, 2)}\n`);
-      const after = evaluateDisableBudget({ files, budget: smaller, reference });
-      for (const message of [...after.increases, ...after.stale, ...after.invalid, ...after.raises]) console.error(message);
-      if (after.increases.length || after.stale.length || after.invalid.length || after.raises.length) process.exitCode = 1;
+      const after = evaluateDisableBudget({ files, budget: smaller, reference, baseCounts, baseExceptions, enforceFloor });
+      for (const note of after.notes) console.log(note);
+      for (const message of [...baseFindings, ...after.increases, ...after.invalid, ...after.raises]) console.error(message);
+      if (baseFindings.length || hasFatalFindings(after)) process.exitCode = 1;
     } else {
-      for (const message of [...baseFindings, ...before.increases, ...before.stale, ...before.invalid, ...before.raises]) console.error(message);
-      if (baseFindings.length || before.increases.length || before.stale.length || before.invalid.length || before.raises.length) process.exitCode = 1;
+      for (const note of before.notes) console.log(note);
+      for (const message of [...baseFindings, ...before.increases, ...before.invalid, ...before.raises]) console.error(message);
+      if (baseFindings.length || hasFatalFindings(before)) process.exitCode = 1;
     }
   }
 }
