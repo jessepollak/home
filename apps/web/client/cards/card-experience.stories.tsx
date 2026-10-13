@@ -19,8 +19,8 @@ const kycUrl = "https://bridge.withpersona.com/verify?inquiry-template-id=itmpl_
 const reveal = { publishableKey: "pk_test_story", revealKey: async (): Promise<never> => { throw new Error("Stripe is not loaded in stories."); } };
 
 const twoCards: CardsResponse = { ...cardsBody("frozen"), cards: [
-  { id: "ic_fixture1107", status: "frozen", last4: "1107" },
-  { id: "ic_fixture4821", status: "active", last4: "4821" },
+  { id: "11111111-1111-4111-8111-111111111107", status: "frozen", last4: "1107" },
+  { id: "11111111-1111-4111-8111-111111114821", status: "active", last4: "4821" },
 ] };
 
 const spendingSpender = "0x2222222222222222222222222222222222222222";
@@ -78,7 +78,7 @@ function CardStateStory({ state, initial, refreshFails = false, lockOutcome, wit
         spendingCommands={spendingCommands}
         onSpendingRetry={actions.onRetry}
         commands={{
-          enroll: async () => kycUrl,
+          enroll: async () => ({ kind: "redirect", url: kycUrl }),
           issue: async () => { actions.issue(); setResponse(cardsBody("active")); },
           setFrozen: async (cardId, frozen) => {
             actions.setFrozen(cardId, frozen);

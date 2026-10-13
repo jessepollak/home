@@ -43,6 +43,7 @@ export function emitServerEvent(
     code: string;
     outcome: ServerEventOutcome;
     provider?: string;
+    errorName?: string;
     region?: string;
     sandbox?: boolean;
     owner?: { subject: string; accountProvider: string };
@@ -65,6 +66,7 @@ export function emitServerEvent(
       code: fields.code,
       outcome: fields.outcome,
       ...(fields.provider ? { provider: fields.provider } : {}),
+      ...(fields.errorName ? { errorName: fields.errorName } : {}),
       ...(fields.region ? { region: fields.region } : {}),
       ...(typeof fields.sandbox === "boolean" ? { sandbox: fields.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),

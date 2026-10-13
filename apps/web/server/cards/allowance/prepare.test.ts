@@ -8,6 +8,7 @@ import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import type { CardsResponse, CardState } from "@/shared/cards/contract";
 import { readCardAllowanceRegistry, type CardAllowanceRegistry } from "./config";
 import { createCardAllowancePreparation } from "./prepare";
+import { fakeProgram } from "@/tests/cards/fake-program";
 
 const owner = "0x1111111111111111111111111111111111111111" as const;
 const spender = "0x65bf8b55EEDef53C094E40003a03390De744DF33" as const;
@@ -21,8 +22,8 @@ const baseRegistry = readCardAllowanceRegistry(env)!;
 const set = { version: 1, operation: "set", allowanceBaseUnits: "25000000" };
 const revoke = { version: 1, operation: "revoke", spender };
 function state(status: CardState = "active"): CardsResponse {
-  return { version: 1, state: status, cards: [{ id: "ic_test", status: status === "frozen" ? "frozen" : status === "canceled" ? "canceled" : status === "restricted" ? "restricted" : "active", last4: "4242" }],
-    provenance: { bridge: "available", stripe: "available", fetchedAt: "2026-09-28T12:00:00.000Z" } };
+  return { version: 2, state: status, cards: [{ id: "11111111-1111-4111-8111-111111114821", status: status === "frozen" ? "frozen" : status === "canceled" ? "canceled" : status === "restricted" ? "restricted" : "active", last4: "4242" }],
+    provenance: { program: "bridge", account: "available", cards: "available", fetchedAt: "2026-09-28T12:00:00.000Z" } };
 }
 type Overrides = {
   registry?: CardAllowanceRegistry | null;
@@ -38,9 +39,9 @@ type Overrides = {
 function service(overrides: Overrides = {}, observed: Array<{ method: string; params: readonly unknown[]; signal: AbortSignal | undefined }> = []) {
   return createCardAllowancePreparation({
     registry: () => overrides.registry === undefined ? baseRegistry : overrides.registry,
-    journey: () => overrides.enabled === false ? null : ({ mode: overrides.mode ?? "production", funding: { kind: overrides.funding ?? "crypto_wallet" } }) as ReturnType<typeof import("../bridge/journey-config").readCardJourneyConfig>,
+    programFor: async () => overrides.enabled === false ? null : fakeProgram({ mode: overrides.mode ?? "production", ...(overrides.funding === "financial_account" ? { funding: { strategy: "deposit" } } : {}) }).program,
     customer: async () => overrides.customer === false ? null : { id: "customer-1", walletId: overrides.customerWallet === false ? null : "wallet-1" },
-    account: async () => ({ bridgeCustomerId: "bridge-1", stripeCardholderId: "ich_test", cards: [{ id: "card-1", stripeCardId: "ic_test", walletAddress: overrides.wallet ?? owner }] }),
+    account: async () => ({ customerId: "customer-1", mode: "production", provider: "bridge", accountId: "bridge-1", cardholderId: "holder-fixture", cards: [{ id: "11111111-1111-4111-8111-111111114821", providerCardId: "ic_test", walletAddress: overrides.wallet ?? owner }] }),
     state: async () => state(overrides.cardState),
     rpc: async (method, params, options) => {
       observed.push({ method, params, signal: options?.signal });
@@ -94,7 +95,7 @@ describe("card allowance preparation", () => {
     controller.abort();
     const called: string[] = [];
     const prepare = createCardAllowancePreparation({ registry: () => baseRegistry,
-      journey: () => ({ mode: "production", funding: { kind: "crypto_wallet" } }) as ReturnType<typeof import("../bridge/journey-config").readCardJourneyConfig>,
+      programFor: async () => fakeProgram({ mode: "production" }).program,
       customer: async () => { called.push("customer"); return { id: "customer-1", walletId: "wallet-1" }; },
       account: async () => { called.push("account"); return null; },
       state: async () => { called.push("provider"); return state(); },
@@ -108,7 +109,7 @@ describe("card allowance preparation", () => {
     const received: Array<AbortSignal | undefined> = [];
     const calls: string[] = [];
     const prepare = createCardAllowancePreparation({ registry: () => baseRegistry,
-      journey: () => ({ mode: "production", funding: { kind: "crypto_wallet" } }) as ReturnType<typeof import("../bridge/journey-config").readCardJourneyConfig>,
+      programFor: async () => fakeProgram({ mode: "production" }).program,
       customer: async (_session, signal) => { received.push(signal); controller.abort(); return { id: "customer-1", walletId: "wallet-1" }; },
       account: async () => { calls.push("account"); return null; },
       state: async () => { calls.push("provider"); return state(); },

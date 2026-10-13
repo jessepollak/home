@@ -5,10 +5,12 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { browserHomeQueryClient, disabledQueryKey, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import {
   parseCardEnrollmentResponse,
-  parseCardEphemeralKeyResponse,
+  parseCardRevealResponse,
   parseCardsResponse,
   parseCardWriteResponse,
-  type CardEphemeralKeyResponse,
+  type CardRevealResponse,
+  type RevealRequest,
+  type CardEnrollmentResponse,
   type CardsResponse,
 } from "@/shared/cards/contract";
 import { CARD_PENDING_WINDOW_MS, CARD_RETURN_WINDOW_MS, cardsPollInterval } from "./card-polling";
@@ -16,10 +18,10 @@ import { CARD_PENDING_WINDOW_MS, CARD_RETURN_WINDOW_MS, cardsPollInterval } from
 type FetchAccountResource = AccountWalletClient["fetchAccountResource"];
 
 export type CardCommands = {
-  enroll: () => Promise<string>;
+  enroll: () => Promise<CardEnrollmentResponse["next"]>;
   issue: () => Promise<void>;
   setFrozen: (cardId: string, frozen: boolean) => Promise<void>;
-  revealKey: (cardId: string, nonce: string) => Promise<CardEphemeralKeyResponse>;
+  revealKey: (cardId: string, request: RevealRequest) => Promise<CardRevealResponse>;
 };
 
 export class CardRefreshError extends Error {
@@ -109,7 +111,8 @@ export function useCards({ ownerKey, fetchAccountResource, intervalMs }: {
     enroll: async () => {
       const response = parseCardEnrollmentResponse(await fetchAccountResource("/api/cards/enrollment", { method: "POST", body: {} }));
       if (!response) throw new Error("Invalid enrollment response");
-      return response.kycUrl;
+      if (response.next.kind === "complete") await refresh();
+      return response.next;
     },
     issue: () => {
       let issuedId: string | null = null;
@@ -125,14 +128,15 @@ export function useCards({ ownerKey, fetchAccountResource, intervalMs }: {
       ));
       if (!response || response.card.id !== cardId) throw new Error("Invalid card response");
     }, (read) => read.cards.find((card) => card.id === cardId)?.status === (frozen ? "frozen" : "active")),
-    revealKey: async (cardId, nonce) => {
-      const response = parseCardEphemeralKeyResponse(await fetchAccountResource(
-        `/api/cards/${encodeURIComponent(cardId)}/ephemeral-key`, { method: "POST", body: { nonce } },
+    revealKey: async (cardId, request) => {
+      const response = parseCardRevealResponse(await fetchAccountResource(
+        `/api/cards/${encodeURIComponent(cardId)}/reveal`, { method: "POST", body: request },
       ));
-      if (!response || response.cardId !== cardId) throw new Error("Invalid card key response");
+      if (!response || response.cardId !== cardId || response.grant.method !== request.method || response.grant.step !== request.step ||
+          request.step === "grant" && (response.grant.step !== "grant" || response.grant.nonce !== request.nonce)) throw new Error("Invalid card reveal response");
       return response;
     },
-  }), [confirmedWrite, fetchAccountResource]);
+  }), [confirmedWrite, fetchAccountResource, refresh]);
 
   return { query, refresh, commands };
 }

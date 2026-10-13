@@ -228,8 +228,8 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
   }
 
   const enroll = () => void run("enroll", async () => {
-    const url = await commands.enroll();
-    return () => onOpenVerification(url);
+    const next = await commands.enroll();
+    return () => { if (next.kind === "redirect") onOpenVerification(next.url); };
   }, "Couldn't start verification. Try again.");
   const issue = (failure: string) => void run("issue", commands.issue, failure);
 

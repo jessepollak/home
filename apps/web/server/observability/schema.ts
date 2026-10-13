@@ -139,6 +139,7 @@ export const SERVER_EVENT_KINDS = [
   "funding-order",
   "funding-webhook",
   "cards-webhook",
+  "cards-config",
   "balances-webhook",
   "balances-webhook-subscription",
   "balances-store",
@@ -305,6 +306,7 @@ export type ObservabilityEvent =
       code: string;
       outcome: ServerEventOutcome;
       provider?: string;
+      errorName?: string;
       region?: string;
       sandbox?: boolean;
       ownerHash?: string;
@@ -489,6 +491,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         code: string;
         outcome: ServerEventOutcome;
         provider?: string;
+        errorName?: string;
         region?: string;
         sandbox?: boolean;
         ownerHash?: string;
@@ -792,6 +795,7 @@ export function normalizeObservabilityEvent(
       code,
       outcome,
       ...(provider ? { provider } : {}),
+      ...(event.kind === "cards-config" && event.errorName ? { errorName: sanitizeIdentifier(event.errorName, "Error") } : {}),
       ...(region ? { region } : {}),
       ...(typeof event.sandbox === "boolean" ? { sandbox: event.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),

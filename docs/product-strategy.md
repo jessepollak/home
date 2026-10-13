@@ -154,7 +154,7 @@ These questions refine delivery; they do not reopen the agreed MVP breadth.
 
 | Question | Next useful output |
 | --- | --- |
-| Which card provider? | **Bridge + Stripe first** (Jesse, September 26); Immersve serves regions Bridge does not (#821). Both sit behind one card-provider seam, routed by region (Jesse, September 25). This supersedes Rain (September 23) and the Immersve-only MVP switch (September 24). Open question: whether Bridge and Immersve accept Home's KYC. Record program country eligibility and KYC acceptance for each when confirmed. |
+| Which card provider? | Bridge + Stripe and Rain (Jesse, October 6, 2026), behind one card-program interface; Immersve remains for regions neither serves. Open question: whether the programs accept Home's KYC. Record program country eligibility and KYC acceptance for each when confirmed. |
 | Which identity provider? | **Sumsub** (Jesse, September 23), built against public docs and fixtures first; Persona is the fallback. Confirm whether Bridge and Immersve accept Sumsub-shared KYC before live verification (#640). |
 | What needs Peer input? | Jesse is already in contact and can bring Peer in as needed. Consolidate specific unresolved integration and corridor questions before requesting an introduction. |
 | How does dashboard configuration work? | Propose a focused evolution of current typed configuration and deployment secrets, including validation, administrator authority, and upgrade behavior. |

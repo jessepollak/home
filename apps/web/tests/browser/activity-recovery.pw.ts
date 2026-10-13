@@ -42,7 +42,7 @@ function activityResponse(url: URL, partial: boolean, freshCard = false) {
       valuation: { status: "unpriced", currency, reason: "quote-unavailable" },
     })),
     cards: { version: 1, status: "ready", rows: [{
-      id: "ipi_fixturerecovery1",
+      id: "11111111-1111-4111-8111-111111110011",
       kind: "transaction",
       amountMinor: "450",
       currency: "USD",
@@ -53,7 +53,7 @@ function activityResponse(url: URL, partial: boolean, freshCard = false) {
       createdAt: new Date(Date.parse(to) - 30 * 60_000).toISOString(),
       updatedAt: new Date(Date.parse(to) - 30 * 60_000).toISOString(),
     }, ...(freshCard ? [{
-      id: "ipi_fixturerecovery2",
+      id: "11111111-1111-4111-8111-111111110012",
       kind: "transaction",
       amountMinor: "725",
       currency: "USD",
@@ -225,7 +225,7 @@ async function refreshWithNewerCards(page: Page, options: {
       const createdAt = new Date(Date.parse(firstWindow) + (completed ? 2 : -30 * 60_000)).toISOString();
       response.cards.rows[0] = {
         ...cardRow(response.cards.rows, 0),
-        id: completed ? "ipi_fixturerecovery1" : "iauth_fixturerecovery1",
+        id: completed ? "11111111-1111-4111-8111-111111110011" : "11111111-1111-4111-8111-111111110013",
         kind: completed ? "transaction" : "authorization",
         status: completed ? "completed" : "pending",
         createdAt,
@@ -242,7 +242,7 @@ async function refreshWithNewerCards(page: Page, options: {
       };
     }
     if (options.supersede && !newer) {
-      response.cards.rows[0] = { ...cardRow(response.cards.rows, 0), id: "iauth_fixturerecovery1", kind: "authorization", status: "pending" };
+      response.cards.rows[0] = { ...cardRow(response.cards.rows, 0), id: "11111111-1111-4111-8111-111111110013", kind: "authorization", status: "pending" };
     }
     if (newer) {
       const fresh = cardRow(response.cards.rows, 1);
@@ -256,14 +256,14 @@ async function refreshWithNewerCards(page: Page, options: {
     if (options.revalidationRemovesAuthorization && (newer || (currentWindowReads === 1 && !options.authorizationPersistedLate))) {
       const createdAt = new Date(Date.parse(firstWindow) - 30 * 60_000).toISOString();
       response.cards.rows.push({
-        ...cardRow(response.cards.rows, 0), id: "iauth_fixturerecovery2", kind: "authorization", status: "pending",
+        ...cardRow(response.cards.rows, 0), id: "11111111-1111-4111-8111-111111110014", kind: "authorization", status: "pending",
         merchantName: "Fixture Market", createdAt, updatedAt: createdAt,
       });
     }
     if (options.revalidationAddsBacklogCard && !newer && currentWindowReads > 1) {
       const createdAt = new Date(Date.parse(firstWindow) - 20 * 60_000).toISOString();
       response.cards.rows.push({
-        ...cardRow(response.cards.rows, 0), id: "ipi_fixturerecovery3", kind: "transaction", status: "completed",
+        ...cardRow(response.cards.rows, 0), id: "11111111-1111-4111-8111-111111110015", kind: "transaction", status: "completed",
         merchantName: "Fixture Market", createdAt, updatedAt: createdAt,
       });
     }

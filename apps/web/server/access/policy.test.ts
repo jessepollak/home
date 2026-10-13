@@ -47,6 +47,8 @@ describe("deployment access policy", () => {
       "/api/cards/webhooks/immersve/payment-updated/extra",
       "/api/cards/webhooks/other",
       "/api/cards/spending",
+      "/api/cards/11111111-1111-4111-8111-111111114821/reveal",
+      "/api/cards/11111111-1111-4111-8111-111111114821/freeze",
       "/api/actions/not-a-uuid/paymaster",
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d",
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d/confirm",

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { parseCardPurchases } from "./transactions-contract";
 
 const purchase = {
-  id: "iauth_synthetic", kind: "authorization", amountMinor: "1250", currency: "USD",
+  id: "11111111-1111-4111-8111-111111111111", kind: "authorization", amountMinor: "1250", currency: "USD",
   merchantName: "Shop", merchantCategory: null, status: "pending", declineReasonCode: null,
   createdAt: "2026-09-01T12:00:00.000Z", updatedAt: "2026-09-01T12:00:00.000Z",
 };
@@ -16,6 +16,10 @@ test("accepts string purchase kinds and statuses", () => {
     const input = { ...response, rows: [{ ...purchase, ...override }] };
     expect<unknown>(parseCardPurchases(input)).toEqual(input);
   }
+});
+
+test("rejects provider purchase IDs at the public boundary", () => {
+  expect(() => parseCardPurchases({ ...response, rows: [{ ...purchase, id: "iauth_synthetic" }] })).toThrow("Invalid card purchase");
 });
 
 test("rejects missing or skewed purchase response versions", () => {

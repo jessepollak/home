@@ -12,7 +12,7 @@ import { createAccountExportHandler } from "./handler";
 
 const connectionString = process.env.FUNDING_PG_TEST_URL?.trim();
 const schema = `account_export_test_${randomBytes(4).toString("hex")}`;
-const migrations = ["001_actions.sql", "002_funding_provider_seam.sql", "003_coinbase_hosted_retired.sql", "004_funding_sandbox.sql", "005_balances.sql", "006_valuation_attempts.sql", "007_balance_borrow.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "010_operator_settings.sql", "011_operator_registry.sql", "012_action_outcomes.sql", "013_action_call_commitment.sql", "014_cashout_orders.sql", "014_customer_preferences.sql", "015_invites.sql", "016_action_receipt_observations.sql", "017_record_customer_ids.sql", "017_webhook_subscription_envelopes.sql", "018_cards.sql", "018_customer_email_requests.sql", "018_operator_fee_records.sql", "019_card_events_provider.sql", "020_balance_history.sql", "020_card_accounts.sql", "020_support.sql", "021_card_transactions.sql", "021_cashout_provider_progress.sql", "022_funding_order_abandon.sql", "023_account_export_indexes.sql"];
+const migrations = ["001_actions.sql", "002_funding_provider_seam.sql", "003_coinbase_hosted_retired.sql", "004_funding_sandbox.sql", "005_balances.sql", "006_valuation_attempts.sql", "007_balance_borrow.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "010_operator_settings.sql", "011_operator_registry.sql", "012_action_outcomes.sql", "013_action_call_commitment.sql", "014_cashout_orders.sql", "014_customer_preferences.sql", "015_invites.sql", "016_action_receipt_observations.sql", "017_record_customer_ids.sql", "017_webhook_subscription_envelopes.sql", "018_cards.sql", "018_customer_email_requests.sql", "018_operator_fee_records.sql", "019_card_events_provider.sql", "020_balance_history.sql", "020_card_accounts.sql", "020_support.sql", "021_card_transactions.sql", "021_cashout_provider_progress.sql", "022_card_programs.sql", "022_funding_order_abandon.sql", "023_account_export_indexes.sql"];
 const amountA = "900719925474099312345678901234567890";
 const amountB = "987654321098765432109876543210987654";
 const secret = "EXPORTSECRETMARKER";
@@ -48,8 +48,8 @@ async function seed(owner: number) {
   const asset = (await sql.query<{ id: number }>("INSERT INTO history_assets(chain_id,asset_key,kind,contract_address,decimals) VALUES (8453,$1,'erc20',$2,6) RETURNING id", [`owner-${owner}-asset`, address(owner)])).rows[0].id;
   await sql.query("INSERT INTO balance_changes(address_id,asset_id,block_number,log_index,block_time,tx_hash,delta,source) VALUES ($1,$2,9007199254740993,2147483647,$3,decode($4,'hex'),$5::numeric,'cdp-sql-transfer')", [history, asset, at, String(owner).repeat(64), amount]);
   await sql.query("INSERT INTO balance_checkpoints(address_id,asset_id,block_number,purpose,chain_quantity,log_quantity,observed_at) VALUES ($1,$2,9007199254740993,'reconcile',$3::numeric,$3::numeric,$4)", [history, asset, amount, at]);
-  await sql.query("INSERT INTO card_accounts(customer_id,mode,bridge_customer_id,stripe_cardholder_id) VALUES ($1,'sandbox',$2,$3)", [c, `bridge-${owner}`, `holder-${owner}`]);
-  await sql.query("INSERT INTO cards(id,customer_id,mode,stripe_card_id,wallet_address) VALUES ($1,$2,'sandbox',$3,$4)", [card, c, `stripe-${owner}`, address(owner)]);
+  await sql.query("INSERT INTO card_accounts(customer_id,mode,provider,provider_account_id,provider_cardholder_id) VALUES ($1,'sandbox','bridge',$2,$3)", [c, `bridge-${owner}`, `holder-${owner}`]);
+  await sql.query("INSERT INTO cards(id,customer_id,mode,provider,provider_card_id,wallet_address) VALUES ($1,$2,'sandbox','bridge',$3,$4)", [card, c, `stripe-${owner}`, address(owner)]);
   await sql.query("INSERT INTO card_events(provider,mode,event_id,kind,customer_id,card_id,occurred_at,raw_payload) VALUES ('bridge','sandbox',$1,'purchase',$2,$3,$4,$5::jsonb),('bridge','sandbox',$6,'purchase',NULL,$3,$4,$5::jsonb),('immersve','sandbox',$7,'purchase',$2,$3,$4,$5::jsonb)", [`event-${owner}`, `bridge-${owner}`, `stripe-${owner}`, at, JSON.stringify({ pan: secret, ephemeralKey: secret }), `stripe-event-${owner}`, `foreign-provider-event-${owner}`]);
   await sql.query("INSERT INTO card_transactions(card_id,provider,mode,provider_transaction_id,kind,amount_minor,currency,merchant_name,status,provider_created_at,raw_payload) VALUES ($1,'bridge','sandbox',$2,'transaction',9007199254740993,'USD',$3,'completed',$4,$5::jsonb)", [card, `transaction-${owner}`, `owner-${owner}-merchant`, at, JSON.stringify({ secret })]);
   await sql.query("INSERT INTO support_conversations(id,customer_id,last_message_at) VALUES ($1,$2,$3)", [conversation, c, at]);
@@ -90,6 +90,7 @@ function records(body: AccountExportResponse, name: string) {
     expect(body.classes.every((entry) => entry.holder === "home" && entry.records.length > 0)).toBe(true);
     const serialized = JSON.stringify(body);
     for (const marker of [address(2), amountB, "export-owner-2", "owner2@example.test", secret, "bridge-2", "stripe-2", "owner-2-customer-message", ...Array.from({ length: 14 }, (_, index) => uuid(2, index + 1))]) expect(serialized).not.toContain(marker);
+    expect(records(body, "cards")[0]).toMatchObject({ provider: "bridge", providerCardId: "stripe-1" });
     expect(records(body, "card_events").map((event) => event.eventId).sort()).toEqual(["event-1", "stripe-event-1"]);
     expect(records(body, "support_messages")).toHaveLength(1);
     expect(records(body, "support_assistant_runs")).toHaveLength(1);

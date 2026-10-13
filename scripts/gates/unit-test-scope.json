@@ -52,6 +52,7 @@
     { "pattern": "server/cards/immersve/*.test.ts", "category": "auth" },
     { "pattern": "server/cards/stripe/*.test.ts", "category": "money-path-provider-failure" },
     { "pattern": "server/cards/handler.test.ts", "category": "auth" },
+    { "pattern": "server/cards/journey.test.ts", "category": "auth" },
     { "pattern": "server/cards/reveal-handler.test.ts", "category": "auth" },
     { "pattern": "server/cards/transaction-refresh.test.ts", "category": "money-path-provider-failure" },
     { "pattern": "server/cards/write-handler.test.ts", "category": "auth" },

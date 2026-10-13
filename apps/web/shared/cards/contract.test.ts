@@ -1,68 +1,40 @@
-import { describe, expect, test } from "bun:test";
-import {
-  parseCardEnrollmentResponse, parseCardEphemeralKeyRequest, parseCardEphemeralKeyResponse,
-  parseCardsResponse, parseCardWriteError, parseCardWriteResponse,
-} from "./contract";
-
-const response = {
-  version: 1, state: "active", cards: [{ id: "ic_123", status: "active", last4: "1234" }],
-  provenance: { bridge: "available", stripe: "available", fetchedAt: "2026-09-01T12:00:00.000Z" },
-};
-
-describe("card shared schemas", () => {
-  test("preserves valid card and error responses with nested extra fields", () => {
-    const input = { ...response, state: "active", extra: true,
-      cards: [{ ...response.cards[0], status: "active", extra: true }],
-      provenance: { ...response.provenance, bridge: "available", extra: true } };
-    expect<unknown>(parseCardsResponse(input)).toEqual(input);
-    const error = { version: 1, error: { code: "CROSS_ORIGIN", extra: true }, extra: true };
-    expect<unknown>(parseCardWriteError(error)).toEqual(error);
-  });
-  test("rejects non-string card enums without coercion", () => {
-    for (const value of [null, 1, ["active"], { toString: () => "active" }]) {
-      expect(parseCardsResponse({ ...response, state: value })).toBeNull();
-      expect(parseCardsResponse({ ...response, cards: [{ ...response.cards[0], status: value }] })).toBeNull();
-      expect(parseCardsResponse({ ...response, provenance: { ...response.provenance, bridge: value, stripe: value } })).toBeNull();
-      expect(parseCardWriteError({ version: 1, error: { code: value } })).toBeNull();
-    }
-  });
-  test("rejects enum-coercible sources and write error codes", () => {
-    for (const value of [["available"], { toString: () => "available" }]) {
-      expect(parseCardsResponse({ ...response, provenance: { ...response.provenance, bridge: value } })).toBeNull();
-      expect(parseCardsResponse({ ...response, provenance: { ...response.provenance, stripe: value } })).toBeNull();
-    }
-    for (const code of [["CROSS_ORIGIN"], { toString: () => "CROSS_ORIGIN" }]) {
-      expect(parseCardWriteError({ version: 1, error: { code } })).toBeNull();
-    }
-  });
-  test("retains valid enrollment, write and ephemeral responses including extra fields", () => {
-    const enrollment = { version: 1, kycUrl: "https://bridge.withpersona.com/inquiry", extra: true };
-    expect<unknown>(parseCardEnrollmentResponse(enrollment)).toEqual(enrollment);
-    const write = { version: 1, card: { id: "ic_123", status: "frozen", extra: true }, extra: true };
-    expect<unknown>(parseCardWriteResponse(write)).toEqual(write);
-    const ephemeral = { version: 1, cardId: "ic_123", ["ephemeral" + "KeySecret"]: "ek_test_synthetic123456", extra: true };
-    expect<unknown>(parseCardEphemeralKeyResponse(ephemeral)).toEqual(ephemeral);
-  });
-  test("nonce requests accept only the one valid field", () => {
-    const input = { nonce: "nonce_synthetic123" };
-    expect(parseCardEphemeralKeyRequest(input)).toEqual(input);
-    for (const invalid of [null, [], {}, { nonce: "short" }, { nonce: "nonce_synthetic123", extra: true }]) {
-      expect(parseCardEphemeralKeyRequest(invalid)).toBeNull();
-    }
-  });
-  test("rejects invalid response envelopes and malformed nested card fields", () => {
-    for (const parse of [parseCardsResponse, parseCardEnrollmentResponse, parseCardWriteResponse, parseCardWriteError, parseCardEphemeralKeyResponse]) {
-      for (const invalid of [null, [], {}, { ...response, version: 2 }]) expect(parse(invalid)).toBeNull();
-    }
-    for (const invalid of [
-      { ...response, state: "unknown" },
-      { ...response, cards: [{ id: "bad", status: "active", last4: "1234" }] },
-      { ...response, cards: [{ id: "ic_123", status: "active", last4: 1234 }] },
-      { ...response, provenance: { ...response.provenance, fetchedAt: "not a date" } },
-    ]) expect(parseCardsResponse(invalid)).toBeNull();
-    expect(parseCardWriteResponse({ version: 1, card: { id: "ic_123", status: ["active"] } })).toBeNull();
-    expect(parseCardWriteError({ version: 1, error: { code: "UNKNOWN" } })).toBeNull();
-    for (const kycUrl of ["http://bridge.withpersona.com/", "https://wrong.example/", "https://user:pass@bridge.withpersona.com/", "https://bridge.withpersona.com/#fragment"])
-      expect(parseCardEnrollmentResponse({ version: 1, kycUrl })).toBeNull();
-  });
+import { expect, test } from "bun:test";
+import { parseCardEnrollmentResponse, parseCardRevealRequest, parseCardRevealResponse, parseCardsResponse, parseCardWriteError, parseCardWriteResponse } from "./contract";
+const id = "11111111-1111-4111-8111-111111114821";
+const response = { version: 2, state: "active", cards: [{ id, status: "active", last4: "4821" }],
+  provenance: { program: "bridge", account: "available", cards: "available", fetchedAt: "2026-10-06T00:00:00Z" } };
+test("cards v2 parses UUIDs and neutral provenance, rejecting the old contract", () => {
+  expect<unknown>(parseCardsResponse(response)).toEqual(response);
+  expect(parseCardsResponse({ ...response, version: 1 })).toBeNull();
+  expect(parseCardsResponse({ ...response, cards: [{ ...response.cards[0], id: "ic_fixture" }] })).toBeNull();
+  for (const value of [null, 1, ["active"], { toString: () => "active" }]) {
+    expect(parseCardsResponse({ ...response, state: value })).toBeNull();
+    expect(parseCardsResponse({ ...response, cards: [{ ...response.cards[0], status: value }] })).toBeNull();
+    expect(parseCardsResponse({ ...response, provenance: { ...response.provenance, account: value } })).toBeNull();
+    expect(parseCardWriteError({ version: 2, error: { code: value } })).toBeNull();
+  }
+});
+test("enrollment next is complete or a closed HTTPS host redirect", () => {
+  expect(parseCardEnrollmentResponse({ version: 2, next: { kind: "complete" } })).not.toBeNull();
+  expect(parseCardEnrollmentResponse({ version: 2, next: { kind: "redirect", url: "https://bridge.withpersona.com/inquiry" } })).not.toBeNull();
+  for (const url of ["http://bridge.withpersona.com/", "https://wrong.example/", "https://user:pass@bridge.withpersona.com/", "https://bridge.withpersona.com/#fragment", "https://bridge.withpersona.com:444/"])
+    expect(parseCardEnrollmentResponse({ version: 2, next: { kind: "redirect", url } })).toBeNull();
+});
+test.each(["prepare", "grant"] as const)("reveal %s has a strict discriminated request and response", (step) => {
+  const request = step === "prepare" ? { method: "stripe-issuing-elements", step } : { method: "stripe-issuing-elements", step, nonce: "nonce_synthetic123" };
+  const grant = step === "prepare" ? { ...request, issuingCard: "ic_fixture" } : { ...request, issuingCard: "ic_fixture", ephemeralKeySecret: "ek_test_synthetic123456" };
+  expect<unknown>(parseCardRevealRequest(request)).toEqual(request);
+  expect(parseCardRevealResponse({ version: 2, cardId: id, grant })).not.toBeNull();
+  expect(parseCardRevealRequest({ ...request, extra: true })).toBeNull();
+  expect(parseCardRevealResponse({ version: 2, cardId: "ic_fixture", grant })).toBeNull();
+  expect(parseCardRevealResponse({ version: 2, cardId: id, grant: { ...grant, issuingCard: "other" } })).toBeNull();
+});
+test("invalid envelopes, UUID writes, and malformed reveal requests fail closed", () => {
+  for (const parse of [parseCardsResponse, parseCardEnrollmentResponse, parseCardWriteResponse, parseCardWriteError, parseCardRevealResponse]) {
+    for (const invalid of [null, [], {}, { ...response, version: 1 }]) expect(parse(invalid)).toBeNull();
+  }
+  expect(parseCardWriteResponse({ version: 2, card: { id, status: "frozen" } })).not.toBeNull();
+  expect(parseCardWriteResponse({ version: 2, card: { id, status: "restricted" } })).toBeNull();
+  for (const input of [{ nonce: "nonce_synthetic123" }, { method: "stripe-issuing-elements", step: "grant", nonce: "short" },
+    { method: "stripe-issuing-elements", step: "prepare", nonce: "nonce_synthetic123" }]) expect(parseCardRevealRequest(input)).toBeNull();
 });

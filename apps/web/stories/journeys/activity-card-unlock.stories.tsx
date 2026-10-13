@@ -29,8 +29,8 @@ const activeSession: VerifiedAccountSession = {
 function cardsFixture(state: "frozen" | "active"): CardsResponse {
   return {
     version: CARDS_CONTRACT_VERSION, state,
-    cards: [{ id: "ic_fixture1107", status: state, last4: "1107" }],
-    provenance: { bridge: "available", stripe: "available", fetchedAt: FETCHED_AT },
+    cards: [{ id: "11111111-1111-4111-8111-111111111107", status: state, last4: "1107" }],
+    provenance: { program: "bridge", account: "available", cards: "available", fetchedAt: FETCHED_AT },
   };
 }
 const frozenCards = cardsFixture("frozen");
@@ -74,7 +74,7 @@ function ActivityCardUnlock({ session, cards, ownerKey, failRefetch = false }: {
     if (!to || !session.smartAccount) throw new Error("Activity fixture requires a window and wallet.");
     const timestamp = new Date(Date.parse(to) - 60_000).toISOString();
     const purchase: CardPurchase = {
-      id: "iauth_unlockfixture", kind: "authorization", amountMinor: "1820", currency: "USD",
+      id: "11111111-1111-4111-8111-111111110022", kind: "authorization", amountMinor: "1820", currency: "USD",
       merchantName: "Fixture Market", merchantCategory: null, status: "declined", declineReasonCode: "card_inactive",
       createdAt: timestamp, updatedAt: timestamp,
     };

@@ -23,7 +23,7 @@ function CardJourney() {
             onRetry={() => {}}
             onOpenVerification={(url) => { actions.onOpenVerification(url); setResponse(cardsBody("ready-to-issue")); }}
             commands={{
-              enroll: async () => kycUrl,
+              enroll: async () => ({ kind: "redirect", url: kycUrl }),
               issue: async () => setResponse(cardsBody("active")),
               setFrozen: async (_cardId, frozen) => setResponse(cardsBody(frozen ? "frozen" : "active")),
             }}

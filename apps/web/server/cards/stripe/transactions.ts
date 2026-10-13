@@ -1,12 +1,11 @@
 import "server-only";
 
 import { isRecord as record, isStringEnum, matchesId } from "../response-guards";
-import { parseCardPurchases, CARD_PURCHASES_VERSION } from "@/shared/cards/transactions-contract";
 import type { CardJourneyConfig } from "../bridge/journey-config";
 import { readProviderJson } from "../read-provider-json";
 import type { CardPurchase } from "@/shared/cards/transactions-contract";
+import type { ProgramPurchase } from "../program";
 
-export type StripePurchase = CardPurchase & Readonly<{ cardId: string; authorizationId: string | null }>;
 const ids = { authorization: /^iauth_[A-Za-z0-9]+$/, transaction: /^(?:ipi_|itx_)[A-Za-z0-9]+$/, card: /^ic_[A-Za-z0-9]+$/ };
 
 export function createStripeTransactionClient(config: Pick<CardJourneyConfig, "stripeSecretKey" | "stripeApiVersion">, fetcher: typeof fetch = fetch, signal?: AbortSignal) {
@@ -19,17 +18,17 @@ export function createStripeTransactionClient(config: Pick<CardJourneyConfig, "s
     return readProviderJson(response, "Stripe");
   }
   return {
-    async read(kind: "authorization" | "transaction", id: string): Promise<StripePurchase> {
+    async read(kind: "authorization" | "transaction", id: string): Promise<ProgramPurchase> {
       if (!ids[kind].test(id)) throw new Error("Invalid Stripe purchase ID");
       const path = kind === "authorization" ? "authorizations" : "transactions";
       const row = parseStripePurchase(await get(`${path}/${encodeURIComponent(id)}`), kind);
       if (row.id !== id) throw new Error("Stripe purchase ID mismatch");
       return row;
     },
-    async list(kind: "authorization" | "transaction", cardId: string, from: number): Promise<{ rows: StripePurchase[]; partial: boolean }> {
+    async list(kind: "authorization" | "transaction", cardId: string, from: number): Promise<{ rows: ProgramPurchase[]; partial: boolean }> {
       if (!ids.card.test(cardId) || !Number.isSafeInteger(from) || from < 0) throw new Error("Invalid Stripe purchase list filter");
       const path = kind === "authorization" ? "authorizations" : "transactions";
-      const rows: StripePurchase[] = [];
+      const rows: ProgramPurchase[] = [];
       let cursor: string | null = null;
       for (let page = 0; page < 3; page++) {
         const params = new URLSearchParams({ card: cardId, limit: "25", "created[gte]": String(from) });
@@ -50,7 +49,7 @@ export function createStripeTransactionClient(config: Pick<CardJourneyConfig, "s
   };
 }
 
-function parseStripePurchase(value: unknown, kind: "authorization" | "transaction"): StripePurchase {
+function parseStripePurchase(value: unknown, kind: "authorization" | "transaction"): ProgramPurchase {
   if (!record(value) || value.object !== `issuing.${kind}` || !matchesId(value.id, ids[kind]) ||
       typeof value.amount !== "number" || !Number.isSafeInteger(value.amount) || Math.abs(value.amount) > 999_999_999_999_999 ||
       typeof value.currency !== "string" || !/^[a-z]{3}$/.test(value.currency) ||
@@ -84,13 +83,4 @@ function parseStripePurchase(value: unknown, kind: "authorization" | "transactio
   return { id, cardId, authorizationId, kind, amountMinor: String(Math.abs(value.amount)), currency: value.currency.toUpperCase(),
     merchantName: merchantName.trim(), merchantCategory: category, status, declineReasonCode: reason,
     createdAt: new Date(value.created * 1000).toISOString(), updatedAt: new Date().toISOString() };
-}
-
-export function isStripePurchase(value: unknown): value is StripePurchase {
-  if (!record(value) || typeof value.cardId !== "string" || !ids.card.test(value.cardId) ||
-      !(value.authorizationId === null || typeof value.authorizationId === "string" && ids.authorization.test(value.authorizationId))) return false;
-  try {
-    parseCardPurchases({ version: CARD_PURCHASES_VERSION, status: "ready", rows: [value] });
-    return true;
-  } catch { return false; }
 }

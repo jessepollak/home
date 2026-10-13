@@ -1,7 +1,6 @@
 import { getSqlExecutor } from "@/server/db/sql";
 import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
-import { readBridgeConfig } from "@/server/cards/bridge/config";
-import { createStripeWebhookProvider } from "@/server/cards/bridge/webhook";
+import { readBridgeEventSource } from "@/server/cards/bridge/webhook";
 import { createCardWebhookHandler, type CardWebhookResult } from "@/server/cards/provider";
 import { createCardEventStore } from "@/server/cards/store";
 import { refreshObservedCardEvent } from "@/server/cards/transaction-refresh";
@@ -40,13 +39,13 @@ function observe(code: "WEBHOOK_UNAVAILABLE" | "WEBHOOK_REJECTED" | "WEBHOOK_STA
 }
 
 async function processDelivery(request: Request): Promise<CardWebhookResult | "disabled"> {
-  let config: ReturnType<typeof readBridgeConfig>;
-  try { config = readBridgeConfig(); }
+  let source: ReturnType<typeof readBridgeEventSource>;
+  try { source = readBridgeEventSource("stripe"); }
   catch { return "disabled"; }
-  if (!config) return "disabled";
+  if (!source) return "disabled";
   const raw = await readBoundedWebhookBody(request);
   if (!raw) return "rejected";
-  cachedHandler ??= createCardWebhookHandler(createStripeWebhookProvider(config), {
+  cachedHandler ??= createCardWebhookHandler(source, {
     async insert(event) {
       const inserted = await createCardEventStore(getSqlExecutor()).insert(event);
       if (inserted) {

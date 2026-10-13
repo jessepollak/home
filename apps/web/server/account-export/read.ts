@@ -68,14 +68,14 @@ export class AccountExportReader {
       await read("balance_checkpoints", `SELECT address_id,asset_id,block_number::text,purpose,chain_quantity::text,log_quantity::text,observed_at
         FROM balance_checkpoints WHERE address_id=ANY($1::integer[])`, [historyIds]);
       await read("card_accounts", "SELECT mode,created_at,updated_at FROM card_accounts WHERE customer_id=$1", [id]);
-      await read("cards", "SELECT id,mode,stripe_card_id,wallet_address,created_at FROM cards WHERE customer_id=$1", [id]);
+      await read("cards", "SELECT id,mode,provider,provider_card_id,wallet_address,created_at FROM cards WHERE customer_id=$1", [id]);
       await read("card_events", `SELECT provider,mode,event_id,kind,card_id,transaction_id,occurred_at,received_at FROM (
         (SELECT e.provider,e.mode,e.event_id,e.kind,e.card_id,e.transaction_id,e.occurred_at,e.received_at
-         FROM card_accounts ca JOIN card_events e ON e.provider='bridge' AND e.mode=ca.mode AND e.customer_id=ca.bridge_customer_id
+         FROM card_accounts ca JOIN card_events e ON e.provider=ca.provider AND e.mode=ca.mode AND e.customer_id=ca.provider_account_id
          WHERE ca.customer_id=$1 LIMIT $2)
         UNION
         (SELECT e.provider,e.mode,e.event_id,e.kind,e.card_id,e.transaction_id,e.occurred_at,e.received_at
-         FROM cards c JOIN card_events e ON e.provider='bridge' AND e.mode=c.mode AND e.card_id=c.stripe_card_id
+         FROM cards c JOIN card_events e ON e.provider=c.provider AND e.mode=c.mode AND e.card_id=c.provider_card_id
          WHERE c.customer_id=$1 LIMIT $2)
       ) owned_events`, [id, this.cap + 1]);
       await read("card_transactions", `SELECT t.id,t.card_id,t.provider,t.mode,t.provider_transaction_id,t.authorization_id,t.kind,t.amount_minor::text,t.currency,t.merchant_name,t.merchant_category,t.status,t.decline_reason_code,t.provider_created_at,t.updated_at
