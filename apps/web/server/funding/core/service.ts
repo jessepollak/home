@@ -555,9 +555,9 @@ export class FundingCore {
     const recovered = new Map((await Promise.all([...groups.values()].map((order) =>
       this.recoverStaleReserving(owner, order.region, order.providerId, "/api/activity/orders"))))
       .flat().map((order) => [order.id, order]));
-    const replacements = new Map(await Promise.all(stale.map(async (order) =>
-      [order.id, recovered.get(order.id) ?? await this.deps.store.getOwned(order.id, owner) ?? order] as const)));
-    orders = orders.map((order) => replacements.get(order.id) ?? order);
+    const replacements = new Map(await Promise.all(stale.filter((order) => !recovered.has(order.id)).map(async (order) =>
+      [order.id, await this.deps.store.getOwned(order.id, owner) ?? order] as const)));
+    orders = orders.map((order) => recovered.get(order.id) ?? replacements.get(order.id) ?? order);
     const now = this.now().getTime();
     const eligible = orders.filter((order) => !isTerminalFundingState(order.state) && order.state !== "reserving" &&
       !(order.sandbox && order.state === "sent-unverified") &&

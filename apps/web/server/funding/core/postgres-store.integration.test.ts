@@ -49,6 +49,8 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     await inTestSchema(sandboxMigration);
     await inTestSchema(await readMigrationSql("022_funding_order_abandon.sql"));
     await inTestSchema(await readMigrationSql("022_funding_order_abandon.sql"));
+    await inTestSchema(await readMigrationSql("023_funding_order_recovery_indexes.sql"));
+    await inTestSchema(await readMigrationSql("023_funding_order_recovery_indexes.sql"));
     for (const file of ["001_actions.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
       await inTestSchema(await readMigrationSql(file));
     }

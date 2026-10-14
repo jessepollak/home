@@ -1646,6 +1646,20 @@ describe("FundingCore", () => {
     expect(fixture.transitionEvents).toEqual([expect.objectContaining({ route: "/api/activity/orders", code: "ORDER_AMBIGUOUS", outcome: "unavailable" }), expect.objectContaining({ route: "/api/activity/orders", code: "ORDER_AMBIGUOUS", outcome: "unavailable" })]);
   });
 
+  test("history replaces a reservation that crosses the deadline before the corridor recovery runs", async () => {
+    const fixture = setup();
+    const stale = await reserveQuote(fixture, "20000", "2026-09-11T23:57:00.000Z");
+    const crossing = await reserveQuote(fixture, "21000", "2026-09-11T23:58:00.001Z");
+    const recover = fixture.store.recoverStaleReserving.bind(fixture.store);
+    fixture.store.recoverStaleReserving = async (owner, region, providerId, cutoff, updatedAt) =>
+      recover(owner, region, providerId, new Date(Date.parse(cutoff) + 1).toISOString(), updatedAt);
+    const orders = await fixture.core.listOrderHistory(session);
+    for (const id of [stale.id, crossing.id]) {
+      expect(orders.find((order) => order.id === id)).toMatchObject({ state: "dispatch-ambiguous", instructions: null });
+      expect(await fixture.store.getOwned(id, { subject: session.user.subject, accountProvider: session.accountProvider })).toMatchObject({ state: "dispatch-ambiguous" });
+    }
+  });
+
   test("same-token retries return fresh reservations and recover stale reservations without dispatching", async () => {
     const fixture = setup();
     const reserved = await reserveQuote(fixture);
