@@ -176,12 +176,13 @@ function ItemTitle({
 }
 
 const itemDescriptionVariants = cva(
-  "text-start text-sm leading-normal font-normal text-muted-foreground group-data-[size=xs]/item:text-xs [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
+  "text-start text-sm leading-normal font-normal group-data-[size=xs]/item:text-xs [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
   {
     variants: {
       tone: {
-        default: "",
-        disclosure: "group-aria-expanded/item:text-foreground",
+        default: "text-muted-foreground",
+        disclosure: "text-muted-foreground group-aria-expanded/item:text-foreground",
+        foreground: "text-foreground",
       },
       lines: {
         1: "truncate",

@@ -25,6 +25,7 @@ import { useChartClock, type ChartReadout } from "./asset-chart-support";
 import { ChartLoadFallback } from "./chart-load-fallback";
 import { AssetPosition } from "./asset-position";
 import { AssetStats } from "./asset-stats";
+import { AssetRisk } from "./asset-risk";
 import { AssetAbout } from "./asset-about";
 import type { AssetFact, AssetCatalyst } from "@/shared/invest/asset-context";
 import { PinnedTradeBar } from "./pinned-trade-bar";
@@ -86,6 +87,7 @@ export function ExactAddressAssetScreen({ assetId, name, ownership, onBack }: { 
       ) : <h2 className="text-lg font-semibold">{symbol}</h2>}
       <p className="text-sm text-muted-foreground">{shortAddress} · Base</p>
       {ownership}
+      <AssetRisk asset={asset} headingLevel={hosted ? 2 : 3} />
       <AssetAbout asset={asset} now={clock.value} />
       <TradeActions asset={asset} layout="sticky" />
     </section>
@@ -148,6 +150,7 @@ function AssetDetailContent({ asset, market, assetMarkResolution = {}, onBack, o
       clock={clock} onReadout={setScrub} onResting={onResting} fallback={ChartLoadFallback} />
     {ownership ?? <AssetPosition asset={asset} assetMarkResolution={assetMarkResolution} headerAsOf={snapshot?.asOf} />}
     <AssetStats asset={asset} market={market} clock={clock} range={range} headingLevel={hosted ? 2 : 3} />
+    {asset.category !== "stock" ? <AssetRisk asset={asset} headingLevel={hosted ? 2 : 3} /> : null}
     <AssetAbout asset={asset} facts={facts} catalysts={catalysts} now={clock.value} />
     {asset.category === "stock" ? <TradeActions asset={asset} layout="sticky" /> : null}
     {asset.category !== "stock" ? <PinnedTradeBar asset={asset} /> : null}
