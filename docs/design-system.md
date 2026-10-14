@@ -2,6 +2,7 @@
 
 Home is a shadcn app using the Base UI preset. The migration history and owner decisions are recorded in [issue #347](https://github.com/jessepollak/home/issues/347).
 
+- [Design spec](design-system/spec.md)
 - [Components](design-system/components.md)
 - [Component workshop](design-system/component-workshop.md)
 - [Theme](design-system/theme.md)

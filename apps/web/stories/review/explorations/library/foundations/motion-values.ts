@@ -1,5 +1,5 @@
 import { selectorClasses } from "./candidates";
-import type { MotionUse } from "./usage";
+import type { MotionUse } from "@/lib/design-system/usage";
 
 type MotionValue = { property: string; value: string };
 type MotionReference = { utilities: Record<string, MotionValue[] | null>; tokens: MotionValue[]; easings: string[] };

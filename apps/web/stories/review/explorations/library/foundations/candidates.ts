@@ -1,7 +1,4 @@
-export type SourceFile = { path: string; source: string };
-export type CandidateFile = { path: string; candidates: string[] };
-export type CandidatePayload = CandidateFile[] | { status: "unavailable"; reason: string };
-export type CandidateSnapshot = { status: "available"; files: CandidateFile[] } | { status: "unavailable"; files: [] };
+import type { CandidateFile, CandidateSnapshot } from "@/lib/design-system/candidates";
 
 export function selectorClasses(selector: string): Set<string> {
   const classes = new Set<string>();

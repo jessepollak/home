@@ -2,7 +2,7 @@ import { confirmedCandidates } from "./candidates";
 import { componentCandidateSet, globalsSource } from "./sources";
 import { probeThemes } from "./probe";
 import { blockDeclarations, colorTokens, themeScale } from "./tokens";
-import { elevationUsage, motionUsage, radiusUsage, spacingUsage, stateUsage, typeUsage } from "./usage";
+import { elevationUsage, motionUsage, radiusUsage, spacingUsage, stateUsage, typeUsage } from "@/lib/design-system/usage";
 
 export type FoundationId = "foundations/color" | "foundations/type" | "foundations/radius-spacing" | "foundations/motion"
   | "foundations/elevation" | "foundations/states";

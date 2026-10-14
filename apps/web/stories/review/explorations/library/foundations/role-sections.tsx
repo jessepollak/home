@@ -7,7 +7,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle }
 import { foundations } from "./model";
 import { measure, rootProperties } from "./probe";
 import { filesUsing, shapeNotes, shapeRoles, typeNotes, typeRoles, type ShapeScan } from "./roles";
-import type { Usage } from "./usage";
+import type { Usage } from "@/lib/design-system/usage";
 import roles from "./roles.module.css";
 import styles from "./foundations.module.css";
 

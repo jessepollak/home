@@ -1,4 +1,4 @@
-import type { typeUsage, Usage } from "./usage";
+import type { typeUsage, Usage } from "@/lib/design-system/usage";
 
 export type ShapeScan = { usage: Usage[]; px: Record<string, string>; base: string };
 export type TypeScan = ReturnType<typeof typeUsage>;

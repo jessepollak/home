@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { designSystem } from "../policy/design-system.mjs";
 import { decodeLetterEscapes, formControlHasAllowlist, hasSelectorFindings } from "../policy/has-selectors.mjs";
 import { importantUtilityAllowlist } from "../policy/important-utilities.mjs";
+import { styleDriftBaselineFor, styleDriftOccurrences } from "../policy/style-drift.mjs";
 
 const literalStyleMessage =
   "Use semantic theme tokens instead of hex/rgba, arbitrary-px, or raw palette colors in utility strings.";
@@ -80,6 +81,34 @@ export const noImportantUtilities = utilityRule({
   messages: { important: "Tailwind token '{{token}}' emits !important; use a structural or owned-variant fix." },
   allowed: (file, token) => importantUtilityAllowlist.some((entry) => entry.file === file && entry.token === token && entry.reason),
 });
+
+export const noRawStyleUtilities = {
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: { offToken: "Off-token utility '{{token}}' ({{family}}); use the owned token or a component variant." },
+  },
+  create(context) {
+    const baseline = styleDriftBaselineFor(relativeFile(context.filename));
+    const seen = new Map();
+    function check(node, value) {
+      for (const { token, family } of styleDriftOccurrences(value)) {
+        const count = (seen.get(token) ?? 0) + 1;
+        seen.set(token, count);
+        if (count === (baseline[token] ?? 0) + 1) context.report({ node, messageId: "offToken", data: { token, family } });
+      }
+    }
+    return {
+      Literal(node) { if (typeof node.value === "string") check(node, node.value); },
+      StringLiteral(node) { if (typeof node.value === "string") check(node, node.value); },
+      TemplateElement(node) {
+        const value = node.parent?.type === "TemplateLiteral" && node.parent.expressions.length === 0
+          ? node.value.cooked ?? node.value.raw : node.value.raw;
+        check(node, value);
+      },
+    };
+  },
+};
 
 export const noLiteralUtilityStyles = {
   meta: { type: "problem", schema: [], messages: { literal: literalStyleMessage } },

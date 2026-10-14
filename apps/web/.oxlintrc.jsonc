@@ -420,6 +420,16 @@
       }
     },
     {
+      "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "components/ui/**",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**"
+      ],
+      "rules": { "home/no-raw-style-utilities": "error" }
+    },
+    {
       "files": [
         "{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],

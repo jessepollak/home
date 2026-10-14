@@ -51,6 +51,8 @@
     // Review context CLI is run directly by its package script.
     "scripts/review-context.ts!",
     "scripts/review-links.ts!",
+    // Advisory style drift CLI shares the Library foundation scanner.
+    "scripts/design-drift.ts!",
     "scripts/unit-tests.ts!",
     "scripts/activity-scroll-profile.ts!",
     "scripts/modal-open-profile.ts!",

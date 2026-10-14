@@ -66,6 +66,7 @@ Pointers, not new rules. Each line is the shortest path to the doc or file that 
 
 ## UI direction
 
+- Read [docs/design-system/spec.md](docs/design-system/spec.md) first before any user-visible change; root [DESIGN.md](DESIGN.md) points to it.
 - For all user-visible implementation and review work, use the Home-owned `.agents/skills/design-engineering/SKILL.md`. Use `.agents/skills/browser-iteration/SKILL.md` for implementation and interactive review of a rendered surface; add `.agents/skills/{animate,review-animations,animation-performance,mobile-native}/SKILL.md` as focused lenses when scoped motion, motion performance, or mobile-web guidance applies.
 - Keep the interface direct and minimal. Avoid decorative kickers such as "Secure account" above an already clear "Sign in to Home" heading, redundant explanations, and generic reassurance copy.
 - Remove prose that does not help the user make a decision or complete the current action. Preserve essential field labels, actionable errors/recovery instructions, and accessibility text. Removing copy must not change authentication or privacy behavior.

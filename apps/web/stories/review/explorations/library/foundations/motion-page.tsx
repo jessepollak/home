@@ -2,7 +2,7 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { foundations } from "./model";
 import { readMotionReference } from "./motion-values";
-import { cubicBezier } from "./usage";
+import { cubicBezier } from "@/lib/design-system/usage";
 import styles from "./foundations.module.css";
 
 const REDUCED = "(prefers-reduced-motion: reduce)";

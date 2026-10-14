@@ -1,0 +1,30 @@
+{
+  "files": {
+    "client/borrowing/borrow-overview.tsx": {
+      "duration-150": 1
+    },
+    "client/cash/savings-management.tsx": {
+      "duration-150": 1
+    },
+    "client/explorations/trade/trade-details.tsx": {
+      "duration-120": 1
+    },
+    "client/explorations/trade/trade-price-chart.tsx": {
+      "duration-200": 1
+    },
+    "client/explorations/trade/trade-step-transition.tsx": {
+      "duration-120": 2,
+      "duration-180": 1,
+      "ease-[cubic-bezier(0.22,1,0.36,1)]": 2
+    },
+    "components/finance-rows.tsx": {
+      "duration-150": 1
+    },
+    "components/primary-navigation.tsx": {
+      "duration-0": 1,
+      "duration-[100ms]": 1,
+      "duration-[80ms]": 1,
+      "ease-out": 1
+    }
+  }
+}

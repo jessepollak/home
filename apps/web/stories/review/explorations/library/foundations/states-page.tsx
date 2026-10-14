@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Item, ItemContent, ItemTitle } from "@/components/ui/item";
 import { Toggle } from "@/components/ui/toggle";
 import { foundations } from "./model";
-import type { InteractionState } from "./usage";
+import type { InteractionState } from "@/lib/design-system/usage";
 import local from "./elevation-states.module.css";
 import styles from "./foundations.module.css";
 

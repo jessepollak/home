@@ -48,6 +48,7 @@ export function radiusUsage(files: CandidateFile[]): Usage[] {
   return tally(files, utilityPattern("rounded(?:-[trblse]{1,2})?", words(RADII)), RADII);
 }
 
+/** @public Used by the Storybook foundations review pages. */
 export function spacingUsage(files: CandidateFile[], named: string[]): Usage[] {
   const steps = ["\\d+(?:\\.\\d+)?", "px", ...named].join("|");
   const usage = tally(files, utilityPattern(SPACING_UTILITIES, steps));
@@ -101,6 +102,7 @@ export function motionUsage(files: CandidateFile[]): { uses: MotionUse[] } {
   return { uses: [...uses.values()].sort((left, right) => left.utility.localeCompare(right.utility)) };
 }
 
+/** @public Used by the Storybook foundations motion review page. */
 export function cubicBezier(easing: string): [number, number, number, number] | null {
   const keyword: Record<string, [number, number, number, number]> = {
     linear: [0, 0, 1, 1], ease: [0.25, 0.1, 0.25, 1], "ease-in": [0.42, 0, 1, 1],
@@ -131,6 +133,7 @@ const STATE_VARIANTS: [InteractionState, RegExp][] = [
   ["hover", /^(?:hover|focus|data-highlighted)$/],
 ];
 
+/** @public Used by the Storybook foundations interaction states review page. */
 export function stateUsage(files: CandidateFile[], components: string[]): StateUse[] {
   const uses = new Map<string, StateUse>();
   for (const { path, candidates } of files) {

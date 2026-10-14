@@ -27,6 +27,7 @@
     "gates": "node scripts/gates/preflight.mjs && node scripts/gates/unit-test-scope.mjs && node --test scripts/gates/tests/*.test.mjs && bun test ./scripts/verify && node scripts/gates/library-catalog.mjs",
     "assertions:report": "node scripts/gates/type-assertions.mjs --report",
     "disables:shrink": "node scripts/gates/lint-disables.mjs --shrink",
+    "style-drift:shrink": "node scripts/gates/style-drift.mjs --shrink",
     "lint-exemptions:shrink": "node scripts/gates/lint-exemptions.mjs --shrink",
     "css:built": "node scripts/gates/built-css.mjs",
     "api-routes:dynamic": "node scripts/gates/api-routes-dynamic.mjs",

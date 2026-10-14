@@ -3,7 +3,7 @@ import { foundations } from "./model";
 import { measure, rootProperties, utilityValues } from "./probe";
 import { ShapeRoles, TypeRoles } from "./role-sections";
 import { radiusSteps } from "./tokens";
-import type { Usage } from "./usage";
+import type { Usage } from "@/lib/design-system/usage";
 import styles from "./foundations.module.css";
 
 const SPECIMEN = "Send $25.00 to Alex";

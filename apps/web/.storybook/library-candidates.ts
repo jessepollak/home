@@ -1,19 +1,11 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Scanner } from "@tailwindcss/oxide";
 import type { Plugin } from "vite";
-import type { CandidateFile, CandidatePayload, SourceFile } from "../stories/review/explorations/library/foundations/candidates";
+import { scanLibraryCandidates, type CandidatePayload, type SourceFile } from "../lib/design-system/candidates";
 import { virtualModulePlugin } from "./virtual-module-plugin";
 
 const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-
-export function scanLibraryCandidates(files: SourceFile[], scanner: Scanner): CandidateFile[] {
-  return files.map(({ path, source }) => ({
-    path,
-    candidates: scanner.getCandidatesWithPositions({ content: source, extension: "tsx" }).map(({ candidate }) => candidate),
-  }));
-}
 
 export function libraryCandidateSources(root = webRoot): SourceFile[] {
   const files: SourceFile[] = [];

@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import globalsCss from "../../../../../app/globals.css?raw";
-import type { CandidatePayload, CandidateSnapshot } from "./candidates";
+import type { CandidatePayload, CandidateSnapshot } from "@/lib/design-system/candidates";
 
 async function loadCandidateSet(load: () => Promise<{ default: CandidatePayload }> = () => import("virtual:library-candidates")): Promise<CandidateSnapshot> {
   try {
