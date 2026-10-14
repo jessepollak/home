@@ -29,6 +29,12 @@ function emptyRisk(contractAddress: string, status: "unsupported" | "throttled" 
   return { source: "goplus", chainId: 8453, contractAddress, status, checkedAt: null };
 }
 
+function staleFrom(previous: TokenRisk | undefined): TokenRisk | null {
+  if (previous?.status === "ready") return { ...previous, status: "stale" };
+  if (previous?.status === "partial") return { ...previous, status: "stale-partial" };
+  return null;
+}
+
 function readFlag(value: unknown): TokenRiskSignals["honeypot"] {
   return value === "1" ? "reported" : value === "0" ? "absent" : "unknown";
 }
@@ -119,18 +125,12 @@ export function createGoPlusTokenRiskReader({
         }
       });
       const value = result.status === "saturated" ? emptyRisk(address, "throttled") : result.value;
-      if (value.status === "error" || value.status === "throttled") {
-        const previous = lastGood.get(key);
-        if (previous?.status === "ready" || previous?.status === "partial") {
-          return { ...previous, status: previous.status === "partial" ? "stale-partial" : "stale" };
-        }
+      if (value.status === "error" || value.status === "throttled" || value.status === "unsupported") {
+        return staleFrom(lastGood.get(key)) ?? value;
       }
       return value;
     } catch {
-      const previous = lastGood.get(key);
-      return previous?.status === "ready" || previous?.status === "partial"
-        ? { ...previous, status: previous.status === "partial" ? "stale-partial" : "stale" }
-        : emptyRisk(address, "error");
+      return staleFrom(lastGood.get(key)) ?? emptyRisk(address, "error");
     }
   };
 }

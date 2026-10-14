@@ -1,5 +1,6 @@
 "use client";
 
+import { replaceEqualDeep } from "@tanstack/react-query";
 import { useHomeQuery } from "@/client/query/query-client";
 import { publicQuery } from "@/client/query/query-options";
 import { publicResource } from "@/client/query/public-resource";
@@ -12,6 +13,14 @@ export function marketStatsOptions(assetId: string, enabled: boolean) {
     enabled,
     retry: false,
     refetchOnWindowFocus: false,
+    structuralSharing: (oldData, newData) => {
+      const previous = parseMarketStatsResponse(oldData);
+      const next = parseMarketStatsResponse(newData);
+      const kept: unknown = previous?.status === "ready" && next?.status === "error" && next.assetId === previous.assetId
+        ? { ...next, status: "ready", fetchedAt: previous.fetchedAt, stats: previous.stats }
+        : newData;
+      return replaceEqualDeep(oldData, kept);
+    },
     queryFn: async ({ signal }) => {
       const payload = parseMarketStatsResponse(await publicResource(`/api/market-prices/stats?assetId=${encodeURIComponent(assetId)}`, { signal }));
       if (!payload || payload.assetId !== assetId) throw new Error("Invalid market stats response");
@@ -22,7 +31,7 @@ export function marketStatsOptions(assetId: string, enabled: boolean) {
 
 export function useMarketStats(assetId: string, enabled: boolean): MarketStats | null {
   const query = useHomeQuery(marketStatsOptions(assetId, enabled));
-  return enabled && query.data?.status === "ready" && !query.isError ? query.data.stats : null;
+  return enabled && query.data?.status === "ready" ? query.data.stats : null;
 }
 
 export function useTokenRisk(asset: InvestAsset) {

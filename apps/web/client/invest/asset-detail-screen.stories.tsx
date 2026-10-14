@@ -200,7 +200,7 @@ function positionSnapshot(position: Position, stockSession: MarketSession = "ope
     return holding;
   }) };
 }
-type RiskMode = "reported" | "no-flags" | "all-absent" | "all-unknown" | "partial" | "partial-recovery" | "partial-failure" | "partial-empty" | "stale-partial" | "stale" | "retry" | "refresh-failed" | "throttled" | "unsupported" | "loading" | "error";
+type RiskMode = "reported" | "no-flags" | "all-absent" | "all-unknown" | "partial" | "partial-recovery" | "partial-failure" | "stats-error-retry" | "partial-empty" | "stale-partial" | "stale" | "retry" | "refresh-failed" | "throttled" | "unsupported" | "loading" | "error";
 const riskControl: { calls: number; release: () => void; held: Promise<void> } = { calls: 0, release: () => {}, held: Promise.resolve() };
 function resetRiskControl() {
   riskControl.release();
@@ -242,15 +242,17 @@ function statsHandler(mode: "ready" | "error" = "ready", riskMode: RiskMode = "n
     riskControl.calls++;
     const failed = riskMode === "retry" && riskControl.calls === 1 || (riskMode === "refresh-failed" || riskMode === "partial-failure") && riskControl.calls > 1;
     if (failed) return HttpResponse.json({ error: "unavailable" }, { status: 500 });
+    const statsFailed = riskMode === "stats-error-retry" && riskControl.calls > 1;
     if (riskMode === "loading" || riskMode === "retry" && !failed) await riskControl.held;
     const asset = Object.values(assets).find((entry) => entry.id === assetId);
     if (!asset) throw new globalThis.Error("Missing risk fixture asset");
     const meme = assetId === "degen" || assetId === dynamicMeme.id;
     return HttpResponse.json({ version: 1, provider: "codex", assetId, currency: "USD",
-      fetchedAt: new Date(clock).toISOString(), status: assetId === "nvdac" ? "unavailable" : "ready",
-      ...(asset.category !== "stock" ? { risk: riskFixture(asset, riskMode === "partial-recovery" && riskControl.calls > 1 ? "reported" : riskMode) } : {}),
+      fetchedAt: statsFailed ? null : new Date(clock).toISOString(),
+      status: statsFailed ? "error" : assetId === "nvdac" ? "unavailable" : "ready",
+      ...(asset.category !== "stock" ? { risk: riskFixture(asset, (riskMode === "partial-recovery" || riskMode === "stats-error-retry") && riskControl.calls > 1 ? "reported" : riskMode === "stats-error-retry" ? "partial" : riskMode) } : {}),
       ...(assetId === "nvdac" ? { unavailableReason: "unsupported-asset" } : {}),
-      stats: assetId === "nvdac" ? {} : {
+      stats: assetId === "nvdac" || statsFailed ? {} : {
         marketCapUsd: { atoms: meme ? "1200000" : "2410000000000", scale: 0 },
         volume24hUsd: { atoms: meme ? "382000" : "38200000000", scale: 0 },
         ...(meme ? { liquidityUsd: { atoms: "850000", scale: 0 } } : {}),
@@ -568,6 +570,7 @@ export const RiskPartialRecovery: Story = { args: { assetId: "degen" }, paramete
 } };
 export const RiskPartialFailure: Story = { args: { assetId: "degen" }, parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "partial-failure")] } }, play: async ({ canvasElement }) => {
   const checks = await expandChecks(canvasElement);
+  await expect(await within(canvasElement).findByText("Market cap")).toBeVisible();
   await expect(await checks.findByText("Sell tax 100%", { exact: true })).toBeVisible();
   const source = checks.getByText(/^Reported by GoPlus · checked/).textContent ?? "";
   await userEvent.click(checks.getByRole("button", { name: "Try again" }));
@@ -576,6 +579,18 @@ export const RiskPartialFailure: Story = { args: { assetId: "degen" }, parameter
   await expect(checks.getByText("Sell tax 100%", { exact: true })).toBeVisible();
   await expect(checks.getByText(/^Reported by GoPlus · checked/)).toHaveTextContent(source);
   await expect(checks.getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(within(canvasElement).getByText("Market cap")).toBeVisible();
+} };
+export const RiskStatsErrorOnRetry: Story = { args: { assetId: "degen" }, parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "stats-error-retry")] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  const checks = await expandChecks(canvasElement);
+  await expect(await checks.findByText("Partial check", { exact: true })).toBeVisible();
+  await expect(canvas.getByText("Market cap")).toBeVisible();
+  await userEvent.click(checks.getByRole("button", { name: "Try again" }));
+  await expect(await checks.findByText("Sell tax 100%", { exact: true })).toBeVisible();
+  await expect(checks.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  await expect(canvas.getByText("Market cap")).toBeVisible();
+  await expect(riskControl.calls).toBe(2);
 } };
 export const RiskPartialEmpty: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "partial-empty")] } }, play: async ({ canvasElement }) => {
   const checks = await expandChecks(canvasElement);
@@ -601,6 +616,7 @@ export const RiskRefreshFailed: Story = { args: { assetId: "degen" }, parameters
   await expect(canvas.getByText("Market cap")).toBeVisible();
   await getHomeQueryClient().refetchQueries({ queryKey: marketStatsOptions("degen", true).queryKey });
   await expect(await checks.findByText("Couldn't refresh", { exact: true })).toBeVisible();
+  await expect(canvas.getByText("Market cap")).toBeVisible();
   await expect(checks.getByRole("button", { name: "Try again" })).toBeVisible();
   await expect(checks.getByText("Sell tax 100%")).toBeVisible();
   await expect(checks.getByText(/^Reported by GoPlus · checked/)).toHaveTextContent(source);
