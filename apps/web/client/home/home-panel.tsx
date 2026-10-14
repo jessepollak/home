@@ -44,7 +44,7 @@ export function HomePanel({
   onOpenBorrow,
   initialAddMoney = false,
   returnedFromProvider = false,
-  initialSendFlow = false,
+  initialTransferFlow = null,
   initialSendActionId = null,
   regionId,
   regionReady = true,
@@ -64,7 +64,7 @@ export function HomePanel({
   onOpenBorrow: () => void;
   initialAddMoney?: boolean;
   returnedFromProvider?: boolean;
-  initialSendFlow?: boolean;
+  initialTransferFlow?: "send" | "cash-out" | null;
   initialSendActionId?: string | null;
   regionId: RegionId;
   regionReady?: boolean;
@@ -122,6 +122,7 @@ export function HomePanel({
       cashRate={rates.cash}
       borrowOfferRate={rates.borrow}
       destinations={{ onOpenCash, onOpenInvestments, onOpenBorrow }}
+      sendOffered={offering.products.send === "on"}
       actions={
         <>
           <FundingActions
@@ -139,7 +140,7 @@ export function HomePanel({
           <PresentationRegionProvider regionId={regionId}>
             <TransferActions
               sendOffered={offering.products.send === "on"}
-              initialOpen={initialSendFlow}
+              initialFlow={initialTransferFlow}
               initialActionId={initialSendActionId}
               availableAssets={sendAvailability}
               assetMarkResolution={resolvedAssetMarks}

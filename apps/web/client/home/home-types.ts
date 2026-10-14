@@ -51,7 +51,7 @@ export type HomeExperienceProps = {
   onRetryInterruption?: () => void;
   initialAddMoney?: boolean;
   returnedFromProvider?: boolean;
-  initialSendFlow?: boolean;
+  initialTransferFlow?: "send" | "cash-out" | null;
   initialSendActionId?: string | null;
   applyInboundUrlIntent?: boolean;
   initialSearch?: string;

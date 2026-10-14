@@ -1,6 +1,6 @@
 import { parseHash32 } from "@/shared/chain/hex";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Plus } from "lucide-react";
+import { Landmark, Plus, Send } from "lucide-react";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { waitForReady } from "@/tests/helpers/story-readiness";
 import { ActivityPanelView } from "@/client/activity";
@@ -275,6 +275,7 @@ type HomeOverviewStoryProps = {
   onOpenAccount: () => void;
   interruption?: { kind: "offline" | "interrupted" } | null;
   regionId?: RegionId;
+  actionLabels?: readonly [string, string, string];
 };
 
 function HomeOverviewStory({
@@ -288,6 +289,7 @@ function HomeOverviewStory({
   onOpenAccount,
   interruption = null,
   regionId = "US",
+  actionLabels = ["Add money", "Cash out", "Send"],
 }: HomeOverviewStoryProps) {
   const status = headerStatus({ interruption, coverage: homeBalancesStatus(assetBalances) });
   return (
@@ -319,13 +321,15 @@ function HomeOverviewStory({
           cashRate={cashRate}
           borrowOfferRate={borrowOfferRate}
           destinations={{ onOpenCash: noop, onOpenInvestments: noop, onOpenBorrow: noop }}
+          sendOffered
           actions={
             <>
-              <Button size="touch">
-                <Plus className="size-4" aria-hidden="true" />
-                Add money
+              <Button size="touch" className="min-w-0">
+                <Plus data-icon="inline-start" aria-hidden="true" />
+                {actionLabels[0]}
               </Button>
-              <Button variant="outline" size="touch">Send</Button>
+              <Button variant="outline" size="touch" className="min-w-0"><Landmark data-icon="inline-start" aria-hidden="true" />{actionLabels[1]}</Button>
+              <Button variant="outline" size="touch" className="min-w-max justify-self-end"><Send data-icon="inline-start" aria-hidden="true" />{actionLabels[2]}</Button>
             </>
           }
           activity={
@@ -491,6 +495,8 @@ export const KeyboardOrder: Story = {
     }
     await userEvent.tab();
     await expect(canvas.getByRole("button", { name: /Add money/ })).toHaveFocus();
+    await userEvent.tab();
+    await expect(canvas.getByRole("button", { name: "Cash out" })).toHaveFocus();
     await userEvent.tab();
     await expect(canvas.getByRole("button", { name: "Send" })).toHaveFocus();
     for (const destination of ["Open Cash", "Open Investments", "Open Borrow"]) {
@@ -1007,4 +1013,40 @@ export const RefreshFailed: Story = {
     await userEvent.click(hero.getByRole("button", { name: "Try again" }));
     await expect(args.onRetry).toHaveBeenCalledOnce();
   },
+};
+
+async function expectThreeActions({ canvasElement, args }: { canvasElement: HTMLElement; args: HomeOverviewStoryProps }) {
+  const actions = within(within(canvasElement).getByRole("group", { name: "Money actions" }));
+  const labels = args.actionLabels ?? ["Add money", "Cash out", "Send"];
+  await expect(actions.getAllByRole("button")).toHaveLength(3);
+  for (const name of labels) await expect(actions.getByRole("button", { name })).toBeVisible();
+  actions.getByRole("button", { name: labels[0] }).focus();
+  for (const name of labels.slice(1)) {
+    await userEvent.tab();
+    await expect(actions.getByRole("button", { name })).toHaveFocus();
+  }
+}
+
+export const ThreeActions320: Story = {
+  decorators: [(Story) => <div style={{ width: 320 }}><Story /></div>],
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: expectThreeActions,
+};
+
+export const ThreeActions390: Story = {
+  decorators: [(Story) => <div style={{ width: 390 }}><Story /></div>],
+  parameters: { viewport: { defaultViewport: "mobile" } },
+  play: expectThreeActions,
+};
+
+export const ThreeActionsRtl: Story = {
+  decorators: [(Story) => <div dir="rtl" style={{ width: 390 }}><Story /></div>],
+  play: expectThreeActions,
+};
+
+export const ThreeActionsLongLabels: Story = {
+  args: { actionLabels: ["Add money to your account", "Cash out to a payment app", "Send"] },
+  decorators: [(Story) => <div style={{ width: 320 }}><Story /></div>],
+  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  play: expectThreeActions,
 };

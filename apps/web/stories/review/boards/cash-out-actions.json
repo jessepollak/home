@@ -1,0 +1,273 @@
+{
+  "id": "cash-out-actions",
+  "title": "Cash-out actions · Send buttons",
+  "summary": "Round 2: Jesse favored B’s row-end placement but requested a recognizable Send button, not a final selection. D/E/F retain the primary Add money + outline Cash out pair. D/E compare familiar paper-plane directions with identical clear outline button treatment; F adds a Send label. The initial secondary surface matched the shell background, so E now uses outline and SendHorizontal. A/B/C remain prior-round evidence. Shared production shell, balances and Activity fixtures; stop at Jesse’s selection.",
+  "refs": {
+    "issue": 1045
+  },
+  "sections": [
+    {"id":"round2-mobile","title":"Round 2 · 390 · Send buttons","frames":[{"id":"d-mobile","story":"explorations-cash-out-actions--d-outlined-send","label":"D · Outlined Send icon","viewport":{"width":390,"height":844},"change":"new"},{"id":"e-mobile","story":"explorations-cash-out-actions--e-horizontal-send","label":"E · Horizontal paper-plane button","viewport":{"width":390,"height":844},"change":"new"},{"id":"f-mobile","story":"explorations-cash-out-actions--f-labelled-send","label":"F · Labelled Send","viewport":{"width":390,"height":844},"change":"new"}]},
+    {"id":"round2-narrow","title":"Round 2 · 320 · width safety","frames":[{"id":"d-narrow","story":"explorations-cash-out-actions--d-outlined-send","label":"D · Outlined Send icon","viewport":{"width":320,"height":844},"change":"new"},{"id":"e-narrow","story":"explorations-cash-out-actions--e-horizontal-send","label":"E · Horizontal paper-plane button","viewport":{"width":320,"height":844},"change":"new"},{"id":"f-narrow","story":"explorations-cash-out-actions--f-labelled-send","label":"F · Labelled Send","viewport":{"width":320,"height":844},"change":"new"}]},
+    {"id":"round2-tablet","title":"Round 2 · 1024 · production shell","frames":[{"id":"d-tablet","story":"explorations-cash-out-actions--d-outlined-send","label":"D · Outlined Send icon","viewport":{"width":1024,"height":900},"change":"new"},{"id":"e-tablet","story":"explorations-cash-out-actions--e-horizontal-send","label":"E · Horizontal paper-plane button","viewport":{"width":1024,"height":900},"change":"new"},{"id":"f-tablet","story":"explorations-cash-out-actions--f-labelled-send","label":"F · Labelled Send","viewport":{"width":1024,"height":900},"change":"new"}]},
+    {"id":"round2-desktop","title":"Round 2 · 1440 · production shell","frames":[{"id":"d-desktop","story":"explorations-cash-out-actions--d-outlined-send","label":"D · Outlined Send icon","viewport":{"width":1440,"height":900},"change":"new"},{"id":"e-desktop","story":"explorations-cash-out-actions--e-horizontal-send","label":"E · Horizontal paper-plane button","viewport":{"width":1440,"height":900},"change":"new"},{"id":"f-desktop","story":"explorations-cash-out-actions--f-labelled-send","label":"F · Labelled Send","viewport":{"width":1440,"height":900},"change":"new"}]},
+    {"id":"round2-rtl390","title":"Round 2 · RTL long labels · 390","frames":[{"id":"d-rtl390","story":"explorations-cash-out-actions--d-rtl-long","label":"D · Outlined Send icon","viewport":{"width":390,"height":844},"change":"new"},{"id":"e-rtl390","story":"explorations-cash-out-actions--e-rtl-long","label":"E · Horizontal paper-plane button","viewport":{"width":390,"height":844},"change":"new"},{"id":"f-rtl390","story":"explorations-cash-out-actions--f-rtl-long","label":"F · Labelled Send","viewport":{"width":390,"height":844},"change":"new"}],"note":"Long Add money/Cash out labels and RTL affect only the actions. F shows concise إرسال with the full Send phrase as its accessible name; shell and financial fixtures stay unchanged."},
+    {"id":"round2-rtl320","title":"Round 2 · RTL long labels · 320","frames":[{"id":"d-rtl320","story":"explorations-cash-out-actions--d-rtl-long","label":"D · Outlined Send icon","viewport":{"width":320,"height":844},"change":"new"},{"id":"e-rtl320","story":"explorations-cash-out-actions--e-rtl-long","label":"E · Horizontal paper-plane button","viewport":{"width":320,"height":844},"change":"new"},{"id":"f-rtl320","story":"explorations-cash-out-actions--f-rtl-long","label":"F · Labelled Send","viewport":{"width":320,"height":844},"change":"new"}],"note":"Long Add money/Cash out labels wrap. F retains concise visible إرسال and the full accessible Send name. Scoped action-label stress, not full-product localization."},
+    {"id":"round2-send-off","title":"Round 2 · Send off · main pair only","frames":[{"id":"d-send-off","story":"explorations-cash-out-actions--d-send-off","label":"D · Outlined Send icon","viewport":{"width":390,"height":844},"change":"new"},{"id":"e-send-off","story":"explorations-cash-out-actions--e-send-off","label":"E · Horizontal paper-plane button","viewport":{"width":390,"height":844},"change":"new"},{"id":"f-send-off","story":"explorations-cash-out-actions--f-send-off","label":"F · Labelled Send","viewport":{"width":390,"height":844},"change":"new"}]},
+    {"id":"round2-unavailable","title":"Round 2 · Cash out unavailable · honest entry","frames":[{"id":"d-unavailable","story":"explorations-cash-out-actions--d-unavailable","label":"D · Outlined Send icon","viewport":{"width":390,"height":844},"change":"new"},{"id":"e-unavailable","story":"explorations-cash-out-actions--e-unavailable","label":"E · Horizontal paper-plane button","viewport":{"width":390,"height":844},"change":"new"},{"id":"f-unavailable","story":"explorations-cash-out-actions--f-unavailable","label":"F · Labelled Send","viewport":{"width":390,"height":844},"change":"new"}],"note":"Story-only USD payout explanation. Cash out stays an enabled route-opening entry; navigation mocks do not render dialogs. No provider or money validation is claimed."},
+    {
+      "id": "mobile",
+      "title": "Prior round · 390 · main comparison",
+      "frames": [
+        {
+          "id": "a-mobile",
+          "story": "explorations-cash-out-actions--a-text-link",
+          "label": "A \u00b7 Text link",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "b-mobile",
+          "story": "explorations-cash-out-actions--b-compact-icon",
+          "label": "B \u00b7 Compact icon",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "c-mobile",
+          "story": "explorations-cash-out-actions--c-quiet-row",
+          "label": "C \u00b7 Quiet row",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "narrow",
+      "title": "Prior round · 320 · width safety",
+      "frames": [
+        {
+          "id": "a-narrow",
+          "story": "explorations-cash-out-actions--a-text-link",
+          "label": "A \u00b7 Text link",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "b-narrow",
+          "story": "explorations-cash-out-actions--b-compact-icon",
+          "label": "B \u00b7 Compact icon",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "c-narrow",
+          "story": "explorations-cash-out-actions--c-quiet-row",
+          "label": "C \u00b7 Quiet row",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "desktop",
+      "title": "Prior round · 1440 · production shell",
+      "frames": [
+        {
+          "id": "a-desktop",
+          "story": "explorations-cash-out-actions--a-text-link",
+          "label": "A \u00b7 Text link",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "change": "new"
+        },
+        {
+          "id": "b-desktop",
+          "story": "explorations-cash-out-actions--b-compact-icon",
+          "label": "B \u00b7 Compact icon",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "change": "new"
+        },
+        {
+          "id": "c-desktop",
+          "story": "explorations-cash-out-actions--c-quiet-row",
+          "label": "C \u00b7 Quiet row",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "rtl390",
+      "title": "Prior round · RTL long labels · 390",
+      "frames": [
+        {
+          "id": "a-rtl390",
+          "story": "explorations-cash-out-actions--a-rtl-long",
+          "label": "A \u00b7 Text link",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "b-rtl390",
+          "story": "explorations-cash-out-actions--b-rtl-long",
+          "label": "B \u00b7 Compact icon",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "c-rtl390",
+          "story": "explorations-cash-out-actions--c-rtl-long",
+          "label": "C \u00b7 Quiet row",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        }
+      ],
+      "note": "Only action labels and direction are stressed; the production shell and financial fixtures stay unchanged."
+    },
+    {
+      "id": "rtl320",
+      "title": "Prior round · RTL long labels · 320",
+      "frames": [
+        {
+          "id": "a-rtl320",
+          "story": "explorations-cash-out-actions--a-rtl-long",
+          "label": "A \u00b7 Text link",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "b-rtl320",
+          "story": "explorations-cash-out-actions--b-rtl-long",
+          "label": "B \u00b7 Compact icon",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "c-rtl320",
+          "story": "explorations-cash-out-actions--c-rtl-long",
+          "label": "C \u00b7 Quiet row",
+          "viewport": {
+            "width": 320,
+            "height": 844
+          },
+          "change": "new"
+        }
+      ],
+      "note": "Only action labels and direction are stressed; the production shell and financial fixtures stay unchanged."
+    },
+    {
+      "id": "send-off",
+      "title": "Prior round · Send off · unchanged main pair",
+      "frames": [
+        {
+          "id": "a-send-off",
+          "story": "explorations-cash-out-actions--a-send-off",
+          "label": "A \u00b7 Text link",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "b-send-off",
+          "story": "explorations-cash-out-actions--b-send-off",
+          "label": "B \u00b7 Compact icon",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "c-send-off",
+          "story": "explorations-cash-out-actions--c-send-off",
+          "label": "C \u00b7 Quiet row",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        }
+      ]
+    },
+    {
+      "id": "unavailable",
+      "title": "Prior round · Cash out unavailable · honest entry",
+      "frames": [
+        {
+          "id": "a-unavailable",
+          "story": "explorations-cash-out-actions--a-unavailable",
+          "label": "A \u00b7 Text link",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "b-unavailable",
+          "story": "explorations-cash-out-actions--b-unavailable",
+          "label": "B \u00b7 Compact icon",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        },
+        {
+          "id": "c-unavailable",
+          "story": "explorations-cash-out-actions--c-unavailable",
+          "label": "C \u00b7 Quiet row",
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "change": "new"
+        }
+      ],
+      "note": "Story-only USD payout explanation. Cash out remains enabled and opens the real production route; the fixture returns no providers. No provider or money validation is claimed."
+    }
+  ]
+}

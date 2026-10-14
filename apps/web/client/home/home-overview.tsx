@@ -33,6 +33,7 @@ export function HomeOverview({
   assetBalances,
   accountKey,
   actions,
+  sendOffered,
   activity,
   cashRate,
   borrowOfferRate,
@@ -42,6 +43,7 @@ export function HomeOverview({
   assetBalances?: HomeAssetBalancesPresentation;
   accountKey: string | null;
   actions: ReactNode;
+  sendOffered?: boolean;
   activity: ReactNode;
   cashRate: string | null;
   borrowOfferRate: string | null;
@@ -76,7 +78,11 @@ export function HomeOverview({
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
       <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-(--home-money-sticky-top)" : ""}`}>
         <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} onRetryBalances={retryBalances} />
-        {actions ? <div className="grid grid-cols-2 gap-2" aria-label="Money actions">{actions}</div> : null}
+        {actions ? <div className="@container" role="group" aria-label="Money actions"><div className={sendOffered === undefined
+          ? "grid grid-cols-1 gap-2 @xs:grid-flow-col @xs:auto-cols-fr @xs:grid-cols-none"
+          : sendOffered
+          ? "grid auto-rows-fr grid-cols-[repeat(auto-fit,minmax(min(100%,5rem),1fr))] gap-2 @min-[18rem]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+          : "grid auto-rows-fr grid-cols-[repeat(auto-fit,minmax(min(100%,5rem),1fr))] gap-2 @min-[12rem]:grid-cols-2"}>{actions}</div></div> : null}
         <HomeMoneySummary
           summary={assetBalances?.summary ?? null}
           isLoading={isLoading}

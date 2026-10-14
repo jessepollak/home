@@ -20,7 +20,7 @@ export type HomeInboundPanelState = {
   addMoney: boolean;
   returnedFromProvider: boolean;
   flow: ShellFlow | null;
-  sendFlow: boolean;
+  transferFlow: "send" | "cash-out" | null;
   actionId: string | null;
 };
 
@@ -125,7 +125,7 @@ export function readHomeInboundPanelState(
       overlay.flow === "add-money" || overlay.flow === "receive",
     returnedFromProvider: overlay.returnedFromFunding,
     flow: overlay.flow,
-    sendFlow: overlay.flow === "send",
+    transferFlow: overlay.flow === "send" || overlay.flow === "cash-out" ? overlay.flow : null,
     actionId: overlay.actionId,
   };
 }

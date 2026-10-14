@@ -98,13 +98,13 @@ test("star-heavy shapes report their budget instead of stalling the gate", { tim
 
 test("literalized extglobs and degraded ranges are reported without losing interpreted syntax", () => {
   const literalized = ["+(a|aa)", "*(a|aa)", "+(ab|)", "+(*(ab))", "+(a|*)", "{10..12}", "{a..z..2}"];
-  const result = evaluateKnipGlobs(literalized, ["a", "b", "ab", "10"]);
+  const result = evaluateKnipGlobs(literalized, ["a", "b", "ab", "10"], { budgetMs: ample });
   for (const pattern of literalized) {
     assert.match(result.failures.get(pattern), /^cannot be interpreted: /, pattern);
     assert.throws(() => knipGlob("probe", pattern), /cannot be interpreted: /);
   }
   const interpreted = ["@(a|b)", "!(a)", "+(a)", "*(a)", "+(*(a))", "+(*(a)|*(b))", "{1..3}", "{a..z}"];
-  const valid = evaluateKnipGlobs(interpreted, ["a", "b", "1"]);
+  const valid = evaluateKnipGlobs(interpreted, ["a", "b", "1"], { budgetMs: ample });
   assert.deepEqual([...valid.failures], []);
   for (const pattern of interpreted) assert.ok(valid.matches.get(pattern).size, pattern);
 });
@@ -117,20 +117,20 @@ test("safe repeated-extglob rewrites retain runtime verdicts and child matches",
     for (const file of files) assert.equal(knipGlob(file, pattern), runtime(file), `${pattern}: ${JSON.stringify(file)}`);
     return [pattern, new Set(files.filter((file) => runtime(file)))];
   }));
-  assert.deepEqual(evaluateKnipGlobs(patterns, files), { matches: expected, failures: new Map(), error: null });
+  assert.deepEqual(evaluateKnipGlobs(patterns, files, { budgetMs: ample }), { matches: expected, failures: new Map(), error: null });
 });
 
 test("quoted suffixes cannot hide unsupported brace ranges", () => {
   for (const [pattern, wrongCandidates] of [['{10..12}"x"', ["1", "2", "10x"]], ['{a..z..2}"x"', ["2", "ax"]]]) {
     for (const files of [[], wrongCandidates]) {
-      const result = evaluateKnipGlobs([pattern], files);
+      const result = evaluateKnipGlobs([pattern], files, { budgetMs: ample });
       assert.match(result.failures.get(pattern), /^cannot be interpreted: brace ranges /, pattern);
       assert.equal(result.matches.size, 0);
       assert.equal(result.error, null);
     }
     for (const file of wrongCandidates) assert.throws(() => knipGlob(file, pattern), /cannot be interpreted: brace ranges /);
     assert.equal(knipGlob(pattern, pattern), true);
-    assert.deepEqual(evaluateKnipGlobs([pattern], [pattern, ...wrongCandidates]), {
+    assert.deepEqual(evaluateKnipGlobs([pattern], [pattern, ...wrongCandidates], { budgetMs: ample }), {
       matches: new Map([[pattern, new Set([pattern])]]), failures: new Map(), error: null,
     });
   }
@@ -139,7 +139,7 @@ test("quoted suffixes cannot hide unsupported brace ranges", () => {
 test("exact literals survive compilation degradation and parser literalization", () => {
   const patterns = ["components/ui/a{b.tsx", "[z-a]", "+(a|aa)", "{10..12}"];
   for (const pattern of patterns) assert.equal(knipGlob(pattern, pattern), true, pattern);
-  const result = evaluateKnipGlobs(patterns, patterns);
+  const result = evaluateKnipGlobs(patterns, patterns, { budgetMs: ample });
   assert.deepEqual([...result.failures], []);
   for (const pattern of patterns) assert.ok(result.matches.get(pattern).has(pattern), pattern);
 });
@@ -216,14 +216,14 @@ test("bounded evaluation returns empty maps only when there are no patterns", ()
   for (const [patterns, files] of [[[], []], [[], ["a.ts"]]]) {
     assert.deepEqual(evaluateKnipGlobs(patterns, files, {}), { matches: new Map(), failures: new Map(), error: null });
   }
-  const result = evaluateKnipGlobs(["[z-a]"], []);
+  const result = evaluateKnipGlobs(["[z-a]"], [], { budgetMs: ample });
   assert.match(result.failures.get("[z-a]"), /^cannot be compiled: /);
   assert.equal(result.matches.size, 0);
 });
 
 test("bounded evaluation reports child compile errors and continues to the next pattern", () => {
   const tooLong = "a".repeat(65537);
-  const result = evaluateKnipGlobs([tooLong, "*.ts"], ["a.ts"]);
+  const result = evaluateKnipGlobs([tooLong, "*.ts"], ["a.ts"], { budgetMs: ample });
   assert.match(result.failures.get(tooLong), /^cannot be compiled: /);
   assert.deepEqual(result.matches.get("*.ts"), new Set(["a.ts"]));
 });
@@ -277,7 +277,7 @@ test("checked-in exemptions agree with the runtime matcher over every web source
   assert.ok(patterns.length > 0);
   const gate = evaluateKnipGlobs(patterns, files, { budgetMs: ample });
   assert.deepEqual([...gate.failures], [], "checked-in patterns must evaluate");
-  const runtime = runtimeMatches(patterns, files, 30000);
+  const runtime = runtimeMatches(patterns, files, ample);
   patterns.forEach((pattern, index) => {
     assert.deepEqual([...(gate.matches.get(pattern) ?? [])].sort(), [...runtime[index]].sort(), `runtime matcher divergence for ${JSON.stringify(pattern)}`);
   });

@@ -36,7 +36,7 @@ export function HomePageContent() {
     onOpenBorrow={() => open?.("borrow")}
     initialAddMoney={page.initialAddMoney}
     returnedFromProvider={page.returnedFromProvider}
-    initialSendFlow={page.initialSendFlow}
+    initialTransferFlow={page.initialTransferFlow}
     initialSendActionId={page.initialSendActionId}
     regionId={page.regionId}
     initialRateLabels={page.initialRateLabels}

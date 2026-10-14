@@ -1,3 +1,6 @@
+import { parseAddress } from "../../../shared/chain/hex";
+import type { PreparedMoneyAction } from "../../../shared/money-actions/types";
+import { FUNDING_PROVIDERS_VERSION } from "../../../shared/funding/contracts/providers";
 import { sessionBody } from "../fixtures/bodies";
 
 const now = "2026-09-15T12:00:00.000Z";
@@ -18,6 +21,8 @@ const baseMetadata = {
 const spend = { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "50000000", direction: "spend" } as const;
 const receive = { ...spend, direction: "receive" } as const;
 const owner = { ...sessionBody, subject: sessionBody.user.subject };
+const address = parseAddress(sessionBody.smartAccount.address);
+if (!address) throw new Error("Invalid cash-out fixture address");
 export const cashoutFixtureAction = {
   id: "90100000-0000-4000-8000-000000000001", provider: "cdp-embedded", kind: "cash-out",
   summary: { title: "Cash out with Peer", amounts: [spend], warnings: [], expiresAt: expiry,
@@ -27,12 +32,35 @@ export const cashoutFixtureAction = {
       arrival: { source: "observed", kind: "within", seconds: 3600 },
     } } },
   status: "confirmed", createdAt: now, confirmedAt: now,
-  owner: { subject: owner.subject, address: sessionBody.smartAccount.address, chainId: 8453, accountProvider: "cdp-embedded" },
+  owner: { subject: owner.subject, address, chainId: 8453, accountProvider: "cdp-embedded" },
   cashout: cashoutFixtureProgress,
+} as const;
+export const cashoutFixtureProviders = {
+  version: FUNDING_PROVIDERS_VERSION, direction: "offramp",
+  providers: [{
+    direction: "offramp", providerId: "peer", displayName: "Peer", region: "US", assetId: "base:usdc",
+    assetSymbol: "USDC", assetDecimals: 6, currency: "USD", quotes: false, customerSetup: null,
+    paymentMethods: ["cashapp", "venmo"].map((platform) => ({
+      id: platform, label: platform === "cashapp" ? "Cash App" : "Venmo", platform,
+      handleHint: platform === "cashapp" ? "$cashtag" : "@username",
+      minimumAmountAtomic: "10000", maximumAmountAtomic: null,
+      estimateSemantics: "approximate", etaSemantics: "historical-not-guaranteed", corridorConfirmedBy: "fixture",
+    })),
+  }],
+} as const;
+export const cashoutFixturePrepared: PreparedMoneyAction = {
+  id: cashoutFixtureAction.id, kind: "cash-out", title: cashoutFixtureAction.summary.title,
+  calls: [{ to: baseMetadata.escrow, data: "0x1234", value: "0" }],
+  amounts: [spend], warnings: [], createdAt: now, expiresAt: expiry,
+  metadata: cashoutFixtureAction.summary.metadata, owner: cashoutFixtureAction.owner,
+};
+export const cashoutFixtureResume = {
+  id: cashoutFixturePrepared.id, kind: cashoutFixturePrepared.kind,
+  summary: cashoutFixtureAction.summary, calls: cashoutFixturePrepared.calls, expiresAt: expiry,
 };
 export const cashoutFixtureWithdraw = {
   id: "90100000-0000-4000-8000-000000000002", kind: "cash-out-withdraw", title: "Withdraw cash-out",
-  calls: [], amounts: [receive], warnings: [], createdAt: now, expiresAt: expiry,
+  calls: [{ to: baseMetadata.escrow, data: "0x1234", value: "0" }], amounts: [receive], warnings: [], createdAt: now, expiresAt: expiry,
   metadata: { ...baseMetadata, operation: "withdraw", depositId: cashoutFixtureDepositId },
   owner: cashoutFixtureAction.owner,
 };

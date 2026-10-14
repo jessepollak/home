@@ -15,6 +15,7 @@ export const SHELL_SEARCH_PARAM = "search";
 export type ShellAccount = "signin" | "settings";
 export type ShellFlow =
   | "send"
+  | "cash-out"
   | "add-money"
   | "receive"
   | "save-deposit"
@@ -50,6 +51,7 @@ export type ShellSearchInput = URLSearchParams | Record<
 const investCategories = new Set<string>(["stocks", "crypto", "memes"]);
 const shellFlows = new Set<ShellFlow>([
   "send",
+  "cash-out",
   "add-money",
   "receive",
   "save-deposit",
@@ -203,7 +205,7 @@ export function parseShellOverlayIntent(
     fundingReturn,
     addMoney: readSearchValue(search, "add-money") === "1",
     flow,
-    actionId: flow === "send" && action && actionIdPattern.test(action) ? action : null,
+    actionId: (flow === "send" || flow === "cash-out") && action && actionIdPattern.test(action) ? action : null,
   };
 }
 
@@ -266,7 +268,7 @@ export function flowHref(
       : new URL(window.location.href);
   current.pathname = path;
   current.searchParams.set(SHELL_FLOW_PARAM, flow);
-  if (flow === "send" && actionId && actionIdPattern.test(actionId)) {
+  if ((flow === "send" || flow === "cash-out") && actionId && actionIdPattern.test(actionId)) {
     current.searchParams.set(SHELL_ACTION_PARAM, actionId);
   } else {
     current.searchParams.delete(SHELL_ACTION_PARAM);

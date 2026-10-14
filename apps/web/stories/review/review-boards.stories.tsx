@@ -13,6 +13,7 @@ import glassNavigationJson from "./boards/glass-navigation.json";
 import investAssetDetailJson from "./boards/invest-asset-detail.json";
 import investAssetSheetJson from "./boards/invest-asset-sheet.json";
 import cashOutReviewJson from "./boards/cash-out-review.json";
+import cashOutActionsJson from "./boards/cash-out-actions.json";
 import mutedForegroundJson from "./boards/muted-foreground.json";
 import destructiveContrastJson from "./boards/destructive-contrast.json";
 
@@ -24,6 +25,7 @@ const borrowIllustration = parseBoard(borrowIllustrationJson);
 const investments = parseBoard(investmentsJson);
 const glassNavigation = parseBoard(glassNavigationJson);
 const cashOutReview = parseBoard(cashOutReviewJson);
+const cashOutActions = parseBoard(cashOutActionsJson);
 const mutedForeground = parseBoard(mutedForegroundJson);
 const destructiveContrast = parseBoard(destructiveContrastJson);
 const fixture = parseBoard({
@@ -49,6 +51,7 @@ export const BorrowIllustration: Story = { tags: ["!test", "review-board"], args
 export const Investments: Story = { tags: ["!test", "review-board"], args: { board: investments, build } };
 export const GlassNavigation: Story = { tags: ["!test", "review-board"], args: { board: glassNavigation, build } };
 export const CashOutReview: Story = { tags: ["!test", "review-board"], args: { board: cashOutReview, build } };
+export const CashOutActions: Story = { tags: ["!test", "review-board"], args: { board: cashOutActions, build } };
 export const MutedForeground: Story = { tags: ["!test", "review-board"], args: { board: mutedForeground, build } };
 export const DestructiveContrast: Story = { tags: ["!test", "review-board"], args: { board: destructiveContrast, build } };
 export const CommentsFollowCanvas: Story = {

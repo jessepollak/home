@@ -15,6 +15,7 @@ const journey = { prepares: [] as Array<{ kind: string; params: unknown }> };
 function SendRecipientJourney({ mode }: { mode: Mode }) {
   const fetchAccountResource = useCallback<AccountWalletClient["fetchAccountResource"]>((url) => recipientResources(mode)(url), [mode]);
   return <SendDialog
+    entry="send"
     open
     immediate
     address={ACCOUNT}
@@ -144,8 +145,7 @@ export const EmptyNoSuggestions: Story = {
   play: async ({ canvasElement }) => {
     const screen = await toDestination(canvasElement);
     await expect(screen.getByRole("textbox", { name: "To" })).toHaveValue("");
-    await expect(screen.getByText("Or")).toBeVisible();
-    await expect(await screen.findByText("Cash out isn't available in United States yet.")).toBeVisible();
+    await expect(screen.queryByText("Or")).not.toBeInTheDocument();
     await expect(screen.queryByRole("group", { name: "Recent recipients" })).not.toBeInTheDocument();
     await expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
   },
@@ -162,15 +162,6 @@ export const RecentSelection: Story = {
     await userEvent.click(named);
     await expect(screen.getByRole("textbox", { name: "To" })).toHaveValue("0x2211…d77DA9");
     await expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
-  },
-};
-
-export const CashOutUnavailable: Story = {
-  args: { mode: "providers-error" },
-  play: async ({ canvasElement }) => {
-    const screen = await toDestination(canvasElement);
-    await expect(await screen.findByText("Cash out is unavailable right now.")).toBeVisible();
-    await expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
   },
 };
 

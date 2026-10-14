@@ -96,7 +96,7 @@ function ActivityCardUnlock({ session, cards, ownerKey, failRefetch = false }: {
           sendAvailability: [], showSmallBalances: false, cardsEnabled: true,
           onHomeDetailsOpenChange: noop, openInvestmentHolding: noop, closeInvestmentHolding: noop,
           investmentsReturnHolding: null, openCashSavings: noop, onInvestmentsChromeChange: noop,
-          initialAddMoney: false, returnedFromProvider: false, initialSendFlow: false, initialSendActionId: null,
+          initialAddMoney: false, returnedFromProvider: false, initialTransferFlow: null, initialSendActionId: null,
         }}>
           <main className="mx-auto max-w-2xl p-4">
             <h1 className="sr-only">Card purchase activity</h1>
