@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { evaluateBoundaryExemptions, existingBoundaryPaths, isPreclassifiedRootFile, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
+import { evaluateBoundaryExemptions, existingBoundaryPaths, isPreclassifiedRootFile, readBoundaryBase, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
 import { NON_PRODUCTION_ROOT_FILES, assertionDebtReport, assertionExceptions, changedProductionTypeScript, changedScopedTypeScript, countAssertions, evaluateAssertionDelta, isProductionTypeScript, isTestOrStoryTypeScript, mergeBaseRevision, resolveBaseRevision } from "../type-assertions.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
@@ -92,7 +92,7 @@ test("every root-level JS-family entry point has exactly one reasoned classifica
     .map((entry) => path.relative(path.join(root, "apps/web"), entry).split(path.sep).join("/"));
   const rootFiles = rootSourceFiles(paths);
   const exemptions = JSON.parse(readFileSync(new URL("../exploration-boundary-exemptions.json", import.meta.url), "utf8"));
-  const boundary = evaluateBoundaryExemptions({ directories: topLevelSourceDirectories(paths), rootFiles, exemptions });
+  const boundary = evaluateBoundaryExemptions({ directories: topLevelSourceDirectories(paths), rootFiles, exemptions, base: readBoundaryBase(process.env.BASE_REF || "main") });
   assert.deepEqual(boundary.invalid, []);
   assert.deepEqual(boundary.stale, []);
   assert.deepEqual([...NON_PRODUCTION_ROOT_FILES].sort(), boundary.exemptRootFiles);

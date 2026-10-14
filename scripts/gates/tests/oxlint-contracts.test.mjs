@@ -7,7 +7,7 @@ import path from "node:path";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { BOUNDARY_EXTENSIONS, evaluateBoundaryExemptions, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
+import { BOUNDARY_EXTENSIONS, evaluateBoundaryExemptions, readBoundaryBase, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const appsWebDir = path.join(repoRoot, "apps/web");
@@ -52,7 +52,7 @@ const paths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--
 const directories = topLevelSourceDirectories(paths);
 const rootFiles = rootSourceFiles(paths);
 const exemptions = JSON.parse(await readFile(new URL("../exploration-boundary-exemptions.json", import.meta.url), "utf8"));
-const boundary = evaluateBoundaryExemptions({ directories, rootFiles, exemptions });
+const boundary = evaluateBoundaryExemptions({ directories, rootFiles, exemptions, base: readBoundaryBase(process.env.BASE_REF || "main") });
 
 const unsafeTestPacket = 'export const value = JSON.parse("null").field; export function run(): void { JSON.parse("null")(); } export function read(): string { return JSON.parse("null"); }';
 

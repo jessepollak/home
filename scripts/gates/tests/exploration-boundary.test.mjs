@@ -9,13 +9,13 @@ import { fileURLToPath } from "node:url";
 
 import {
   BOUNDARY_EXCLUDED_FILES, BOUNDARY_EXTENSIONS, BOUNDARY_EXTENSIONS_GLOB, BOUNDARY_IGNORE_PATTERNS, BOUNDARY_INVENTORY_EXCEPTIONS, BOUNDARY_RULE, BOUNDARY_RULES, FENCED_LAYERS, ROOT_CATCH_ALL,
-  evaluateBoundaryConfig, evaluateBoundaryExemptions, evaluateBoundaryInventory, existingBoundaryPaths, expectedBoundaryFiles, isPreclassifiedRootFile, rootSourceFiles, topLevelSourceDirectories,
+  evaluateBoundaryConfig, evaluateBoundaryExemptions, evaluateBoundaryInventory, existingBoundaryPaths, expectedBoundaryFiles, isPreclassifiedRootFile, readBoundaryBase, rootSourceFiles, topLevelSourceDirectories,
 } from "../exploration-boundary.mjs";
 
 const ts = createRequire(new URL("../../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const exemptionsUrl = new URL("../exploration-boundary-exemptions.json", import.meta.url);
-const clean = { requiredFence: [], requiredRootFence: [], exempt: [], exemptRootFiles: [], preclassifiedRootFiles: [], stale: [], invalid: [] };
+const clean = { requiredFence: [], requiredRootFence: [], exempt: [], exemptRootFiles: [], preclassifiedRootFiles: [], stale: [], dormant: [], reactivated: [], invalid: [] };
 const cleanBoundary = { owners: 1, severities: ["error"], missingRules: [], unenforcedRules: [], missing: [], unexpected: [], missingExclusions: [], unexpectedExclusions: [], missingIgnores: [], unexpectedIgnores: [] };
 const cleanInventory = { unparsed: [], staleExceptions: [], invalidExceptions: [] };
 const missingBoundary = {
@@ -33,7 +33,7 @@ async function realBoundary() {
     .map((entry) => path.relative(path.join(root, "apps/web"), entry).split(path.sep).join("/"));
   const directories = topLevelSourceDirectories(paths);
   const rootFiles = rootSourceFiles(paths);
-  return { directories, rootFiles, boundary: evaluateBoundaryExemptions({ directories, rootFiles, exemptions }) };
+  return { directories, rootFiles, boundary: evaluateBoundaryExemptions({ directories, rootFiles, exemptions, base: readBoundaryBase(process.env.BASE_REF || "main") }) };
 }
 
 test("existing boundary paths skip only ENOENT entries", () => {
@@ -68,10 +68,11 @@ test("existing boundary paths default to a real stat", () => {
 test("tracked and new source directories and root files are fenced or reasonedly exempted", async () => {
   const { directories, rootFiles, boundary } = await realBoundary();
   assert.deepEqual(boundary.stale, []);
+  assert.deepEqual(boundary.reactivated, []);
   assert.deepEqual(boundary.invalid, []);
   assert.ok(boundary.exempt.length > 0, "non-production exemptions must not be empty");
   assert.ok(boundary.exemptRootFiles.length > 0, "non-production root-file exemptions must not be empty");
-  assert.deepEqual([...boundary.requiredFence, ...boundary.exempt].sort(), directories, "every source directory must have exactly one classification");
+  assert.deepEqual([...boundary.requiredFence, ...boundary.exempt.filter((directory) => !boundary.dormant.includes(directory))].sort(), directories, "every source directory must have exactly one classification");
   assert.deepEqual([...boundary.requiredRootFence, ...boundary.exemptRootFiles, ...boundary.preclassifiedRootFiles].sort(), rootFiles,
     "every root-level source file must have exactly one classification");
   assert.ok(boundary.requiredFence.length > 0, "production fences must not be empty");
@@ -372,7 +373,7 @@ test("a new source directory requires a fence until it has a reasoned exemption"
     { ...clean, exempt: ["hooks"] });
 });
 
-test("a removed directory makes its exemption stale", () => {
+test("a removed directory makes its exemption stale without a base revision", () => {
   assert.deepEqual(evaluateBoundaryExemptions({ directories: [], exemptions: [{ path: "hooks", reason: "Non-production verification helpers." }] }),
     { ...clean, exempt: ["hooks"], stale: ["hooks"] });
 });

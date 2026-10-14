@@ -6,6 +6,7 @@ import { explorationOnlyPaths, importGraph, nonProduction, readWebSources, ts, w
 
 const allowedKeys = new Set(["$schema", "ignoreExportsUsedInFile", "vitest", "entry", "ignore"]);
 const baselineKinds = new Set(["exploration-only", "test-support", "cli-entry", "structural-contract"]);
+const globSyntax = /[*?[\]{}()!+@|\\]/;
 const configNames = /^(?:knip(?:\.config)?\.[cm]?[jt]sx?|knip\.jsonc?|\.knip\.jsonc?)$/;
 
 export function evaluateKnipExemptions({ config, baseline, files, packageJson = {}, configPaths = [], budgetMs = knipGlobBudgetMs }) {
@@ -77,6 +78,11 @@ export function evaluateKnipExemptions({ config, baseline, files, packageJson = 
   // exploration-only candidates above never see. Evaluate just those patterns
   // against every source path, in a second budgeted child run of its own.
   const stalenessGlobs = new Set();
+  const globEntries = entries.filter((entry) => typeof entry?.pattern === "string" && globSyntax.test(entry.pattern.replace(/!$/, "")));
+  for (const entry of globEntries) {
+    stalenessGlobs.add(entry.pattern.replace(/!$/, ""));
+    for (const negation of [...safeEntryNegations, ...safeIgnoreNegations]) stalenessGlobs.add(negation);
+  }
   for (const entry of entries) {
     if (typeof entry?.pattern !== "string" || entry.kind === "exploration-only") continue;
     if (entryExemptions.includes(entry.pattern)) {
@@ -96,6 +102,23 @@ export function evaluateKnipExemptions({ config, baseline, files, packageJson = 
     if (refused.has(glob)) continue;
     refused.add(glob);
     invalid.push(`knip.json: pattern ${JSON.stringify(glob)} ${reason}`);
+  }
+  // An entry whose identity spans several paths is exhausted when concurrent
+  // changes each remove a different one, so each path needs its own entry.
+  for (const entry of globEntries) {
+    const glob = entry.pattern.replace(/!$/, "");
+    if (refused.has(glob)) continue;
+    const lists = [];
+    if (entryExemptions.includes(entry.pattern)) lists.push(safeEntryNegations);
+    if (ignorePatterns.includes(entry.pattern) && !entry.pattern.startsWith("!")) lists.push(safeIgnoreNegations);
+    if (!lists.length) lists.push([]);
+    const covered = new Set();
+    for (const list of lists) {
+      for (const file of sourceMatches.matches.get(glob) ?? []) {
+        if (!list.some((negative) => sourceMatches.matches.get(negative)?.has(file))) covered.add(file);
+      }
+    }
+    if (covered.size > 1) invalid.push(`baseline entry ${JSON.stringify(entry.pattern)} matches ${covered.size} paths; split it into one entry per path so concurrent removals cannot exhaust it`);
   }
   function baselineMatches(entry) {
     if (entry?.kind === "exploration-only") return flagged.has(entry?.pattern);

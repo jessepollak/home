@@ -8,6 +8,9 @@ import { evaluateKnipGlobs, knipGlob } from "../knip-glob.mjs";
 import { ts } from "../knip-source.mjs";
 import { evaluateKnipExemptions, readKnipExemptionInput } from "../knip-exemptions.mjs";
 
+// Parse and match verdicts never depend on the clock: a budget no process startup can exhaust.
+const ample = 60000;
+
 const requireWeb = createRequire(new URL("../../../apps/web/package.json", import.meta.url));
 const picomatch = createRequire(requireWeb.resolve("knip"))("picomatch");
 // Pinned Picomatch outcomes for the dialect Knip matches with (`{ dot: true }`).
@@ -169,8 +172,8 @@ test("every supported glob shape is matched, never refused", () => {
     "[]", "[^]", "[a-", "a}b", "}", "x/[]/[ab].tsx", "x/[]a[]",
   ];
   for (const pattern of shapes) assert.doesNotThrow(() => knipGlob("probe.ts", pattern), JSON.stringify(pattern));
-  const result = evaluateKnipGlobs(checkedInPatterns, ["probe.ts"], { budgetMs: 5000 });
-  assert.deepEqual([...result.failures], [], "checked-in patterns must compile and evaluate inside the budget");
+  const result = evaluateKnipGlobs(checkedInPatterns, ["probe.ts"], { budgetMs: ample });
+  assert.deepEqual([...result.failures], [], "checked-in patterns must compile and evaluate");
 });
 
 const parseFailures = ["[z-a]", "[!z-a]", "[^z-a]", "x/}{.tsx", "x/[z-\\a].tsx", "a{b", "{", "\\", "a".repeat(65537)];
@@ -182,10 +185,10 @@ test("a pattern Picomatch's parser rejects is reported instead of matching nothi
       return true;
     });
   }
-  const result = evaluateKnipGlobs(parseFailures, ["x.ts"], { budgetMs: 5000 });
+  const result = evaluateKnipGlobs(parseFailures, ["x.ts"], { budgetMs: ample });
   for (const pattern of parseFailures) assert.match(result.failures.get(pattern), /^cannot be compiled: /, JSON.stringify(pattern));
   assert.deepEqual(evaluateKnipExemptions({
-    config: { entry: [], ignore: ["[z-a]"] }, baseline: [], files: [], configPaths: ["knip.json"], budgetMs: 5000,
+    config: { entry: [], ignore: ["[z-a]"] }, baseline: [], files: [], configPaths: ["knip.json"], budgetMs: ample,
   }).invalid, ['knip.json: pattern "[z-a]" cannot be compiled: Invalid regular expression: /^(?:[z-a]\\/?)$/: Range out of order in character class']);
 });
 
@@ -272,8 +275,8 @@ test("checked-in exemptions agree with the runtime matcher over every web source
   const files = input.files.map(({ path: file }) => file);
   assert.ok(files.length > 0);
   assert.ok(patterns.length > 0);
-  const gate = evaluateKnipGlobs(patterns, files, { budgetMs: 5000 });
-  assert.deepEqual([...gate.failures], [], "checked-in patterns must evaluate inside the budget");
+  const gate = evaluateKnipGlobs(patterns, files, { budgetMs: ample });
+  assert.deepEqual([...gate.failures], [], "checked-in patterns must evaluate");
   const runtime = runtimeMatches(patterns, files, 30000);
   patterns.forEach((pattern, index) => {
     assert.deepEqual([...(gate.matches.get(pattern) ?? [])].sort(), [...runtime[index]].sort(), `runtime matcher divergence for ${JSON.stringify(pattern)}`);

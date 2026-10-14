@@ -722,7 +722,9 @@ test("interpreted extglobs and single-character ranges remain matched and unrepo
     assert.equal(result.unlisted[0].matches[0].path, `components/ui/${basename}.tsx`, syntax);
     assert.deepEqual(fixture({ entry: [], ignore: [pattern] }, [
       file(`components/ui/${basename}.tsx`), file(`components/ui/${basename}.stories.tsx`, `import "./${basename}"`),
-    ], [{ pattern, reason: "story-only", kind: "exploration-only" }]), clean, syntax);
+    ], [{ pattern, reason: "story-only", kind: "exploration-only" }]), syntax === "!(a)"
+      ? { ...clean, invalid: [`baseline entry ${JSON.stringify(pattern)} matches 2 paths; split it into one entry per path so concurrent removals cannot exhaust it`] }
+      : clean, syntax);
   }
 });
 
@@ -749,4 +751,25 @@ test("a degraded pattern is refused even when a production file is named like it
     ...clean,
     invalid: [`knip.json: pattern ${JSON.stringify(pattern)} cannot be interpreted: brace ranges require single-character endpoints and no step`],
   });
+});
+
+test("a baseline pattern matching several paths is rejected until it is split per path", () => {
+  const files = ["a", "b"].flatMap((name) => [file(`components/ui/${name}.tsx`, "export const Row = 1"), file(`components/ui/${name}.stories.tsx`, `import "./${name}"`)]);
+  const pattern = "components/ui/@(a|b).tsx!";
+  const message = (count) => `baseline entry ${JSON.stringify(pattern)} matches ${count} paths; split it into one entry per path so concurrent removals cannot exhaust it`;
+  assert.deepEqual(fixture({ entry: [pattern], ignore: [] }, files, [{ pattern, reason: "story-only", kind: "exploration-only" }]).invalid, [message(2)]);
+  assert.deepEqual(fixture({ entry: [pattern], ignore: [] }, files, [{ pattern, reason: "CLI entries", kind: "cli-entry" }]).invalid, [message(2)]);
+  assert.deepEqual(fixture({ entry: [pattern, "!components/ui/b.tsx!"], ignore: [] }, files, [{ pattern, reason: "story-only", kind: "exploration-only" }]).invalid, []);
+  assert.deepEqual(fixture({ entry: ["components/ui/a.tsx!"], ignore: [] }, files, [{ pattern: "components/ui/@(a).tsx!", reason: "story-only", kind: "exploration-only" }]).invalid, []);
+});
+
+test("per-path baseline entries survive concurrent removals of different paths", () => {
+  const entries = ["a", "b"].map((name) => ({ pattern: `components/ui/${name}.tsx!`, reason: "story-only", kind: "exploration-only" }));
+  const source = (names) => names.flatMap((name) => [file(`components/ui/${name}.tsx`, "export const Row = 1"), file(`components/ui/${name}.stories.tsx`, `import "./${name}"`)]);
+  const config = (names) => ({ entry: names.map((name) => `components/ui/${name}.tsx!`), ignore: [] });
+  const state = (names) => fixture(config(names), source(names), entries.filter((entry) => names.some((name) => entry.pattern.includes(`/${name}.`))));
+  assert.deepEqual(state(["a", "b"]), clean);
+  assert.deepEqual(state(["b"]), clean);
+  assert.deepEqual(state(["a"]), clean);
+  assert.deepEqual(state([]), clean);
 });
