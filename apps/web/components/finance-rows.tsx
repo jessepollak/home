@@ -34,6 +34,7 @@ type FinanceRowCommonProps = {
   contextLines?: 1 | 2;
   contextTitle?: string;
   value?: ReactNode;
+  valueKind?: "amount" | "status";
   valueContext?: ReactNode;
   valueContextTitle?: string;
   valueContextLines?: 1 | 2 | "wrap";
@@ -99,6 +100,7 @@ function FinanceRow({
   contextLines = 1,
   contextTitle,
   value,
+  valueKind = "amount",
   valueContext,
   valueContextTitle,
   valueContextLines,
@@ -115,6 +117,7 @@ function FinanceRow({
   const hintId = useId();
   const activation = action ? undefined : onActivate;
   const hasValue = value !== undefined || valueContext !== undefined;
+  const isStatus = valueKind === "status" && labelSuffix === undefined;
   const reservesEmptyContext = context === undefined && reserveContext && labelSuffix === undefined;
   const rowContext = context === undefined && (!reserveContext || reservesEmptyContext) ? null : (
     <ItemDescription lines={contextLines} tone={disclosure ? "disclosure" : undefined} className={cn(contextLines === 2 && "whitespace-normal", labelSuffix !== undefined && "order-4 mt-0.5 max-w-full shrink-0")} title={contextTitle}>
@@ -123,7 +126,7 @@ function FinanceRow({
   );
   const labelAndContext = (
     <>
-      <ItemTitle className={labelSuffix === undefined ? "w-full min-w-0" : "order-1 max-w-full shrink-0 whitespace-normal"} truncate={labelSuffix === undefined ? "stacked" : false}>
+      <ItemTitle className={labelSuffix === undefined ? "w-full min-w-0" : "order-1 max-w-full shrink-0 whitespace-normal"} truncate={labelSuffix !== undefined ? false : isStatus ? "status" : "stacked"}>
         {labelSuffix === undefined ? label : <span className="flex min-w-0 max-w-full flex-wrap items-baseline gap-x-1 gap-y-0.5">
           <span className="min-w-0 truncate">{label}{" "}</span>
           <span className="shrink-0 whitespace-nowrap">{labelSuffix}</span>
@@ -137,8 +140,8 @@ function FinanceRow({
       {value === undefined ? null : (
         <ItemTitle
           className={labelSuffix === undefined ? "w-full min-w-0 justify-end text-end" : "order-2 -mb-0.5 ms-auto max-w-full shrink-0 justify-end text-end"}
-          numeric
-          truncate="wrap"
+          numeric={!isStatus}
+          truncate={isStatus ? "status" : "wrap"}
           tone={valueTitleTone[valueTone]}
           data-value-tone={valueTone}
         >
@@ -177,7 +180,7 @@ function FinanceRow({
       </ItemMedia>
       <div className={cn("flex min-w-0 flex-1 items-start", labelSuffix === undefined ? cn("gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", contextLines === 2 && "flex-wrap gap-y-1") : "flex-wrap gap-x-2 gap-y-0 @max-[14rem]/finance-row:order-3 @max-[14rem]/finance-row:basis-full")} data-slot="finance-row-body">
         {labelSuffix === undefined ? (
-          <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", contextLines === 2 && "min-w-min", reservesEmptyContext && "min-h-[calc(2.875em+0.125rem)] justify-center", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
+          <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", isStatus && "flex-[0_1_auto]", contextLines === 2 && !isStatus && "min-w-min", reservesEmptyContext && "min-h-[calc(2.875em+0.125rem)] justify-center", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
             {labelAndContext}
           </ItemContent>
         ) : <div className="contents" data-slot="finance-row-label">{labelAndContext}</div>}
@@ -186,7 +189,7 @@ function FinanceRow({
         {hasValue ? labelSuffix === undefined ? (
           <ItemContent
             position="value"
-            className={cn("max-w-2/3 min-w-0 items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", contextLines === 2 && "ms-auto max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
+            className={cn("max-w-2/3 items-end gap-0.5 overflow-hidden text-end @max-[14rem]/finance-row:max-w-full", isStatus ? "ms-auto min-w-min flex-[1_1_0%] @max-[14rem]/finance-row:min-w-0" : "min-w-0", contextLines === 2 && "ms-auto max-w-full", (value === undefined || valueContext === undefined) && "self-center", "@max-[14rem]/finance-row:self-end")}
             data-slot="finance-row-value"
           >
             {valuePieces}

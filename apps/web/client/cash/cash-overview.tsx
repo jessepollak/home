@@ -680,11 +680,14 @@ export function CashOverview({
                               "Unavailable"
                             )
                           }
+                          valueKind={!row.holding || !row.value ? "status" : "amount"}
                           valueTone={
                             row.value && row.isFiat ? "default" : "muted"
                           }
                           valueContext={
-                            row.usdUnavailable
+                            !row.holding
+                              ? undefined
+                              : row.usdUnavailable
                               ? unavailableValue()
                               : row.usdValue
                           }
