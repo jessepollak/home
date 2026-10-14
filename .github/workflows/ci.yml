@@ -326,7 +326,9 @@ jobs:
         with:
           path: apps/web/.next/dev/cache
           key: smoke-turbopack-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ github.sha }}
-          restore-keys: smoke-turbopack-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
+          restore-keys: |
+            smoke-turbopack-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
+            smoke-turbopack-${{ runner.os }}-
 
       - name: Test Chromium smoke
         run: bun run --cwd apps/web test:browser-smoke
