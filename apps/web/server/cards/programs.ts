@@ -28,16 +28,35 @@ export function createCardPrograms(programs: readonly CardProgram[], defaultProv
     },
   };
 }
-export function readCardPrograms(sql: Pick<SqlExecutor, "query"> = getSqlExecutor()) {
-  const env = serverEnvironment();
+type ProgramSnapshot = Readonly<{ programs: readonly CardProgram[]; configured: string | undefined }>;
+type Environment = Readonly<Record<string, string | undefined>>;
+
+function environmentKey(env: Environment) {
+  return JSON.stringify(Object.keys(env).filter((name) => name.startsWith("BRIDGE_") || name.startsWith("CARD_"))
+    .sort().map((name) => [name, env[name]]));
+}
+function buildSnapshot(env: Environment): ProgramSnapshot {
   const programs: CardProgram[] = [];
   try { const bridge = readBridgeProgram(env); if (bridge) programs.push(bridge); }
   catch (error) { reportConfigFailure(error, "CARDS_CONFIG_INVALID", "bridge"); }
   const configured = env.CARD_PROGRAM_DEFAULT?.trim();
-  const result = createCardPrograms(programs, configured, sql);
   if (!configured && programs.length > 1 || configured && !programs.some((program) => program.provider === configured))
     reportConfigFailure(new Error("Invalid default card program"), "CARD_PROGRAM_DEFAULT_INVALID");
-  return result;
+  return { programs, configured };
+}
+let programSnapshot: { env: Environment; key: string; snapshot: ProgramSnapshot } | null = null;
+function readProgramSnapshot(): ProgramSnapshot {
+  const env = serverEnvironment();
+  const key = environmentKey(env);
+  if (programSnapshot && programSnapshot.env === env && programSnapshot.key === key) return programSnapshot.snapshot;
+  const snapshot = buildSnapshot(env);
+  programSnapshot = { env, key, snapshot };
+  return snapshot;
+}
+
+export function readCardPrograms(sql: Pick<SqlExecutor, "query"> = getSqlExecutor()) {
+  const { programs, configured } = readProgramSnapshot();
+  return createCardPrograms(programs, configured, sql);
 }
 export async function programFor(customerId: string, mode: CardMode, signal?: AbortSignal) {
   return readCardPrograms().programFor(customerId, mode, signal);

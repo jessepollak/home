@@ -28,7 +28,7 @@ A verified, eligible customer gets a virtual card that spends USDC directly from
 
 ## Provider seam
 
-`server/cards/program.ts` owns the `CardProgram` port: account/card reads, enrollment, issue, freeze, reveal, purchases, funding, redirect hosts and event sources. `bridge/program.ts` owns Bridge customer/endorsement/Persona KYC and Stripe cardholder/card operations, freeze markers and Issuing Elements grants. Region routing remains future work.
+`server/cards/program.ts` owns the `CardProgram` port: account/card reads, enrollment, issue, freeze, reveal, purchases, funding, redirect hosts and event sources. `bridge/program.ts` owns Bridge customer/endorsement/Persona KYC and Stripe cardholder/card operations, freeze markers and Issuing Elements grants. Region routing remains future work. `server/cards/programs.ts` builds the program list once per process and `BRIDGE_*`/`CARD_*` environment, so requests reuse one construction (including webhook public-key parsing); a changed value rebuilds it.
 
 - **`CardEventSource`** (`server/cards/provider.ts`) verifies/normalizes signed observations into `{provider,mode,eventId,kind,externalIds,occurredAt}`. Signature adapters and Immersve ingress behavior are unchanged. Bridge owns Bridge PKI and Stripe HMAC sources; webhook enablement remains independent.
 - **Shared orchestration** owns program selection, state reduction, ownership, locks, idempotency, redirect validation and purchase storage. Existing accounts keep their provider; disabled/unreadable programs mean unavailable, never silent re-enrollment. New accounts use `CARD_PROGRAM_DEFAULT=bridge|rain`, or the sole enabled program when unset. An ambiguous/unavailable default blocks enrollment.
