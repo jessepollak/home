@@ -8,13 +8,15 @@ import {
   fixScope,
   parseCommitLog,
   pullRequestNumber,
+  runGit,
 } from "./caught-by.mjs";
 import { prBodyDetectors } from "./caught-by-pr-body.mjs";
 
 // The report reads scoped fix commits' Caught-by trailers, recovering missing
 // detectors from visible PR-body lines for title-only squashes. It ranks the
 // detectors and lists fixes a home/* lint rule could have caught. It is a
-// report, not a gate: every path exits 0 so a broken corpus cannot fail a build.
+// report, not a gate: an empty corpus exits 0, and only a failed git read or a
+// bad argument exits non-zero.
 
 export const detectorOrder = ["lint", "unit", "bot", "review", "browser", "production", "mixed", "unknown"];
 // review, bot, and production fixes are the rule-first triage queue.
@@ -27,11 +29,7 @@ const maxCandidateRows = 50;
 const maxCandidateFiles = 10;
 const truncationNotice = "\n\n_Report truncated at 60,000 characters._";
 
-function git(args, cwd = process.cwd()) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-  if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
-  return result.stdout.trim();
-}
+const git = runGit;
 
 // Whether a commit exists in this repository. Fixture repositories predate the
 // policy start and report no policy line.
@@ -250,8 +248,9 @@ export function run(argv = process.argv.slice(2), { cwd = process.cwd(), stdout 
     stdout.write(`${options.json ? JSON.stringify(report, null, 2) : renderMarkdown(report)}\n`);
   } catch (error) {
     stderr.write(`caught-by-report: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
   }
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) run();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = run();

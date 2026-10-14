@@ -17,6 +17,7 @@ import {
   sinceArgument,
   summarizeFixCommits,
 } from "../caught-by-report.mjs";
+import { runGit } from "../caught-by.mjs";
 import { removeFixture } from "./fixture-cleanup.mjs";
 import { applyGitFixtureEnv, gitFixtureEnv } from "./git-fixture-env.mjs";
 
@@ -494,9 +495,40 @@ test("the CLI prints JSON for a range and the markdown summary otherwise", () =>
   assert.ok(markdownRun.stdout.includes("Fix commits: 7"));
 });
 
-test("the CLI reports failures without a non-zero exit", () => {
+test("the CLI exits non-zero with the git cause when the log read fails", () => {
   const run = spawnSync(process.execPath, [cli, "--range", "no-such-ref..HEAD", "--json"], { cwd: repo, encoding: "utf8", env: gitFixtureEnv() });
-  assert.equal(run.status, 0);
+  assert.equal(run.status, 1);
   assert.equal(run.stdout, "");
-  assert.match(run.stderr, /^caught-by-report: /);
+  assert.match(run.stderr, /^caught-by-report: git log failed: .*no-such-ref/);
+});
+
+test("the CLI exits 0 with an empty report when the range has no commits", () => {
+  const run = spawnSync(process.execPath, [cli, "--range", "HEAD..HEAD", "--json"], { cwd: repo, encoding: "utf8", env: gitFixtureEnv() });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(JSON.parse(run.stdout).total, 0);
+});
+
+test("a git read past its buffer names ENOBUFS instead of an empty cause", () => {
+  assert.throws(() => runGit(["log", "--format=%H%x1f%B"], repo, { maxBuffer: 16 }), /^Error: git log failed: output exceeded 16 bytes \(ENOBUFS\)$/);
+});
+
+test("the report reads a commit log larger than Node's 1 MiB default buffer", () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "caught-by-large-log-"));
+  try {
+    const fixtureGit = (args) => {
+      const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8", env: gitFixtureEnv() });
+      assert.equal(result.status, 0, result.stderr);
+    };
+    fixtureGit(["init", "-q", "-b", "main"]);
+    fixtureGit(["config", "user.email", "gates-fixture@example.com"]);
+    fixtureGit(["config", "user.name", "Gates Fixture"]);
+    const messageFile = path.join(fixture, ".message");
+    writeFileSync(messageFile, `fix(dx): large body\n\n${"x".repeat(80)}\n`.padEnd(1_500_000, "y\n") + "\nCaught-by: review\n");
+    fixtureGit(["commit", "-q", "--allow-empty", "-F", messageFile]);
+    const report = collectReport({ cwd: fixture, pullRequestBody: () => null });
+    assert.equal(report.total, 1);
+    assert.equal(report.detectors.find(({ detector }) => detector === "review").count, 1);
+  } finally {
+    removeFixture(fixture);
+  }
 });

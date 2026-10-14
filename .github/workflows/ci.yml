@@ -369,8 +369,9 @@ jobs:
       - name: Test repository gates
         run: bun run gates
 
-  # Informational: the report script always exits 0, so a broken or empty
-  # corpus can never fail this job. The markdown lands in the run summary.
+  # Informational: the report step is continue-on-error, so a failed git read
+  # or an empty corpus can never fail this job. The markdown lands in the run
+  # summary.
   caught-by-report:
     name: caught-by report
     if: github.event_name == 'pull_request'

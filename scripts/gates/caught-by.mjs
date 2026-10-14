@@ -11,11 +11,25 @@ export const commitLogFormat = "--format=%H%x1f%s%x1f%B%x1e";
 const fixSubject = /^fix\(([^)]+)\):/;
 const caughtByTrailer = new RegExp(`^Caught-by: (${caughtByValues.join("|")})$`, "gm");
 
-function git(args, cwd = process.cwd()) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-  if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
+// A trailing-window log in the commit format runs to megabytes, past Node's
+// 1 MiB spawnSync default, so every caught-by git read gets a bounded larger
+// buffer and reports a spawn error such as ENOBUFS by its code.
+export const gitMaxBuffer = 64 * 1024 * 1024;
+
+export function runGit(args, cwd = process.cwd(), { maxBuffer = gitMaxBuffer } = {}) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer });
+  if (result.error) {
+    const reason = result.error.code === "ENOBUFS" ? `output exceeded ${maxBuffer} bytes (ENOBUFS)` : (result.error.code ?? result.error.message);
+    throw new Error(`git ${args[0]} failed: ${reason}`, { cause: result.error });
+  }
+  if (result.status !== 0) {
+    const stderr = result.stderr.trim();
+    throw new Error(stderr ? `git ${args[0]} failed: ${stderr}` : `git ${args[0]} failed: ${result.signal ? `killed by ${result.signal}` : `exit ${result.status}`}`);
+  }
   return result.stdout.trim();
 }
+
+const git = runGit;
 
 export function detectCommitRange({ cwd = process.cwd(), env = process.env, gitRunner = git } = {}) {
   if (!env.GITHUB_BASE_REF) return "HEAD^!";
