@@ -288,7 +288,7 @@ jobs:
   browser-smoke:
     name: Chromium smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     env:
       DISABLE_CDP_USAGE_TRACKING: "true"
       DISABLE_CDP_ERROR_REPORTING: "true"
@@ -321,6 +321,15 @@ jobs:
         # Avoid apt's unrelated font downloads and graphics-library upgrades.
         run: bun run --cwd apps/web playwright install --only-shell chromium
 
+      - name: Restore Turbopack dev cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/web/.next/dev/cache
+          key: smoke-turbopack-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            smoke-turbopack-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
+            smoke-turbopack-${{ runner.os }}-
+
       - name: Test Chromium smoke
         run: bun run --cwd apps/web test:browser-smoke
 
@@ -338,6 +347,13 @@ jobs:
           path: apps/web/test-results
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Save Turbopack dev cache
+        if: always() && (github.ref == 'refs/heads/main' || github.head_ref == 'ci/smoke-turbopack-cache')
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/web/.next/dev/cache
+          key: smoke-turbopack-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ github.sha }}-${{ github.run_attempt }}
 
   # TODO(operator): rename this job to `repository gates` after the ruleset required check is updated.
   delivery-automation-tests:
