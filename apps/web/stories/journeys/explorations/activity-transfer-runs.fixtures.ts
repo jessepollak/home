@@ -59,6 +59,12 @@ export const loadingActivity: Extract<UseActivityResult, { status: "loading" }> 
   retry: noop, refresh: noop, setSentinelVisible: noop, retryLoadMore: noop,
 };
 
+export const errorActivity: Extract<UseActivityResult, { status: "error" }> = {
+  ...loadingActivity,
+  status: "error",
+  error: { code: "ACTIVITY_UNAVAILABLE", message: "Activity unavailable" },
+};
+
 export function activity(records: ActivityTransfer[]): Extract<UseActivityResult, { status: "ready" }> {
   const to = "2026-09-26T12:00:00.000Z";
   return {

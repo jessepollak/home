@@ -1,8 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { waitForReady } from "@/tests/helpers/story-readiness";
 import { ActivityPanelView } from "@/client/activity";
-import { activity, transfers, pendingSend, longTransfers } from "./explorations/activity-transfer-runs.fixtures";
+import { activity, transfers, pendingSend, longTransfers, errorActivity } from "./explorations/activity-transfer-runs.fixtures";
+
+const transfersUnavailable = {
+  ...activity(transfers),
+  page: { ...activity(transfers).page, onchainStatus: "unavailable" as const },
+};
 
 const meta = {
   id: "journeys-activity-transfer-runs",
@@ -67,6 +72,45 @@ export const ActivityPageDesktop: Story = {
 
 export const ActivityPageMobile: Story = {
   args: { activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "page", header: null },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByText("Some activity is unavailable")).toBeNull();
+    await expect(canvas.queryByRole("button", { name: "Try again" })).toBeNull();
+  },
+};
+
+export const ActivityPageTransfersUnavailable: Story = {
+  args: { activity: transfersUnavailable, operations: [pendingSend], regionId: "US", density: "page", header: null },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible();
+    await expect(canvas.getByRole("list", { name: "Pending" })).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Retry onchain transfers" })).toBeNull();
+  },
+};
+
+export const ActivityPageTransfersError: Story = {
+  args: { activity: errorActivity, operations: [pendingSend], regionId: "US", density: "page", header: null },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible();
+    const pending = canvas.getByRole("list", { name: "Pending" });
+    await expect(within(pending).getByRole("button", { description: "View Sent USDC transaction details" })).toBeVisible();
+    await expect(canvas.queryByText("Activity is temporarily unavailable.")).toBeNull();
+  },
+};
+
+export const ActivityPageTransfersRetry: Story = {
+  args: {
+    activity: { ...transfersUnavailable, retry: fn() },
+    operations: [pendingSend], regionId: "US", density: "page", header: null,
+  },
+  play: async ({ args, canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Try again" }));
+    await expect(args.activity.retry).toHaveBeenCalledTimes(1);
+  },
 };
 
 export const ActivityPageLatestUnavailable: Story = {

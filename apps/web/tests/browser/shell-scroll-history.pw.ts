@@ -296,7 +296,11 @@ async function setupShortActivity(page: Page, mode: "unavailable" | "failed" | "
   await page.goto("/activity");
   await expect(page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
   await expect(page.locator('li[data-row-key^="home-action:"]').first()).toBeVisible();
-  if (mode !== "short") await expect(page.getByRole("button", { name: "Retry onchain transfers" })).toBeVisible();
+  if (mode !== "short") {
+    const activity = page.locator("main[data-app-main-authenticated]").locator('section[aria-label="Activity"]').last();
+    await expect(activity.getByText("Some activity is unavailable", { exact: true })).toBeVisible();
+    await expect(activity.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+  }
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThan(5_000);
   await page.clock.install({ time: new Date(FIXED_NOW) });
   await page.clock.pauseAt(new Date(FIXED_NOW + 1_000));

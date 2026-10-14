@@ -301,9 +301,9 @@ export function ActivityPanelView({
         {inlineStatus && (activity.status === "error" || onchainUnavailable) ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p role="status" className="text-sm text-muted-foreground">
-              Onchain transfers are unavailable. Other available activity is still shown.
+              Some activity is unavailable
             </p>
-            <LoadRetryButton onRetry={activity.retry}>Retry onchain transfers</LoadRetryButton>
+            <LoadRetryButton onRetry={activity.retry}>Try again</LoadRetryButton>
           </div>
         ) : null}
         {inlineStatus && activity.status !== "error" && latestUnavailable && !onchainUnavailable ? (
