@@ -322,6 +322,7 @@ jobs:
         run: bun run --cwd apps/web playwright install --only-shell chromium
 
       - name: Restore Turbopack dev cache
+        id: turbopack-cache
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: apps/web/.next/dev/cache
@@ -332,6 +333,15 @@ jobs:
 
       - name: Test Chromium smoke
         run: bun run --cwd apps/web test:browser-smoke
+
+      - name: Record Turbopack cache status
+        if: ${{ !cancelled() }}
+        env:
+          TURBOPACK_CACHE_MATCHED_KEY: ${{ steps.turbopack-cache.outputs.cache-matched-key }}
+        run: |
+          cache=miss
+          test -z "$TURBOPACK_CACHE_MATCHED_KEY" || cache=hit
+          echo "Chromium smoke Turbopack cache: ${cache}."
 
       - name: Enforce smoke job budget
         run: |

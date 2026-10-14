@@ -42,7 +42,7 @@ Four required-check failures in 60 runs each reported `0 unexpected, 1 flaky`; t
 
 ## Changes and coverage
 
-`test:browser-smoke` selects 7 tagged cases. It checks deployment access and rejection, OTP sign-in, Savings deposit review, Buy review through Invest, partial/full Sell review, Send retry/dispatch/reload, IDRX funding through receipt, and the operator funding-settings link. Eight additional detailed journeys (Cash focus, conversion, sign-in destination, three-route SSR replay, Savings withdrawal review, immediate scroll/Forward, cached balances/Borrow, and detailed shell/history) remain in the 163-case regression suite. They overlap shared flow primitives or extend the smoke contract into detailed regression coverage. Existing unit, story, SQL and PostgreSQL checks continue unchanged.
+`test:browser-smoke` selects 9 tagged cases. It checks deployment access and rejection, OTP sign-in, Savings deposit review, Buy review through Invest, partial/full Sell review of an exact Base address, Send retry/dispatch/reload, IDRX funding through receipt and the pre-hydration Add money redirect, the mobile account export download, and the operator funding-settings link. Eight additional detailed journeys (Cash focus, conversion, sign-in destination, three-route SSR replay, Savings withdrawal review, immediate scroll/Forward, cached balances/Borrow, and detailed shell/history) remain in the 163-case regression suite. They overlap shared flow primitives or extend the smoke contract into detailed regression coverage. Existing unit, story, SQL and PostgreSQL checks continue unchanged.
 
 42 expanded cases are removed:
 
@@ -55,7 +55,7 @@ Four required-check failures in 60 runs each reported `0 unexpected, 1 flaky`; t
 
 The remaining distinct browser regressions run with `bun run --cwd apps/web test:browser-regression`, including smoke. The **Browser regressions** workflow can run that suite on demand. They no longer run on every PR/main push. This is an explicit tradeoff: a regression outside the selected journeys is found by its unit/story check, a targeted regression run, or manual full regression, rather than every smoke run.
 
-The hosted 15-case trial exceeded the 75s suite budget. The final 7-case selection removes eight detailed/overlapping gate journeys while preserving them in regression; it keeps the existing budget rather than extending it.
+The hosted 15-case trial exceeded the 75s suite budget. The 7-case selection removed eight detailed/overlapping gate journeys while preserving them in regression; the suite has since grown to the 9 cases above, and the budget decision below supersedes the 75s and 110s figures recorded in this document's earlier history.
 
 The fast suite uses two workers and serial HTTP compilation of `/admin`, `/admin/settings/funding`, and `/cash/savings` before workers start. This avoids concurrent first-navigation compilation; it uses isolated fixture cookies, rejects redirects/non-200 responses, disposes the request context, and remains inside the same global/job budgets. The broad admin browser warm-up is reserved for regression. Smoke keeps one diagnostic retry, failure screenshots and retained failure traces. Traces still record attempted actions and DOM/network evidence; continuous video encoding is removed. CI installs the pinned Chromium headless shell only, using Chromium shared libraries already provided by the Ubuntu hosted image. Successful runs also retain JSON test timings. The existing required check name remains **Chromium smoke**.
 
@@ -63,7 +63,7 @@ The fast suite uses two workers and serial HTTP compilation of `/admin`, `/admin
 
 A 9-case isolated empty-cache run passed without retries in **51.9s**, including server startup and serial compilation: funding settings 4.4s, Borrow 10.5s, Savings 3.0s. Hosted trials without serial compilation exposed pending cold RSC requests beyond even 10s URL deadlines. Reducing test count alone did not fix this contention; compiling the two navigation targets before workers removes that competition without excluding the time from the budget. The 9-case hosted trial passed in 57.1s for Playwright and 80s for the complete job, but a slower subsequent runner exceeded the 75s suite cap without a flake. Seven core bank journeys provide more headroom: access, operator settings, funding/sign-in, deposit, Buy, Sell, and Send. Cache-performance and detailed shell/history contracts remain in regression. Final-head hosted measurement belongs in PR evidence before claiming the final target achieved.
 
-The target is the complete Chromium job, not all CI or queue time. Playwright has a 75s global timeout in CI smoke; the job checks elapsed time before artifact upload against 110s, leaving 10s for artifact upload and cleanup. A three-minute Actions timeout is only a last-resort kill, not acceptance. Queue time and extreme artifact/upload delay remain outside a deterministic runtime guarantee.
+The target is the complete Chromium job, not all CI or queue time. Playwright has a 90s global timeout in CI smoke (raised from 75s on 2026-10-02); the job checks elapsed time before artifact upload against 125s, leaving 10s for artifact upload and cleanup. A three-minute Actions timeout is only a last-resort kill, not acceptance. Queue time and extreme artifact/upload delay remain outside a deterministic runtime guarantee.
 
 | Option | Expected effect | Decision |
 | --- | --- | --- |
@@ -78,5 +78,45 @@ The target is the complete Chromium job, not all CI or queue time. Playwright ha
 | Accepting retry-only passes in the required gate | A loaded shared runner no longer reddens a required check for a defect the pull request did not introduce | Adopted for the required smoke gate only; the flaky case is annotated and recorded, a test that fails after its retry still fails the job, and the on-demand regression command keeps strict rejection. |
 | Production build for every smoke job | Better fidelity, but adds a build to the critical path | Keep the existing production-navigation/performance checks for now. |
 | Reusable build artifacts or fixture-only Vite entry | Could remove Next cold-compilation variance | Follow-up only if cold hosted smoke misses the budget; preserve a separate Next SSR/auth contract. |
+
+## Budget decision (2026-10-14)
+
+**Keep the 90s Playwright `globalTimeout` and the 125s job budget.** The headroom target is a warm-cache median at least 10s under the 90s cap (a rolling median of 80s or less); the measured warm median is 47.5s, 42.5s under the cap. No case is removed, no budget is raised, and the suite is not sharded.
+
+The follow-up that prompted this decision measured nine runs at 57.8–89.2s. Those runs had no Turbopack cache. The cache ([PR #2145](https://github.com/jessepollak/home/pull/2145)) is saved on every `main` push and restored by every later job, which cut the suite from the cap to about 47s. The 90s cap is therefore only close for a job that misses the cache.
+
+| Run | Event | Turbopack cache | Process duration | Budget step (before upload) | Whole job |
+| --- | --- | --- | ---: | ---: | ---: |
+| 38631757078 | `main` | hit | 43.7s | not logged | 84s |
+| 38631731717 | `main` | hit | 52.5s | not logged | 91s |
+| 38631389027 | `main` | hit | 53.5s | 83s | 99s |
+| 38631230812 | `main` | hit | 65.4s | 92s | 105s |
+| 38631213894 | `main` | hit | 43.1s | 66s | 76s |
+| 38630677105 | `main` | hit | 46.3s | 68s | 78s |
+| 38627850331 | pull request | hit | 47.3s | 73s | 78s |
+| 38609989868 | pull request | hit | 47.7s | 78s | 92s |
+| 38630427531 | `main` | miss | 53.0s | 69s | 79s |
+| 38628601251 | pull request | miss | 87.9s | 109s | 116s |
+| 38628143724 | pull request | miss | 85.9s | 107s | 113s |
+
+"Process duration" is the `Smoke totals: … ms elapsed` line; "Budget step" is the `Enforce smoke job budget` output. All eleven runs passed with 9 expected cases, 0 flaky and 0 unexpected.
+
+| Population | Runs | Median process duration | Range | Timeouts at 90s |
+| --- | ---: | ---: | ---: | ---: |
+| Warm cache (restored from a `main` entry) | 8 | 47.5s | 43.1–65.4s | 0 |
+| No cache (this table's three misses plus 34 earlier runs from 17:32–20:07 UTC on 2026-10-14) | 37 | 85.9s | 53.0–90.0s | 9 |
+
+The 34 earlier runs (no cache step existed; run id, process duration): 38629363718 88.4s, 38629056304 88.0s, 38625605182 89.2s, 38625255698 59.6s, 38624118906 90.0s (timeout), 38623865756 71.0s, 38622200409 84.6s, 38621979718 62.2s, 38620450640 88.0s, 38620418312 63.3s, 38619973567 72.5s, 38619079202 87.1s, 38617651077 88.3s, 38616265849 90.0s (timeout), 38615585368 71.2s, 38615141413 90.0s (timeout), 38614883408 70.3s, 38614631880 87.6s, 38613474091 73.8s, 38612872716 82.3s, 38612622059 62.3s, 38612217399 90.0s (timeout), 38611246975 74.8s, 38611105593 90.0s (timeout), 38610962833 90.0s (timeout), 38610869062 90.0s (timeout), 38609899081 85.4s, 38609152882 68.4s, 38609000961 62.2s, 38608652886 88.3s, 38608517157 81.0s, 38608169134 90.0s (timeout), 38608062866 66.3s, 38607547244 90.0s (timeout).
+
+Warm whole-job elapsed was 76–105s (median 87.5s) against the 125s budget. Passing jobs without the cache ran 79–119s. The 9 timeouts were jobs with no failing test.
+
+Revisit when any of these holds, in this order of preference: (1) a rolling median of ten warm runs exceeds 80s, so consolidate or move cases to `test:browser-regression` before raising any budget; (2) the cache stops restoring on pull requests (the `Record Turbopack cache status` step logs `hit|miss` on every non-cancelled run), so fix the cache first; (3) cold runs keep failing after a cache eviction, so shard the suite into two jobs with separate budgets. Raising the timeout is the last option: it hides growth instead of removing it.
+
+| Option | Decision |
+| --- | --- |
+| Consolidate or trim the nine cases | Rejected for now: the warm median has 42.5s of headroom, and each trimmed case moves a browser-only contract out of the required gate. |
+| Raise the global timeout and job budget again | Rejected: warm runs do not need it, and the cap is the signal that cumulative growth is back; a larger cap would let the warm median drift toward it unnoticed. |
+| Shard into two jobs with separate budgets | Deferred to trigger (3): doubles the install, browser download and cache restore for a median that is not near the cap. |
+| Move more coverage to `test:browser-regression` | Deferred to trigger (1). |
 
 Do not grow smoke by appending every bug fix. Keep a new case at the lowest layer that observes the bug; tag a browser case only for an essential journey or browser-only contract, replacing/consolidating smoke coverage when its budget is full. The runtime budget catches cumulative growth, while the manual suite keeps detailed browser diagnostics available.
