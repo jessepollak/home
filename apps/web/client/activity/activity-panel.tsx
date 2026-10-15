@@ -276,7 +276,7 @@ export function ActivityPanelView({
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sources={sources} sectionRef={sectionRef}>
         <LoadErrorCard
-          tone="destructive"
+          texture="cant-load"
           role="alert"
           title="Activity is temporarily unavailable."
           description={activity.error.message || activity.error.code || undefined}

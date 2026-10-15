@@ -1,16 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Scanner } from "@tailwindcss/oxide";
-import { scanLibraryCandidates, type CandidateFile } from "../lib/design-system/candidates";
+import ts from "typescript";
+import { scanLibraryCandidates, type CandidateFile, type SourceFile } from "../lib/design-system/candidates";
 import { elevationUsage, motionUsage, radiusUsage, typeUsage, type Usage } from "../lib/design-system/usage";
-import { classifyStyleUtility, styleDriftOccurrences } from "../oxlint/policy/style-drift.mjs";
+import { classifyStatusMark, classifyStyleUtility, isStatusStyleOwner, styleDriftOccurrences } from "../oxlint/policy/style-drift.mjs";
 
 type Finding = { family: string; token: string; count: number; files: string[] };
 const webRoot = resolve(import.meta.dir, "..");
 const scope = "app/, client/, components/; excluding components/ui/, tests/, *.test.*, *.stories.*";
 const stateVariant = /^(?:hover|active|focus-visible|disabled|aria-pressed|aria-expanded|aria-checked|aria-selected|data-selected|data-highlighted|data-\[state=on\]|aria-disabled)$/;
 
-function productCandidates(scanner: Scanner): CandidateFile[] {
+function productSources(): SourceFile[] {
   const result = Bun.spawnSync(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "app/", "client/", "components/"],
     { cwd: webRoot, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) throw new Error(result.stderr.toString().trim() || "Cannot list product sources");
@@ -18,7 +18,7 @@ function productCandidates(scanner: Scanner): CandidateFile[] {
     /\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/.test(path) && !path.startsWith("components/ui/")
     && !/(?:^|\/)tests\//.test(path) && !/\.(?:test|stories)\.[^.]+$/.test(path)
     && existsSync(resolve(webRoot, path))).sort();
-  return scanLibraryCandidates(paths.map((path) => ({ path, source: readFileSync(resolve(webRoot, path), "utf8") })), scanner);
+  return paths.map((path) => ({ path, source: readFileSync(resolve(webRoot, path), "utf8") }));
 }
 
 function candidateParts(candidate: string): string[] {
@@ -68,7 +68,8 @@ function offTokenValues(files: CandidateFile[]): Finding[] {
   for (const { path, candidates } of files) {
     for (const candidate of candidates) {
       const drift = classifyStyleUtility(candidate);
-      if (drift?.family === "radius" || (drift?.family === "shadow" && !knownShadows.has(drift.token))) {
+      if (drift?.family === "radius" || (drift?.family === "shadow" && !knownShadows.has(drift.token))
+        || (drift?.family.startsWith("status-") && !isStatusStyleOwner(path))) {
         addOccurrence(extra, drift.family, drift.token, path);
       }
       const base = candidateParts(candidate).at(-1)!;
@@ -77,6 +78,25 @@ function offTokenValues(files: CandidateFile[]): Finding[] {
   }
   return [...values, ...extra.values()].sort((left, right) => left.family.localeCompare(right.family)
     || right.count - left.count || left.token.localeCompare(right.token));
+}
+
+function statusMarkValues(files: SourceFile[]): Finding[] {
+  const values = new Map<string, Finding>();
+  for (const { path, source } of files) {
+    if (isStatusStyleOwner(path)) continue;
+    const parsed = ts.createSourceFile(path, source, ts.ScriptTarget.Latest);
+    for (const statement of parsed.statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)
+        || statement.moduleSpecifier.text !== "lucide-react") continue;
+      const bindings = statement.importClause?.namedBindings;
+      if (!bindings || !ts.isNamedImports(bindings)) continue;
+      for (const specifier of bindings.elements) {
+        const mark = classifyStatusMark((specifier.propertyName ?? specifier.name).text);
+        if (mark) addOccurrence(values, mark.family, mark.token, path);
+      }
+    }
+  }
+  return [...values.values()];
 }
 
 function stateValues(files: CandidateFile[]): Finding[] {
@@ -100,8 +120,10 @@ function formatFinding({ family, token, count, files }: Finding, limit: number, 
 
 async function main() {
   const { Scanner } = await import("@tailwindcss/oxide");
-  const files = productCandidates(new Scanner({}));
-  const offToken = offTokenValues(files);
+  const sources = productSources();
+  const files = scanLibraryCandidates(sources, new Scanner({}));
+  const offToken = [...offTokenValues(files), ...statusMarkValues(sources)]
+    .sort((left, right) => left.family.localeCompare(right.family) || right.count - left.count || left.token.localeCompare(right.token));
   const states = stateValues(files);
   console.log([
     `Design drift: ${files.length} files scanned (${scope})`,
@@ -109,7 +131,7 @@ async function main() {
     ...(offToken.length ? offToken.map((finding) => formatFinding(finding, 6)) : ["  None"]),
     "State usage to review",
     ...(states.length ? states.map((finding) => formatFinding(finding, 5, false)) : ["  None"]),
-    "Fix path: read docs/design-system/spec.md; fix through owned components/ui variants or the role utility, never per-use classes. home/no-raw-style-utilities enforces shadow/radius/duration/ease; its baseline is shrink-only.",
+    "Fix path: read docs/design-system/spec.md; fix through owned components/ui variants or the role utility, never per-use classes. home/no-raw-style-utilities enforces shadow/radius/duration/ease and status-color/status-motion/status-mark outside owned status renderers; presenters return a texture name for components/ui/status-texture. Its baseline is shrink-only.",
   ].join("\n"));
 }
 

@@ -165,7 +165,7 @@ function MemePaginationFooter({
       ) : null}
       {loadMoreError ? (
         <LoadErrorCard
-          tone="destructive"
+          texture="cant-load"
           description="More memes could not be loaded. Your current results are unchanged."
           onRetry={() => onRetryLoadMore?.()}
         />

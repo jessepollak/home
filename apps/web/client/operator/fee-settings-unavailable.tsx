@@ -9,7 +9,7 @@ export function FeeSettingsUnavailable() {
   return (
     <div className="w-full max-w-2xl">
       <LoadErrorCard
-        tone="destructive"
+        texture="cant-load"
         title="Fee settings couldn’t load"
         description="Saving is off until they load."
         onRetry={() => startTransition(() => router.refresh())}

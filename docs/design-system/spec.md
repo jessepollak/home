@@ -91,6 +91,41 @@ Continue with [rules](rules.md), [styling guards](styling-guards.md), [component
 | Selected | `bg-state-pressed` | Neutral pressed, expanded or selected controls |
 | Field hover | `hover:border-input-hover` | Input, Textarea, Input Group and picker triggers |
 
+## Status texture
+
+| Texture | Color | Mark | Motion | Placement and copy | Component | Story |
+| --- | --- | --- | --- | --- | --- | --- |
+| Settled | foreground; gain only for money-in amounts | none | none | No status text, freshness timestamp or "as of" | `components/finance-rows.tsx` | `ui-finance-rows--balance` |
+| Working | muted | small muted spinner, not primary; a static clock in reduced motion | the spinner only | No status label on rows; short muted context (for example "Arriving in ~2 min"); toast on start. Also covers an outcome Home cannot confirm yet, until there is a reason to believe the customer must act (then Needs you) | `components/finance-rows.tsx` | `ui-finance-rows--working` |
+| Needs you | warning icon, foreground copy | warning icon replaces the row chevron | none | Persists until resolved; one verb-first action; the only texture that interrupts | `components/finance-rows.tsx` | `ui-finance-rows--needs-you` |
+| Can't load | as selected in #2045 | as selected in #2045 | none | Replaces the partial, stale and `—` treatments; best-known values otherwise stay as they are (#2045) | `components/load-error.tsx` | `ui-load-error--cant-load` |
+| Failed, recoverable | destructive title and icon; body foreground | CircleX | none | Honest cause, one way back, no automatic retry | `components/load-error.tsx` | `ui-load-error--failed` |
+| Done | foreground check; gain for money-in | CircleCheck | one toast | Sheet closes; toast auto-dismisses and stays dismissed after refresh | `components/ui/toast.tsx` | `ui-toast--success` |
+| Loading | skeleton tone | none | shimmer shaped like the loaded layout; none in reduced motion | No spinner swap, no loading prose, no blank gap | `components/ui/skeleton.tsx` | `ui-skeleton--stack` |
+
+- One owner per texture: `StatusMark` / `statusTextClass` in `components/ui/status-texture.tsx`. Presenters return a texture name; owned components render it.
+- Product code never picks a status color, icon or animation.
+- At most one loud texture per surface (Needs you > Failed > the rest); the header status icon summarizes the rest.
+- Numbers animate only when complete and settled.
+- Working is a small muted spinner on rows; an outcome Home cannot confirm yet is Working, not its own state.
+- Can't load mark and color are pending the #2045 selection; use the placeholder muted CircleAlert until then.
+- Partial chrome is removed: show best-known balances with no partial chrome.
+
+## Templates
+
+| Template | Structure | Component | Story |
+| --- | --- | --- | --- |
+| Destination | Hero (amount first) → one action row → named sections → rows. Home keeps its desktop money + Activity grid; other destinations use the 40rem column. | `planned: PR 3` | `planned: PR 3` |
+| Row | mark · label/context · value/context · one trailing slot (chevron, needs-you icon, or one secondary action) | `components/finance-rows.tsx` | `ui-finance-rows--working` |
+| Facts | muted label left, numeric value right | `components/management-facts.tsx` | `borrowing-borrow-overview--management-sheet-open` |
+| Money flow | MoneyModal → amount → MoneyConfirmSummary (actionable facts only) → Done texture | `client/money-modal/money-modal.tsx`, `client/money-modal/confirm-summary.tsx` | `funding-cancel--awaiting-payment`, `money-modal-confirm-summary--send-review` |
+| First use | FeatureIntro, no zero balance | `components/ui/feature-intro.tsx` | `ui-feature-intro--card-not-issued` |
+| Detail | sheet from row | `client/invest/explorations/asset-sheet.tsx` | `invest-asset-sheet--rows-open-sheet` |
+
+- Detail opens as a sheet from its row by default; full page only where a sheet cannot hold the task. The mini asset sheet above is the exploration #2119 selects from; its adoption is separate.
+- Every money flow ends by closing the sheet and showing a toast; failures stay in the sheet with their way back. Success and still-pending outcomes close with a toast.
+- Close-and-toast and the Destination template land in PR 3 of #2121, which names `Area: shell`; the Money flow references above are existing building blocks, not completed close-and-toast adoption.
+
 ## Owned surface roles
 
 From [Radius](theme.md#radius), [Elevation](theme.md#elevation) and [Type roles](theme.md#type-roles). “—” means no assignment in those tables, not an instruction to remove a component's treatment.

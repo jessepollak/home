@@ -1,4 +1,6 @@
-import { Circle, CircleCheck, CircleX, LoaderCircle } from "lucide-react";
+import { Circle } from "lucide-react";
+import { cn } from "cn";
+import { StatusMark, statusTextClass } from "./status-texture";
 import type { ReactNode } from "react";
 import { Card, CardContent } from "./card";
 
@@ -14,12 +16,7 @@ export function StatusStep({ status, title, time, showConnector = true }: {
   time?: string;
   showConnector?: boolean;
 }) {
-  const Icon = {
-    complete: CircleCheck,
-    current: LoaderCircle,
-    upcoming: Circle,
-    failed: CircleX,
-  }[status];
+  const texture = { complete: "done", current: "working", upcoming: "working", failed: "failed" } as const;
   const statusText = {
     complete: "Complete",
     current: "In progress",
@@ -29,13 +26,13 @@ export function StatusStep({ status, title, time, showConnector = true }: {
   return (
     <li className="group/step flex min-h-12 gap-3 last:min-h-0">
       <div aria-hidden="true" className="flex w-4 shrink-0 flex-col items-center gap-1 pt-0.5">
-        <Icon className={`size-4 shrink-0 ${status === "complete" ? "text-foreground" : status === "current" ? "text-primary motion-safe:animate-spin" : status === "failed" ? "text-destructive" : "text-muted-foreground"}`} />
+        {status === "upcoming" ? <Circle className={cn("size-4 shrink-0", statusTextClass("working", "context"))} /> : <StatusMark texture={texture[status]} />}
         {showConnector ? <span data-slot="step-connector" className={`w-0.5 flex-1 rounded-full group-last/step:hidden ${status === "complete" ? "bg-foreground" : "bg-border"}`} /> : null}
       </div>
       <div className="flex flex-col gap-0.5 pb-2">
         <span className="sr-only">{statusText}: </span>
-        <span className={`text-sm font-medium ${status === "upcoming" ? "text-muted-foreground" : "text-foreground"}`}>{title}</span>
-        {time ? <span className="text-xs text-muted-foreground">{time}</span> : null}
+        <span className={cn("text-sm font-medium", statusTextClass(texture[status], "title"))}>{title}</span>
+        {time ? <span className={cn("text-xs", statusTextClass(texture[status], "context"))}>{time}</span> : null}
       </div>
     </li>
   );

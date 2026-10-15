@@ -183,7 +183,7 @@ function BorrowExperienceInner({
     <>
       {!session?.smartAccount && !sessionSettling ? <Alert role="status"><AlertTitle>Sign in to view Borrow</AlertTitle></Alert> : null}
       {session?.smartAccount && overviewView === "failed-with-data" && overview.data ? (
-        <LoadErrorCard tone="destructive" role="alert" title="Borrow data could not be refreshed"
+        <LoadErrorCard texture="cant-load" role="alert" title="Borrow data could not be refreshed"
           description={`Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`}
           onRetry={() => void overview.refetch()} />
       ) : null}
@@ -261,7 +261,7 @@ function BorrowDirectMarket({
       {!session?.smartAccount && !sessionSettling ? <Alert role="status"><AlertTitle>Sign in to view Borrow</AlertTitle></Alert> : null}
       {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detailView === "loading") ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && (detailView === "failed" || detailView === "failed-with-data") ? (
-        <LoadErrorCard tone="destructive" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
+        <LoadErrorCard texture="cant-load" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
       ) : null}
       {snapshot && !canOpen && !dialogSnapshot ? (
         <Card className="overflow-hidden">

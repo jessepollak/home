@@ -41,7 +41,9 @@ do not turn an advisory report into an unrelated cleanup.
 ## Keep the ratchet
 
 `home/no-raw-style-utilities` enforces the shadow, arbitrary-radius, duration and
-easing families in product code. The checked-in baseline is shrink-only.
+easing families in product code, plus status color, spinner and pulse utilities
+and spinner icons outside [owned status components](../../../docs/gates.md#styling-guards).
+The checked-in baseline is shrink-only and its `families` inventory is preserved.
 Run `bun run style-drift:shrink` from the repository root only after removing
 occurrences; never use it to admit new drift or raise a baseline count.
 

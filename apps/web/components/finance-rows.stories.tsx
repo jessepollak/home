@@ -18,10 +18,12 @@ async function expectAligned(left: HTMLElement, right: HTMLElement, edge: "left"
   await expect(Math.abs(textEdge(left, edge) - textEdge(right, edge))).toBeLessThanOrEqual(1);
 }
 
-function FinanceRowStory({ row }: { row: "activity" | "attention" | "balance" | "borrow" | "nux" }) {
+function FinanceRowStory({ row }: { row: "activity" | "attention" | "working" | "balance" | "borrow" | "nux" }) {
   return (
     <ul className="w-[30rem] max-w-full list-none p-0">
-      {row === "borrow" ? (
+      {row === "working" ? (
+        <ActivityRow icon={<ArrowDown className="size-4" />} iconTone="mark" label="Deposit" context="Arriving in ~2 min" value="$50.00" working="In progress" onActivate={() => {}} activateLabel="View deposit details" />
+      ) : row === "borrow" ? (
         <BalanceRow
           icon={<GlyphMark size="sm"><HandCoins /></GlyphMark>}
           iconTone="mark"
@@ -82,7 +84,7 @@ const meta = {
   title: "UI/Finance Rows",
   component: FinanceRowStory,
   args: { row: "activity" },
-  parameters: { layout: "centered" },
+  parameters: { layout: "centered", a11y: { test: "error" } },
 } satisfies Meta<typeof FinanceRowStory>;
 
 export default meta;
@@ -445,5 +447,32 @@ export const RtlLongValueAtEnlargedText: Story = {
     } finally {
       root.style.fontSize = previous;
     }
+  },
+};
+
+export const NeedsYou: Story = { ...Attention };
+export const NeedsYouDark: Story = { ...NeedsYou, globals: { theme: "dark" } };
+export const Working: Story = {
+  args: { row: "working" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { name: /Deposit.*In progress/ })).toBeVisible();
+    await expect(canvas.getByText("Arriving in ~2 min")).toBeVisible();
+    const slot = canvasElement.querySelector('[data-slot="item-actions"]');
+    if (!slot) throw new Error("Missing trailing slot");
+    await expect(slot.getBoundingClientRect().width).toBe(16);
+    const spinner = slot.querySelector('[data-slot="status-spinner"]');
+    if (!spinner) throw new Error("Missing working spinner");
+    await expect(spinner).toBeVisible();
+    await expect(spinner.clientWidth).toBe(16);
+  },
+};
+export const WorkingDark: Story = { ...Working, globals: { theme: "dark" } };
+export const WorkingWithoutActivation: Story = {
+  render: () => <ul className="w-[30rem] max-w-full list-none p-0"><ActivityRow icon={<ArrowDown className="size-4" />} label="Deposit" context="Arriving in ~2 min" value="$50.00" working="In progress" /></ul>,
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).queryByRole("button")).toBeNull();
+    await expect(within(canvasElement).getByText("In progress")).toBeInTheDocument();
+    await expect(canvasElement.querySelector('[data-slot="status-spinner"]')).toBeVisible();
   },
 };

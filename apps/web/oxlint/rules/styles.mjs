@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { designSystem } from "../policy/design-system.mjs";
 import { decodeLetterEscapes, formControlHasAllowlist, hasSelectorFindings } from "../policy/has-selectors.mjs";
 import { importantUtilityAllowlist } from "../policy/important-utilities.mjs";
-import { styleDriftBaselineFor, styleDriftOccurrences } from "../policy/style-drift.mjs";
+import { classifyStatusMark, isStatusStyleOwner, styleDriftBaselineFor, styleDriftOccurrences } from "../policy/style-drift.mjs";
 
 const literalStyleMessage =
   "Use semantic theme tokens instead of hex/rgba, arbitrary-px, or raw palette colors in utility strings.";
@@ -86,19 +86,31 @@ export const noRawStyleUtilities = {
   meta: {
     type: "problem",
     schema: [],
-    messages: { offToken: "Off-token utility '{{token}}' ({{family}}); use the owned token or a component variant." },
+    messages: {
+      offToken: "Off-token utility '{{token}}' ({{family}}); use the owned token or a component variant.",
+      status: "Raw status treatment '{{token}}' ({{family}}); use a status texture from components/ui/status-texture; presenters return a texture name and owned components render it.",
+    },
   },
   create(context) {
-    const baseline = styleDriftBaselineFor(relativeFile(context.filename));
+    const file = relativeFile(context.filename);
+    const baseline = styleDriftBaselineFor(file);
+    const statusOwner = isStatusStyleOwner(file);
     const seen = new Map();
+    function record(node, { token, family }) {
+      if (statusOwner && family.startsWith("status-")) return;
+      const count = (seen.get(token) ?? 0) + 1;
+      seen.set(token, count);
+      if (count === (baseline[token] ?? 0) + 1) context.report({ node, messageId: family.startsWith("status-") ? "status" : "offToken", data: { token, family } });
+    }
     function check(node, value) {
-      for (const { token, family } of styleDriftOccurrences(value)) {
-        const count = (seen.get(token) ?? 0) + 1;
-        seen.set(token, count);
-        if (count === (baseline[token] ?? 0) + 1) context.report({ node, messageId: "offToken", data: { token, family } });
-      }
+      for (const finding of styleDriftOccurrences(value)) record(node, finding);
     }
     return {
+      ImportSpecifier(node) {
+        if (node.parent?.source.value !== "lucide-react") return;
+        const mark = classifyStatusMark(node.imported.name ?? node.imported.value);
+        if (mark) record(node, mark);
+      },
       Literal(node) { if (typeof node.value === "string") check(node, node.value); },
       StringLiteral(node) { if (typeof node.value === "string") check(node, node.value); },
       TemplateElement(node) {

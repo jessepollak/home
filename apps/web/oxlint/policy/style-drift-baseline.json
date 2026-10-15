@@ -1,7 +1,37 @@
 {
+  "families": [
+    "shadow",
+    "duration",
+    "ease",
+    "radius",
+    "status-color",
+    "status-motion",
+    "status-mark"
+  ],
   "files": {
+    "app/access/access-form.tsx": {
+      "text-destructive": 1
+    },
+    "app/dev/ui/page.tsx": {
+      "bg-destructive": 1,
+      "border-destructive": 1
+    },
+    "client/account/sign-in-otp.tsx": {
+      "text-destructive": 1
+    },
+    "client/activity/activity-ledger-sheet.tsx": {
+      "text-destructive": 3
+    },
+    "client/activity/activity-panel.tsx": {
+      "text-destructive": 1
+    },
     "client/borrowing/borrow-overview.tsx": {
-      "duration-150": 1
+      "duration-150": 1,
+      "text-destructive": 1
+    },
+    "client/borrowing/borrowing-experience.tsx": {
+      "bg-destructive": 1,
+      "text-destructive": 1
     },
     "client/cash/savings-management.tsx": {
       "duration-150": 1
@@ -10,6 +40,7 @@
       "duration-120": 1
     },
     "client/explorations/trade/trade-price-chart.tsx": {
+      "animate-pulse": 1,
       "duration-200": 1
     },
     "client/explorations/trade/trade-step-transition.tsx": {
@@ -17,14 +48,37 @@
       "duration-180": 1,
       "ease-[cubic-bezier(0.22,1,0.36,1)]": 2
     },
+    "client/money-modal/amount.tsx": {
+      "text-destructive": 1
+    },
+    "client/operator-support/operator-support-inbox.tsx": {
+      "text-destructive": 1
+    },
+    "client/support/support-chat.tsx": {
+      "animate-pulse": 3,
+      "text-destructive": 5
+    },
+    "components/activity-loader.tsx": {
+      "<LoaderCircle>": 1,
+      "animate-spin": 1
+    },
+    "components/currency-mark.tsx": {
+      "animate-pulse": 1
+    },
     "components/finance-rows.tsx": {
       "duration-150": 1
     },
     "components/primary-navigation.tsx": {
+      "animate-pulse": 1,
       "duration-0": 1,
       "duration-[100ms]": 1,
       "duration-[80ms]": 1,
       "ease-out": 1
+    },
+    "components/profile-mark.tsx": {
+      "animate-pulse": 1,
+      "bg-destructive": 1,
+      "bg-warning": 1
     }
   }
 }

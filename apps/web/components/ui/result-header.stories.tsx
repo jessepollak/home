@@ -23,3 +23,5 @@ export const Success: Story = {
 export const Pending: Story = { args: { outcome: "pending", title: "$25.00 on its way", description: "We'll update Activity when it's confirmed." } };
 export const Failed: Story = { args: { outcome: "failed", title: "$25.00 wasn't sent", description: "Your $25.00 is still in your account." } };
 export const Unknown: Story = { args: { outcome: "unknown", title: "We can't confirm $25.00", description: "It may have gone through. Check Activity before trying again." } };
+
+export const Dark: Story = { ...Pending, globals: { theme: "dark" } };

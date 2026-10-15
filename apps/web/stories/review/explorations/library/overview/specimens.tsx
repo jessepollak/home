@@ -34,6 +34,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusStep, StatusSteps } from "@/components/ui/status-step";
+import { StatusMark, statusTextClass, type StatusTexture } from "@/components/ui/status-texture";
 import { SupportMessageBubble } from "@/components/ui/support-message";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -435,6 +436,16 @@ export const specimens: Record<string, Specimen> = {
         <StatusStep status="current" title="Confirming on Base" />
       </StatusSteps>
     </div>,
+  },
+  "ui-status-texture": {
+    Render: () => <ul className="flex w-56 flex-col gap-2 text-sm">
+      {(["working", "needs-you", "cant-load", "failed", "done"] as const satisfies readonly StatusTexture[]).map((texture) => (
+        <li key={texture} className="flex items-center gap-2">
+          <StatusMark texture={texture} />
+          <span className={statusTextClass(texture, "title")}>{texture}</span>
+        </li>
+      ))}
+    </ul>,
   },
   "ui-support-message": {
     Render: () => <div className="grid w-64 gap-3">

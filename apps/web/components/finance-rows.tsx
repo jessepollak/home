@@ -1,5 +1,6 @@
 import { useId, type HTMLAttributes, type ReactNode } from "react";
-import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronDown, ChevronRight, CircleAlert, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronDown, ChevronRight, RotateCw } from "lucide-react";
+import { StatusMark } from "@/components/ui/status-texture";
 import { Button } from "@/components/ui/button";
 import {
   Item,
@@ -48,20 +49,22 @@ type FinanceRowInteractionProps =
       onIntent?: never;
       activateLabel?: never;
       attention?: never;
+      working?: never;
       chevron?: never;
       readRetry?: never;
       disclosure?: never;
     }
-  | {
+  | ({
       action?: never;
       onActivate?: (opener: HTMLElement) => void;
       onIntent?: () => void;
       activateLabel?: string;
-      attention?: string;
       chevron?: boolean;
-      readRetry?: { label: string; onRetry: () => void };
       disclosure?: { expanded: boolean; controls?: string; content?: ReactNode };
-    };
+    } & (
+      | { working: string; attention?: never; readRetry?: never }
+      | { working?: never; attention?: string; readRetry?: { label: string; onRetry: () => void } }
+    ));
 
 type FinanceRowProps = FinanceRowCommonProps & FinanceRowInteractionProps;
 
@@ -110,6 +113,7 @@ function FinanceRow({
   onIntent,
   activateLabel,
   attention,
+  working,
   chevron = true,
   readRetry,
   disclosure,
@@ -184,7 +188,7 @@ function FinanceRow({
             {labelAndContext}
           </ItemContent>
         ) : <div className="contents" data-slot="finance-row-label">{labelAndContext}</div>}
-        {activation && attention ? <span className="sr-only">{attention}</span> : null}
+        {attention || working ? <span className="sr-only">{attention ?? working}</span> : null}
         {labelSuffix !== undefined ? <span aria-hidden="true" className="order-3 h-0 basis-full" /> : null}
         {hasValue ? labelSuffix === undefined ? (
           <ItemContent
@@ -212,12 +216,14 @@ function FinanceRow({
             {action.label}
           </Button>
         </ItemActions>
-      ) : readRetry || (activation && (attention || chevron || disclosure)) ? (
+      ) : readRetry || attention || working || (activation && (chevron || disclosure)) ? (
         <ItemActions aria-hidden="true" className={labelSuffix !== undefined ? "@max-[14rem]/finance-row:order-2 @max-[14rem]/finance-row:ms-auto" : undefined}>
           {readRetry
             ? <span className="size-4" />
             : attention
-            ? <CircleAlert className="size-4 text-foreground" />
+            ? <StatusMark texture="needs-you" />
+            : working
+            ? <StatusMark texture="working" />
             : disclosure
             ? <ChevronDown className={cn("size-4 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none", disclosure.expanded && "rotate-180")} />
             : <ChevronRight className="size-4 text-muted-foreground" />}

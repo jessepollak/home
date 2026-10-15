@@ -598,7 +598,7 @@ export function storyGlobFindings(configPath, configSource) {
   return [];
 }
 
-function repositoryStoryFiles(repoRoot) {
+export function repositoryStoryFiles(repoRoot) {
   return ["client", "components", "stories"].flatMap((dir) =>
     filesIn(repoRoot, `apps/web/${dir}`, (name) => storyExtensions.has(extname(name)) && name.endsWith(`.stories${extname(name)}`)));
 }

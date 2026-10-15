@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { classifyStyleUtility, styleDriftOccurrences } from "../../apps/web/oxlint/policy/style-drift.mjs";
+import { classifyStatusMark, classifyStyleDriftToken, isStatusStyleOwner, styleDriftFamilies, styleDriftOccurrences } from "../../apps/web/oxlint/policy/style-drift.mjs";
 
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -39,12 +39,22 @@ export function countStyleDrift(file, content) {
   if (cached?.content === content) return cached.counts;
   const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, scriptKindFor(file));
   const counts = new Map();
+  const statusOwner = isStatusStyleOwner(file);
+  function record({ token, family }) {
+    if (statusOwner && family.startsWith("status-")) return;
+    counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
   function visit(node) {
+    if (ts.isImportSpecifier(node) && ts.isImportDeclaration(node.parent.parent.parent)
+      && node.parent.parent.parent.moduleSpecifier.text === "lucide-react") {
+      const mark = classifyStatusMark((node.propertyName ?? node.name).text);
+      if (mark) record(mark);
+    }
     let value;
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) value = node.text;
     else if ([ts.SyntaxKind.TemplateHead, ts.SyntaxKind.TemplateMiddle, ts.SyntaxKind.TemplateTail].includes(node.kind)) value = node.rawText;
     if (typeof value === "string") {
-      for (const { token } of styleDriftOccurrences(value)) counts.set(token, (counts.get(token) ?? 0) + 1);
+      for (const finding of styleDriftOccurrences(value)) record(finding);
     }
     ts.forEachChild(node, visit);
   }
@@ -58,8 +68,13 @@ function ownCount(counts, token) {
   return Object.hasOwn(counts ?? {}, token) ? counts[token] : 0;
 }
 
-function entries(files, budget) {
+function entries(files, budget, allowLegacyFamilies = false) {
   const invalid = [];
+  const families = allowLegacyFamilies && budget?.families === undefined ? styleDriftFamilies.slice(0, 4) : budget?.families;
+  const validFamilies = Array.isArray(families) && families.length > 0 && new Set(families).size === families.length
+    && families.every((family) => styleDriftFamilies.includes(family))
+    && (allowLegacyFamilies || styleDriftFamilies.every((family) => families.includes(family)));
+  if (!validFamilies) invalid.push("budget.families must list the ratcheted style-drift families exactly once");
   const scanned = new Map(files.map(({ path: file, content }) => [file, countStyleDrift(file, content)]));
   const base = budget?.files && typeof budget.files === "object" && !Array.isArray(budget.files) ? budget.files : {};
   if (base !== budget?.files) invalid.push("budget.files must be an object");
@@ -69,10 +84,13 @@ function entries(files, budget) {
       continue;
     }
     for (const [token, count] of Object.entries(counts)) {
-      if (/\s/u.test(token) || classifyStyleUtility(token)?.token !== token || !Number.isSafeInteger(count) || count <= 0) invalid.push(`${file}: invalid ${token} baseline count ${count}`);
+      const finding = classifyStyleDriftToken(token);
+      if (/\s/u.test(token) || finding?.token !== token || !Number.isSafeInteger(count) || count <= 0) invalid.push(`${file}: invalid ${token} baseline count ${count}`);
+      else if (validFamilies && !families.includes(finding.family)) invalid.push(`${file}: ${token} family ${finding.family} is not listed in budget.families`);
+      else if (finding.family.startsWith("status-") && isStatusStyleOwner(file)) invalid.push(`${file}: owned status renderer cannot have a ${finding.family} baseline`);
     }
   }
-  return { scanned, base, invalid };
+  return { scanned, base, invalid, families };
 }
 
 function git(args) {
@@ -90,11 +108,11 @@ export function readBaseBudget(baseRef = "origin/main", baselinePath = BASELINE_
   } catch (error) {
     throw new Error(`Could not inspect ${base}: ${error.message}`);
   }
-  if (!listing) return { base, files: null, notes: [`${baselinePath} is absent at ${base}; baseline raises were not checked.`] };
+  if (!listing) return { base, families: [], files: null, notes: [`${baselinePath} is absent at ${base}; baseline raises were not checked.`] };
   const parsed = JSON.parse(gitRunner(["show", `${base}:${baselinePath}`]));
-  const shape = entries([], parsed);
+  const shape = entries([], parsed, true);
   if (shape.invalid.length) throw new Error(`${baselinePath} at ${base} is invalid: ${shape.invalid[0]}`);
-  return { base, files: parsed.files, notes: [] };
+  return { base, families: shape.families, files: parsed.files, notes: [] };
 }
 
 export function evaluateStyleDriftBudget({ files, budget, reference = null }) {
@@ -105,7 +123,9 @@ export function evaluateStyleDriftBudget({ files, budget, reference = null }) {
   if (reference && typeof reference === "object" && !Array.isArray(reference)) {
     for (const [file, counts] of Object.entries(base)) {
       for (const [token, count] of Object.entries(counts ?? {})) {
-        const prior = ownCount(reference[file], token);
+        const family = classifyStyleDriftToken(token)?.family;
+        if (!(reference.families ?? styleDriftFamilies.slice(0, 4)).includes(family)) continue;
+        const prior = ownCount(reference.files?.[file], token);
         if (count > prior) raises.push(`${file}: ${token} baseline ${count} > ${prior}; the checked-in baseline may only shrink: merge or rebase the base branch if it lowered this count, or revert the raise`);
       }
     }
@@ -115,7 +135,12 @@ export function evaluateStyleDriftBudget({ files, budget, reference = null }) {
       const old = ownCount(base[file], token);
       const allowed = Number.isSafeInteger(old) && old > 0 ? old : 0;
       const count = ownCount(counts, token);
-      if (count > allowed) increases.push(`${file}: ${token} ${count} > ${allowed}; remove the off-token utility or fix it through an owned variant`);
+      if (count > allowed) {
+        const fix = classifyStyleDriftToken(token)?.family.startsWith("status-")
+          ? "use a status texture from components/ui/status-texture; presenters return a texture name and owned components render it"
+          : "remove the off-token utility or fix it through an owned variant";
+        increases.push(`${file}: ${token} ${count} > ${allowed}; ${fix}`);
+      }
       if (count < allowed) stale.push(`${file}: ${token} ${count} < ${allowed}; run bun run style-drift:shrink`);
     }
   }
@@ -134,7 +159,7 @@ export function shrinkBudget({ files, budget }) {
     }
     if (counts.size) result[file] = Object.fromEntries(counts);
   }
-  return { files: result };
+  return { families: budget.families, files: result };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
@@ -146,12 +171,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     try {
       const files = repositoryFiles();
       const budget = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8"))
-        : shrink ? { files: Object.fromEntries(files.map(({ path: file, content }) => [file, countStyleDrift(file, content)]).filter(([, counts]) => Object.keys(counts).length)) } : { files: {} };
+        : shrink ? { families: styleDriftFamilies, files: Object.fromEntries(files.map(({ path: file, content }) => [file, countStyleDrift(file, content)]).filter(([, counts]) => Object.keys(counts).length)) } : { families: styleDriftFamilies, files: {} };
       let reference = null;
       const baseFindings = [];
       try {
         const result = readBaseBudget(process.env.BASE_REF || "origin/main");
-        reference = result.files;
+        reference = result.files === null ? null : result;
         for (const note of result.notes) console.error(note);
       } catch (error) {
         baseFindings.push(`Base baseline unavailable or invalid: ${error.message}`);

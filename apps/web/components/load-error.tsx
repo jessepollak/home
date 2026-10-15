@@ -1,6 +1,7 @@
 import type { ReactNode, Ref } from "react";
-import { CircleAlertIcon, RotateCw } from "lucide-react";
+import { RotateCw } from "lucide-react";
 import { Alert, AlertAction, AlertDescription, AlertIcon, AlertTitle } from "@/components/ui/alert";
+import { StatusMark } from "@/components/ui/status-texture";
 import { Button } from "@/components/ui/button";
 
 export function LoadRetryButton({ onRetry, retryRef, children = "Try again" }: {
@@ -16,18 +17,18 @@ export function LoadRetryButton({ onRetry, retryRef, children = "Try again" }: {
   );
 }
 
-export function LoadErrorCard({ title, description, tone = "default", role = "alert", onRetry, retryRef }: {
+export function LoadErrorCard({ title, description, texture = "cant-load", role = "alert", onRetry, retryRef }: {
   title?: ReactNode;
   description?: ReactNode;
-  tone?: "default" | "destructive";
+  texture?: "cant-load" | "failed";
   role?: "alert" | "status";
   onRetry: () => void;
   retryRef?: Ref<HTMLButtonElement>;
 }) {
   return (
-    <Alert role={role} variant={tone}>
-      {tone === "destructive" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
-      {title ? <AlertTitle>{title}</AlertTitle> : null}
+    <Alert role={role}>
+      <AlertIcon><StatusMark texture={texture} /></AlertIcon>
+      {title ? <AlertTitle texture={texture}>{title}</AlertTitle> : null}
       {description ? <AlertDescription>{description}</AlertDescription> : null}
       <AlertAction><LoadRetryButton onRetry={onRetry} retryRef={retryRef} /></AlertAction>
     </Alert>

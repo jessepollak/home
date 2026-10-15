@@ -338,7 +338,7 @@ export function BorrowMoneyFlow({
                 nativeSymbol={primaryAsset.symbol}
               >
                 {reserveRelevant && reserveFailed ? (
-                  <LoadErrorCard tone="destructive" role="alert" title="Couldn't check the network fee." onRetry={retryReserve} />
+                  <LoadErrorCard texture="cant-load" role="alert" title="Couldn't check the network fee." onRetry={retryReserve} />
                 ) : null}
                 {fixedMaximumOperation || isFullRepayAmount(amount, snapshot.position.debtAssetsRaw, maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ? (
                   <Alert role="status">

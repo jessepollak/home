@@ -16,7 +16,7 @@ export function AppErrorState({ onRetry, focusKey }: { onRetry: () => void; focu
       <div className="w-full max-w-sm">
         <LoadErrorCard
           title="This page couldn’t load."
-          tone="destructive"
+          texture="cant-load"
           onRetry={onRetry}
           retryRef={retryRef}
         />

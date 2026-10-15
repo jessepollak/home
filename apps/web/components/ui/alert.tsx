@@ -1,6 +1,7 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
+import { statusTextClass } from "./status-texture"
 
 const alertVariants = cva(
   "group/alert flex w-full flex-wrap items-center gap-x-2.5 gap-y-3 rounded-xl border bg-card px-4 py-3.5 text-start text-sm leading-5 text-card-foreground",
@@ -61,12 +62,22 @@ function AlertIcon({ className, ...props }: React.ComponentProps<"span">) {
   )
 }
 
-function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
+const alertTitleVariants = cva("", {
+  variants: {
+    texture: {
+      "cant-load": statusTextClass("cant-load", "title"),
+      failed: statusTextClass("failed", "title"),
+    },
+  },
+})
+
+function AlertTitle({ className, texture, ...props }: React.ComponentProps<"div"> & VariantProps<typeof alertTitleVariants>) {
   return (
     <div
       data-slot="alert-title"
       className={cn(
         "col-start-1 row-start-1 min-w-0 font-medium group-has-[>[data-slot=alert-icon]]/alert-content:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
+        alertTitleVariants({ texture }),
         className
       )}
       {...props}

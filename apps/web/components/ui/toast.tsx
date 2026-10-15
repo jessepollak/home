@@ -6,7 +6,8 @@ import { cn } from "cn"
 import { useShellViewportGeometry } from "@/components/visual-viewport"
 
 import { Button } from "@/components/ui/button"
-import { XIcon, CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
+import { XIcon, InfoIcon } from "lucide-react"
+import { StatusMark, statusTextClass } from "./status-texture"
 
 const toast = ToastPrimitive.createToastManager()
 
@@ -134,49 +135,16 @@ function ToastClose({
   )
 }
 
+function toastTexture(type: string | undefined) {
+  return type === "success" ? "done" : type === "warning" ? "needs-you" : type === "error" ? "failed" : type === "loading" ? "working" : null
+}
+
 function ToastIcon({ type }: { type: string | undefined }) {
-  let icon: React.ReactNode = null
-
-  if (type === "success") {
-    icon = (
-      <CircleCheckIcon aria-hidden="true" />
-    )
-  }
-
-  if (type === "info") {
-    icon = (
-      <InfoIcon aria-hidden="true" />
-    )
-  }
-
-  if (type === "warning") {
-    icon = (
-      <TriangleAlertIcon aria-hidden="true" />
-    )
-  }
-
-  if (type === "error") {
-    icon = (
-      <OctagonXIcon aria-hidden="true" />
-    )
-  }
-
-  if (type === "loading") {
-    icon = (
-      <Loader2Icon className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-    )
-  }
-
-  if (!icon) {
-    return null
-  }
-
+  const texture = toastTexture(type)
+  if (!texture && type !== "info") return null
   return (
-    <span
-      data-slot="toast-icon"
-      className={cn("mt-px flex h-5 w-4 shrink-0 items-center self-start [&_svg]:pointer-events-none [&_svg]:size-4", type === "warning" && "text-warning", type === "error" && "text-destructive")}
-    >
-      {icon}
+    <span data-slot="toast-icon" className="mt-px flex h-5 w-4 shrink-0 items-center self-start [&_svg]:pointer-events-none [&_svg]:size-4">
+      {texture ? <StatusMark texture={texture} /> : <InfoIcon aria-hidden="true" />}
     </span>
   )
 }
@@ -184,19 +152,22 @@ function ToastIcon({ type }: { type: string | undefined }) {
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager()
 
-  return toasts.map((toastItem) => (
-    <Toast key={toastItem.id} toast={toastItem}>
-      <ToastContent>
-        <ToastIcon type={toastItem.type} />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <ToastTitle />
-          <ToastDescription />
-        </div>
-        <ToastAction />
-        <ToastClose />
-      </ToastContent>
-    </Toast>
-  ))
+  return toasts.map((toastItem) => {
+    const texture = toastTexture(toastItem.type)
+    return (
+      <Toast key={toastItem.id} toast={toastItem}>
+        <ToastContent>
+          <ToastIcon type={toastItem.type} />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <ToastTitle className={texture ? statusTextClass(texture, "title") : undefined} />
+            <ToastDescription className={texture ? statusTextClass(texture, "body") : undefined} />
+          </div>
+          <ToastAction />
+          <ToastClose />
+        </ToastContent>
+      </Toast>
+    )
+  })
 }
 
 function Toaster({

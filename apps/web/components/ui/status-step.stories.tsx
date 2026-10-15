@@ -28,3 +28,5 @@ export const PendingList: Story = {
     await expect(items[1].querySelector('[data-slot="step-connector"]')).not.toBeNull();
   },
 };
+
+export const Dark: Story = { ...PendingList, globals: { theme: "dark" } };
