@@ -11,6 +11,12 @@ export function evaluateDesignSpec({ css, spec }) {
   function collect(nodes, selectors = []) {
     for (const node of nodes) {
       if (node.children) {
+        if (/^@property(?:\s|$)/i.test(node.selector)) {
+          const registered = /^@property\s+(--[\w-]+)$/i.exec(node.selector);
+          if (!registered) throw new Error(`Invalid CSS property registration: ${node.selector}`);
+          if (!declared.has(registered[1])) declared.set(registered[1], new Set());
+          declared.get(registered[1]).add(node.selector);
+        }
         collect(node.children, [...selectors, node.selector]);
       } else {
         const match = /^(--[\w-]+)\s*:\s*(.+)$/s.exec(node.declaration);

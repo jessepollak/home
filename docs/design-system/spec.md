@@ -117,7 +117,7 @@ From [Radius](theme.md#radius), [Elevation](theme.md#elevation) and [Type roles]
 
 ## Declared tokens
 
-`scripts/gates/design-spec.mjs` keeps this block exact; a token change updates it in the same change.
+`scripts/gates/design-spec.mjs` keeps this block exact, counting names declared in a rule body and names registered with `@property`; a token change updates it in the same change.
 
 <!-- design-spec:tokens:start -->
 --accent
@@ -229,6 +229,8 @@ From [Radius](theme.md#radius), [Elevation](theme.md#elevation) and [Type roles]
 --shell-navigation-offset
 --shell-safe-area-bottom
 --shell-viewport-inset-bottom
+--shell-viewport-keyboard-height
+--shell-viewport-pan
 --spacing-hairline
 --spacing-shell-mobile-navigation
 --spacing-shell-search-field

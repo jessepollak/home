@@ -50,6 +50,39 @@ test("tokens inside unmodeled nested blocks are reported", () => {
   });
 });
 
+test("a token that exists only as an @property registration is tracked", () => {
+  const registered = "@property --only-registered { syntax: \"<length>\"; inherits: false; initial-value: 0px; }";
+  assert.deepEqual(evaluateDesignSpec({ css: registered, spec: tokenBlock([]) }), {
+    ...clean,
+    missing: ["--only-registered (declared in @property --only-registered)"],
+  });
+  assert.deepEqual(evaluateDesignSpec({ css: registered, spec: tokenBlock(["--only-registered"]) }), clean);
+  assert.deepEqual(evaluateDesignSpec({ css: "", spec: tokenBlock(["--only-registered"]) }), {
+    ...clean,
+    undeclared: ["--only-registered"],
+  });
+});
+
+test("a registration also declared in :root lists both declaring blocks", () => {
+  assert.deepEqual(evaluateDesignSpec({
+    css: "@property --both { syntax: \"<length>\"; inherits: false; initial-value: 0px; } :root { --both: 1px; }",
+    spec: tokenBlock([]),
+  }), { ...clean, missing: ["--both (declared in :root, @property --both)"] });
+});
+
+test("@property is matched case-insensitively and keeps the property name's case", () => {
+  assert.deepEqual(evaluateDesignSpec({
+    css: "@PROPERTY --new-registration { syntax: \"*\"; inherits: false; }",
+    spec: tokenBlock([]),
+  }), { ...clean, missing: ["--new-registration (declared in @PROPERTY --new-registration)"] });
+});
+
+test("a malformed @property registration is rejected", () => {
+  for (const selector of ["@property", "@property notAProperty", "@property --a --b"]) {
+    assert.throws(() => evaluateDesignSpec({ css: `${selector} { syntax: "*"; inherits: false; }`, spec: tokenBlock([]) }), /Invalid CSS property registration/);
+  }
+});
+
 test("a malformed custom-property declaration is rejected, not skipped", () => {
   assert.throws(() => evaluateDesignSpec({ css: ":root { --typo red; }", spec: tokenBlock([]) }), /Invalid CSS declaration: --typo red/);
   assert.throws(() => evaluateDesignSpec({ css: ":root { --empty:; }", spec: tokenBlock([]) }), /Invalid CSS declaration: --empty:/);
