@@ -69,7 +69,7 @@ function AssetSheetContent({ asset, market, open, opener, details = "body", onCl
         </Button>
       </div> : null}
     </div>
-    <MoneyModalBody hasFooter="flush" className="gap-4">
+<MoneyModalBody hasFooter className="-mb-4 gap-4">
       <div className="@container min-w-0 space-y-1 pt-2">
         <strong className={`block min-h-12 text-[min(1.875rem,16cqi)] leading-9 font-semibold tabular-nums ${price.tone === "ready" ? "" : "text-muted-foreground"}`}
           data-tone={price.tone}>

@@ -586,10 +586,12 @@ export const RiskStatsErrorOnRetry: Story = { args: { assetId: "degen" }, parame
   const checks = await expandChecks(canvasElement);
   await expect(await checks.findByText("Partial check", { exact: true })).toBeVisible();
   await expect(canvas.getByText("Market cap")).toBeVisible();
+  await expect(canvas.queryByText(/Couldn't refresh market stats/)).not.toBeInTheDocument();
   await userEvent.click(checks.getByRole("button", { name: "Try again" }));
   await expect(await checks.findByText("Sell tax 100%", { exact: true })).toBeVisible();
   await expect(checks.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
   await expect(canvas.getByText("Market cap")).toBeVisible();
+  await expect(canvas.getByText(/^Couldn't refresh market stats · last updated /)).toBeVisible();
   await expect(riskControl.calls).toBe(2);
 } };
 export const RiskPartialEmpty: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("ready", "partial-empty")] } }, play: async ({ canvasElement }) => {
@@ -617,6 +619,7 @@ export const RiskRefreshFailed: Story = { args: { assetId: "degen" }, parameters
   await getHomeQueryClient().refetchQueries({ queryKey: marketStatsOptions("degen", true).queryKey });
   await expect(await checks.findByText("Couldn't refresh", { exact: true })).toBeVisible();
   await expect(canvas.getByText("Market cap")).toBeVisible();
+  await expect(canvas.getByText(/^Couldn't refresh market stats · last updated /)).toBeVisible();
   await expect(checks.getByRole("button", { name: "Try again" })).toBeVisible();
   await expect(checks.getByText("Sell tax 100%")).toBeVisible();
   await expect(checks.getByText(/^Reported by GoPlus · checked/)).toHaveTextContent(source);

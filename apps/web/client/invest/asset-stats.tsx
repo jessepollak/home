@@ -80,7 +80,8 @@ export function AssetStats({ asset, market, clock, range = "1W", headingLevel = 
 function TokenStats({ asset, market, clock, headingLevel }: { asset: InvestAsset; market: MarketDataState; clock: ChartClock; headingLevel: 2 | 3 }) {
   const day = usePriceHistory(asset.id, "1D", { speculative: true });
   const year = usePriceHistory(asset.id, "1Y", { speculative: true });
-  const stats = useMarketStats(asset.id, asset.category !== "stock");
+  const marketStats = useMarketStats(asset.id, asset.category !== "stock");
+  const stats = marketStats?.stats;
   const quote = usePresentationQuote();
   const regionId = usePresentationRegionId();
   const snapshot = market.status === "ready" ? market.snapshots.find((item) => item.assetId === asset.id) : undefined;
@@ -105,6 +106,10 @@ function TokenStats({ asset, market, clock, headingLevel }: { asset: InvestAsset
         <ItemContent><ItemDescription>{label}</ItemDescription><ItemTitle numeric>{formatStatUsd(value, regionId)}</ItemTitle></ItemContent>
       </Item>)}
     </div> : null}
+    {tiles.length && marketStats?.stale ? <p role="status" className="text-xs text-muted-foreground">
+      Couldn&apos;t refresh market stats{marketStats.stale.fetchedAt && Number.isFinite(Date.parse(marketStats.stale.fetchedAt))
+        ? <> · last updated {formatPresentationDate(Date.parse(marketStats.stale.fetchedAt), { regionId, style: "date-time-zone" })}</> : null}
+    </p> : null}
   </section>;
 }
 

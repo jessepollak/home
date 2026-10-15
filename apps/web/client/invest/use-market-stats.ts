@@ -7,8 +7,11 @@ import { publicResource } from "@/client/query/public-resource";
 import type { InvestAsset } from "@/config/invest-assets";
 import { parseMarketStatsResponse, type MarketStats, type MarketStatsResponse, type TokenRisk } from "@/shared/invest/contracts/market-stats";
 
+type CachedMarketStats = MarketStatsResponse & { retained?: true };
+export type MarketStatsView = { stats: MarketStats; stale: { fetchedAt: string | null } | null };
+
 export function marketStatsOptions(assetId: string, enabled: boolean) {
-  return publicQuery<MarketStatsResponse>({
+  return publicQuery<CachedMarketStats>({
     scope: "market-stats", key: [assetId],
     enabled,
     retry: false,
@@ -17,7 +20,7 @@ export function marketStatsOptions(assetId: string, enabled: boolean) {
       const previous = parseMarketStatsResponse(oldData);
       const next = parseMarketStatsResponse(newData);
       const kept: unknown = previous?.status === "ready" && next?.status === "error" && next.assetId === previous.assetId
-        ? { ...next, status: "ready", fetchedAt: previous.fetchedAt, stats: previous.stats }
+        ? { ...next, status: "ready", fetchedAt: previous.fetchedAt, stats: previous.stats, retained: true }
         : newData;
       return replaceEqualDeep(oldData, kept);
     },
@@ -29,9 +32,11 @@ export function marketStatsOptions(assetId: string, enabled: boolean) {
   });
 }
 
-export function useMarketStats(assetId: string, enabled: boolean): MarketStats | null {
+export function useMarketStats(assetId: string, enabled: boolean): MarketStatsView | null {
   const query = useHomeQuery(marketStatsOptions(assetId, enabled));
-  return enabled && query.data?.status === "ready" ? query.data.stats : null;
+  const data = query.data;
+  if (!enabled || data?.status !== "ready" || data.assetId !== assetId) return null;
+  return { stats: data.stats, stale: query.isError || data.retained ? { fetchedAt: data.fetchedAt } : null };
 }
 
 export function useTokenRisk(asset: InvestAsset) {

@@ -15,7 +15,7 @@ import { waitForReady } from "@/tests/helpers/story-readiness";
 import { AssetSheetProposal } from "./asset-sheet";
 import { bitcoin, longNameBitcoin, stock, TIME, createClient, forceReducedMotion, historyControl, historyResponse, market, resetHistoryControl, type Position } from "./asset-sheet.fixtures";
 
-function historyHandler(mode: "ready" | "empty" | "stale" | "slow" | "error" = "ready") {
+function historyHandler(mode: "ready" | "empty" | "stale" | "partial" | "slow" | "error" = "ready") {
   return http.get("/api/market-prices/history", async ({ request }) => {
     const url = new URL(request.url);
     if (mode === "slow") await historyControl.held;
@@ -287,7 +287,29 @@ export const HistoryFailed: Story = { parameters: { msw: { handlers: [historyHan
     await expect(dialog.getByRole("button", { name: "Buy" })).toBeVisible();
   },
 };
-export const StockLastClose: Story = { args: { assetId: "nvdac", stockSession: "closed" }, play: assertSurface };
+export const StockLastClose: Story = { args: { assetId: "nvdac", stockSession: "closed" }, play: async (context) => {
+  await assertSurface(context);
+  const dialog = within(await within(context.canvasElement.ownerDocument.body).findByRole("dialog", { name: stock.displayName }, chartWait));
+  await expect(dialog.queryByText(/Partial coverage/)).not.toBeInTheDocument();
+  await expect(context.canvasElement.ownerDocument.querySelectorAll("[data-coverage-gap]")).toHaveLength(0);
+} };
+export const PartialCoverage: Story = { args: { assetId: "nvdac", stockSession: "closed" },
+  parameters: { msw: { handlers: [historyHandler("partial"), statsHandler()] } }, play: async ({ canvasElement }) => {
+    const body = canvasElement.ownerDocument.body;
+    const dialog = within(await within(body).findByRole("dialog", { name: stock.displayName }, chartWait));
+    await expect(await dialog.findByRole("group", { name: /1 day price history/ }, chartWait)).toBeVisible();
+    await expect(dialog.getByText("Partial coverage · 26 of 32 samples")).toBeVisible();
+    await expect(body.querySelectorAll("[data-coverage-gap]")).toHaveLength(1);
+  } };
+export const SlowHistory: Story = { parameters: { msw: { handlers: [historyHandler("slow"), statsHandler()] } },
+  play: async ({ canvasElement }) => {
+    const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Bitcoin" }, chartWait));
+    await expect(dialog.queryByText("Still loading price history")).not.toBeInTheDocument();
+    try { await expect(await dialog.findByText("Still loading price history", undefined, chartWait)).toBeVisible(); }
+    finally { historyControl.release(); }
+    await expect(await dialog.findByRole("group", { name: /1 day price history/ }, chartWait)).toBeVisible();
+    await expect(dialog.queryByText("Still loading price history")).not.toBeInTheDocument();
+  } };
 export const Narrow320: Story = { parameters: { viewport: { defaultViewport: "narrow" } }, play: assertSurface };
 export const LongName: Story = { args: { longName: true }, play: assertSurface };
 export const LongNameHeaderLink: Story = { args: { longName: true, details: "header" }, play: assertSurface };

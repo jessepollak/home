@@ -7,7 +7,7 @@ import { getHomeQueryClient, publicQueryKey } from "@/client/query/query-client"
 import { Button } from "@/components/ui/button";
 import { formatChartPrice, formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
 import { toLivelinePoints, visibleWindowSeconds } from "../asset-chart";
-import { endsEarly, rangeLabels, rangeSeconds, scrubTime, useReducedMotion, type ChartClock, type ChartReadout } from "../asset-chart-support";
+import { endsEarly, rangeLabels, rangeSeconds, scrubTime, slowLoadDelayMs, useReducedMotion, type ChartClock, type ChartReadout } from "../asset-chart-support";
 import { usePresentationRegionId } from "../presentation-quote";
 import { usePriceHistory } from "../use-price-history";
 
@@ -58,6 +58,13 @@ export function AssetSparkline({ assetId, clock, onReadout, onResting }: {
   const coverage = history.status === "ready" || history.status === "stale" ? history.coverage : undefined;
   const failed = history.status === "error" || !ready && !!coverage?.gaps.some((gap) => gap.reason === "read-failed" || gap.reason === "incomplete");
   const pending = history.status === "loading";
+  const partial = ready && coverage !== undefined && (coverage.gaps.length > 0 || coverage.observed < coverage.sampled);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!pending) return;
+    const timer = window.setTimeout(() => setSlow(true), slowLoadDelayMs);
+    return () => { window.clearTimeout(timer); setSlow(false); };
+  }, [pending, assetId]);
   const stage = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
   const hintId = useId();
@@ -234,7 +241,10 @@ export function AssetSparkline({ assetId, clock, onReadout, onResting }: {
         <div className="absolute inset-x-0 bottom-0 bg-(--asset-surface,var(--color-background))" style={{ height: plotPadding.bottom }} />
         {early && edge !== null && lastY !== null ? <span data-last-point className="absolute size-2 rounded-full"
           style={{ insetInlineStart: edge - 4, top: lastY - 4, backgroundColor: color }} /> : null}
-      </div> : pending ? <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-muted-foreground/20" />
+</div> : pending ? <>
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-muted-foreground/20" />
+          {slow ? <span className="absolute inset-x-0 bottom-2 px-4 text-center text-sm text-muted-foreground">Still loading price history</span> : null}
+        </>
         : <div className="flex h-full items-center justify-between gap-3 px-4 text-sm text-muted-foreground">
           <span>{label}</span>{failed ? <Button variant="outline" size="touch" onClick={retry}>Try again</Button> : null}
         </div>}
@@ -249,6 +259,7 @@ export function AssetSparkline({ assetId, clock, onReadout, onResting }: {
           style={{ top: (scrubPosition?.y ?? 0) - plotPadding.top - 4, backgroundColor: color }} />
       </div>
     </div>
+    {partial ? <p data-coverage-label className="pt-1 text-xs text-muted-foreground">Partial coverage · {coverage.observed} of {coverage.sampled} samples</p> : null}
     <span id={hintId} className="sr-only">Use the left and right arrow keys to move between points. Home and End jump to the first and last point. Escape stops.</span>
     <span className="sr-only" aria-live="polite">{announcement}</span>
     {staleNotice ? <div role="alert" className="flex items-center justify-between gap-3 py-2 text-sm text-muted-foreground">

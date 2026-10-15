@@ -12,6 +12,7 @@ export const rangeSeconds: Record<MarketPriceRange, number> = {
 export const rangeLabels: Record<MarketPriceRange, string> = {
   "1D": "Past day", "1W": "Past week", "1M": "Past month", "3M": "Past 3 months", "1Y": "Past year",
 };
+export const slowLoadDelayMs = 1500;
 const motionQuery = "(prefers-reduced-motion: reduce)";
 
 function subscribeMotion(notify: () => void) {

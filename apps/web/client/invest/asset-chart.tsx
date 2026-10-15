@@ -12,7 +12,7 @@ import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MARKET_PRICE_RANGES, type MarketPriceHistoryCoverage, type MarketPriceHistoryPoint, type MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import { formatChartPrice, formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
-import { endsEarly, rangeLabels, rangeSeconds, scrubTime, useReducedMotion, type ChartClock, type ChartReadout } from "./asset-chart-support";
+import { endsEarly, rangeLabels, rangeSeconds, scrubTime, slowLoadDelayMs, useReducedMotion, type ChartClock, type ChartReadout } from "./asset-chart-support";
 import { usePresentationRegionId } from "./presentation-quote";
 import { usePriceHistory, type PriceHistoryState } from "./use-price-history";
 
@@ -239,7 +239,7 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
   }, [pending, range]);
   useEffect(() => {
     if (!coldLoad) return;
-    const timer = window.setTimeout(() => setSlow(true), 1500);
+    const timer = window.setTimeout(() => setSlow(true), slowLoadDelayMs);
     return () => { window.clearTimeout(timer); setSlow(false); };
   }, [coldLoad, range]);
   useEffect(() => {

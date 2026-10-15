@@ -382,9 +382,9 @@ export function MoneyModalHeader(props: MoneyModalHeaderProps) {
   );
 }
 
-export function MoneyModalBody({ children, className = "", hasFooter = false }: { children: ReactNode; className?: string; hasFooter?: boolean | "flush" }) {
+export function MoneyModalBody({ children, className = "", hasFooter = false }: { children: ReactNode; className?: string; hasFooter?: boolean }) {
   return (
-    <div data-slot="money-modal-body" className={`flex min-h-0 flex-1 flex-col overflow-auto group-data-money-resizing/drawer-popup:overflow-hidden px-4 ${hasFooter === "flush" ? "pb-0" : hasFooter ? "pb-4!" : "pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--sheet-keyboard-inset,0px)))]!"} ${className}`.trim()}>
+    <div data-slot="money-modal-body" className={`flex min-h-0 flex-1 flex-col overflow-auto group-data-money-resizing/drawer-popup:overflow-hidden px-4 ${hasFooter ? "pb-4!" : "pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--sheet-keyboard-inset,0px)))]!"} ${className}`.trim()}>
       {children}
     </div>
   );

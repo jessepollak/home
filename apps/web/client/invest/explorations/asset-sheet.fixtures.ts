@@ -23,7 +23,7 @@ function seededRandom(seed: number) {
     return ((value ^ value >>> 14) >>> 0) / 4294967296;
   };
 }
-export function historyResponse(assetId: string, range: MarketPriceRange, state: "ready" | "empty" | "stale" = "ready") {
+export function historyResponse(assetId: string, range: MarketPriceRange, state: "ready" | "empty" | "stale" | "partial" = "ready") {
   const isStock = assetId === "nvdac";
   const base = prices[assetId] ?? prices.cbbtc!;
   const end = clock - (state === "stale" ? 8 * 86400000 : 0);
@@ -40,17 +40,21 @@ export function historyResponse(assetId: string, range: MarketPriceRange, state:
     return walk;
   });
   const lastOffset = offsets.at(-1) ?? 0;
+  const full = state === "empty" ? [] : offsets.map((offset, index) => {
+    const progress = index / (count - 1);
+    const trend = startFactor + (endFactor - startFactor) * progress;
+    const bounce = isStock ? 0.035 * Math.max(0, 1 - Math.abs(progress - 0.55) / 0.13) : 0;
+    return { time: new Date(end - periods[range] * (1 - progress)).toISOString(),
+      value: (base * Math.max(0.1, trend + offset - lastOffset * progress + bounce)).toPrecision(10) };
+  });
+  const partial = state === "partial" && isStock;
+  const points = partial ? full.filter((_, index) => index < 10 || index > 15) : full;
   return {
     version: 2, provider: isStock ? "chainlink" : "codex", source: expectedMarketPriceHistorySource(assetId),
     assetId, range, currency: "USD", fetchedAt: new Date(clock).toISOString(), status: state === "empty" ? "empty" : "ready",
-    ...(isStock ? { coverage: { sampled: state === "empty" ? 0 : count, observed: state === "empty" ? 0 : count, gaps: [] } } : {}),
-    points: state === "empty" ? [] : offsets.map((offset, index) => {
-      const progress = index / (count - 1);
-      const trend = startFactor + (endFactor - startFactor) * progress;
-      const bounce = isStock ? 0.035 * Math.max(0, 1 - Math.abs(progress - 0.55) / 0.13) : 0;
-      return { time: new Date(end - periods[range] * (1 - progress)).toISOString(),
-        value: (base * Math.max(0.1, trend + offset - lastOffset * progress + bounce)).toPrecision(10) };
-    }),
+    ...(isStock ? { coverage: { sampled: state === "empty" ? 0 : count, observed: points.length,
+      gaps: partial ? [{ from: full[10]!.time, to: full[15]!.time, reason: "read-failed" }] : [] } } : {}),
+    points,
   };
 }
 export function market(asset: InvestAsset = bitcoin, stale = false, stockSession: MarketSession = "open"): MarketDataState {
