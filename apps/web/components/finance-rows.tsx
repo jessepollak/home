@@ -31,7 +31,7 @@ type FinanceRowCommonProps = {
   labelSuffix?: ReactNode;
   context?: ReactNode;
   reserveContext?: boolean;
-  contextLines?: 1 | 2;
+  contextLines?: 1 | 2 | "wrap";
   contextTitle?: string;
   value?: ReactNode;
   valueKind?: "amount" | "status";
@@ -178,7 +178,7 @@ function FinanceRow({
           {typeof icon === "string" ? <DirectionIcon value={icon} /> : icon}
         </span>
       </ItemMedia>
-      <div className={cn("flex min-w-0 flex-1 items-start", labelSuffix === undefined ? cn("gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", contextLines === 2 && "flex-wrap gap-y-1") : "flex-wrap gap-x-2 gap-y-0 @max-[14rem]/finance-row:order-3 @max-[14rem]/finance-row:basis-full")} data-slot="finance-row-body">
+      <div className={cn("flex min-w-0 flex-1 items-start", labelSuffix === undefined ? cn("@max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", kind === "activity" ? "gap-1" : "gap-3", contextLines === 2 && "flex-wrap gap-y-1") : "flex-wrap gap-x-2 gap-y-0 @max-[14rem]/finance-row:order-3 @max-[14rem]/finance-row:basis-full")} data-slot="finance-row-body">
         {labelSuffix === undefined ? (
           <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", isStatus && "flex-[0_1_auto]", contextLines === 2 && !isStatus && "min-w-min", reservesEmptyContext && "min-h-[calc(2.875em+0.125rem)] justify-center", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
             {labelAndContext}

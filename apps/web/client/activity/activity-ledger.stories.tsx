@@ -275,7 +275,7 @@ const meta = {
   title: "Activity/Ledger",
   component: ActivityLedger,
   args: { items: [], onOpen: () => undefined },
-  parameters: { viewport: { defaultViewport: "mobile" }, a11y: { test: "error" } },
+  parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" } },
 } satisfies Meta<typeof ActivityLedger>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -374,10 +374,29 @@ export const TerminalStates: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const recent = within(canvas.getByRole("list", { name: "Recent" }));
-    for (const item of [refunded, cardReversed, declined, declinedInsufficient]) {
-      const statusLabel = item.statusLabel;
-      if (!statusLabel) throw new Error("Missing card status label");
-      await expect(recent.getByRole("button", { description: item.activateLabel, name: new RegExp(statusLabel) })).toHaveTextContent(statusLabel);
+    for (const [item, label] of [[refunded, "Refunded"], [cardReversed, "Reversed"],
+      [declined, "Declined"], [declinedInsufficient, "Declined"]] as const) {
+      const row = recent.getByRole("button", { description: item.activateLabel, name: new RegExp(label) });
+      await expect(row).toHaveTextContent(`${item.dateLabel} · ${label}`);
+      await expect(row).not.toHaveTextContent(/Card was locked|Not enough Cash|Action needed/);
+      const context = row.querySelector<HTMLElement>('[data-slot="item-description"]');
+      if (!context) throw new Error("Missing card date and status");
+      await expect(context.scrollWidth).toBeLessThanOrEqual(context.clientWidth);
+      const range = canvasElement.ownerDocument.createRange();
+      range.selectNodeContents(context);
+      await expect(range.getBoundingClientRect().height).toBeLessThanOrEqual(context.getBoundingClientRect().height);
+      await userEvent.click(row);
+      const screen = within(canvasElement.ownerDocument.body);
+      const dialog = within(await screen.findByRole("dialog"));
+      if (!item.statusLabel) throw new Error("Missing card status label");
+      for (const badge of dialog.getAllByText(item.statusLabel, { exact: true })) await expect(badge).toBeVisible();
+      if (item.ownerSentence) {
+        if (!item.ownerSentence.description) throw new Error("Missing card recovery description");
+        await expect(dialog.getByRole("alert")).toHaveTextContent(item.ownerSentence.title);
+        await expect(dialog.getByRole("alert")).toHaveTextContent(item.ownerSentence.description);
+      }
+      await userEvent.click(dialog.getByRole("button", { name: `Close ${item.title} details` }));
+      await waitForReady(() => expect(row).toHaveFocus());
     }
     const settled = recent.getAllByRole("button", { description: card.activateLabel })
       .find((row) => row.textContent?.includes(card.amount));

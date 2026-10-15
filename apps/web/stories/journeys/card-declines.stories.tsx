@@ -81,7 +81,8 @@ export const Locked: Story = {
     await expect(onCardAction).toHaveBeenCalledWith("unlock-card", expect.any(Function));
     await userEvent.click(dialog.getByRole("button", { name: "Close Fixture Market details" }));
     const row = await screen.findByRole("button", { name: /^Fixture Market/ });
-    await expect(row).toHaveAccessibleName(/Card was locked/);
+    await expect(row).toHaveAccessibleName(/Declined/);
+    await expect(row).not.toHaveTextContent("Card was locked");
     await expect(row).not.toHaveAccessibleName(/Action needed/);
   },
 };
@@ -115,7 +116,8 @@ export const InsufficientFunds: Story = {
     await expect(onCardAction).toHaveBeenCalledWith("add-money", expect.any(Function));
     await userEvent.click(dialog.getByRole("button", { name: "Close Fixture Market details" }));
     const row = await screen.findByRole("button", { name: /^Fixture Market/ });
-    await expect(row).toHaveAccessibleName(/Not enough Cash/);
+    await expect(row).toHaveAccessibleName(/Declined/);
+    await expect(row).not.toHaveTextContent("Not enough Cash");
     await expect(row).not.toHaveAccessibleName(/Action needed/);
   },
 };

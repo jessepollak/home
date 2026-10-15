@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
+import { activityPageBody, installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { requestBackgroundRevalidation } from "./fixtures/background-revalidation";
 import { sessionBody } from "./fixtures/bodies";
 import { cashoutFixtureAction, cashoutFixtureProgress } from "./feature-map/cashout-fixture";
@@ -534,10 +534,22 @@ for (const width of [390, 1280]) {
   });
 }
 
+test.describe("card purchase statuses", () => {
+  test.use({ timezoneId: "UTC" });
+
 test("Activity renders seeded card purchases across all statuses and decline reasons", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page);
   await installApiFixtures(page);
+  await page.route("**/api/activity?**", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const body = activityPageBody(params.get("to"), "USD");
+    body.cards.rows = body.cards.rows.map((row, index) => {
+      const timestamp = `2026-09-27T12:${String(59 - index).padStart(2, "0")}:00.000Z`;
+      return { ...row, createdAt: timestamp, updatedAt: timestamp };
+    });
+    await json(route, body);
+  });
   await page.goto("/activity");
 
   const activity = page.locator('section[aria-label="Activity"]').last();
@@ -546,11 +558,12 @@ test("Activity renders seeded card purchases across all statuses and decline rea
   await expect(pendingCard).toBeVisible();
   await expect(pendingCard).toContainText("Pending");
   await expect(pendingCard).toContainText("−$6.50");
+  const cardRows = [pendingCard];
 
   const recent = activity.getByRole("list", { name: "Recent" });
   for (const { merchant, label, amount } of [
-    { merchant: "Lyft", label: "Card was locked", amount: "$18.20" },
-    { merchant: "Whole Foods Market", label: "Not enough Cash", amount: "$64.10" },
+    { merchant: "Lyft", label: "Declined", amount: "$18.20" },
+    { merchant: "Whole Foods Market", label: "Declined", amount: "$64.10" },
     { merchant: "Whole Foods Market", label: null, amount: "−$42.18" },
     { merchant: "Grand Hotel", label: "Reversed", amount: "$100.00" },
     { merchant: "Apple", label: "Refunded", amount: "+$9.99" },
@@ -568,5 +581,53 @@ test("Activity renders seeded card purchases across all statuses and decline rea
     if (label) await expect(row).toContainText(label);
     else await expect(row).not.toContainText(" · ");
     await expect(row).toContainText(amount);
+    cardRows.push(row);
   }
+
+  for (const row of cardRows) {
+    await expect(row).not.toContainText(/Card was locked|Not enough Cash|Action needed/);
+    const context = row.locator('[data-slot="item-description"]');
+    await expect(context).toContainText(/Sep 27, 12:\d{2} PM/);
+    await expect(context.locator("time")).toHaveAttribute("aria-label", /Sep 27, 2026, 12:\d{2} PM/);
+    const geometry = await row.evaluate((node) => {
+      const context = node.querySelector<HTMLElement>('[data-slot="item-description"]');
+      if (!context) throw new Error("Missing card date and status");
+      const value = node.querySelector<HTMLElement>('[data-slot="finance-row-value"]');
+      if (!value) throw new Error("Missing card amount");
+      const range = document.createRange();
+      range.selectNodeContents(context);
+      return {
+        contextWidth: context.clientWidth, textWidth: context.scrollWidth,
+        contextHeight: context.getBoundingClientRect().height, textHeight: range.getBoundingClientRect().height,
+        contextLineHeight: Number.parseFloat(getComputedStyle(context).lineHeight),
+        contextScrollHeight: context.scrollHeight, contextClientHeight: context.clientHeight,
+        contextRight: context.getBoundingClientRect().right, valueLeft: value.getBoundingClientRect().left,
+        valueWidth: value.clientWidth, valueScroll: value.scrollWidth,
+        rowWidth: node.clientWidth, rowScroll: node.scrollWidth,
+      };
+    });
+    expect(geometry.textWidth).toBeLessThanOrEqual(geometry.contextWidth);
+    expect(geometry.textHeight).toBeLessThanOrEqual(geometry.contextHeight);
+    expect(geometry.contextRight).toBeLessThanOrEqual(geometry.valueLeft);
+    expect(geometry.valueScroll).toBeLessThanOrEqual(geometry.valueWidth);
+    expect(geometry.rowScroll).toBeLessThanOrEqual(geometry.rowWidth);
+    expect(geometry.contextHeight).toBeLessThanOrEqual(geometry.contextLineHeight * 2);
+    expect(geometry.contextScrollHeight).toBeLessThanOrEqual(geometry.contextClientHeight);
+  }
+
+  for (const { merchant, amount, badge, title, recovery } of [
+    { merchant: "Lyft", amount: "$18.20", badge: "Card was locked", title: "Declined because your card was locked", recovery: "Nothing was charged." },
+    { merchant: "Whole Foods Market", amount: "$64.10", badge: "Not enough Cash", title: "Not enough available to spend", recovery: "Nothing was charged. Add money and try again." },
+  ]) {
+    const row = recent.getByRole("button", { name: new RegExp(`^${merchant} `) }).filter({ hasText: amount });
+    await row.click();
+    const dialog = page.getByRole("dialog", { name: merchant, exact: true });
+    await expect(dialog.getByText(badge, { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("alert")).toContainText(title);
+    await expect(dialog.getByRole("alert")).toContainText(recovery);
+    await dialog.getByRole("button", { name: `Close ${merchant} details` }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(row).toBeFocused();
+  }
+});
 });
