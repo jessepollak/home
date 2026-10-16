@@ -3,6 +3,7 @@ import "server-only";
 import type { ActionHandleResolver } from "./reconcile";
 import { getDefaultActionHandleResolver, reconcileRow, rotatingWindow, settleRow } from "./settle";
 import { emitServerEvent } from "@/server/observability/log";
+import { composeDeadline } from "@/server/http/deadline";
 import { actionOwnerKey, getActionsStore, ownerFromActionKey, type ActionRow, type ActionsStore } from "./store";
 import type { TransferReceiptStatus } from "./receipt";
 
@@ -73,7 +74,7 @@ async function followRows(
       if (!row || options.signal.aborted) continue;
       const startedAt = Date.now();
       const result = await followAction(row, {
-        signal: AbortSignal.any([options.signal, AbortSignal.timeout(options.rowBudgetMs)]),
+        signal: composeDeadline(options.signal, options.rowBudgetMs),
         route: options.route, deps: { ...options.deps, store: options.store },
       });
       observe?.(row, result, startedAt);
@@ -87,10 +88,7 @@ async function followRows(
 export async function followActionUntilSettled(row: ActionRow, options: LoopOptions): Promise<ActionRow> {
   const now = options.deps?.now ?? Date.now;
   const deadline = now() + options.deadlineMs;
-  const signal = AbortSignal.any([
-    options.signal,
-    AbortSignal.timeout(Number.isFinite(options.deadlineMs) && options.deadlineMs >= 1 && options.deadlineMs <= 2_147_483_647 ? Math.trunc(options.deadlineMs) : 1),
-  ]);
+  const signal = composeDeadline(options.signal, Number.isFinite(options.deadlineMs) && options.deadlineMs >= 1 && options.deadlineMs <= 2_147_483_647 ? Math.trunc(options.deadlineMs) : 1);
   for (let attempt = 0; !signal.aborted && now() < deadline; attempt++) {
     const result = await followActionStep(row, { ...options, signal });
     row = result.row;

@@ -7,6 +7,7 @@ import {
 } from "@/config/regions";
 import { stockAssets, type InvestAsset } from "@/config/invest-assets";
 import { emitServerEvent } from "@/server/observability/log";
+import { composeDeadline } from "@/server/http/deadline";
 import {
   getCodexRawQuotes,
   type CodexRawQuoteInput,
@@ -601,11 +602,12 @@ async function fetchPriceInputs(
 ) {
   const batches: CodexRawQuoteInput[][] = [];
   for (let index = 0; index < inputs.length; index += PRICE_BATCH_SIZE) batches.push(inputs.slice(index, index + PRICE_BATCH_SIZE));
-  const signals = options.signal ? [options.signal] : [];
-  if (options.budgetMs !== undefined && !options.signal?.aborted) {
-    signals.push(AbortSignal.timeout(Number.isFinite(options.budgetMs) && options.budgetMs >= 1 && options.budgetMs <= 2_147_483_647 ? Math.trunc(options.budgetMs) : 1));
-  }
-  const signal = AbortSignal.any(signals);
+  const budgetMs = options.budgetMs === undefined || options.signal?.aborted
+    ? undefined
+    : Number.isFinite(options.budgetMs) && options.budgetMs >= 1 && options.budgetMs <= 2_147_483_647 ? Math.trunc(options.budgetMs) : 1;
+  const signal = budgetMs === undefined
+    ? options.signal ?? new AbortController().signal
+    : composeDeadline(options.signal, budgetMs);
   let onAbort: (() => void) | undefined;
   const aborted = new Promise<null>((resolve) => {
     onAbort = () => resolve(null);

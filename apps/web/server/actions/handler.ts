@@ -24,6 +24,7 @@ import { deferCustomerRecord } from "@/server/customers/resolve";
 import type { TransferReceiptStatus } from "./receipt";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { privateError, privateJson } from "@/server/http/private-response";
+import { composeDeadline } from "@/server/http/deadline";
 import type { PendingTradeResponse } from "@/shared/actions/contracts/trade-pending";
 import { cashoutMetadataRegion, getActionsStore, type ActionRow, type ActionsStore, type CashoutOrderRow, type PendingAction } from "./store";
 import { isRegionOffered } from "@/server/operator-settings/regions";
@@ -62,7 +63,8 @@ const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const RECONCILE_MAX_PER_REQUEST = 5;
 const RECONCILE_DEADLINE_MS = 3_000;
 const CASHOUT_REFRESH_DEADLINE_MS = 3_000;
-const BORROW_DEBT_DEADLINE_MS = 3_000;
+/** @public exercised by server/borrowing/prepare.test.ts */
+export const BORROW_DEBT_DEADLINE_MS = 3_000;
 const BALANCES_HOT_WINDOW_MS = 60_000;
 const FOLLOW_UP_THROTTLE_MS = 15_000;
 const FOLLOW_UP_MAX_ENTRIES = 500;
@@ -116,14 +118,14 @@ export function createGetActionHandler(dependencies: {
       return privateJson(response, 200);
     }
     const now = dependencies.now?.() ?? new Date();
-    const deadline = createDeadline(request.signal, RECONCILE_DEADLINE_MS);
+    const reconcileDeadline = composeDeadline(request.signal, RECONCILE_DEADLINE_MS);
     const reconciled = isReconcileCandidate(row, now)
       ? await reconcileRow({
           row,
           owner,
           store: dependencies.store ?? getActionsStore(),
           resolveHandle: dependencies.resolveHandle ?? getDefaultActionHandleResolver(),
-          signal: deadline.signal,
+          signal: reconcileDeadline,
           route: "/api/actions/:id",
         })
       : row;
@@ -178,17 +180,17 @@ async function readCurrentBorrowDebt(owner: `0x${string}`, market: BorrowMarketR
 async function readBorrowDebtWithDeadline(
   read: typeof readCurrentBorrowDebt, owner: `0x${string}`, market: BorrowMarketRef, signal: AbortSignal,
 ): Promise<bigint> {
-  const deadline = createDeadline(signal, BORROW_DEBT_DEADLINE_MS);
+  const deadlineSignal = composeDeadline(signal, BORROW_DEBT_DEADLINE_MS);
   let onAbort: () => void = () => undefined;
   try {
-    deadline.signal.throwIfAborted();
+    deadlineSignal.throwIfAborted();
     const aborted = new Promise<never>((_resolve, reject) => {
-      onAbort = () => reject(deadline.signal.reason);
-      deadline.signal.addEventListener("abort", onAbort, { once: true });
+      onAbort = () => reject(deadlineSignal.reason);
+      deadlineSignal.addEventListener("abort", onAbort, { once: true });
     });
-    return await Promise.race([read(owner, market, deadline.signal), aborted]);
+    return await Promise.race([read(owner, market, deadlineSignal), aborted]);
   } finally {
-    deadline.signal.removeEventListener("abort", onAbort);
+    deadlineSignal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -601,7 +603,7 @@ export function createListActionsHandler(dependencies: {
       RECONCILE_MAX_PER_REQUEST,
       now.getTime(),
     ).map((row) => row.id));
-    const deadline = createDeadline(request.signal, RECONCILE_DEADLINE_MS);
+    const reconcileDeadline = composeDeadline(request.signal, RECONCILE_DEADLINE_MS);
     const allObserved = await Promise.all([...rows, ...retainedRows].map(async (row): Promise<CashoutReceiptRow> => {
       if (!isRecord(row.summary)) return { row, receipt: null };
       const reconciled = candidateIds.has(row.id)
@@ -610,15 +612,15 @@ export function createListActionsHandler(dependencies: {
             owner,
             store,
             resolveHandle: dependencies.resolveHandle ?? getDefaultActionHandleResolver(),
-            signal: deadline.signal,
+            signal: reconcileDeadline,
             route: "/api/actions",
           })
         : row;
-      return await settleRow(reconciled, owner, store, dependencies.readReceipt, deadline.signal, "/api/actions");
+      return await settleRow(reconciled, owner, store, dependencies.readReceipt, reconcileDeadline, "/api/actions");
     }));
     const observed = allObserved.slice(0, rows.length);
     const retainedObserved = allObserved.slice(rows.length);
-    const refreshDeadline = createDeadline(request.signal, CASHOUT_REFRESH_DEADLINE_MS);
+    const refreshDeadline = composeDeadline(request.signal, CASHOUT_REFRESH_DEADLINE_MS);
     const linkableWithdrawal = (row: ActionRow) => isRecord(row.summary) && row.summary.metadata?.product === "cashout" &&
       row.summary.metadata.operation === "withdraw" && typeof row.summary.metadata.depositId === "string" &&
       row.summary.metadata.depositId.trim() === row.summary.metadata.depositId && row.summary.metadata.depositId.length > 0;
@@ -626,7 +628,7 @@ export function createListActionsHandler(dependencies: {
       (row.kind !== "cash-out-withdraw" || linkableWithdrawal(row)));
     const unlinkableWithdrawals = observed.filter(({ row }) => row.kind === "cash-out-withdraw" && !linkableWithdrawal(row)).map(({ row }) => row);
     const unlinkedInFlight = unlinkedWithdrawalInFlight(unlinkableWithdrawals, owner, now);
-    const records = await (dependencies.refreshCashouts ?? refreshCashoutProgress)({ owner, rows: cashoutRows, store: store as ActionsStore, signal: refreshDeadline.signal, now: () => now });
+    const records = await (dependencies.refreshCashouts ?? refreshCashoutProgress)({ owner, rows: cashoutRows, store: store as ActionsStore, signal: refreshDeadline, now: () => now });
     const byAction = new Map(records.map((record) => [record.action_id, record]));
     const actions = await Promise.all(observed.map(async ({ row, receipt }) => {
       const record = row.kind === "cash-out" ? byAction.get(row.id) : undefined;
@@ -724,10 +726,6 @@ export async function presentAction(
       accountProvider: owner.accountProvider,
     },
   } satisfies ActionListItem & GetActionResponse;
-}
-
-function createDeadline(parentSignal: AbortSignal, ms: number): { signal: AbortSignal } {
-  return { signal: AbortSignal.any([parentSignal, AbortSignal.timeout(ms)]) };
 }
 
 function iso(value: string | Date | null): string | null {

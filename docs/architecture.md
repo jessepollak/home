@@ -82,7 +82,7 @@ Shared primitives live under `apps/web/` at these owners.
 
 | Block | Owner | Owns |
 |---|---|---|
-| Server HTTP | `server/http/request.ts`, `server/http/upstream.ts`, `server/http/private-response.ts` | Bounded request reads, deadline-bound upstream requests, and private responses |
+| Server HTTP | `server/http/request.ts`, `server/http/upstream.ts`, `server/http/private-response.ts`, `server/http/deadline.ts` | Bounded request reads, deadline-bound upstream requests, retained composed deadlines, and private responses |
 | Server auth | `server/cdp/auth.ts` | CDP request JWT signing and typed auth failures |
 | Server env | `server/config/env.ts` | Validated environment getters and credential reads |
 | Chain hex | `shared/chain/hex.ts` | Validated, lowercase branded addresses and 32-byte hashes |

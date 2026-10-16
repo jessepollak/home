@@ -1,5 +1,5 @@
 import { parseHash32 } from "@/shared/chain/hex";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import { BORROW_HEALTH_FLOOR_WAD, BORROW_MARKETS, type BorrowMarketRef } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import { increasesBorrowRisk, type BorrowActionIntent } from "@/shared/borrowing/types";
@@ -7,7 +7,7 @@ import { approveCall, borrowCall, repayCall, repaySharesCall, supplyCollateralCa
 import { availableBorrowAssets, borrowCapacityAssets, minimumCollateralForHealthFactor, policyMaximumDebtAssets } from "./math";
 import { BorrowPreparationError, prepareBorrowAction } from "./prepare";
 import type { BorrowRpcReader } from "./rpc";
-import { createConfirmActionHandler } from "@/server/actions/handler";
+import { BORROW_DEBT_DEADLINE_MS, createConfirmActionHandler } from "@/server/actions/handler";
 import type { ActionRow } from "@/server/actions/store";
 import { readJson } from "@/tests/helpers/read-json";
 
@@ -70,6 +70,8 @@ async function prepare(market: BorrowMarketRef, operation: BorrowActionIntent["o
 const operations = ["supply-collateral", "borrow", "supply-and-borrow", "repay", "repay-all", "withdraw-collateral", "close-position"] as const;
 
 describe("Borrow action preparation across verified markets", () => {
+  afterEach(() => jest.useRealTimers());
+
   test.each([...BORROW_MARKETS])("prepares all seven operations against $collateralToken.symbol with exact calldata and one pinned simulation", async (market) => {
     for (const operation of operations) {
       const state = snapshot(market);
@@ -159,6 +161,48 @@ describe("Borrow action preparation across verified markets", () => {
       expect(await readJson(response)).toMatchObject(allowed ? { calls } : { error: { code: "ACTION_EXPIRED" } });
     },
   );
+
+  test("a hanging reducing-only debt read fails closed when the deadline fires", async () => {
+    jest.useFakeTimers();
+    const enabled = BORROW_MARKETS[0];
+    const market = { ...enabled, availability: "reducing-only" as const };
+    const { result } = await prepare(enabled, "withdraw-collateral", snapshot(market));
+    const { calls, kind, ...summary } = result.draft;
+    const id = "22222222-2222-4222-8222-222222222222";
+    const draft: ActionRow = {
+      id, owner_key: JSON.stringify(["owner-a", OWNER, 8453, "cdp-embedded"]), account_address: OWNER, provider: "cdp-embedded",
+      kind, summary, pending: { calls }, created_at: "2026-09-24T02:49:17.000Z", confirmed_at: null,
+      provider_handle: null, transaction_hash: null, handle_recorded_at: null, declined_reported_at: null,
+      dispatch_attempt: 0, outcome: null, outcome_source: null, settled_at: null, outcome_recorded_at: null,
+    };
+    let confirms = 0;
+    let readSignal: AbortSignal | undefined;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner-a" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-24T02:49:17.000Z"), borrowMarket: () => market,
+      readBorrowDebt: (_owner, _market, signal) => {
+        readSignal = signal;
+        return new Promise<bigint>(() => undefined);
+      },
+      recordConfirmed: async () => undefined,
+      store: { get: async () => draft, confirm: async () => {
+        confirms++;
+        return { ...draft, confirmed_at: "2026-09-24T02:49:17.000Z" };
+      } },
+    });
+    const pending = handler(new Request(`https://home.test/api/actions/${id}/confirm`, {
+      method: "POST", headers: { "X-Home-Account-Provider": "cdp-embedded" }, body: "{}",
+    }), { params: Promise.resolve({ id }) });
+    for (let turn = 0; turn < 10 && readSignal === undefined; turn++) await Promise.resolve();
+    expect(readSignal?.aborted).toBe(false);
+    jest.advanceTimersByTime(BORROW_DEBT_DEADLINE_MS);
+    const response = await pending;
+    expect(readSignal?.aborted).toBe(true);
+    expect(readSignal?.reason).toMatchObject({ name: "TimeoutError" });
+    expect(response.status).toBe(410);
+    expect(confirms).toBe(0);
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+  });
 
   test.each([...BORROW_MARKETS])("rejects $collateralToken.symbol borrow above the 1.25 health floor", async (market) => {
     const minimum = minimumCollateralForHealthFactor(debt + BigInt("1000000"), BigInt(prices[market.rank - 1]), market.lltvWad, BORROW_HEALTH_FLOOR_WAD);

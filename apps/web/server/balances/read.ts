@@ -13,6 +13,7 @@ import {
   type BaseRpcCall,
 } from "@/server/chain/rpc";
 import { observeSafely, writeObservabilityEvent } from "@/server/observability/log";
+import { composeDeadline } from "@/server/http/deadline";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import type { HoldingBalance } from "@/shared/balances/types";
 import {
@@ -452,9 +453,7 @@ async function withDeadline<T>(
   timeoutMs: number,
   run: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  const timeout = AbortSignal.timeout(Number.isFinite(timeoutMs) && timeoutMs >= 1 && timeoutMs <= 2_147_483_647 ? Math.trunc(timeoutMs) : 1);
-  const signal = external ? AbortSignal.any([external, timeout]) : timeout;
-  return run(signal);
+  return run(composeDeadline(external, Number.isFinite(timeoutMs) && timeoutMs >= 1 && timeoutMs <= 2_147_483_647 ? Math.trunc(timeoutMs) : 1));
 }
 
 /** @public exercised by server/balances/read.test.ts */
