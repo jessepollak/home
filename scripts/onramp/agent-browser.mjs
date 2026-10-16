@@ -283,9 +283,10 @@ async function driveCoinbase(cdp, timing) {
   await fillRequired(cdp, SANDBOX_OTP, ["otp", "code", "one-time"], timing, { otp: true });
   await clickRequired(cdp, ["verify", "continue", "next"], timing);
 
-  for (let screen = 0; screen < 5; screen += 1) {
-    const text = await waitForCdpText(cdp, /identity|limit|date of birth|social security|ssn|review|preview|apple pay/i, timing);
-    if (/review|preview|apple pay/i.test(text)) break;
+  const reviewScreen = /review|preview|apple pay/i;
+  const progressScreen = /identity|limit|date of birth|social security|ssn|review|preview|apple pay/i;
+  let text = await waitForCdpText(cdp, progressScreen, timing);
+  for (let screen = 0; screen < 5 && !reviewScreen.test(text); screen += 1) {
     if (/date of birth|birth date|dob/i.test(text)) {
       await fillRequired(cdp, SYNTHETIC_DOB, ["date of birth", "birth", "dob"], timing);
     }
@@ -293,9 +294,10 @@ async function driveCoinbase(cdp, timing) {
       await fillRequired(cdp, SYNTHETIC_SSN4, ["social security", "ssn", "last four", "last 4"], timing);
     }
     await clickRequired(cdp, ["continue", "verify", "next"], timing);
+    text = await waitForNewCdpText(cdp, progressScreen, text, timing);
   }
 
-  await waitForCdpText(cdp, /review|preview|apple pay/i, timing);
+  if (!reviewScreen.test(text)) await waitForNewCdpText(cdp, reviewScreen, text, timing);
 }
 
 async function sleep(milliseconds) {
