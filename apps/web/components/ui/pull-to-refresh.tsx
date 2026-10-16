@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type JSX, type Ref, type RefObject } from "react";
-import { ArrowDown, Check, LoaderCircle, RotateCw } from "lucide-react";
+import { ArrowDown, Check, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
+import { StatusSpinner } from "./status-texture";
 
 export type PullToRefreshPhase = "idle" | "pulling" | "armed" | "refreshing" | "settling";
 
@@ -260,7 +261,7 @@ export function PullToRefreshAction({ label, refreshing, onRefresh, actionRef }:
     focusableWhenDisabled={refreshing}
     aria-busy={refreshing}
     onClick={onRefresh}
-  >{refreshing ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : <RotateCw aria-hidden="true" className="size-4" />}</Button>;
+  >{refreshing ? <StatusSpinner className="size-4" /> : <RotateCw aria-hidden="true" className="size-4" />}</Button>;
 }
 
 export function PullToRefreshIndicator({ phase, indicatorRef }: { phase: PullToRefreshPhase; indicatorRef?: Ref<HTMLDivElement> }): JSX.Element {
@@ -271,7 +272,7 @@ export function PullToRefreshIndicator({ phase, indicatorRef }: { phase: PullToR
       data-slot="pull-to-refresh-indicator"
       className={cn("pointer-events-none absolute inset-x-0 top-4 z-10 mx-auto flex size-9 items-center justify-center rounded-full bg-card text-muted-foreground shadow-raised peer-focus-visible:invisible motion-reduce:transition-opacity", phase === "idle" || phase === "settling" ? "opacity-0" : "opacity-100")}
     >
-      {phase === "refreshing" ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" /> :
+      {phase === "refreshing" ? <StatusSpinner className="size-4" /> :
         phase === "armed" ? <><ArrowDown className="size-4 motion-reduce:hidden" /><Check className="hidden size-4 motion-reduce:block" /></> :
           <ArrowDown className="size-4" />}
     </div>

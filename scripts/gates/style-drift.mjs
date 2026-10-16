@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { classifyStatusMark, classifyStyleDriftToken, isStatusStyleOwner, styleDriftFamilies, styleDriftOccurrences } from "../../apps/web/oxlint/policy/style-drift.mjs";
+import { classifyStatusMark, classifyStyleDriftToken, isStatusStyleOwner, isPrimitiveStyleFile, isStyleDriftExempt, primitiveStyleScope, styleDriftFamilies, styleDriftOccurrences } from "../../apps/web/oxlint/policy/style-drift.mjs";
 
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -14,7 +14,7 @@ const parseCache = new Map();
 export function isStyleDriftSource(file) {
   return typeof file === "string" && /^(?:app|client|components)\//u.test(file)
     && /\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/u.test(file)
-    && !file.startsWith("components/ui/") && !/(?:^|\/)tests\//u.test(file)
+    && !/(?:^|\/)tests\//u.test(file)
     && !/\.(?:test|stories)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/u.test(file)
     && !file.split("/").some((segment) => segment === "." || segment === ".." || !segment || segment.includes("\\"));
 }
@@ -39,9 +39,8 @@ export function countStyleDrift(file, content) {
   if (cached?.content === content) return cached.counts;
   const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, scriptKindFor(file));
   const counts = new Map();
-  const statusOwner = isStatusStyleOwner(file);
   function record({ token, family }) {
-    if (statusOwner && family.startsWith("status-")) return;
+    if (isStyleDriftExempt(file, family)) return;
     counts.set(token, (counts.get(token) ?? 0) + 1);
   }
   function visit(node) {
@@ -75,6 +74,10 @@ function entries(files, budget, allowLegacyFamilies = false) {
     && families.every((family) => styleDriftFamilies.includes(family))
     && (allowLegacyFamilies || styleDriftFamilies.every((family) => families.includes(family)));
   if (!validFamilies) invalid.push("budget.families must list the ratcheted style-drift families exactly once");
+  const scopesValid = Array.isArray(budget?.scopes) && budget.scopes.length === 1 && budget.scopes[0] === primitiveStyleScope;
+  if (budget?.scopes !== undefined ? !scopesValid : !allowLegacyFamilies) {
+    invalid.push(`budget.scopes must list ${primitiveStyleScope} exactly once so primitive status styling stays ratcheted`);
+  }
   const scanned = new Map(files.map(({ path: file, content }) => [file, countStyleDrift(file, content)]));
   const base = budget?.files && typeof budget.files === "object" && !Array.isArray(budget.files) ? budget.files : {};
   if (base !== budget?.files) invalid.push("budget.files must be an object");
@@ -87,7 +90,7 @@ function entries(files, budget, allowLegacyFamilies = false) {
       const finding = classifyStyleDriftToken(token);
       if (/\s/u.test(token) || finding?.token !== token || !Number.isSafeInteger(count) || count <= 0) invalid.push(`${file}: invalid ${token} baseline count ${count}`);
       else if (validFamilies && !families.includes(finding.family)) invalid.push(`${file}: ${token} family ${finding.family} is not listed in budget.families`);
-      else if (finding.family.startsWith("status-") && isStatusStyleOwner(file)) invalid.push(`${file}: owned status renderer cannot have a ${finding.family} baseline`);
+      else if (isStyleDriftExempt(file, finding.family)) invalid.push(`${file}: ${isStatusStyleOwner(file) ? "owned status renderer" : "primitive"} cannot have a ${finding.family} baseline`);
     }
   }
   return { scanned, base, invalid, families };
@@ -108,11 +111,11 @@ export function readBaseBudget(baseRef = "origin/main", baselinePath = BASELINE_
   } catch (error) {
     throw new Error(`Could not inspect ${base}: ${error.message}`);
   }
-  if (!listing) return { base, families: [], files: null, notes: [`${baselinePath} is absent at ${base}; baseline raises were not checked.`] };
+  if (!listing) return { base, families: [], scopes: [], files: null, notes: [`${baselinePath} is absent at ${base}; baseline raises were not checked.`] };
   const parsed = JSON.parse(gitRunner(["show", `${base}:${baselinePath}`]));
   const shape = entries([], parsed, true);
   if (shape.invalid.length) throw new Error(`${baselinePath} at ${base} is invalid: ${shape.invalid[0]}`);
-  return { base, families: shape.families, files: parsed.files, notes: [] };
+  return { base, families: shape.families, scopes: parsed.scopes ?? [], files: parsed.files, notes: [] };
 }
 
 export function evaluateStyleDriftBudget({ files, budget, reference = null }) {
@@ -126,6 +129,7 @@ export function evaluateStyleDriftBudget({ files, budget, reference = null }) {
         const family = classifyStyleDriftToken(token)?.family;
         if (!(reference.families ?? styleDriftFamilies.slice(0, 4)).includes(family)) continue;
         const prior = ownCount(reference.files?.[file], token);
+        if (isPrimitiveStyleFile(file) && !(reference.scopes ?? []).includes(primitiveStyleScope)) continue;
         if (count > prior) raises.push(`${file}: ${token} baseline ${count} > ${prior}; the checked-in baseline may only shrink: merge or rebase the base branch if it lowered this count, or revert the raise`);
       }
     }
@@ -159,7 +163,7 @@ export function shrinkBudget({ files, budget }) {
     }
     if (counts.size) result[file] = Object.fromEntries(counts);
   }
-  return { families: budget.families, files: result };
+  return { families: budget.families, ...(budget.scopes ? { scopes: budget.scopes } : {}), files: result };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

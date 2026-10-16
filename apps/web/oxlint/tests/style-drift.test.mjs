@@ -98,8 +98,22 @@ describe("home/no-raw-style-utilities", () => {
       load: { path: "components/load-error.tsx", code },
       outside: { path: "components/another.tsx", code },
     });
-    for (const name of ["ui", "rows", "load"]) expect(quoted(results[name])).toEqual(["duration-150", "shadow-md", "ease-out", "rounded-[3px]"].sort());
+    expect(results.ui).toHaveLength(0);
+    for (const name of ["rows", "load"]) expect(quoted(results[name])).toEqual(["duration-150", "shadow-md", "ease-out", "rounded-[3px]"].sort());
     expect(results.outside).toHaveLength(7);
+  }, budgetMs);
+
+  it("applies status families to non-owner primitives and leaves their legacy families alone", async () => {
+    const code = 'import { LoaderCircle } from "lucide-react"; export const value = "text-destructive animate-pulse duration-150 shadow-md";';
+    const results = await lint({
+      owner: { path: "components/ui/status-texture.tsx", code },
+      coverage: { path: "components/ui/coverage-status-preview.tsx", code },
+      primitive: { path: "components/ui/new-primitive.tsx", code },
+    });
+    expect(results.owner).toHaveLength(0);
+    expect(results.coverage).toHaveLength(0);
+    expect(quoted(results.primitive)).toEqual(["<LoaderCircle>", "text-destructive", "animate-pulse"].sort());
+    expect(results.primitive.every((item) => item.message.includes("(status-"))).toBe(true);
   }, budgetMs);
 
   it("suppresses exact status counts, not another import alias or repeated utility", async () => {

@@ -8,6 +8,9 @@
     "status-motion",
     "status-mark"
   ],
+  "scopes": [
+    "components/ui/"
+  ],
   "files": {
     "app/access/access-form.tsx": {
       "text-destructive": 1
@@ -79,6 +82,86 @@
       "animate-pulse": 1,
       "bg-destructive": 1,
       "bg-warning": 1
+    },
+    "components/ui/aggregate-signals.tsx": {
+      "text-destructive": 1,
+      "text-warning": 1
+    },
+    "components/ui/alert.tsx": {
+      "text-destructive": 2
+    },
+    "components/ui/badge.tsx": {
+      "border-destructive": 1,
+      "ring-destructive/20": 2,
+      "ring-destructive/40": 2,
+      "bg-destructive/10": 1,
+      "text-destructive": 1,
+      "bg-destructive/20": 2,
+      "border-warning/40": 1,
+      "text-warning": 1,
+      "bg-warning/10": 1
+    },
+    "components/ui/button.tsx": {
+      "border-destructive": 1,
+      "ring-destructive/20": 2,
+      "border-destructive/50": 1,
+      "ring-destructive/40": 2,
+      "bg-destructive/10": 1,
+      "text-destructive": 1,
+      "bg-destructive/20": 3,
+      "border-destructive/40": 1,
+      "bg-destructive/30": 2
+    },
+    "components/ui/field.tsx": {
+      "text-destructive": 2
+    },
+    "components/ui/input-group.tsx": {
+      "border-destructive": 1,
+      "ring-destructive/20": 1,
+      "ring-destructive/40": 1
+    },
+    "components/ui/input-otp.tsx": {
+      "border-destructive": 1,
+      "ring-destructive/20": 1,
+      "ring-destructive/40": 1
+    },
+    "components/ui/input.tsx": {
+      "border-destructive": 1,
+      "ring-destructive/20": 1,
+      "border-destructive/50": 1,
+      "ring-destructive/40": 1
+    },
+    "components/ui/item.tsx": {
+      "text-destructive": 1
+    },
+    "components/ui/progress.tsx": {
+      "animate-pulse": 1
+    },
+    "components/ui/radio-group.tsx": {
+      "border-destructive": 1,
+      "ring-destructive/20": 1,
+      "border-destructive/50": 1,
+      "ring-destructive/40": 1
+    },
+    "components/ui/select.tsx": {
+      "border-destructive": 2,
+      "ring-destructive/20": 2,
+      "border-destructive/50": 1,
+      "ring-destructive/40": 1
+    },
+    "components/ui/skeleton.tsx": {
+      "animate-pulse": 1
+    },
+    "components/ui/textarea.tsx": {
+      "border-destructive": 1,
+      "ring-destructive/20": 1,
+      "border-destructive/50": 1,
+      "ring-destructive/40": 1
+    },
+    "components/ui/toggle.tsx": {
+      "border-destructive": 1,
+      "ring-destructive/20": 1,
+      "ring-destructive/40": 1
     }
   }
 }
