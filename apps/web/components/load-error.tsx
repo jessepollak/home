@@ -4,13 +4,14 @@ import { Alert, AlertAction, AlertDescription, AlertIcon, AlertTitle } from "@/c
 import { StatusMark } from "@/components/ui/status-texture";
 import { Button } from "@/components/ui/button";
 
-export function LoadRetryButton({ onRetry, retryRef, children = "Try again" }: {
+export function LoadRetryButton({ onRetry, retryRef, describedBy, children = "Try again" }: {
   onRetry: () => void;
   retryRef?: Ref<HTMLButtonElement>;
+  describedBy?: string;
   children?: ReactNode;
 }) {
   return (
-    <Button ref={retryRef} type="button" variant="outline" size="touch" onClick={onRetry}>
+    <Button ref={retryRef} type="button" variant="outline" size="touch" onClick={onRetry} aria-describedby={describedBy}>
       <RotateCw className="size-4" data-icon="inline-start" aria-hidden="true" />
       {children}
     </Button>

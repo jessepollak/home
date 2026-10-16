@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadErrorCard, LoadRetryButton } from "@/components/load-error";
@@ -100,6 +100,10 @@ export function ActivityPanelView({
   restoreDetailsRequest?: number;
   suspendDetailsRequest?: number;
 }) {
+  const transfersNoticeId = useId();
+  const latestNoticeId = useId();
+  const actionsNoticeId = useId();
+  const ordersNoticeId = useId();
   const [revealed, setRevealed] = useState(false);
   const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem; opener: HTMLElement | null } | null>(() => initialDetailItem
     ? { key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem, opener: null } : null);
@@ -297,35 +301,35 @@ export function ActivityPanelView({
   return (
     <>
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy={sourcesPending} rows={hasRows} sources={sources} sectionRef={sectionRef}>
-        {cardUnavailable ? <p role="status" className="text-sm text-muted-foreground">Card purchases may be out of date.</p> : null}
+        {cardUnavailable ? <p role="status" className="text-sm text-muted-foreground">Card purchases may be out of date{plain ? "." : ""}</p> : null}
         {inlineStatus && (activity.status === "error" || onchainUnavailable) ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p role="status" className="text-sm text-muted-foreground">
+            <p id={transfersNoticeId} role="status" className="text-sm text-muted-foreground">
               Some activity is unavailable
             </p>
-            <LoadRetryButton onRetry={activity.retry}>Try again</LoadRetryButton>
+            <LoadRetryButton onRetry={activity.retry} describedBy={transfersNoticeId}>Try again</LoadRetryButton>
           </div>
         ) : null}
         {inlineStatus && activity.status !== "error" && latestUnavailable && !onchainUnavailable ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p role="status" className="text-sm text-muted-foreground">
-              Latest activity didn&apos;t load. Earlier activity is still shown.
+            <p id={latestNoticeId} role="status" className="text-sm text-muted-foreground">
+              Latest activity didn&apos;t load
             </p>
-            <LoadRetryButton onRetry={activity.retry}>Retry latest activity</LoadRetryButton>
+            <LoadRetryButton onRetry={activity.retry} describedBy={latestNoticeId}>Retry latest activity</LoadRetryButton>
           </div>
         ) : null}
         {inlineStatus && actionsStatus === "error" ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p role="status" className="text-sm text-muted-foreground">
-              Recorded Home actions are unavailable.{transfers.length > 0 ? " Onchain transfers are still shown." : ""}
+            <p id={actionsNoticeId} role="status" className="text-sm text-muted-foreground">
+              Your Home actions are unavailable
             </p>
-            {retryActions ? <LoadRetryButton onRetry={retryActions}>Retry recorded actions</LoadRetryButton> : null}
+            {retryActions ? <LoadRetryButton onRetry={retryActions} describedBy={actionsNoticeId}>Retry Home actions</LoadRetryButton> : null}
           </div>
         ) : null}
         {inlineStatus && ordersStatus === "error" ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p role="status" className="text-sm text-muted-foreground">Add money and cash-out orders are unavailable.</p>
-            {retryOrders ? <LoadRetryButton onRetry={retryOrders}>Retry orders</LoadRetryButton> : null}
+            <p id={ordersNoticeId} role="status" className="text-sm text-muted-foreground">Add money and cash-out orders are unavailable</p>
+            {retryOrders ? <LoadRetryButton onRetry={retryOrders} describedBy={ordersNoticeId}>Retry orders</LoadRetryButton> : null}
           </div>
         ) : null}
         {plain && historyUnknown ? (

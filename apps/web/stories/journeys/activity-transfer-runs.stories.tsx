@@ -19,6 +19,15 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+async function expectConciseNotices(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement);
+  await expect(canvas.queryByText(/onchain/i)).toBeNull();
+  await expect(canvas.queryByText(/Recorded Home actions/)).toBeNull();
+  for (const notice of canvas.getAllByRole("status")) {
+    await expect(notice).not.toHaveTextContent(/\.\s*$/);
+  }
+}
+
 export const HomeFeedMobile: Story = {
   args: {
     activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "feed",
@@ -90,6 +99,97 @@ export const ActivityPageTransfersUnavailable: Story = {
   },
 };
 
+export const ActivityPageActionsUnavailable: Story = {
+  args: {
+    activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "page", header: null,
+    actionsStatus: "error", retryActions: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Your Home actions are unavailable")).toBeVisible();
+    const retry = canvas.getByRole("button", { name: "Retry Home actions" });
+    await expect(retry).toBeVisible();
+    await expect(retry).toHaveAccessibleDescription("Your Home actions are unavailable");
+    await userEvent.click(retry);
+    await expect(args.retryActions).toHaveBeenCalledTimes(1);
+    await expectConciseNotices(canvasElement);
+  },
+};
+
+export const ActivityPageTransfersAndActionsUnavailable: Story = {
+  args: {
+    activity: { ...transfersUnavailable, retry: fn() },
+    operations: [pendingSend], regionId: "US", density: "page", header: null,
+    actionsStatus: "error", retryActions: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
+    await expect(canvas.getByText("Your Home actions are unavailable")).toBeVisible();
+    const retryTransfers = canvas.getByRole("button", { name: "Try again" });
+    const retryActions = canvas.getByRole("button", { name: "Retry Home actions" });
+    await expect(retryTransfers).toBeVisible();
+    await expect(retryActions).toBeVisible();
+    await expect(retryTransfers).toHaveAccessibleDescription("Some activity is unavailable");
+    await expect(retryActions).toHaveAccessibleDescription("Your Home actions are unavailable");
+    await userEvent.click(retryTransfers);
+    await expect(args.activity.retry).toHaveBeenCalledTimes(1);
+    await expect(args.retryActions).not.toHaveBeenCalled();
+    await userEvent.click(retryActions);
+    await expect(args.retryActions).toHaveBeenCalledTimes(1);
+    await expect(args.activity.retry).toHaveBeenCalledTimes(1);
+    await expectConciseNotices(canvasElement);
+  },
+};
+
+export const ActivityPageAllSourcesUnavailable: Story = {
+  args: {
+    activity: {
+      ...transfersUnavailable,
+      page: { ...transfersUnavailable.page, cards: { version: 1, status: "unavailable", rows: [] } },
+      retry: fn(),
+    },
+    operations: [pendingSend], regionId: "US", density: "page", header: null,
+    actionsStatus: "error", retryActions: fn(), ordersStatus: "error", retryOrders: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
+    await expect(canvas.getByText("Your Home actions are unavailable")).toBeVisible();
+    await expect(canvas.getByText("Add money and cash-out orders are unavailable")).toBeVisible();
+    await expect(canvas.getByText("Card purchases may be out of date")).toBeVisible();
+    const retryTransfers = canvas.getByRole("button", { name: "Try again" });
+    const retryActions = canvas.getByRole("button", { name: "Retry Home actions" });
+    const retryOrders = canvas.getByRole("button", { name: "Retry orders" });
+    await expect(retryTransfers).toBeVisible();
+    await expect(retryActions).toBeVisible();
+    await expect(retryOrders).toBeVisible();
+    await expect(retryOrders).toHaveAccessibleDescription("Add money and cash-out orders are unavailable");
+    await userEvent.click(retryOrders);
+    await expect(args.retryOrders).toHaveBeenCalledTimes(1);
+    await expect(args.activity.retry).not.toHaveBeenCalled();
+    await expect(args.retryActions).not.toHaveBeenCalled();
+    await expectConciseNotices(canvasElement);
+  },
+};
+
+export const ActivityPageOrdersUnavailable: Story = {
+  args: {
+    activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "page", header: null,
+    ordersStatus: "error", retryOrders: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Add money and cash-out orders are unavailable")).toBeVisible();
+    const retry = canvas.getByRole("button", { name: "Retry orders" });
+    await expect(retry).toBeVisible();
+    await expect(retry).toHaveAccessibleDescription("Add money and cash-out orders are unavailable");
+    await userEvent.click(retry);
+    await expect(args.retryOrders).toHaveBeenCalledTimes(1);
+    await expectConciseNotices(canvasElement);
+  },
+};
+
 export const ActivityPageTransfersError: Story = {
   args: { activity: errorActivity, operations: [pendingSend], regionId: "US", density: "page", header: null },
   play: async ({ canvasElement }) => {
@@ -120,8 +220,11 @@ export const ActivityPageLatestUnavailable: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByText("Latest activity didn't load. Earlier activity is still shown.")).toBeVisible();
-    await expect(canvas.getByRole("button", { name: "Retry latest activity" })).toBeVisible();
+    await expect(canvas.getByText("Latest activity didn't load")).toBeVisible();
+    const retry = canvas.getByRole("button", { name: "Retry latest activity" });
+    await expect(retry).toBeVisible();
+    await expect(retry).toHaveAccessibleDescription("Latest activity didn't load");
+    await expectConciseNotices(canvasElement);
     const recent = canvas.getByRole("list", { name: "Recent" });
     await expect(recent).toBeVisible();
     await expect(within(recent).getByRole("button", { description: "4 Received USDC transfers" })).toBeVisible();
