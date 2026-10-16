@@ -1,5 +1,6 @@
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 import { parseMoneyActionCalls } from "@/shared/money-actions/calls";
 import {
   isActionKind,
@@ -56,6 +57,12 @@ export type PresentedAction = {
 };
 
 export type GetActionResponse = GetActionPendingResponse | PresentedAction;
+export type GetActionErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses action-read auth-boundary errors for clients */
+export function parseGetActionErrorResponse(value: unknown): GetActionErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 
 function isActionSummaryResponse(value: unknown): value is ActionSummaryResponse {
   return !(!isRecord(value) || typeof value.title !== "string" || !Array.isArray(value.amounts) ||

@@ -1,4 +1,13 @@
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
+
 export const STOCK_TRADE_ELIGIBILITY_CONTRACT_VERSION = 1 as const;
+
+export type StockTradeEligibilityErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses stock-eligibility auth-boundary errors for clients */
+export function parseStockTradeEligibilityErrorResponse(value: unknown): StockTradeEligibilityErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 
 export type StockTradeEligibilityResponse = {
   version: typeof STOCK_TRADE_ELIGIBILITY_CONTRACT_VERSION;

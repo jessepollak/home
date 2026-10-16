@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { emitServerEvent } from "@/server/observability/log";
 import { PRODUCT_NOT_OFFERED_CODE, PRODUCT_NOT_OFFERED_MESSAGE, cashoutPrepareErrorResponse, type PrepareActionResponse } from "@/shared/actions/contracts/prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -69,6 +71,8 @@ export function createPrepareActionHandler(dependencies: {
       const action = await prepare(session, body.kind, body.params, request, dependencies);
       return privateJson(action satisfies PrepareActionResponse, 201);
     } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
       if (error instanceof CardAllowancePreparationError) return fail(error.code, error.message, error.status);
       if (body.kind === "card-allowance" && error instanceof MoneyActionIssueError) {
         return fail("CARD_ALLOWANCE_UNAVAILABLE", "Card spending limits changed. Prepare again.", 503);

@@ -49,6 +49,7 @@ function AccountExportJourney({ scenario = "idle" }: { scenario?: Scenario }) {
         isPreferenceReady
         accountAddress={owner === "first-owner" ? "0x1111111111111111111111111111111111111111" : "0x3333333333333333333333333333333333333333"}
         accountOwnerKey={owner}
+        accountSessionOwnerKey={`cdp-embedded\u0000${owner}`}
         fetchAccountResource={fetchAccountResource}
         showSmallBalances={false}
         onShowSmallBalancesChange={() => {}}

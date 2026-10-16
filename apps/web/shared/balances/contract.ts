@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 import { parseAddress, parseHash32 } from "@/shared/chain/hex";
 import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
 import { getBorrowMarketRef } from "@/shared/borrowing/config";
@@ -211,6 +212,12 @@ export type BalancesTotal = z.output<typeof totalSchema>;
 export type BalancesNetTotal = z.output<typeof netSchema>;
 export type BalancesTotals = z.output<typeof totalsSchema>;
 export type BalancesSnapshot = z.output<typeof balancesSnapshotSchema>;
+export type BalancesErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses balances auth-boundary errors for clients */
+export function parseBalancesErrorResponse(value: unknown): BalancesErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 
 export class BalancesResponseError extends Error {
   constructor(message = "The balances response is invalid.") {

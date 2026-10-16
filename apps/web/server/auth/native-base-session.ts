@@ -1,5 +1,9 @@
 import "server-only";
 
+import { emitServerEvent } from "@/server/observability/log";
+import { assertSessionLive } from "@/server/account-deletion/tombstone";
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { readHomeSessionSecret } from "@/server/config/env";
 
 import { createHash, randomBytes } from "node:crypto";
@@ -178,6 +182,7 @@ export type NativeBaseAuthDependencies = {
   sessionSecret?: string;
   now?: () => Date;
   randomId?: () => string;
+  assertLive?: typeof assertSessionLive;
   onVerified?: (session: VerifiedAccountSession, context: { request: Request }) => void | Promise<void>;
   verifiedCookies?: (request: Request) => string[];
   verify?: (input: {
@@ -348,6 +353,18 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     if (!verified) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
     const issued = issueSessionToken(deps.secret, address, deps.now());
+    try { await (input.assertLive ?? assertSessionLive)(issued.session); }
+    catch (error) {
+      const denied = deletionAuthErrorResponse(error) ?? json({ error: { code: "AUTH_UNAVAILABLE" } }, 503);
+      denied.headers.append("set-cookie", clearChallenge);
+      return denied;
+    }
+    try { await input.onVerified?.(issued.session, { request }); }
+    catch (error) { const denied = deletionAuthErrorResponse(error); if (denied) {
+      denied.headers.append("set-cookie", clearChallenge);
+      return denied;
+    }
+          emitServerEvent("operator-registry", { route: "/api/auth/base/verify", code: "OPERATOR_REGISTRY_WRITE_FAILED", outcome: "failed" }); }
     const responseBody = parseNativeBaseSession({ ...issued.session, version: NATIVE_BASE_VERIFY_VERSION });
     if (!responseBody) throw new Error("Invalid native Base session response");
     const response = json(responseBody, 200, [
@@ -355,7 +372,6 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
       cookie(HOME_SESSION_COOKIE, issued.token, request, NATIVE_BASE_SESSION_TTL_MS / 1000),
       ...(input.verifiedCookies?.(request) ?? []),
     ]);
-    try { await input.onVerified?.(issued.session, { request }); } catch { return response; }
     return response;
   };
 }

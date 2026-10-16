@@ -2,7 +2,7 @@ import path from "node:path";
 import { sheetHostExceptions } from "../policy/sheet-hosts.mjs";
 
 const api = "Use the shared money-modal API in docs/design-system/product-pieces/money-modal.md.";
-const exceptions = "For a non-money drawer exception, add a reviewed named import with owner and reason to oxlint/policy/sheet-hosts.mjs; do not disable this rule.";
+const exceptions = "For a non-money drawer/dialog exception, add a reviewed named import with owner and reason to oxlint/policy/sheet-hosts.mjs; do not disable this rule.";
 const packages = [
   "vaul", "react-modal", "@radix-ui/react-dialog", "@radix-ui/react-alert-dialog",
   "@radix-ui/react-portal", "@headlessui/react", "@base-ui/react/drawer",
@@ -60,7 +60,7 @@ function sourceVisitors(check) {
 }
 
 function namedImportIsAllowed(node, target, filename) {
-  if (target !== "components/ui/drawer" || node.type !== "ImportDeclaration") return false;
+  if (!["components/ui/drawer", "components/ui/dialog"].includes(target) || node.type !== "ImportDeclaration") return false;
   const policy = sheetHostExceptions.find((entry) => entry.file === filenameWithinWeb(filename));
   return Boolean(policy && node.specifiers.length > 0 && node.specifiers.every((specifier) =>
     specifier.type === "ImportSpecifier" && policy.imports.includes(specifier.imported.name ?? specifier.imported.value)));

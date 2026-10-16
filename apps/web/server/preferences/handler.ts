@@ -1,5 +1,7 @@
 import "server-only";
 
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest, type CountryPreferenceReadResponse, type CountryPreferenceResponse } from "@/shared/account/contracts/country-preference";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { privateError, privateJson } from "@/server/http/private-response";
@@ -17,7 +19,9 @@ export function createCountryPreferenceReadHandler(dependencies: {
     try {
       const regionId = await (dependencies.read ?? readCountryPreference)(session);
       return privateJson({ version: COUNTRY_PREFERENCE_VERSION, regionId } satisfies CountryPreferenceReadResponse, 200);
-    } catch {
+    } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
       return privateError("COUNTRY_PREFERENCE_UNAVAILABLE", "Country preference could not be read.", 503);
     }
   };
@@ -40,7 +44,9 @@ export function createCountryPreferenceHandler(dependencies: {
       }
       const regionId = await (dependencies.write ?? writeCountryPreference)(session, input.regionId, { onlyIfUnset: input.adopt === true });
       return privateJson({ version: COUNTRY_PREFERENCE_VERSION, regionId } satisfies CountryPreferenceResponse, 200);
-    } catch {
+    } catch (error) {
+      const deletionError = deletionAuthErrorResponse(error);
+      if (deletionError) return deletionError;
       return privateError("COUNTRY_PREFERENCE_UNAVAILABLE", "Country preference could not be saved.", 503);
     }
   };

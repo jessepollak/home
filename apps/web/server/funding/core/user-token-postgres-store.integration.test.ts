@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql } from "@/tests/helpers/migrations";
+import { readAllMigrationSql } from "@/tests/helpers/migrations";
 import { describeUserTokenStore } from "./testing/describeUserTokenStore";
 import { PostgresFundingProviderUserTokenStore } from "./user-token-store";
 import { randomBytes } from "node:crypto";
@@ -20,10 +20,7 @@ describePostgres("Postgres funding provider user token store", () => {
     admin = new Bun.SQL(connectionString!);
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${SCHEMA}`);
-    await inSchema(await readMigrationSql("008_funding_provider_user_tokens.sql"));
-    for (const file of ["001_actions.sql", "002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
-      await inSchema(await readMigrationSql(file));
-    }
+    for (const migration of await readAllMigrationSql()) await inSchema(migration);
     sql = createPostgresSqlExecutor(connectionString!, { schema: SCHEMA });
     store = new PostgresFundingProviderUserTokenStore(sql);
   });

@@ -1,3 +1,5 @@
+import { AUTH_BOUNDARY_ERROR_CODES } from "./auth-boundary";
+
 export const ACCOUNT_EXPORT_VERSION = 1 as const;
 export const ACCOUNT_EXPORT_SCHEMA = "home.account-export" as const;
 export const ACCOUNT_EXPORT_MAX_RECORDS_PER_CLASS = 50_000;
@@ -71,6 +73,7 @@ export type AccountExportFile = Omit<AccountExportResponse, "classes"> & {
 };
 
 export const ACCOUNT_EXPORT_ERROR_CODES = [
+  ...AUTH_BOUNDARY_ERROR_CODES,
   "ACCOUNT_EXPORT_UNAVAILABLE",
   "ACCOUNT_EXPORT_LINKAGE",
   "ACCOUNT_EXPORT_TOO_LARGE",

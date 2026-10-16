@@ -1,4 +1,5 @@
 
+import { AUTH_BOUNDARY_ERROR_CODES, type AuthBoundaryErrorCode } from "@/shared/account/contracts/auth-boundary";
 import { parseMoneyActionCalls } from "@/shared/money-actions/calls";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { ActionSummaryResponse } from "./get";
@@ -11,6 +12,7 @@ export const CONFIRM_CASHOUT_ERRORS = {
 } as const;
 
 export type ConfirmActionErrorCode =
+  | AuthBoundaryErrorCode
   | "INVALID_ACTION"
   | "ACTION_NOT_FOUND"
   | "ACTION_EXPIRED"
@@ -22,6 +24,7 @@ export type ConfirmActionErrorCode =
   | typeof CARD_ALLOWANCE_PREPARE_ERRORS.unavailable.code
   | typeof CARD_ALLOWANCE_PREPARE_ERRORS["not-ready"]["code"];
 const CONFIRM_ACTION_ERROR_CODES: readonly ConfirmActionErrorCode[] = [
+  ...AUTH_BOUNDARY_ERROR_CODES,
   "INVALID_ACTION",
   "ACTION_NOT_FOUND",
   "ACTION_EXPIRED",

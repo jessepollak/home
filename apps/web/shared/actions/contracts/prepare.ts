@@ -1,3 +1,4 @@
+import { AUTH_BOUNDARY_ERROR_CODES, type AuthBoundaryErrorCode } from "@/shared/account/contracts/auth-boundary";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
@@ -27,11 +28,11 @@ export function isCashoutPrepareErrorCode(value: unknown): value is CashoutPrepa
   return typeof value === "string" && (CASHOUT_PREPARE_ERROR_CODES as readonly string[]).includes(value);
 }
 
-export type PrepareActionErrorResponse = { error: { code: CashoutPrepareErrorCode | CardAllowancePrepareErrorCode; message: string } };
+export type PrepareActionErrorResponse = { error: { code: CashoutPrepareErrorCode | CardAllowancePrepareErrorCode | AuthBoundaryErrorCode; message: string } };
 
-const PREPARE_ERROR_CODES: readonly (CashoutPrepareErrorCode | CardAllowancePrepareErrorCode)[] =
-  [...CASHOUT_PREPARE_ERROR_CODES, ...Object.values(CARD_ALLOWANCE_PREPARE_ERRORS).map((entry) => entry.code)];
-function isPrepareErrorCode(value: unknown): value is CashoutPrepareErrorCode | CardAllowancePrepareErrorCode {
+const PREPARE_ERROR_CODES: readonly (CashoutPrepareErrorCode | CardAllowancePrepareErrorCode | AuthBoundaryErrorCode)[] =
+  [...AUTH_BOUNDARY_ERROR_CODES, ...CASHOUT_PREPARE_ERROR_CODES, ...Object.values(CARD_ALLOWANCE_PREPARE_ERRORS).map((entry) => entry.code)];
+function isPrepareErrorCode(value: unknown): value is CashoutPrepareErrorCode | CardAllowancePrepareErrorCode | AuthBoundaryErrorCode {
   return typeof value === "string" && PREPARE_ERROR_CODES.some((code) => code === value);
 }
 export function parsePrepareActionErrorResponse(value: unknown): PrepareActionErrorResponse | null {

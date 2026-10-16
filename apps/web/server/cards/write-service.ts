@@ -1,5 +1,6 @@
 import "server-only";
 
+import { assertCredentialLive } from "@/server/account-deletion/tombstone";
 import { createHash } from "node:crypto";
 import { isAddress } from "viem";
 import type { SqlExecutor } from "@/server/db/sql";
@@ -70,6 +71,9 @@ export function createCardWriteService({ sql, programs = readCardPrograms(sql), 
       const wallet = session.smartAccount.address.toLowerCase();
       if (!isAddress(wallet)) throw new CardWriteFailure("CARD_NOT_READY", 409);
       return sql.transaction(async (tx) => {
+        await assertCredentialLive(tx, session, new Date(), true);
+        const liveOwner = await tx.query("SELECT c.id FROM customers c JOIN customer_credentials cr ON cr.customer_id=c.id WHERE c.id=$1 AND c.retained_until IS NULL AND cr.account_provider=$2 AND cr.subject=$3 FOR SHARE OF c", [customerId, session.accountProvider, session.user.subject]);
+        if (!liveOwner.rowCount) throw new CardWriteFailure("CARD_NOT_READY", 409);
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`cards:${selectedMode}:${wallet}`]);
         const store = createCardAccountStore(tx);
         const link = await store.read(customerId, selectedMode, undefined, true);
@@ -107,6 +111,8 @@ export function createCardWriteService({ sql, programs = readCardPrograms(sql), 
         await store.update(link, account.link);
         const currentLink = { ...link, ...account.link };
         const card = await program.issue(currentLink, wallet, key(program.provider, "issue", selectedMode, customerId, wallet, String(sameWallet.length)));
+        const retainedCard = await tx.query("SELECT 1 FROM cards card JOIN customers c ON c.id=card.customer_id WHERE card.provider=$1 AND card.provider_card_id=$2 AND c.retained_until IS NOT NULL", [program.provider, card.providerCardId]);
+        if (retainedCard.rowCount) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
         if (card.status !== "active" || card.cardholderId !== (account.cardholderId ?? currentLink.cardholderId)) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
         await tx.query("INSERT INTO cards(id,customer_id,mode,provider,provider_card_id,wallet_address) VALUES (gen_random_uuid(),$1,$2,$3,$4,$5) ON CONFLICT (provider,mode,provider_card_id) DO NOTHING", [customerId, selectedMode, program.provider, card.providerCardId, wallet]);
         const linked = await tx.query<{ id: string }>("SELECT id FROM cards WHERE customer_id=$1 AND mode=$2 AND provider=$3 AND provider_card_id=$4 AND wallet_address=$5", [customerId, selectedMode, program.provider, card.providerCardId, wallet]);

@@ -25,3 +25,10 @@ export const Failed: Story = { args: { outcome: "failed", title: "$25.00 wasn't 
 export const Unknown: Story = { args: { outcome: "unknown", title: "We can't confirm $25.00", description: "It may have gone through. Check Activity before trying again." } };
 
 export const Dark: Story = { ...Pending, globals: { theme: "dark" } };
+export const PendingPage: Story = {
+  args: { outcome: "pending", title: "Deletion queued", description: "Waiting for pending money items to settle.", headingLevel: 2, textTone: "foreground" },
+  render: (args) => <main className="space-y-6 bg-muted p-6"><h1 className="text-base font-semibold">Leave Home</h1><ResultHeader {...args} /></main>,
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByRole("heading", { name: "Deletion queued", level: 2 })).toBeVisible();
+  },
+};

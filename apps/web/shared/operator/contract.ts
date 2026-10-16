@@ -11,7 +11,7 @@ const operatorSessionResponseSchema = z.object({
   version: z.literal(OPERATOR_CONTRACT_VERSION),
   operator: z.object({ address: addressSchema }),
 });
-const operatorErrorCodeSchema = z.enum(["UNAUTHENTICATED", "OPERATOR_FORBIDDEN", "NOT_FOUND"]);
+const operatorErrorCodeSchema = z.enum(["UNAUTHENTICATED", "AUTH_UNAVAILABLE", "OPERATOR_FORBIDDEN", "NOT_FOUND"]);
 const operatorErrorResponseSchema = z.object({ error: z.object({ code: operatorErrorCodeSchema }) });
 
 export type OperatorSessionResponse = z.output<typeof operatorSessionResponseSchema>;

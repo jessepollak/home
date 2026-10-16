@@ -1,5 +1,6 @@
 import "server-only";
 
+import { readJson } from "@/shared/http/read-json";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { privateError, privateJson } from "@/server/http/private-response";
 import { emitServerEvent } from "@/server/observability/log";
@@ -11,7 +12,12 @@ export function createAccountExportHandler(dependencies: { authorize: SessionAut
     try {
       const session = await authorizeSession(request, dependencies.authorize);
       if (session instanceof Response) {
-        return privateError(session.status === 503 ? "AUTH_UNAVAILABLE" : "AUTH_REQUIRED", "Account authentication is required.", session.status);
+        const body = await readJson(session.clone()).catch(() => null);
+        const code = typeof body === "object" && body !== null && "error" in body
+          && typeof body.error === "object" && body.error !== null && "code" in body.error
+          && typeof body.error.code === "string" ? body.error.code : "AUTH_REQUIRED";
+        if (code === "ACCOUNT_DELETED" && session.headers.get("cache-control") === "private, no-store, max-age=0") return session;
+        return privateError(code, "Authentication is required.", session.status);
       }
       if (request.signal.aborted) throw new AccountExportError("ACCOUNT_EXPORT_UNAVAILABLE");
       const result = await (dependencies.read ?? readAccountExport)(session, request.signal);

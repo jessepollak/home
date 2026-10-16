@@ -85,8 +85,8 @@ function indexedOwnerCachePresent(ownerKey: string, signal?: AbortSignal): Promi
   });
 }
 
-export async function buildAccountExportFile(response: AccountExportResponse, ownerKey: string, signal?: AbortSignal): Promise<AccountExportFile> {
-  const indexedCachePresent = await indexedOwnerCachePresent(ownerKey, signal);
+export async function buildAccountExportFile(response: AccountExportResponse, ownerKey: string | null, signal?: AbortSignal): Promise<AccountExportFile> {
+  const indexedCachePresent = ownerKey ? await indexedOwnerCachePresent(ownerKey, signal) : null;
   return {
     ...response,
     classes: [
@@ -105,7 +105,7 @@ export async function buildAccountExportFile(response: AccountExportResponse, ow
         holder: "current-device",
         records: [
           { kind: "indexed_owner_cache", present: indexedCachePresent, description: "Private query cache in IndexedDB; contents omitted." },
-          { kind: "restored_query_cache", present: restoredCachePresent(ownerKey), description: "Private query cache in browser storage; contents omitted." },
+          { kind: "restored_query_cache", present: ownerKey ? restoredCachePresent(ownerKey) : null, description: "Private query cache in browser storage; contents omitted." },
           { kind: "home_summary_cookie", present: summaryCookiePresent(), description: "Home display summary cookie; contents omitted." },
         ],
       },

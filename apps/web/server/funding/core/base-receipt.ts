@@ -3,6 +3,7 @@ import "server-only";
 import { serverEnvironment } from "@/server/config/env";
 
 import { baseRpc, parseRpcQuantity } from "@/server/chain/rpc";
+import { parseAddress } from "@/shared/chain/hex";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingOrder } from "./store";
 import type { ReceiptMatch } from "./service";
@@ -18,13 +19,14 @@ export async function readCurrentBaseBlock(env: Readonly<Record<string, string |
 
 export async function verifyBaseFundingReceipt(order: FundingOrder, hash: `0x${string}`, env: Readonly<Record<string, string | undefined>> = serverEnvironment(), fetchImplementation: typeof fetch = fetch): Promise<ReceiptMatch> {
   const asset = getFundingAsset(order.assetId);
-  if (!HASH.test(hash) || !order.expectedTokenAmountAtomic || !asset) return null;
+  const destination = parseAddress(order.destination);
+  if (!destination || !HASH.test(hash) || !order.expectedTokenAmountAtomic || !asset) return null;
   const value = await rpc("eth_getTransactionReceipt", [hash], env, fetchImplementation);
   if (!record(value) || value.status !== "0x1" || typeof value.blockNumber !== "string" || !Array.isArray(value.logs)) return null;
   let receiptBlock: bigint;
   try { receiptBlock = BigInt(value.blockNumber); } catch { return null; }
   if (receiptBlock < BigInt(order.creationBlock)) return null;
-  const destinationTopic = `0x${order.destination.slice(2).toLowerCase().padStart(64, "0")}`;
+  const destinationTopic = `0x${destination.slice(2).padStart(64, "0")}`;
   for (const candidate of value.logs) {
     if (!record(candidate) || typeof candidate.address !== "string" || candidate.address.toLowerCase() !== asset.address.toLowerCase() || !Array.isArray(candidate.topics) || lower(candidate.topics[0]) !== TRANSFER_TOPIC || lower(candidate.topics[2]) !== destinationTopic || typeof candidate.data !== "string" || typeof candidate.logIndex !== "string") continue;
     try {

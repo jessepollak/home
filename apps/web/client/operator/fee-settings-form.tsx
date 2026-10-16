@@ -34,6 +34,7 @@ type Notice = { kind: "error" | "conflict"; message: string } | null;
 
 const saveErrors: Record<OperatorSettingsErrorCode, string> = {
   UNAUTHENTICATED: "Your session ended. Sign in again, then save.",
+  AUTH_UNAVAILABLE: "Authentication is temporarily unavailable.",
   OPERATOR_FORBIDDEN: "This account can’t change settings.",
   CROSS_ORIGIN: "Reload this page, then save again.",
   INVALID_REQUEST: "Home didn’t accept these values. Check them and try again.",

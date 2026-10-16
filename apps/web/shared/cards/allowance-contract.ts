@@ -1,10 +1,13 @@
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import type { CardAllowanceMoneyActionMetadata } from "@/shared/money-actions/types";
 
 export const CARD_ALLOWANCE_CONTRACT_VERSION = 1 as const;
-export type CardSpendingError = Readonly<{ version: 1; error: Readonly<{ code: "CARDS_UNAVAILABLE" }> }>;
+export type CardSpendingError = Readonly<{ version: 1; error: Readonly<{ code: "CARDS_UNAVAILABLE" }> }> | AuthBoundaryErrorResponse;
 /** @public Versioned error for sessions without a readable card wallet. */
 export function parseCardSpendingError(value: unknown): CardSpendingError | null {
+  const boundaryError = parseAuthBoundaryErrorResponse(value);
+  if (boundaryError) return boundaryError;
   return record(value) && value.version === CARD_ALLOWANCE_CONTRACT_VERSION && Object.keys(value).length === 2 &&
     record(value.error) && Object.keys(value.error).length === 1 && value.error.code === "CARDS_UNAVAILABLE"
     ? { version: 1, error: { code: "CARDS_UNAVAILABLE" } } : null;
