@@ -38,6 +38,7 @@ const directionLabels = { onramp: "Add money", offramp: "Cash out" } as const;
 
 const errorMessages: Record<Exclude<OperatorSettingsErrorCode, "SETTINGS_CONFLICT">, string> = {
   UNAUTHENTICATED: "Your session ended. Sign in again, then save.",
+  AUTH_UNAVAILABLE: "Authentication is temporarily unavailable.",
   OPERATOR_FORBIDDEN: "This account can't change settings. Sign in with an operator account.",
   OPERATOR_CHANGED: "A different operator is signed in. Reload this page before saving.",
   CROSS_ORIGIN: "The save was blocked because it didn't come from this page. Reload, then save again.",

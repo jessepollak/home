@@ -46,6 +46,14 @@ export type PendingAction = {
   swapCallIndex?: number;
 };
 
+export const ACTION_DRAFT_RETENTION_MS = 60 * 60 * 1000;
+
+export function actionReviewExpired(expiresAt: string, now: Date): boolean {
+  return Date.parse(expiresAt) <= now.getTime();
+}
+
+export const NON_DECLINED_ACTION_SQL = "(declined_reported_at IS NULL OR provider_handle IS NOT NULL OR transaction_hash IS NOT NULL OR outcome IS NOT NULL)";
+
 export type ActionOutcome = "succeeded" | "reverted" | "not_submitted";
 export type ObservedReceiptOutcome = Extract<ActionOutcome, "succeeded" | "reverted">;
 
@@ -186,13 +194,15 @@ export class ActionsStore {
     pending: PendingAction;
     createdAt: string;
   }): Promise<void> {
-    const ids = await recordCustomerIds(this.sql, input.owner, new Date(input.createdAt));
-    await this.sql.query(
+    await this.sql.transaction(async (tx) => {
+      const ids = await recordCustomerIds(tx, input.owner, new Date(input.createdAt));
+      await tx.query(
       `INSERT INTO actions (id, owner_key, account_address, provider, kind, summary, pending, created_at, customer_id, credential_id, wallet_id)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::timestamptz, $9, $10, $11)`,
       [input.id, actionOwnerKey(input.owner), input.owner.address.toLowerCase(), input.owner.accountProvider, input.kind,
         JSON.stringify(input.summary), JSON.stringify(input.pending), input.createdAt, ids.customerId, ids.credentialId, ids.walletId],
     );
+    });
   }
 
   async getForPaymaster(id: string): Promise<Pick<ActionRow, "owner_key" | "summary" | "created_at" | "confirmed_at" | "confirmed_call_data_hash"> | null> {
@@ -563,14 +573,14 @@ export class ActionsStore {
   async list(owner: MoneyActionOwner): Promise<ActionRow[]> {
     const key = actionOwnerKey(owner);
     await this.sql.query(
-      `DELETE FROM actions WHERE owner_key = $1 AND confirmed_at IS NULL AND created_at < now() - interval '1 hour'`,
-      [key],
+      `DELETE FROM actions WHERE owner_key = $1 AND confirmed_at IS NULL AND created_at < now() - $2 * interval '1 millisecond'`,
+      [key, ACTION_DRAFT_RETENTION_MS],
     );
     const result = await this.sql.query<RawActionRow>(
       `SELECT * FROM (
          SELECT * FROM actions
          WHERE owner_key = $1 AND confirmed_at IS NOT NULL
-           AND (declined_reported_at IS NULL OR provider_handle IS NOT NULL OR transaction_hash IS NOT NULL OR outcome IS NOT NULL)
+           AND ${NON_DECLINED_ACTION_SQL}
            AND (
            confirmed_at >= now() - interval '24 hours' OR
            (kind IN ('cash-out', 'cash-out-withdraw') AND confirmed_at >= now() - interval '30 days') OR

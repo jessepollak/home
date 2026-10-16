@@ -57,10 +57,10 @@ export function ShellHeader({
   onCloseSettings: () => void;
   status?: ReactNode;
 }) {
-  const dashboardTitle = isAccountSettingsOpen
+  const dashboardTitle = nestedChromeTitle ?? (isAccountSettingsOpen
     ? "Account"
-    : nestedChromeTitle ?? (activeNavigation === "invest" ? "Invest" : activeNavigation === "card" ? "Card" : "Home");
-  const hasNestedChrome = !isAccountSettingsOpen && nestedChromeTitle !== null;
+    : (activeNavigation === "invest" ? "Invest" : activeNavigation === "card" ? "Card" : "Home"));
+  const hasNestedChrome = nestedChromeTitle !== null;
   const checking = account.status === "restoring" || account.status === "validating";
   const signedIn = account.status === "verified" || (account.status === "unavailable" && account.isSignedIn);
   const signingOut = account.status === "signing-out";
@@ -123,7 +123,7 @@ export function ShellHeader({
             onOpenSettings={onOpenSettings}
           />
         </div>
-        {isAccountSettingsOpen ? (
+        {isAccountSettingsOpen && !hasNestedChrome ? (
           <Button variant="secondary" className="h-11" onClick={onCloseSettings}>Done</Button>
         ) : null}
       </div>

@@ -1,6 +1,7 @@
 import * as z from "zod/mini";
 import { parseAddress, parseHash32, type Address, type Hash32 } from "@/shared/chain/hex";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 import {
   ACTIVITY_BASE_CHAIN_ID,
   ACTIVITY_PAGE_SIZE,
@@ -28,6 +29,12 @@ export type ParsedActivityTransfer = ActivityTransfer & {
 };
 export type ParsedActivityPage = ActivityPage & { walletAddress: Address; transfers: ParsedActivityTransfer[] };
 export type ActivityResponse = z.input<typeof pageSchema> & ActivityPage;
+export type ActivityErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses activity auth-boundary errors for clients */
+export function parseActivityErrorResponse(value: unknown): ActivityErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const uint256Max = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressSchema = z.pipe(

@@ -126,7 +126,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
       <main id="navigation-panel" data-app-main-authenticated="" tabIndex={-1} className={`min-w-0 flex-1 outline-none ${shellNavigationClearanceClassName}`}>
         <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
           {accountOpen ? <AccountSettings regionId={country} onRegionChange={(value) => setCountry(value === "FR" ? "FR" : "US")}
-            resolutionSource="explicit" preferenceMessage="" isPreferenceReady accountAddress={WALLET} accountOwnerKey="jesse.base.eth"
+            resolutionSource="explicit" preferenceMessage="" isPreferenceReady accountAddress={WALLET} accountOwnerKey="jesse.base.eth" accountSessionOwnerKey={"cdp-embedded\u0000jesse.base.eth"}
             showSmallBalances={false} onShowSmallBalancesChange={noop} appearancePreference="system" onAppearancePreferenceChange={() => true} onSignOut={noop}
             fetchAccountResource={async () => ({ version: 1, code: "abcdefghjk" })} />
             : panel === "home" ? <div className="space-y-4 lg:grid lg:grid-cols-[3fr_2fr] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">

@@ -1,5 +1,11 @@
 export const sheetHostExceptions = [
   {
+    file: "client/account/account-deletion-view.tsx",
+    imports: ["Dialog", "DialogContent", "DialogDescription", "DialogTitle", "DialogTrigger"],
+    owner: "account privacy",
+    reason: "non-money irreversible account-deletion confirmation",
+  },
+  {
     file: "app/admin/operator-shell.tsx",
     imports: ["Drawer", "DrawerContent", "DrawerHeader", "DrawerTitle"],
     owner: "operator console",

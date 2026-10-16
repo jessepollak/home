@@ -31,10 +31,12 @@ describe("no-sheet-primitives", () => {
     ` },
       fixture2: { path: "app/admin/operator-shell.tsx", code: `import { Drawer as Navigation, DrawerTitle } from "@/components/ui/drawer";` },
       fixture3: { path: "client/account/account-screen.tsx", code: `import { DrawerTitle } from "@/components/ui/drawer";` },
+      fixture4: { path: "client/account/account-deletion-view.tsx", code: `import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";` },
     }, { rule: sheet });
     expect(results.fixture1).toHaveLength(0);
     expect(results.fixture2).toHaveLength(0);
     expect(results.fixture3).toHaveLength(0);
+    expect(results.fixture4).toHaveLength(0);
   }, budgetMs);
 
   it("rejects direct primitive imports, exports, dynamic imports, and require with alias and relative resolution", async () => {
@@ -60,6 +62,22 @@ describe("no-sheet-primitives", () => {
     ` },
     }, { rule: sheet });
     expect(results.fixture1).toHaveLength(3);
+  }, budgetMs);
+
+  it("limits reviewed dialogs to exact named imports from the owned wrapper", async () => {
+    const results = await lint({
+      fixture1: { path: "client/account/account-deletion-view.tsx", code: `
+        import { DialogClose } from "@/components/ui/dialog";
+        import * as Parts from "@/components/ui/dialog";
+        import DefaultDialog from "@/components/ui/dialog";
+        import { Dialog } from "@base-ui/react/dialog";
+        export { Dialog } from "@/components/ui/dialog";
+        void import("@/components/ui/dialog");
+      ` },
+      fixture2: { path: "client/account/other.tsx", code: `import { Dialog } from "@/components/ui/dialog";` },
+    }, { rule: sheet });
+    expect(results.fixture1).toHaveLength(6);
+    expect(results.fixture2).toHaveLength(1);
   }, budgetMs);
 
   it("rejects aliased createPortal, namespace and default react-dom access", async () => {
@@ -321,7 +339,7 @@ describe("no-transient-money-copy", () => {
   }, budgetMs);
 });
 
-it("keeps every sheet-host exception owned, present, and limited to actual drawer named imports", async () => {
+it("keeps every sheet-host exception owned, present, and limited to actual drawer/dialog named imports", async () => {
   for (const entry of sheetHostExceptions) {
     expect(entry.file.trim()).not.toBe("");
     expect(entry.owner.trim()).not.toBe("");
@@ -333,9 +351,9 @@ it("keeps every sheet-host exception owned, present, and limited to actual drawe
     const source = ts.createSourceFile(filename, await readFile(filename, "utf8"), ts.ScriptTarget.Latest, true);
     const actual = source.statements.filter((node) => ts.isImportDeclaration(node)
       && ts.isStringLiteral(node.moduleSpecifier)
-      && (node.moduleSpecifier.text === "@/components/ui/drawer"
-        || path.posix.normalize(path.posix.join(path.posix.dirname(entry.file), node.moduleSpecifier.text))
-          .replace(/\.(?:[cm]?[jt]sx?)$/u, "").replace(/\/index$/u, "") === "components/ui/drawer"))
+      && (["@/components/ui/drawer", "@/components/ui/dialog"].includes(node.moduleSpecifier.text)
+        || ["components/ui/drawer", "components/ui/dialog"].includes(path.posix.normalize(path.posix.join(path.posix.dirname(entry.file), node.moduleSpecifier.text))
+          .replace(/\.(?:[cm]?[jt]sx?)$/u, "").replace(/\/index$/u, ""))))
       .flatMap((node) => node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)
         ? node.importClause.namedBindings.elements.map((specifier) => (specifier.propertyName ?? specifier.name).text) : []);
     for (const name of entry.imports) expect(actual).toContain(name);

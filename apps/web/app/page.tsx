@@ -17,7 +17,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   const query = await searchParams;
   const search = searchParamsToString(query);
   const cookieStore = await cookies();
-  const href = signedInLandingHref(query, cookieStore);
+  const href = await signedInLandingHref(query, cookieStore);
   if (href) redirect(href);
 
   return (
@@ -25,7 +25,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
       projectId={normalizeProjectId(process.env.NEXT_PUBLIC_CDP_PROJECT_ID)}
       baseAccountEnabled={isHomeSessionConfigured(process.env.HOME_SESSION_SECRET)}
       smokeFixture={process.env.HOME_PLAYWRIGHT_SMOKE === "1" && !process.env.VERCEL}
-      renderSeed={readRenderSession(cookieStore)}
+      renderSeed={await readRenderSession(cookieStore)}
     >
       <LandingShell
         detectedCountry={readRequestCountry(await headers())}

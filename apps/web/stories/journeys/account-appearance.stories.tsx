@@ -22,6 +22,7 @@ function AccountAppearanceJourney({ inviteState = "loaded" }: { inviteState?: In
         isPreferenceReady
         accountAddress={accountAppearanceAddress}
         accountOwnerKey={`appearance-story-${inviteState}`}
+        accountSessionOwnerKey={`cdp-embedded\u0000appearance-story-${inviteState}`}
         fetchAccountResource={createInviteFetcher(inviteState)}
         showSmallBalances={false}
         onShowSmallBalancesChange={() => {}}

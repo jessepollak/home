@@ -1,5 +1,8 @@
 import "server-only";
 
+import { emitServerEvent } from "@/server/observability/log";
+import { assertSessionLive } from "@/server/account-deletion/tombstone";
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
 import { readHomeSessionSecret } from "@/server/config/env";
 
 import {
@@ -157,6 +160,7 @@ export type SessionHandlerDependencies = {
   homeSessionSecret?: string;
   issueCookies?: (session: VerifiedAccountSession, request: Request) => string[];
   verifiedCookies?: (request: Request) => string[];
+  assertLive?: typeof assertSessionLive;
   onVerifiedSession?: (session: VerifiedAccountSession, context: { request: Request; email: string | null }) => void | Promise<void>;
 };
 
@@ -273,6 +277,7 @@ export function createSessionHandler({
   issueCookies,
   verifiedCookies,
   onVerifiedSession,
+  assertLive = assertSessionLive,
 }: SessionHandlerDependencies) {
   return async function GET(request: Request): Promise<Response> {
     const accountProvider = readAccountProvider(request);
@@ -298,9 +303,13 @@ export function createSessionHandler({
     }
     if (nativeSession.kind === "valid") {
       if (accountProvider === "cdp-embedded") return invalidProviderResponse();
-      const response = jsonResponse(sessionResponseBody(nativeSession.session), 200, verifiedCookies?.(request) ?? []);
-      try { await onVerifiedSession?.(nativeSession.session, { request, email: null }); } catch { return response; }
-      return response;
+      try {
+        await assertLive(nativeSession.session);
+        try { await onVerifiedSession?.(nativeSession.session, { request, email: null }); }
+        catch (error) { const denied = deletionAuthErrorResponse(error); if (denied) return denied;
+          emitServerEvent("operator-registry", { route: "/api/session", code: "OPERATOR_REGISTRY_WRITE_FAILED", outcome: "failed" }); }
+        return jsonResponse(sessionResponseBody(nativeSession.session), 200, verifiedCookies?.(request) ?? []);
+      } catch (error) { return deletionAuthErrorResponse(error) ?? authUnavailableResponse(); }
     }
     if (!accessToken) return unauthenticatedResponse();
     if (accountProvider === "base-account") return baseAccountDisabledResponse();
@@ -316,14 +325,19 @@ export function createSessionHandler({
       }
       const session = normalizeVerifiedEndUser(verifiedEndUser, selectedProvider);
 
+      await assertLive(session);
+      try { await onVerifiedSession?.(session, { request, email: verifiedEmail(verifiedEndUser) }); }
+      catch (error) { const denied = deletionAuthErrorResponse(error); if (denied) return denied;
+          emitServerEvent("operator-registry", { route: "/api/session", code: "OPERATOR_REGISTRY_WRITE_FAILED", outcome: "failed" }); }
       const response = jsonResponse(
         sessionResponseBody(session),
         200,
         [...(session.smartAccount ? issueCookies?.(session, request) ?? [] : []), ...(verifiedCookies?.(request) ?? [])],
       );
-      try { await onVerifiedSession?.(session, { request, email: verifiedEmail(verifiedEndUser) }); } catch { return response; }
       return response;
     } catch (error) {
+      const denied = deletionAuthErrorResponse(error);
+      if (denied) return denied;
       if (error instanceof InvalidAccessTokenError) {
         return unauthenticatedResponse();
       }

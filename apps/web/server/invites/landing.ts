@@ -34,7 +34,7 @@ export function createInviteLandingHandler(deps: LandingDependencies = {
   readSession: (cookies) => readRenderSession(cookies),
 }) {
   return async (request: Request, context: { params: Promise<{ code: string }> }): Promise<Response> => {
-    const signedIn = deps.readSession(renderCookies(request)) !== null;
+    const signedIn = await deps.readSession(renderCookies(request)) !== null;
     let destination = signedIn ? "/home" : "/";
     let inviteCookie: string | null = null;
     if (!signedIn) {

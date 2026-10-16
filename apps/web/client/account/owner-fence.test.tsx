@@ -3,15 +3,16 @@ import "./dom-test-harness";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createSiweMessage } from "viem/siwe";
 import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
+import type { AccountDeletionReceipt } from "@/shared/account/contracts/account-deletion";
 import type { VerifiedAccountSession } from "./session-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { BALANCES_VERSION } from "@/shared/balances/types";
 import { restoreNativeBaseSession } from "./native-base-session-client";
-import { dataOwnerKey, nativeBaseOwnerKey } from "./owner-keys";
+import { credentialOwnerKey, dataOwnerKey, nativeBaseOwnerKey, uiBoundary } from "./owner-keys";
 import { hydrateServerRender } from "@/tests/helpers/hydration";
 
-const { act, cleanup, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, render, renderHook, waitFor } = await import("@testing-library/react");
 const { Suspense, startTransition, useEffect, useLayoutEffect, useState } = await import("react");
 const { useAccountWallet } = await import("./cdp-client");
 const { AccountWalletSessionOwner } = await import("./cdp-session-lifecycle");
@@ -1103,4 +1104,530 @@ describe("owner generation fence", () => {
     await currentClient().executeMoneyAction(second);
     expect({ confirmPosts, dispatches }).toEqual({ confirmPosts: 2, dispatches: 2 });
   });
+});
+
+
+const { useAccountDeletionCompletion, useAccountDeletionRecovery } = await import("./account-deletion-recovery");
+const { useAccountDeletion } = await import("./use-account-deletion");
+const { ACCOUNT_EXPORT_HOME_CLASSES } = await import("@/shared/account/contracts/data-export");
+const { useOwnerGenerationFence } = await import("./owner-generation-fence");
+const deletionReceipt = {
+  version: 1 as const, schema: "home.account-deletion" as const, requestId: "11111111-1111-4111-8111-111111111111", status: "completed" as const,
+  requestedAt: "2026-10-07T03:00:00.000Z", updatedAt: "2026-10-07T03:00:00.000Z", completedAt: "2026-10-07T03:00:00.000Z", retentionYears: 5 as const,
+  blockers: [], lastAttempt: null, stores: ACCOUNT_EXPORT_HOME_CLASSES.map((name) => ({ name, disposition: "deleted" as const })), providers: [], publicChain: { disposition: "public-chain-immutable" as const, statement: "Public history remains" },
+};
+
+test("revocation retries receipt GET after 503 before sign-out; sign-out retry keeps the recovered receipt", async () => {
+  let reads = 0;
+  let signOuts = 0;
+  const hook = renderHook(() => {
+    const fence = useOwnerGenerationFence(() => {});
+    return useAccountDeletionRecovery({ ownerKey: OWNER_A, ownerFence: fence, queryClient: getHomeQueryClient(), signOut: async () => { fence.advance(); signOuts += 1; if (signOuts === 1) throw new Error("sign-out unavailable"); } });
+  });
+  await act(async () => { hook.result.current.revoked(async () => { reads += 1; if (reads === 1) throw new Error("503"); return deletionReceipt; }); });
+  await waitFor(() => expect(hook.result.current.recovery?.busy).toBe(false));
+  expect(hook.result.current.recovery?.receipt).toBeNull();
+  expect({ reads, signOuts }).toEqual({ reads: 1, signOuts: 0 });
+  await act(async () => { hook.result.current.retry(); });
+  await waitFor(() => expect(hook.result.current.recovery?.receipt).toEqual(deletionReceipt));
+  expect(hook.result.current.recovery?.error).toContain("sign-out did not finish");
+  expect({ reads, signOuts }).toEqual({ reads: 2, signOuts: 1 });
+  await act(async () => { hook.result.current.retry(); });
+  await waitFor(() => expect(hook.result.current.recovery?.error).toBeNull());
+  expect({ reads, signOuts }).toEqual({ reads: 2, signOuts: 2 });
+});
+
+test.each([
+  { failure: "SDK cleanup rejected", owners: [null], retries: 2 },
+  { failure: "SDK cleanup timed out", owners: [null], retries: 2 },
+  { failure: "SDK cleanup rejected", owners: [OWNER_B, OWNER_A], retries: 1 },
+  { failure: "SDK cleanup timed out", owners: [OWNER_B, OWNER_A], retries: 1 },
+  { failure: "SDK cleanup rejected", owners: [null, OWNER_A], retries: 1 },
+  { failure: "SDK cleanup timed out", owners: [null, OWNER_A], retries: 1 },
+])("settled deletion cleanup $failure rebases only late A→null, not owner return ($owners)", async ({ failure, owners, retries }) => {
+  const initialProps: { owner: string | null } = { owner: OWNER_A };
+  let signOuts = 0;
+  const hook = renderHook(({ owner }: { owner: string | null }) => {
+    const fence = useOwnerGenerationFence(() => {});
+    useLayoutEffect(() => { fence.updateOwnerKey(owner, owner); }, [fence, owner]);
+    return useAccountDeletionRecovery({ ownerKey: owner, ownerFence: fence, queryClient: getHomeQueryClient(), signOut: async () => {
+      fence.advance();
+      signOuts += 1;
+      if (signOuts === 1) throw new Error(failure);
+    } });
+  }, { initialProps });
+  await act(async () => { hook.result.current.complete(deletionReceipt); });
+  expect(hook.result.current.recovery?.busy).toBe(false);
+  expect(hook.result.current.recovery?.error).toContain("sign-out did not finish");
+  for (const owner of owners) act(() => { hook.rerender({ owner }); });
+  await act(async () => { hook.result.current.retry(); });
+  expect(signOuts).toBe(retries);
+  if (retries === 2) {
+    expect(hook.result.current.recovery?.receipt).toEqual(deletionReceipt);
+    expect(hook.result.current.recovery?.error).toBeNull();
+  } else if (owners[0] === OWNER_B) {
+    expect(hook.result.current.recovery).toBeNull();
+  }
+});
+
+test.each([false, true])("stale recovery callback cannot clear current owner cache or device storage (return to A: %s)", async (backToA) => {
+  const hook = renderHook(({ owner }: { owner: string }) => {
+    const fence = useOwnerGenerationFence(() => {});
+    useLayoutEffect(() => { fence.updateOwnerKey(owner, owner); }, [fence, owner]);
+    return { fence, ...useAccountDeletionRecovery({ ownerKey: owner, ownerFence: fence, queryClient: getHomeQueryClient(), signOut: async () => { throw new Error("Must not sign out"); } }) };
+  }, { initialProps: { owner: OWNER_A } });
+  const oldRevoked = hook.result.current.revoked;
+  const generation = hook.result.current.fence.capture();
+  act(() => { hook.rerender({ owner: OWNER_B }); });
+  if (backToA) act(() => { hook.rerender({ owner: OWNER_A }); });
+  const cacheKey = ownerQueryKey(backToA ? OWNER_A : OWNER_B, "balances", "US");
+  getHomeQueryClient().setQueryData(cacheKey, { private: "current-owner" });
+  window.localStorage.setItem("home.private-sentinel", "keep");
+  await act(async () => { oldRevoked(async () => deletionReceipt, () => hook.result.current.fence.isCurrent(generation)); });
+  expect(hook.result.current.recovery).toBeNull();
+  expect(getHomeQueryClient().getQueryData<{ private: string }>(cacheKey)).toEqual({ private: "current-owner" });
+  expect(window.localStorage.getItem("home.private-sentinel")).toBe("keep");
+});
+
+const { AccountSettings } = await import("./account-settings");
+const { useAccountExport } = await import("./use-account-export");
+const { ownerQueryStorageKey } = await import("@/client/query/query-client");
+const exportResponse = {
+  version: 1 as const, schema: "home.account-export" as const, generatedAt: "2026-10-07T00:00:00.000Z", complete: true as const,
+  classes: ACCOUNT_EXPORT_HOME_CLASSES.map((name) => ({ name, holder: "home" as const, records: [] })),
+  boundaries: { providerHeld: "Providers", publicChain: "Base", currentDevice: "This device" },
+};
+
+test("Account privacy controls use the verified credential, not wallet availability", async () => {
+  const active = { ...session("cdp-embedded"), smartAccount: null };
+  const fetchAccountResource = async () => ({ error: { code: "ACCOUNT_DELETION_NOT_FOUND", message: "No request" } });
+  const settings = (verified: boolean) => <AccountSettings regionId="US" onRegionChange={() => {}} resolutionSource="persisted" preferenceMessage="" isPreferenceReady
+    accountAddress={null} accountOwnerKey={null} accountSessionOwnerKey={credentialOwnerKey({ session: active, status: verified ? "verified" : "validating", verification: verified ? "server" : "provisional" })}
+    fetchAccountResource={fetchAccountResource} showSmallBalances={false} onShowSmallBalancesChange={() => {}} appearancePreference="light" onAppearancePreferenceChange={() => true} onSignOut={() => {}} />;
+  const view = render(settings(false));
+  expect(view.queryByRole("button", { name: "Leave Home" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Export" })).toBeNull();
+  view.rerender(settings(true));
+  await act(async () => { view.getByRole("button", { name: "Leave Home" }).click(); });
+  expect(view.queryByRole("button", { name: "Delete my Home account" })).not.toBeNull();
+  expect(view.queryByRole("button", { name: "Export my data" })).not.toBeNull();
+  await act(async () => { view.rerender(settings(false)); });
+  expect(view.queryByRole("button", { name: "Delete my Home account" })).toBeNull();
+  await act(async () => { view.rerender(settings(true)); });
+  expect(view.queryByRole("button", { name: "Delete my Home account" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Leave Home" })).not.toBeNull();
+});
+
+test.each(["credential", "wallet"] as const)("wallet-free deletion discards a completed response after a %s authorization change", async (change) => {
+  let activeSession: VerifiedAccountSession = { ...session("cdp-embedded"), smartAccount: null };
+  const pending = Promise.withResolvers<Response>();
+  let reads = 0;
+  let completions = 0;
+  const observed: { deletion?: ReturnType<typeof useAccountDeletion> } = {};
+  function Probe() {
+    const wallet = useAccountWallet();
+    const state = useAccountDeletion({ ownerKey: credentialOwnerKey(wallet), fetchAccountResource: wallet.fetchAccountResource, onCompleted: () => { completions += 1; } });
+    useLayoutEffect(() => { observed.deletion = state; }, [state]);
+    return <ClientProbe />;
+  }
+  const sessionFetch = async (path: RequestInfo | URL) => {
+    if (String(path) === "/api/session") return Response.json({ ...activeSession, version: 1 });
+    if (String(path) === "/api/account/deletion") { reads += 1; return reads === 1 ? pending.promise : Response.json({ error: { code: "ACCOUNT_DELETION_NOT_FOUND", message: "No request" } }, { status: 404 }); }
+    throw new Error("Unexpected request");
+  };
+  render(<AccountWalletSessionOwner sdk={sdk()} sessionFetch={sessionFetch}><Probe /></AccountWalletSessionOwner>);
+  await waitFor(() => expect(reads).toBe(1));
+  const initialKey = credentialOwnerKey(currentClient());
+  expect(uiBoundary(currentClient())).toBeNull();
+  activeSession = change === "wallet" ? session("cdp-embedded") : { ...session("cdp-embedded", "subject-b"), smartAccount: null };
+  await act(async () => { await currentClient().retrySessionValidation(); });
+  await waitFor(() => expect(reads).toBe(2));
+  expect(credentialOwnerKey(currentClient()) === initialKey).toBe(change === "wallet");
+  await act(async () => { pending.resolve(Response.json(deletionReceipt)); });
+  expect(completions).toBe(0);
+  expect(observed.deletion?.receipt).toBeNull();
+  expect(observed.deletion?.error).toBe(false);
+});
+
+test("wallet-free queued deletion preserves its receipt across failure and retries without duplicate POSTs", async () => {
+  const active = { ...session("cdp-embedded"), smartAccount: null };
+  const key = credentialOwnerKey({ session: active, status: "verified", verification: "server" });
+  const queued = { ...deletionReceipt, status: "queued" as const, completedAt: null, stores: ACCOUNT_EXPORT_HOME_CLASSES.map((name) => ({ name, disposition: "pending" as const })) };
+  const pending = Promise.withResolvers<unknown>();
+  let posts = 0;
+  let reads = 0;
+  let completions = 0;
+  let signal: AbortSignal | undefined;
+  const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (_path, options) => {
+    if (options?.method === "POST") { posts += 1; signal = options.signal; return pending.promise; }
+    reads += 1;
+    if (reads === 2) throw new Error("Unavailable");
+    return queued;
+  };
+  const hook = renderHook(({ ownerKey }: { ownerKey: string | null }) => useAccountDeletion({ ownerKey, onCompleted: () => { completions += 1; }, fetchAccountResource }), { initialProps: { ownerKey: key } });
+  await waitFor(() => expect(hook.result.current.receipt?.status).toBe("queued"));
+  await act(async () => { await hook.result.current.refresh(); });
+  expect(hook.result.current.error).toBe(true);
+  expect(hook.result.current.receipt?.requestId).toBe(queued.requestId);
+  await act(async () => { await hook.result.current.refresh(); });
+  expect(hook.result.current.error).toBe(false);
+  let work: Promise<unknown> | undefined;
+  act(() => { work = hook.result.current.start(); void hook.result.current.start(); });
+  expect(posts).toBe(1);
+  act(() => { hook.rerender({ ownerKey: null }); });
+  expect(signal?.aborted).toBe(true);
+  await act(async () => { pending.resolve(deletionReceipt); await work; });
+  expect(hook.result.current.receipt).toBeNull();
+  expect(completions).toBe(0);
+  act(() => { hook.rerender({ ownerKey: key }); });
+  await waitFor(() => expect(hook.result.current.receipt?.requestId).toBe(queued.requestId));
+});
+
+test("export keeps credential ownership separate from cache ownership and aborts on provisioning", async () => {
+  const key = credentialOwnerKey({ session: session("cdp-embedded"), status: "verified", verification: "server" });
+  const cacheKey = dataOwnerKey(session("cdp-embedded"));
+  const storageKey = ownerQueryStorageKey(cacheKey);
+  if (storageKey === null) throw new Error("Expected owner cache storage key.");
+  window.localStorage.setItem(storageKey, "private cache");
+  const pending = Promise.withResolvers<unknown>();
+  let signal: AbortSignal | undefined;
+  let reads = 0;
+  const downloads: Blob[] = [];
+  const original = URL.createObjectURL;
+  URL.createObjectURL = (blob) => {
+    if (!(blob instanceof Blob)) throw new Error("Expected account export Blob.");
+    downloads.push(blob);
+    return "blob:export-test";
+  };
+  const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (_path, options) => {
+    reads += 1; signal = options?.signal;
+    return reads === 1 ? pending.promise : exportResponse;
+  };
+  const initialProps: { cacheOwnerKey: string | null } = { cacheOwnerKey: null };
+  const hook = renderHook(({ cacheOwnerKey }: { cacheOwnerKey: string | null }) => useAccountExport({ ownerKey: key, cacheOwnerKey, fetchAccountResource }), { initialProps });
+  try {
+    let work: Promise<unknown> | undefined;
+    const oldStart = hook.result.current.start;
+    act(() => { work = oldStart(); });
+    act(() => { hook.rerender({ cacheOwnerKey: cacheKey }); });
+    expect(signal?.aborted).toBe(true);
+    await act(async () => { pending.resolve(exportResponse); await work; await oldStart(); });
+    expect(downloads).toHaveLength(0);
+    expect(hook.result.current.state).toBe("idle");
+    await act(async () => { await hook.result.current.start(); });
+    expect(downloads).toHaveLength(1);
+    const download = downloads[0];
+    if (!download) throw new Error("Expected account export download.");
+    const file = JSON.parse(await download.text());
+    expect(file.classes.find((entry: { name: string }) => entry.name === "device_caches").records).toContainEqual({ kind: "restored_query_cache", present: true, description: "Private query cache in browser storage; contents omitted." });
+    expect(hook.result.current.state).toBe("success");
+    act(() => { hook.rerender({ cacheOwnerKey: null }); });
+    await act(async () => { await hook.result.current.start(); });
+    const walletFreeDownload = downloads[1];
+    if (!walletFreeDownload) throw new Error("Expected wallet-free account export download.");
+    const walletFreeFile = JSON.parse(await walletFreeDownload.text());
+    expect(walletFreeFile.classes.find((entry: { name: string }) => entry.name === "device_caches").records.filter((entry: { kind: string }) => entry.kind !== "home_summary_cookie").map((entry: { present: unknown }) => entry.present)).toEqual([null, null]);
+  } finally {
+    URL.createObjectURL = original;
+  }
+});
+
+test("receipt retry is discarded after owner A→B→A", async () => {
+  let reads = 0;
+  let signOuts = 0;
+  const hook = renderHook(({ owner }: { owner: string }) => {
+    const fence = useOwnerGenerationFence(() => {});
+    useLayoutEffect(() => { fence.updateOwnerKey(owner, owner); }, [fence, owner]);
+    return useAccountDeletionRecovery({ ownerKey: owner, ownerFence: fence, queryClient: getHomeQueryClient(), signOut: async () => { signOuts += 1; } });
+  }, { initialProps: { owner: OWNER_A } });
+  await act(async () => { hook.result.current.revoked(async () => { reads += 1; throw new Error("503"); }); });
+  await waitFor(() => expect(hook.result.current.recovery?.busy).toBe(false));
+  const retry = hook.result.current.retry;
+  act(() => { hook.rerender({ owner: OWNER_B }); });
+  act(() => { hook.rerender({ owner: OWNER_A }); });
+  await act(async () => { retry(); });
+  expect({ reads, signOuts }).toEqual({ reads: 1, signOuts: 0 });
+  expect(hook.result.current.recovery).toBeNull();
+});
+
+test.each([false, true])("INVALID_REQUEST is an honest deletion error (transport throws: %s)", async (transportThrows) => {
+  let completions = 0;
+  const hook = renderHook(() => useAccountDeletion({ ownerKey: OWNER_A, onCompleted: () => { completions += 1; }, fetchAccountResource: async () => {
+    if (transportThrows) throw Object.assign(new Error("Invalid request"), { status: 400, code: "INVALID_REQUEST" });
+    return { error: { code: "INVALID_REQUEST", message: "Invalid request" } };
+  } }));
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  expect(hook.result.current.error).toBe(true);
+  expect(hook.result.current.receipt).toBeNull();
+  expect(completions).toBe(0);
+});
+
+
+test.each([
+  { fails: false, late: false },
+  { fails: true, late: false },
+  { fails: true, late: true },
+])("deletion recovery publishes and retries after actual SDK owner disappearance (cleanup fails: $fails, late: $late)", async ({ fails, late }) => {
+  const pending = Promise.withResolvers<void>();
+  let complete: (receipt: AccountDeletionReceipt) => void = () => { throw new Error("Completion not mounted"); };
+  let signOuts = 0;
+  const sdkSignOut = async () => {
+    signOuts += 1;
+    if (signOuts === 1) await pending.promise;
+  };
+  function CompletionProbe() {
+    const onCompleted = useAccountDeletionCompletion();
+    useLayoutEffect(() => { complete = onCompleted; }, [onCompleted]);
+    return <ClientProbe />;
+  }
+  const sessionFetch = async () => Response.json({ ...session("cdp-embedded"), version: 1 });
+  const owner = (boundary: AccountWalletSdkBoundary) => (
+    <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
+      <CompletionProbe />
+    </AccountWalletSessionOwner>
+  );
+  const view = render(owner(sdk({ signOut: sdkSignOut })));
+  await waitFor(() => expect(currentClient().status).toBe("verified"));
+  await act(async () => { complete(deletionReceipt); });
+  expect(signOuts).toBe(1);
+  expect(view.queryByText("Clearing this device and signing out…")).not.toBeNull();
+  const disappear = () => { view.rerender(owner(sdk({ signOut: sdkSignOut, isSignedIn: false, ownerKey: null }))); };
+  if (!late) act(disappear);
+  await act(async () => {
+    if (fails) pending.reject(new Error("SDK cleanup failed"));
+    else pending.resolve();
+  });
+  if (late) {
+    await waitFor(() => expect(view.queryByRole("button", { name: "Try again" })).not.toBeNull());
+    act(disappear);
+  }
+  await waitFor(() => expect(view.queryByRole("button", { name: "Download receipt" })).not.toBeNull());
+  expect(view.queryByText("Clearing this device and signing out…")).toBeNull();
+  expect(view.queryByText("Home account deleted")).not.toBeNull();
+  if (fails) {
+    expect(view.queryByText("Your Home account was deleted, but sign-out did not finish on this device.")).not.toBeNull();
+    const retry = view.getByRole("button", { name: "Try again" });
+    await act(async () => { retry.click(); });
+    await waitFor(() => expect(signOuts).toBe(2));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Try again" })).toBeNull());
+    expect(view.queryByRole("button", { name: "Download receipt" })).not.toBeNull();
+  } else {
+    expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
+  }
+});
+
+test.each([false, true])("sign-out recovery cannot publish after SDK owner A→B→A (cleanup fails: %s)", async (fails) => {
+  const pending = Promise.withResolvers<void>();
+  let complete: (receipt: AccountDeletionReceipt) => void = () => { throw new Error("Completion not mounted"); };
+  function CompletionProbe() {
+    const onCompleted = useAccountDeletionCompletion();
+    useLayoutEffect(() => { complete = onCompleted; }, [onCompleted]);
+    return <ClientProbe />;
+  }
+  const sdkSignOut = async () => pending.promise;
+  const sessionFetch = async () => Response.json({ ...session("cdp-embedded"), version: 1 });
+  const owner = (boundary: AccountWalletSdkBoundary) => (
+    <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}><CompletionProbe /></AccountWalletSessionOwner>
+  );
+  const view = render(owner(sdk({ signOut: sdkSignOut })));
+  await waitFor(() => expect(currentClient().status).toBe("verified"));
+  await act(async () => { complete(deletionReceipt); });
+  act(() => { view.rerender(owner(sdk({ signOut: sdkSignOut, ownerKey: OWNER_B }))); });
+  act(() => { view.rerender(owner(sdk({ signOut: sdkSignOut }))); });
+  await act(async () => {
+    if (fails) pending.reject(new Error("SDK cleanup failed"));
+    else pending.resolve();
+  });
+  expect(view.queryByRole("button", { name: "Download receipt" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
+});
+
+function captureDeletionDeadline(delayMs: number) {
+  const nativeSetTimeout = globalThis.setTimeout;
+  let fire: (() => void) | undefined;
+  Object.defineProperty(globalThis, "setTimeout", { configurable: true, writable: true, value: (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (delay === delayMs) fire = () => callback(...args);
+    return nativeSetTimeout(callback, delay, ...args);
+  } });
+  return {
+    fire() { if (!fire) throw new Error("Deletion deadline not scheduled"); fire(); },
+    restore() { globalThis.setTimeout = nativeSetTimeout; },
+  };
+}
+
+test("blocked device cleanup publishes a known receipt immediately, reports uncertainty and retries", async () => {
+  const originalIndexedDB = Object.getOwnPropertyDescriptor(globalThis, "indexedDB");
+  const { IDBFactory } = await import("fake-indexeddb");
+  const database = new IDBFactory();
+  const pendingOpen: { onsuccess: () => void; onerror: () => void; result?: IDBDatabase } = { onsuccess: () => {}, onerror: () => {} };
+  Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: { open: () => pendingOpen } });
+  const deadline = captureDeletionDeadline(1_500);
+  let signOuts = 0;
+  const hook = renderHook(({ owner }: { owner: string }) => {
+    const fence = useOwnerGenerationFence(() => {});
+    useLayoutEffect(() => { fence.updateOwnerKey(owner, owner); }, [fence, owner]);
+    return useAccountDeletionRecovery({ ownerKey: owner, ownerFence: fence, queryClient: getHomeQueryClient(), signOut: async () => { signOuts += 1; } });
+  }, { initialProps: { owner: OWNER_A } });
+  try {
+    act(() => { hook.result.current.complete(deletionReceipt); });
+    expect(hook.result.current.recovery?.receipt).toEqual(deletionReceipt);
+    expect(hook.result.current.recovery?.busy).toBe(true);
+    await act(async () => { deadline.fire(); });
+    expect(hook.result.current.recovery?.busy).toBe(false);
+    expect(hook.result.current.recovery?.deviceRows).toContainEqual({ name: "IndexedDB owner cache", cleared: false });
+    expect(hook.result.current.recovery?.error).toContain("couldn't confirm");
+    expect(signOuts).toBe(1);
+
+    const connection = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = database.open("home-query-cache");
+      request.onupgradeneeded = () => request.result.createObjectStore("owner-clients");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const sentinel = { epoch: "new-owner", owner: OWNER_B, value: "private", savedAt: 1 };
+    await new Promise<void>((resolve) => {
+      const transaction = connection.transaction("owner-clients", "readwrite");
+      transaction.objectStore("owner-clients").put(sentinel, "owner-client");
+      transaction.oncomplete = () => resolve();
+    });
+    pendingOpen.result = connection;
+    await act(async () => { pendingOpen.onsuccess(); });
+    const readCache = () => new Promise<unknown>((resolve) => {
+      const request = connection.transaction("owner-clients", "readonly").objectStore("owner-clients").get("owner-client");
+      request.onsuccess = () => resolve(request.result);
+    });
+    expect(await readCache()).toEqual(sentinel);
+    await act(async () => { hook.result.current.retry(); });
+    await waitFor(() => expect(hook.result.current.recovery?.busy).toBe(false));
+    expect(hook.result.current.recovery?.error).toBeNull();
+    expect(hook.result.current.recovery?.deviceRows.every((row) => row.cleared)).toBe(true);
+    expect(signOuts).toBe(2);
+    act(() => { hook.rerender({ owner: OWNER_B }); });
+    expect(hook.result.current.recovery).toBeNull();
+    connection.close();
+  } finally {
+    hook.unmount();
+    deadline.restore();
+    if (originalIndexedDB) Object.defineProperty(globalThis, "indexedDB", originalIndexedDB);
+    else Reflect.deleteProperty(globalThis, "indexedDB");
+  }
+});
+
+const { useAuthenticatedTransport } = await import("./cdp-authenticated-transport");
+test.each(["fetch", "body"])("receipt recovery bounds stalled %s, aborts and enables retry without late sign-out", async (stage) => {
+  const deadline = captureDeletionDeadline(20_000);
+  const pendingFetch = Promise.withResolvers<Response>();
+  const pendingBody = Promise.withResolvers<unknown>();
+  let receiptSignal: AbortSignal | null | undefined;
+  let reads = 0;
+  let signOuts = 0;
+  const hook = renderHook(() => {
+    const fence = useOwnerGenerationFence(() => {});
+    const recovery = useAccountDeletionRecovery({ ownerKey: OWNER_A, ownerFence: fence, queryClient: getHomeQueryClient(), signOut: async () => { signOuts += 1; } });
+    const transport = useAuthenticatedTransport({
+      session: session("cdp-embedded"), status: "verified", verification: "server", ownerKey: OWNER_A, ownerFence: fence,
+      getAccessToken: async () => "fixture-token", onAccountDeleted: recovery.revoked,
+      sessionFetch: async (path, init) => {
+        if (String(path) !== "/api/account/deletion") return Response.json({ error: { code: "ACCOUNT_DELETED" } }, { status: 401 });
+        reads += 1;
+        receiptSignal = init?.signal;
+        if (reads > 1) return Response.json(deletionReceipt);
+        if (stage === "fetch") return pendingFetch.promise;
+        const response = Response.json(deletionReceipt);
+        response.json = () => pendingBody.promise;
+        return response;
+      },
+    });
+    return { ...recovery, ...transport };
+  });
+  try {
+    await act(async () => { await hook.result.current.fetchBalances("US").catch(() => {}); });
+    expect(reads).toBe(1);
+    expect(receiptSignal?.aborted).toBe(false);
+    await act(async () => { deadline.fire(); });
+    expect(receiptSignal?.aborted).toBe(true);
+    expect(hook.result.current.recovery?.busy).toBe(false);
+    expect(hook.result.current.recovery?.error).toContain("Deletion is not confirmed");
+    await act(async () => {
+      pendingFetch.resolve(Response.json(deletionReceipt));
+      pendingBody.resolve(deletionReceipt);
+    });
+    expect(signOuts).toBe(0);
+    expect(hook.result.current.recovery?.receipt).toBeNull();
+    await act(async () => { hook.result.current.retry(); });
+    expect(reads).toBe(2);
+    expect(signOuts).toBe(1);
+    expect(hook.result.current.recovery?.receipt).toEqual(deletionReceipt);
+    expect(hook.result.current.recovery?.busy).toBe(false);
+    expect(hook.result.current.recovery?.error).toBeNull();
+  } finally {
+    hook.unmount();
+    deadline.restore();
+  }
+});
+
+test.each(["token", "fetch", "body"])("session restore deletion recovery bounds stalled %s and retries without late sign-out", async (stage) => {
+  const deadline = captureDeletionDeadline(20_000);
+  const pendingToken = Promise.withResolvers<string>();
+  let tokenReads = 0;
+  const pendingFetch = Promise.withResolvers<Response>();
+  const pendingBody = Promise.withResolvers<unknown>();
+  let receiptSignal: AbortSignal | null | undefined;
+  let reads = 0;
+  let signOuts = 0;
+  const view = render(
+    <AccountWalletSessionOwner
+      sdk={sdk({
+        provisionalSession: session("cdp-embedded"),
+        signOut: async () => { signOuts += 1; },
+        getAccessToken: async () => {
+          tokenReads += 1;
+          return stage === "token" && tokenReads === 2 ? pendingToken.promise : "fixture-token";
+        },
+      })}
+      sessionFetch={async (path, init) => {
+        if (String(path) !== "/api/account/deletion") {
+          return Response.json({ error: { code: "ACCOUNT_DELETED" } }, { status: 401 });
+        }
+        reads += 1;
+        receiptSignal = init?.signal;
+        if (stage === "token" || reads > 1) return Response.json(deletionReceipt);
+        if (stage === "fetch") return pendingFetch.promise;
+        const response = Response.json(deletionReceipt);
+        response.json = () => pendingBody.promise;
+        return response;
+      }}
+    ><ClientProbe /></AccountWalletSessionOwner>,
+  );
+  try {
+    await waitFor(() => expect(tokenReads).toBe(2));
+    if (stage === "token") expect(reads).toBe(0);
+    else {
+      await waitFor(() => expect(reads).toBe(1));
+      expect(receiptSignal?.aborted).toBe(false);
+    }
+    expect(view.queryByText("Clearing this device and signing out…")).not.toBeNull();
+    await act(async () => { deadline.fire(); });
+    if (stage !== "token") expect(receiptSignal?.aborted).toBe(true);
+    expect(view.queryByText("Clearing this device and signing out…")).toBeNull();
+    expect(view.queryByText(/Deletion is not confirmed here/)).not.toBeNull();
+    const retry = view.getByRole("button", { name: "Try again" });
+    await act(async () => {
+      pendingToken.resolve("late-token");
+      pendingFetch.resolve(Response.json(deletionReceipt));
+      pendingBody.resolve(deletionReceipt);
+    });
+    expect(signOuts).toBe(0);
+    expect(reads).toBe(stage === "token" ? 0 : 1);
+    expect(view.queryByRole("button", { name: "Download receipt" })).toBeNull();
+    await act(async () => { retry.click(); });
+    await waitFor(() => expect(view.queryByRole("button", { name: "Download receipt" })).not.toBeNull());
+    expect(reads).toBe(stage === "token" ? 1 : 2);
+    expect(tokenReads).toBe(3);
+    expect(signOuts).toBe(1);
+    expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
+  } finally {
+    view.unmount();
+    deadline.restore();
+  }
 });

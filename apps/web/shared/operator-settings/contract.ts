@@ -129,7 +129,7 @@ const auditListResponseSchema = z.object({
   nextCursor: z.nullable(cursorSchema),
 });
 const operatorSettingsErrorCodeSchema = z.enum([
-  "UNAUTHENTICATED", "OPERATOR_FORBIDDEN", "NOT_FOUND", "INVALID_REQUEST",
+  "UNAUTHENTICATED", "AUTH_UNAVAILABLE", "OPERATOR_FORBIDDEN", "NOT_FOUND", "INVALID_REQUEST",
   "SETTINGS_CONFLICT", "OPERATOR_CHANGED", "CROSS_ORIGIN", "SETTINGS_UNAVAILABLE",
 ]);
 const operatorSettingsErrorResponseSchema = z.pipe(z.object({

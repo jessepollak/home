@@ -1,4 +1,13 @@
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
+
 export const NETWORK_FEE_POLICY_VERSION = 1 as const;
+
+export type NetworkFeePolicyErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses network-fee auth-boundary errors for clients */
+export function parseNetworkFeePolicyErrorResponse(value: unknown): NetworkFeePolicyErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 
 export type NetworkFeePolicyResponse = {
   version: typeof NETWORK_FEE_POLICY_VERSION;

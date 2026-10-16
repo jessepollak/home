@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 
 export const CARDS_CONTRACT_VERSION = 2 as const;
 const cardStateSchema = z.enum(["not-enrolled", "verification-required", "verification-pending", "ineligible", "ready-to-issue", "active", "frozen", "restricted", "canceled", "unavailable"]);
@@ -40,7 +41,7 @@ export type CardState = z.output<typeof cardStateSchema>;
 export type CardsResponse = z.output<typeof cardsResponseSchema>;
 export type CardsError = z.output<typeof cardsErrorSchema>;
 export type CardWriteErrorCode = z.output<typeof cardWriteErrorCodeSchema>;
-export type CardWriteError = z.output<typeof cardWriteErrorSchema>;
+export type CardWriteError = z.output<typeof cardWriteErrorSchema> | AuthBoundaryErrorResponse;
 export type CardEnrollmentResponse = z.output<typeof cardEnrollmentResponseSchema>;
 export type CardWriteResponse = z.output<typeof cardWriteResponseSchema>;
 export type RevealRequest = Readonly<z.output<typeof revealRequestSchema>>;
@@ -66,6 +67,8 @@ export function parseCardWriteResponse(value: unknown): CardWriteResponse | null
   const result = originalCardWriteResponseSchema.safeParse(value); return result.success ? result.data : null;
 }
 export function parseCardWriteError(value: unknown): CardWriteError | null {
+  const boundaryError = parseAuthBoundaryErrorResponse(value);
+  if (boundaryError) return boundaryError;
   const result = originalCardWriteErrorSchema.safeParse(value); return result.success ? result.data : null;
 }
 export function parseCardsResponse(value: unknown): CardsResponse | null {

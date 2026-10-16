@@ -1,3 +1,4 @@
+import { AUTH_BOUNDARY_ERROR_CODES } from "@/shared/account/contracts/auth-boundary";
 import { parsePresentedAction, type PresentedAction } from "./get";
 
 export const HANDLE_ACTION_CONTRACT_VERSION = 1 as const;
@@ -19,7 +20,7 @@ export function parseHandleActionResponse(value: unknown): HandleActionResponse 
   return isHandleActionResponse(value) ? value : null;
 }
 
-export const HANDLE_ACTION_ERROR_CODES = ["INVALID_ACTION_HANDLE", "ACTION_NOT_FOUND", "ACTIONS_UNAVAILABLE"] as const;
+export const HANDLE_ACTION_ERROR_CODES = [...AUTH_BOUNDARY_ERROR_CODES, "INVALID_ACTION_HANDLE", "ACTION_NOT_FOUND", "ACTIONS_UNAVAILABLE"] as const;
 export type HandleActionErrorCode = (typeof HANDLE_ACTION_ERROR_CODES)[number];
 export type HandleActionErrorResponse = { error: { code: HandleActionErrorCode; message: string } };
 

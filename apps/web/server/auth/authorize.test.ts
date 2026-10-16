@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
+  type VerifiedAccountSession,
 } from "@/shared/account/session-types";
-import { authorizeSession } from "./authorize";
+import { requireAddress } from "@/shared/chain/hex";
+import { createHash } from "node:crypto";
+import { signedValue, HOME_SESSION_COOKIE } from "./native-base-session";
+import { authorizeRawSession, authorizeSession } from "./authorize";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 
@@ -77,5 +81,24 @@ describe("authorizeSession", () => {
   test("relays unsuccessful boundary responses unchanged", async () => {
     const failure = Response.json({ error: { code: "UNAUTHENTICATED" } }, { status: 401 });
     expect(await authorizeSession(request(), async () => failure)).toBe(failure);
+  });
+});
+
+
+describe("receipt-only raw credential boundary", () => {
+  test("default raw boundary verifies a native cookie without consulting the private registry", async () => {
+    const previousSecret=process.env.HOME_SESSION_SECRET, previousDatabase=process.env.DATABASE_URL;
+    const secret="r".repeat(40), now=new Date("2030-01-01T00:00:00Z");
+    const session:VerifiedAccountSession={accountProvider:"base-account",user:{subject:`base-${createHash("sha256").update(ADDRESS).digest("hex").slice(0,32)}`},smartAccount:{address:requireAddress(ADDRESS),chainId:8453}};
+    const token=signedValue(Buffer.from(secret),JSON.stringify({version:1,session,issuedAt:now.toISOString(),expiresAt:new Date(now.getTime()+30_000).toISOString()}));
+    process.env.HOME_SESSION_SECRET=secret;
+    process.env.DATABASE_URL="postgres://localhost:1/unavailable";
+    try {
+      const response=await authorizeRawSession(new Request("https://home.test/api/account/deletion",{headers:{[ACCOUNT_PROVIDER_HEADER]:"base-account",Cookie:`${HOME_SESSION_COOKIE}=${token}`}}));
+      expect(response).toEqual(session);
+    } finally {
+      if(previousSecret===undefined) delete process.env.HOME_SESSION_SECRET; else process.env.HOME_SESSION_SECRET=previousSecret;
+      if(previousDatabase===undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL=previousDatabase;
+    }
   });
 });

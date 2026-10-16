@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 
 export const INVITE_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 export const INVITE_CODE_LENGTH = 10;
@@ -23,6 +24,12 @@ export function invitePath(code: string): string {
 }
 
 export type InviteLinkResponse = z.output<typeof inviteLinkResponseSchema>;
+export type InviteLinkErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses invite-link auth-boundary errors for clients */
+export function parseInviteLinkErrorResponse(value: unknown): InviteLinkErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 
 /** @public consumed by the Account invite-link client in the follow-up UI delivery */
 export function parseInviteLinkResponse(value: unknown): InviteLinkResponse | null {

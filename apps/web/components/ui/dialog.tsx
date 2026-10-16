@@ -33,9 +33,6 @@ function DialogTrigger(props: DialogPrimitive.Trigger.Props) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 }
 
-function DialogClose(props: DialogPrimitive.Close.Props) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
-}
 
 function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
   return (
@@ -116,14 +113,13 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
 
 export {
   Dialog,
-  DialogClose,
   DialogContent,
-  DialogHeader,
   DialogTitle,
 }
 
 /** @public rendered by Storybook story components/ui/dialog.stories.tsx */
 export {
+  DialogHeader,
   DialogDescription,
   DialogTrigger,
 }
