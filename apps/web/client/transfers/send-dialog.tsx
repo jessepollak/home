@@ -335,7 +335,8 @@ export function SendDialog({
     else if (step === "confirm" || step === "error") {
       if (cashout?.operation === "withdraw") { onClose(); return; }
       if (cashout) returnToCashoutHandle(false);
-      else { discardPreparedReview(); setStep(sendOffered ? "destination" : "amount"); }
+      else if (!sendOffered) { discardPreparedReview(); onClose(); }
+      else { discardPreparedReview(); setStep("destination"); }
     }
   }
 
