@@ -634,6 +634,8 @@ export function createListActionsHandler(dependencies: {
         ...await presentAction(row, owner, receipt, now),
         ...(row.kind === "cash-out-withdraw" && finalizedSucceededReceiptBlock(row) !== undefined
           ? { receiptBlockNumber: finalizedSucceededReceiptBlock(row) } : {}),
+        ...(row.kind === "cash-out-withdraw" && finalizedSucceededReceiptBlock(row) !== undefined && row.observed_receipt_block_hash != null
+          ? { receiptBlockHash: row.observed_receipt_block_hash.toLowerCase() } : {}),
         ...(record ? { cashout: presentCashoutProgress(record,
           record.deposit_id !== null && (cashoutWithdrawalInFlight(cashoutRows, owner, record.deposit_id, now) ||
             (unlinkedInFlight && record.withdrawable)), row) } : {}),

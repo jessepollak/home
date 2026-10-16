@@ -26,6 +26,7 @@ export type ActionListItem = {
   submittedAt?: string;
   settledAt?: string;
   receiptBlockNumber?: string;
+  receiptBlockHash?: string;
   settledBlockNumber?: string;
   providerHandle?: string;
   transactionHash?: string;
@@ -70,6 +71,7 @@ export type RecentMoneyActionOperation = {
   submittedAt?: string;
   settledAt?: string;
   receiptBlockNumber?: string;
+  receiptBlockHash?: string;
   settledBlockNumber?: string;
 };
 
@@ -130,12 +132,19 @@ function isCompleteRecentActionItem(item: unknown): item is CompleteRecentAction
   const isDeposit = item.kind === "cash-out";
   const isWithdraw = item.kind === "cash-out-withdraw";
   if (!isDeposit && !isWithdraw) return true;
+  if (isWithdraw && !hasWellFormedReceiptProof(item)) return false;
   const metadata = summary.metadata;
   if (metadata === undefined) return isDeposit;
   if (!isMoneyMetadata(metadata) || metadata.product !== "cashout" || metadata.operation !== (isWithdraw ? "withdraw" : "deposit")) return false;
   return true;
 }
 
+function hasWellFormedReceiptProof(item: Record<string, unknown>): boolean {
+  return (item.receiptBlockNumber === undefined || typeof item.receiptBlockNumber === "string" && receiptBlockNumberPattern.test(item.receiptBlockNumber)) &&
+    (item.receiptBlockHash === undefined || parseHash32(item.receiptBlockHash) !== null);
+}
+
+const receiptBlockNumberPattern = /^(?:0|[1-9][0-9]*)$/;
 const maxAtomicUnits = (BigInt(1) << BigInt(256)) - BigInt(1);
 const maxCashoutAmountDecimals = 20;
 const maxActionAmountDecimals = 255;
@@ -180,6 +189,7 @@ function parseRecentActionItems(items: unknown[], session: VerifiedAccountSessio
     const cashout = item.kind === "cash-out" ? readCashoutProgress(item.cashout) : null;
     const transactionHash = parseHash32(item.transactionHash);
     const userOperationHash = parseHash32(item.providerHandle);
+    const receiptBlockHash = parseHash32(item.receiptBlockHash);
     const metadata = isMoneyMetadata(item.summary.metadata) ? normalizeRecentMetadata(item.summary.metadata) : null;
     parsed.push({
       action: {
@@ -198,8 +208,9 @@ function parseRecentActionItems(items: unknown[], session: VerifiedAccountSessio
       updatedAt: item.confirmedAt,
       ...(typeof item.submittedAt === "string" && Number.isFinite(Date.parse(item.submittedAt)) ? { submittedAt: item.submittedAt } : {}),
       ...(typeof item.settledAt === "string" && Number.isFinite(Date.parse(item.settledAt)) ? { settledAt: item.settledAt } : {}),
-      ...(item.kind === "cash-out-withdraw" && typeof item.receiptBlockNumber === "string" && /^\d+$/.test(item.receiptBlockNumber)
+      ...(item.kind === "cash-out-withdraw" && typeof item.receiptBlockNumber === "string"
         ? { receiptBlockNumber: item.receiptBlockNumber } : {}),
+      ...(item.kind === "cash-out-withdraw" && receiptBlockHash ? { receiptBlockHash } : {}),
       ...(typeof item.settledBlockNumber === "string" && /^(?:0|[1-9][0-9]*)$/.test(item.settledBlockNumber) ? { settledBlockNumber: item.settledBlockNumber } : {}),
       ...(cashout ? { cashout } : {}),
       ...(transactionHash ? { transactionHash } : {}),

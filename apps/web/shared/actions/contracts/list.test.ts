@@ -353,22 +353,39 @@ describe("recent Home action activity", () => {
       expect(readRecentActionsTruncated(value)).toBe(true);
   });
 
-  test("keeps receipt block numbers only for cash-out withdrawals with digit strings", () => {
+  test("a malformed receipt block proof on a cash-out withdrawal marks the read incomplete, while an absent one stays complete", () => {
     const metadata = { product: "cashout", operation: "withdraw", providerId: "peer", providerName: "Peer", environment: "sandbox",
       platform: "cashapp", platformLabel: "Cash App", currency: "USD", approximateFiatAmount: "1", minConversionRate: "1",
       intentAmountRange: { min: "1", max: "2" }, estimateAsOf: "2026-09-14T12:00:00.000Z",
       escrow: "0x777777779d229cdF3110e9de47943791c26300Ef", depositId: "escrow-1" };
     const withdrawal = { ...row(), kind: "cash-out-withdraw", summary: { ...row().summary, metadata } };
+    const blockHash = `0x${"Ab".repeat(32)}`;
     for (const receiptBlockNumber of ["0", "12345678901234567890"]) {
-      expect(parseRecentMoneyActions({ actions: [{ ...withdrawal, receiptBlockNumber }] }, session)[0]?.receiptBlockNumber).toBe(receiptBlockNumber);
+      const response = { actions: [{ ...withdrawal, receiptBlockNumber, receiptBlockHash: blockHash }] };
+      expect(readRecentActionsIncomplete(response, session)).toBe(false);
+      expect(parseRecentActionsPayload(response, session).operations[0]).toMatchObject({ receiptBlockNumber, receiptBlockHash: blockHash.toLowerCase() });
     }
-    for (const receiptBlockNumber of [undefined, null, 123, "", "-1", "1.5", "0x10", " 123 ", "bad"]) {
-      const parsed = parseRecentMoneyActions({ actions: [{ ...withdrawal, receiptBlockNumber }] }, session);
-      expect(parsed).toHaveLength(1);
-      expect(parsed[0]).not.toHaveProperty("receiptBlockNumber");
+    for (const field of [{}, { receiptBlockNumber: undefined }]) {
+      const response = { actions: [{ ...withdrawal, ...field }] };
+      expect(readRecentActionsIncomplete(response, session)).toBe(false);
+      const [parsed] = parseRecentMoneyActions(response, session);
+      expect(parsed).not.toHaveProperty("receiptBlockNumber");
+      expect(parsed).not.toHaveProperty("receiptBlockHash");
+    }
+    for (const receiptBlockNumber of [null, 123, "", "-1", "1.5", "0x10", " 123 ", "007", "bad"]) {
+      const response = { actions: [{ ...withdrawal, receiptBlockNumber }] };
+      expect(readRecentActionsIncomplete(response, session)).toBe(true);
+      expect(parseRecentActionsPayload(response, session)).toMatchObject({ operations: [], incomplete: true });
+    }
+    for (const receiptBlockHash of [null, 123, "", "0x12", `0x${"zz".repeat(32)}`]) {
+      const response = { actions: [{ ...withdrawal, receiptBlockNumber: "123", receiptBlockHash }] };
+      expect(readRecentActionsIncomplete(response, session)).toBe(true);
+      expect(parseRecentActionsPayload(response, session)).toMatchObject({ operations: [], incomplete: true });
     }
     for (const kind of ["send", "cash-out"]) {
-      expect(parseRecentMoneyActions({ actions: [{ ...row(), kind, receiptBlockNumber: "123" }] }, session)[0]).not.toHaveProperty("receiptBlockNumber");
+      const response = { actions: [{ ...row(), kind, receiptBlockNumber: "123", receiptBlockHash: blockHash }] };
+      expect(parseRecentMoneyActions(response, session)[0]).not.toHaveProperty("receiptBlockNumber");
+      expect(parseRecentMoneyActions(response, session)[0]).not.toHaveProperty("receiptBlockHash");
     }
   });
 });

@@ -7,6 +7,7 @@ import type { ActionRow } from "./store";
 
 const address = "0x1111111111111111111111111111111111111111";
 const hash = `0x${"ab".repeat(32)}`;
+const blockHash = `0x${"ef".repeat(32)}`;
 const instant = "2026-09-15T12:00:00.000Z";
 const session: VerifiedAccountSession = {
   user: { subject: "owner" }, smartAccount: { address, chainId: 8453 }, accountProvider: "cdp-embedded",
@@ -27,6 +28,7 @@ function row(changes: Partial<ActionRow> = {}): ActionRow {
     handle_recorded_at: instant, declined_reported_at: null, dispatch_attempt: 0,
     outcome: "succeeded", outcome_source: "chain", settled_at: instant, outcome_recorded_at: instant,
     observed_receipt_transaction_hash: hash.toUpperCase(), observed_receipt_outcome: "succeeded", observed_receipt_block_number: "123",
+    observed_receipt_block_hash: blockHash,
     ...changes,
   };
 }
@@ -64,8 +66,33 @@ test("GET /api/actions always reports version 1 and explicit false or true trunc
 
 test("GET /api/actions emits a withdrawal receipt block for matching succeeded observations", async () => {
   const { payload, parsed } = await list([row()]);
-  expect(payload).toMatchObject({ actions: [{ kind: "cash-out-withdraw", status: "confirmed", receiptBlockNumber: "123" }] });
-  expect(parsed.operations).toMatchObject([{ action: { kind: "cash-out-withdraw" }, status: "confirmed", receiptBlockNumber: "123" }]);
+  expect(payload).toMatchObject({ actions: [{ kind: "cash-out-withdraw", status: "confirmed", receiptBlockNumber: "123", receiptBlockHash: blockHash }] });
+  expect(parsed.operations).toMatchObject([{ action: { kind: "cash-out-withdraw" }, status: "confirmed", receiptBlockNumber: "123", receiptBlockHash: blockHash }]);
+});
+
+test("GET /api/actions lowercases the observed receipt block hash", async () => {
+  const { parsed } = await list([row({ observed_receipt_block_hash: blockHash.toUpperCase().replace("0X", "0x") })]);
+  expect(parsed.operations[0]?.receiptBlockHash).toBe(blockHash);
+});
+
+test("GET /api/actions emits a receipt block number without a hash when no block hash was observed", async () => {
+  const { payload, parsed } = await list([row({ observed_receipt_block_hash: null })]);
+  expect(payload).toMatchObject({ actions: [{ receiptBlockNumber: "123" }] });
+  expect(payload).toMatchObject({ actions: [expect.not.objectContaining({ receiptBlockHash: expect.anything() })] });
+  expect(parsed.operations[0]).not.toHaveProperty("receiptBlockHash");
+});
+
+test("GET /api/actions keeps a stored empty receipt block hash on the wire so the client reads the withdrawal as malformed", async () => {
+  const handler = createListActionsHandler({
+    authorize: async () => Response.json(session),
+    store: { list: async () => [row({ observed_receipt_block_hash: "" })], recordHandle: async () => { throw new Error("Unexpected"); },
+      recordOutcome: async () => { throw new Error("Unexpected"); } },
+    refreshCashouts: async () => [],
+    now: () => new Date(instant),
+  });
+  const payload = await readJson(await handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } })));
+  expect(payload).toMatchObject({ actions: [{ receiptBlockNumber: "123", receiptBlockHash: "" }] });
+  expect(parseRecentActionsPayload(payload, session)).toMatchObject({ operations: [], incomplete: true });
 });
 
 const omittedReceiptBlockCases: [string, Partial<ActionRow>][] = [
@@ -80,7 +107,7 @@ const omittedReceiptBlockCases: [string, Partial<ActionRow>][] = [
 
 test.each(omittedReceiptBlockCases)("GET /api/actions omits a withdrawal receipt block for %s", async (_label, changes) => {
   const { payload, parsed } = await list([row(changes)]);
-  expect(payload).toMatchObject({ version: 1, truncated: false, actions: [expect.not.objectContaining({ receiptBlockNumber: expect.anything() })] });
+  expect(payload).toMatchObject({ version: 1, truncated: false, actions: [expect.not.objectContaining({ receiptBlockNumber: expect.anything(), receiptBlockHash: expect.anything() })] });
   expect(parsed.operations[0]?.action.kind).toBe(changes.kind ?? "cash-out-withdraw");
   expect(parsed.operations[0]).not.toHaveProperty("receiptBlockNumber");
 });
