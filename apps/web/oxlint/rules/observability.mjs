@@ -366,8 +366,11 @@ function fenceHelperCall(state, node) {
   const fn = definition.type === "FunctionName" ? entry.node : unwrapTransparent(entry.node.init);
   if (!fn || fn.async || fn.generator) return null;
   const parameters = new Map(fn.params.flatMap((parameter, index) => parameter.type === "Identifier" ? [[parameter.name, index]] : []));
-  const suppliedParameter = (parameter) => parameter?.type === "Identifier" && parameters.has(parameter.name)
-    && node.arguments[parameters.get(parameter.name)]?.type === "Identifier";
+  const suppliedArgument = (parameter) => {
+    if (parameter?.type !== "Identifier" || !parameters.has(parameter.name)) return null;
+    const argument = node.arguments[parameters.get(parameter.name)];
+    return argument?.type === "Identifier" ? argument : null;
+  };
   const body = entry.body;
   const expression = body.type === "BlockStatement"
     ? body.body.length === 1 && body.body[0].type === "ReturnStatement" ? body.body[0].argument : null
@@ -376,9 +379,14 @@ function fenceHelperCall(state, node) {
     if (atom.type === "BinaryExpression" && fenceComparisons.has(atom.operator)) {
       const left = unwrapTransparent(atom.left);
       const right = unwrapTransparent(atom.right);
-      return (suppliedParameter(left) && memberChainRootedAtIdentifier(right))
-        || (suppliedParameter(right) && memberChainRootedAtIdentifier(left))
-        ? { captured: true, skipBranch: atom.operator === "!==" || atom.operator === "!=" } : null;
+      const leftArgument = suppliedArgument(left);
+      const rightArgument = suppliedArgument(right);
+      const skipBranch = atom.operator === "!==" || atom.operator === "!=";
+      if ((leftArgument && memberChainRootedAtIdentifier(right)) || (rightArgument && memberChainRootedAtIdentifier(left))) {
+        return { captured: Boolean((leftArgument && capturedSourceMatches(state, leftArgument, right))
+          || (rightArgument && capturedSourceMatches(state, rightArgument, left))), skipBranch };
+      }
+      return null;
     }
     return memberChainRootedAtIdentifier(atom) ? { captured: false, skipBranch: false } : null;
   });
@@ -480,6 +488,15 @@ function stateFenceAtom(state, node) {
   return null;
 }
 
+function readsMember(reference, property) {
+  let target = reference.identifier;
+  while (target.parent && transparentWrappers.has(target.parent.type) && target.parent.expression === target) target = target.parent;
+  const parent = target.parent;
+  if (parent?.type !== "MemberExpression" || parent.object !== target) return true;
+  const name = staticMemberName(parent);
+  return property === null || name === null || name === property;
+}
+
 function assignsOuterMember(state, node) {
   const member = node.left;
   if (member.type !== "MemberExpression" || member.optional || member.object.type !== "Identifier"
@@ -487,7 +504,8 @@ function assignsOuterMember(state, node) {
   const variable = findValueVariable(state, member.object);
   return Boolean(variable && valueDefinitions(variable).length > 0
     && !variable.identifiers.some((identifier) => isWithin(identifier, state.catchClause))
-    && variable.references.some(isObservingRead));
+    && variable.references.some((reference) => isObservingRead(reference)
+      && readsMember(reference, staticMemberName(member))));
 }
 
 function isUndeclared(state, identifier) {
@@ -761,6 +779,15 @@ function surfacedTelemetryWrite(node) {
 
 const conditionalAssignments = new Set(["&&=", "||=", "??="]);
 
+function assignmentTargetHasDisposition(state, target) {
+  let current = unwrapTransparent(target);
+  while (current?.type === "MemberExpression") {
+    if (current.computed && !current.optional && expressionHasDisposition(state, current.property)) return true;
+    current = unwrapTransparent(current.object);
+  }
+  return current?.type !== "Identifier" && expressionHasDisposition(state, current);
+}
+
 function expressionHasDisposition(state, node) {
   if (!node) return false;
   if (!state.requireTelemetrySink && !state.requireReport && node.type === "AssignmentExpression"
@@ -810,7 +837,9 @@ function expressionHasDisposition(state, node) {
         && node.operator === "??" && node.left.type === "Literal" && node.left.value == null);
   }
   if (node.type === "AssignmentExpression") {
-    return !conditionalAssignments.has(node.operator) && expressionHasDisposition(state, node.right);
+    return conditionalAssignments.has(node.operator)
+      ? assignmentTargetHasDisposition(state, node.left)
+      : expressionHasDisposition(state, node.right);
   }
   if (node.type === "BinaryExpression") {
     return expressionHasDisposition(state, node.left) || expressionHasDisposition(state, node.right);
