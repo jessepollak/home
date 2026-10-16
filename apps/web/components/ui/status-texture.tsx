@@ -1,4 +1,5 @@
 import { CircleAlert, CircleCheck, CircleX, Clock, LoaderCircle, TriangleAlert } from "lucide-react";
+import type { ComponentProps } from "react";
 import { cn } from "cn";
 
 export type StatusTexture = "settled" | "working" | "needs-you" | "cant-load" | "failed" | "done" | "loading";
@@ -19,6 +20,10 @@ export function statusTextClass(texture: StatusTexture, part: StatusTextPart, ga
   return part === "amount" && gain && (texture === "settled" || texture === "done")
     ? "text-market-gain"
     : textClasses[texture][part];
+}
+
+export function StatusSpinner({ className, ...props }: ComponentProps<typeof LoaderCircle>) {
+  return <LoaderCircle aria-hidden="true" className={cn("motion-safe:animate-spin", className)} {...props} />;
 }
 
 export function StatusMark({ texture, gain = false, className }: {

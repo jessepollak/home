@@ -7,10 +7,21 @@ const owned = {
 };
 
 export const styleDriftFamilies = ["shadow", "duration", "ease", "radius", "status-color", "status-motion", "status-mark"];
-export const statusStyleOwners = ["components/ui/", "components/finance-rows.tsx", "components/load-error.tsx"];
+export const statusStyleOwners = ["components/ui/status-texture.tsx", "components/ui/coverage-status-preview.tsx", "components/finance-rows.tsx", "components/load-error.tsx"];
 
 export function isStatusStyleOwner(file) {
-  return statusStyleOwners.some((owner) => owner.endsWith("/") ? file.startsWith(owner) : file === owner);
+  return statusStyleOwners.includes(file);
+}
+
+export const primitiveStyleScope = "components/ui/";
+
+export function isPrimitiveStyleFile(file) {
+  return file.startsWith(primitiveStyleScope);
+}
+
+export function isStyleDriftExempt(file, family) {
+  const status = family.startsWith("status-");
+  return status ? isStatusStyleOwner(file) : isPrimitiveStyleFile(file);
 }
 
 export function classifyStatusMark(name) {

@@ -1,7 +1,7 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
-import { LoaderCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { StatusSpinner } from "./status-texture";
 
 const buttonVariantStyles = cva(
   "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none transition-[scale,color,background-color,border-color,opacity,box-shadow] duration-150 active:duration-0 motion-reduce:transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none aria-disabled:pointer-events-none disabled:opacity-50 aria-busy:opacity-60 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -122,7 +122,7 @@ function Button({
       focusableWhenDisabled={loading || focusableWhenDisabled}
       aria-busy={loading ? "true" : props["aria-busy"]}
     >
-      {loading && <LoaderCircle data-icon="inline-start" aria-hidden="true" className="motion-safe:animate-spin" />}
+      {loading && <StatusSpinner data-icon="inline-start" />}
       {children}
     </ButtonPrimitive>
   );

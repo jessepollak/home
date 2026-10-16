@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { designSystem } from "../policy/design-system.mjs";
 import { decodeLetterEscapes, formControlHasAllowlist, hasSelectorFindings } from "../policy/has-selectors.mjs";
 import { importantUtilityAllowlist } from "../policy/important-utilities.mjs";
-import { classifyStatusMark, isStatusStyleOwner, styleDriftBaselineFor, styleDriftOccurrences } from "../policy/style-drift.mjs";
+import { classifyStatusMark, isStyleDriftExempt, styleDriftBaselineFor, styleDriftOccurrences } from "../policy/style-drift.mjs";
 
 const literalStyleMessage =
   "Use semantic theme tokens instead of hex/rgba, arbitrary-px, or raw palette colors in utility strings.";
@@ -94,10 +94,9 @@ export const noRawStyleUtilities = {
   create(context) {
     const file = relativeFile(context.filename);
     const baseline = styleDriftBaselineFor(file);
-    const statusOwner = isStatusStyleOwner(file);
     const seen = new Map();
     function record(node, { token, family }) {
-      if (statusOwner && family.startsWith("status-")) return;
+      if (isStyleDriftExempt(file, family)) return;
       const count = (seen.get(token) ?? 0) + 1;
       seen.set(token, count);
       if (count === (baseline[token] ?? 0) + 1) context.report({ node, messageId: family.startsWith("status-") ? "status" : "offToken", data: { token, family } });
