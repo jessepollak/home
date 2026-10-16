@@ -92,15 +92,15 @@ describe("no-silent-catch", () => {
 
   it("derives return-only fence-helper polarity and rejects stale-only or mixed-polarity handling", async () => {
     const helpers = {
-      declaration: `function owns(owner) { return ref.current.queryOwnerKey === owner && ref.current.active; }`,
-      concise: `const owns = (owner) => owner !== ref.current.queryOwnerKey || !ref.current.active;`,
-      arrowBlock: `let owns = (owner) => { return !(owner == ref.current.queryOwnerKey) || ref.current.active; };`,
-      expression: `const owns = function(owner) { return ref.current.queryOwnerKey != owner && ref.current.active; };`,
-      multiple: `function owns(owner, generation) { return owner === ref.current.owner && generation === ref.current.generation; }`,
+      declaration: `function owns(owner) { return ref.owner === owner && ref.current.active; }`,
+      concise: `const owns = (owner) => owner !== ref.owner || !ref.current.active;`,
+      arrowBlock: `let owns = (owner) => { return !(owner == ref.owner) || ref.current.active; };`,
+      expression: `const owns = function(owner) { return ref.owner != owner && ref.current.active; };`,
+      multiple: `function owns(owner, generation) { return owner === ref.owner && generation === ref.generation; }`,
     };
     const fixtures = {};
     for (const [name, helper] of Object.entries(helpers)) {
-      const setup = `${helper} const owner = currentOwner; const generation = fence.capture();`;
+      const setup = `${helper} const owner = ref.owner; const generation = ref.generation;`;
       const call = name === "multiple" ? "owns(owner, generation)" : "owns(owner)";
       fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { if (${call}) setError('failed'); } }`;
       fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { if (!${call}) return; setError('failed'); }); }`;
@@ -112,21 +112,21 @@ describe("no-silent-catch", () => {
 
   it("uses a helper body's skip branch in catches and inline rejection callbacks", async () => {
     const cases = {
-      equal: ["owner === ref.current.owner", false],
-      looseEqual: ["ref.current.owner == owner", false],
-      unequal: ["owner !== ref.current.owner", true],
-      looseUnequal: ["ref.current.owner != owner", true],
-      negatedEqual: ["!(owner === ref.current.owner)", true],
-      negatedUnequal: ["!(owner !== ref.current.owner)", false],
-      currentAnd: ["owner === ref.current.owner && ref.current.active", false],
-      currentOr: ["owner === ref.current.owner || ref.current.active", false],
-      staleAnd: ["owner !== ref.current.owner && !ref.current.active", true],
-      staleOr: ["owner !== ref.current.owner || !ref.current.active", true],
-      composed: ["!(owner !== ref.current.owner || !ref.current.active)", false],
-      doubleNegation: ["!!(owner !== ref.current.owner)", true],
-      mixedAnd: ["owner !== ref.current.owner && ref.current.active", null],
-      mixedOr: ["owner === ref.current.owner || !ref.current.active", null],
-      mixedComparisons: ["owner === ref.current.owner && token !== ref.current.token", null],
+      equal: ["owner === ref.owner", false],
+      looseEqual: ["ref.owner == owner", false],
+      unequal: ["owner !== ref.owner", true],
+      looseUnequal: ["ref.owner != owner", true],
+      negatedEqual: ["!(owner === ref.owner)", true],
+      negatedUnequal: ["!(owner !== ref.owner)", false],
+      currentAnd: ["owner === ref.owner && ref.current.active", false],
+      currentOr: ["owner === ref.owner || ref.current.active", false],
+      staleAnd: ["owner !== ref.owner && !ref.current.active", true],
+      staleOr: ["owner !== ref.owner || !ref.current.active", true],
+      composed: ["!(owner !== ref.owner || !ref.current.active)", false],
+      doubleNegation: ["!!(owner !== ref.owner)", true],
+      mixedAnd: ["owner !== ref.owner && ref.current.active", null],
+      mixedOr: ["owner === ref.owner || !ref.current.active", null],
+      mixedComparisons: ["owner === ref.owner && token !== ref.token", null],
     };
     const fixtures = {};
     const expected = {};
@@ -135,7 +135,7 @@ describe("no-silent-catch", () => {
         ["declaration", `function owns(token, owner) { return ${expression}; }`],
         ["concise", `const owns = (token, owner) => ${expression};`],
       ]) {
-        const setup = `${helper} const token = tokenRef.current; const owner = currentOwner;`;
+        const setup = `${helper} const token = ref.token; const owner = ref.owner;`;
         for (const [branch, body] of [
           ["write", "if (owns(token, owner)) setError('failed');"],
           ["guard", "if (owns(token, owner)) return; setError('failed');"],
@@ -151,18 +151,32 @@ describe("no-silent-catch", () => {
     for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
   }, budgetMs);
 
+  it("keeps a matched helper capture when another comparison is against an unrelated mirror", async () => {
+    const helper = "function owns(token, owner) { return token === ref.token && boundary.current.owner === owner; }";
+    const setup = `${helper} const token = ref.token; const owner = currentOwner;`;
+    const results = await lint({
+      matchedTry: `async function handle() { ${setup} try { await run(); } catch { if (owns(token, owner)) setError('failed'); } }`,
+      matchedPromise: `async function handle() { ${setup} await run().catch(() => { if (owns(token, owner)) setError('failed'); }); }`,
+      unmatchedTry: `async function handle() { ${helper} const token = other.token; const owner = currentOwner;
+        try { await run(); } catch { if (owns(token, owner)) setError('failed'); } }`,
+      unmatchedPromise: `async function handle() { ${helper} const token = other.token; const owner = currentOwner;
+        await run().catch(() => { if (owns(token, owner)) setError('failed'); }); }`,
+    }, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(name.startsWith("matched") ? 0 : 1);
+  }, budgetMs);
+
   it("rejects async fence helpers while preserving synchronous derived polarity", async () => {
     const helpers = {
-      declaration: (prefix) => `${prefix}function stale(owner) { return owner !== ref.current.owner; }`,
-      expression: (prefix) => `const stale = ${prefix}function(owner) { return owner !== ref.current.owner; };`,
-      concise: (prefix) => `const stale = ${prefix}(owner) => owner !== ref.current.owner;`,
-      arrowBlock: (prefix) => `const stale = ${prefix}(owner) => { return owner !== ref.current.owner; };`,
+      declaration: (prefix) => `${prefix}function stale(owner) { return owner !== ref.owner; }`,
+      expression: (prefix) => `const stale = ${prefix}function(owner) { return owner !== ref.owner; };`,
+      concise: (prefix) => `const stale = ${prefix}(owner) => owner !== ref.owner;`,
+      arrowBlock: (prefix) => `const stale = ${prefix}(owner) => { return owner !== ref.owner; };`,
     };
     const fixtures = {};
     const expected = {};
     for (const [name, helper] of Object.entries(helpers)) {
       for (const [kind, prefix] of [["async", "async "], ["sync", ""]]) {
-        const setup = `${helper(prefix)} const owner = currentOwner;`;
+        const setup = `${helper(prefix)} const owner = ref.owner;`;
         for (const [branch, body] of [
           ["guard", "if (stale(owner)) return; setError('failed');"],
           ["write", "if (stale(owner)) setError('failed');"],
@@ -181,30 +195,35 @@ describe("no-silent-catch", () => {
 
   it("rejects fence-helper aliases, shadows, reassignments, non-captures, and unproved bodies", async () => {
     const cases = {
-      alias: ["function actual(owner) { return owner === ref.current.owner; } const owns = actual;", "owns(owner)"],
-      reassigned: ["let owns = (owner) => owner === ref.current.owner; owns = other;", "owns(owner)"],
-      varHelper: ["var owns = (owner) => owner === ref.current.owner;", "owns(owner)"],
-      extraStatement: ["function owns(owner) { read(); return owner === ref.current.owner; }", "owns(owner)"],
-      generator: ["function* owns(owner) { return owner === ref.current.owner; }", "owns(owner)"],
+      alias: ["function actual(owner) { return owner === ref.owner; } const owns = actual;", "owns(owner)"],
+      reassigned: ["let owns = (owner) => owner === ref.owner; owns = other;", "owns(owner)"],
+      varHelper: ["var owns = (owner) => owner === ref.owner;", "owns(owner)"],
+      extraStatement: ["function owns(owner) { read(); return owner === ref.owner; }", "owns(owner)"],
+      generator: ["function* owns(owner) { return owner === ref.owner; }", "owns(owner)"],
       truthinessOnly: ["function owns(owner) { return ref.current.active; }", "owns(owner)"],
       wrongComparison: ["function owns(owner) { return owner === currentOwner; }", "owns(owner)"],
-      callLeaf: ["function owns(owner) { return owner === ref.current.owner && ready(); }", "owns(owner)"],
-      nonCapture: ["function owns(owner) { return owner === ref.current.owner; }", "owns(input)"],
-      memberArgument: ["function owns(owner) { return owner === ref.current.owner; }", "owns(ref.current.owner)"],
-      optionalCall: ["function owns(owner) { return owner === ref.current.owner; }", "owns?.(owner)"],
-      emptyArguments: ["function owns(owner) { return owner === ref.current.owner; }", "owns()"],
-      omittedParameter: ["function owns(unused, owner) { return owner === ref.current.owner; }", "owns(owner)"],
-      spreadArgument: ["function owns(owner) { return owner === ref.current.owner; }", "owns(...owner)"],
+      callLeaf: ["function owns(owner) { return owner === ref.owner && ready(); }", "owns(owner)"],
+      nonCapture: ["function owns(owner) { return owner === ref.owner; }", "owns(input)"],
+      memberArgument: ["function owns(owner) { return owner === ref.owner; }", "owns(ref.owner)"],
+      optionalCall: ["function owns(owner) { return owner === ref.owner; }", "owns?.(owner)"],
+      emptyArguments: ["function owns(owner) { return owner === ref.owner; }", "owns()"],
+      omittedParameter: ["function owns(unused, owner) { return owner === ref.owner; }", "owns(owner)"],
+      spreadArgument: ["function owns(owner) { return owner === ref.owner; }", "owns(...owner)"],
       shadow: ["function outer(owns) { return owns; } const owns = makePredicate();", "owns(owner)"],
+      unrelatedSource: ["function owns(owner) { return owner === other.owner; }", "owns(owner)"],
+      unrelatedProperty: ["function owns(owner) { return owner === ref.previous; }", "owns(owner)"],
+      unrelatedReversed: ["function owns(owner) { return other.owner !== owner; }", "owns(owner)"],
+      deepChain: ["function owns(owner) { return owner === ref.current.owner; }", "owns(owner)"],
+      shadowedSource: ["function owns(owner) { const ref = other; return owner === ref.owner; }", "owns(owner)"],
     };
     const fixtures = {};
     for (const [name, [helper, call]] of Object.entries(cases)) {
-      const setup = `${helper} const owner = currentOwner;`;
+      const setup = `${helper} const owner = ref.owner;`;
       fixtures[`${name}Try`] = `async function handle(input) { ${setup} try { await run(); } catch { if (${call}) setError('failed'); } }`;
       fixtures[`${name}Promise`] = `async function handle(input) { ${setup} await run().catch(() => { if (${call}) setError('failed'); }); }`;
     }
-    fixtures.parameterShadow = `function owns(owner) { return owner === ref.current.owner; }
-      async function handle(owns) { const owner = currentOwner; try { await run(); } catch { if (owns(owner)) setError('failed'); } }`;
+    fixtures.parameterShadow = `function owns(owner) { return owner === ref.owner; }
+      async function handle(owns) { const owner = ref.owner; try { await run(); } catch { if (owns(owner)) setError('failed'); } }`;
     const results = await lint(fixtures, { rule: "no-silent-catch", options });
     for (const result of Object.values(results)) expect(result).toHaveLength(1);
   }, budgetMs);
@@ -300,6 +319,17 @@ describe("no-silent-catch", () => {
       compoundReport: ["let result = 0;", "result += reportClientError(e);", 0],
     };
     for (const [name, operator, initial] of [["And", "&&=", "false"], ["Or", "||=", "true"], ["Nullish", "??=", "false"]]) {
+      const observed = `const obj = { flag: ${initial} }; consume(obj.flag);`;
+      cases[`key${name}`] = [observed, `obj[(reportClientError(e), "flag")] ${operator} true;`, 0];
+      cases[`bareKey${name}`] = [observed, `obj[reportClientError(e)] ${operator} true;`, 0];
+      cases[`wrappedKey${name}`] = [observed, `(obj as any)[(reportClientError(e), "flag")] ${operator} true;`, 0];
+      cases[`objectKey${name}`] = [observed, `(reportClientError(e), obj).flag ${operator} true;`, 0];
+      cases[`chainKey${name}`] = [observed, `obj.child[(reportClientError(e), "flag")].leaf ${operator} true;`, 0];
+      cases[`conditionalKey${name}`] = [observed, `obj[e ? reportClientError(e) : "flag"] ${operator} true;`, 1];
+      cases[`keyAndRight${name}`] = [observed, `obj[(reportClientError(e), "flag")] ${operator} (obj.flag = true);`, 0];
+      cases[`unreportedKey${name}`] = [observed, `obj[String(e)] ${operator} reportClientError(e);`, 1];
+    }
+    for (const [name, operator, initial] of [["And", "&&=", "false"], ["Or", "||=", "true"], ["Nullish", "??=", "false"]]) {
       cases[`member${name}`] = [
         `const obj = { flag: ${initial} }; consume(obj.flag);`,
         `obj.flag ${operator} (obj.flag = true);`,
@@ -319,6 +349,32 @@ describe("no-silent-catch", () => {
       fixtures[`${name}Try`] = `${reportingImport} async function handle() { ${setup} try { await run(); } catch (e) { ${body} } }`;
       fixtures[`${name}Promise`] = `${reportingImport} async function handle() { ${setup} await run().catch((e) => { ${body} }); }`;
       fixtures[`${name}Then`] = `${reportingImport} async function handle() { ${setup} await run().then(null, (e) => { ${body} }); }`;
+      expected[`${name}Try`] = expected[`${name}Promise`] = expected[`${name}Then`] = count;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("requires an observing read of the member actually written", async () => {
+    const cases = {
+      sameMember: ["const state = {}; consume(state.failure);", "state.failure = true;", 0],
+      wrappedRead: ["const state = {}; consume((state as any).failure);", "state.failure = true;", 0],
+      computedRead: ["const state = {}; consume(state['failure']);", "state.failure = true;", 0],
+      dynamicRead: ["const state = {}; consume(state[key]);", "state.failure = true;", 0],
+      wholeObjectRead: ["const state = {}; consume(state);", "state.failure = true;", 0],
+      deeperRead: ["const state = {}; consume(state.failure.detail);", "state.failure = true;", 0],
+      differentMember: ["const state = {}; consume(state.unrelated);", "state.failure = true;", 1],
+      wrappedDifferentMember: ["const state = {}; consume((state as any).unrelated);", "state.failure = true;", 1],
+      computedDifferentMember: ["const state = {}; consume(state['unrelated']);", "state.failure = true;", 1],
+      deeperDifferentMember: ["const state = {}; consume(state.unrelated.detail);", "state.failure = true;", 1],
+      dynamicWrite: ["const state = {}; consume(state.unrelated);", "state[key] = true;", 0],
+    };
+    const fixtures = {};
+    const expected = {};
+    for (const [name, [setup, body, count]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+      fixtures[`${name}Then`] = `async function handle() { ${setup} await run().then(null, () => { ${body} }); }`;
       expected[`${name}Try`] = expected[`${name}Promise`] = expected[`${name}Then`] = count;
     }
     const results = await lint(fixtures, { rule: "no-silent-catch", options });
@@ -355,8 +411,8 @@ describe("no-silent-catch", () => {
 
   it("preserves observing reads in destructuring computed keys and default values", async () => {
     const reads = {
-      memberKey: "[other[obj.key]] = input;",
-      propertyKey: "({ [obj.key]: other.value } = input);",
+      memberKey: "[other[obj.flag]] = input;",
+      propertyKey: "({ [obj.flag]: other.value } = input);",
       arrayDefault: "[other.value = obj.flag] = input;",
       objectDefault: "({ value: other.value = obj.flag } = input);",
       sameObjectDefault: "[obj.value = obj.flag] = input;",
@@ -679,7 +735,7 @@ describe("no-silent-catch", () => {
   it("rejects current-owner abandonment in protocol and helper fences", async () => {
     const cases = {
       protocol: ["const captured = fence.capture();", "fence.isCurrent(captured)"],
-      helper: ["function owns(value) { return value === ref.current.owner; } const captured = currentOwner;", "owns(captured)"],
+      helper: ["function owns(value) { return value === ref.owner; } const captured = ref.owner;", "owns(captured)"],
     };
     const fixtures = {};
     for (const [name, [setup, test]] of Object.entries(cases)) {
