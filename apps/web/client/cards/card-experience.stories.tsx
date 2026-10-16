@@ -97,6 +97,11 @@ function CardStateStory({ state, initial, refreshFails = false, lockOutcome, wit
 
 const pollAdvance = { advanced: false, listeners: new Set<() => void>() };
 
+function resetPollAdvance() {
+  pollAdvance.advanced = false;
+  pollAdvance.listeners.clear();
+}
+
 function releasePollAdvance() {
   pollAdvance.advanced = true;
   for (const listener of pollAdvance.listeners) listener();
@@ -128,6 +133,11 @@ function PollingCardStory() {
 }
 
 const transientPoll = { phase: 0, listeners: new Set<() => void>() };
+
+function resetTransientPoll() {
+  transientPoll.phase = 0;
+  transientPoll.listeners.clear();
+}
 
 function releaseTransientPoll(phase: number) {
   transientPoll.phase = phase;
@@ -201,8 +211,11 @@ export const VerificationPending: Story = {
 };
 export const VerificationAdvancesWithoutReload: Story = {
   render: () => <PollingCardStory />,
+  beforeEach: () => {
+    resetPollAdvance();
+    return resetPollAdvance;
+  },
   play: async ({ canvasElement }) => {
-    pollAdvance.advanced = false;
     const canvas = within(canvasElement);
     await expect(await canvas.findByText("Checking your details")).toBeVisible();
     await expectSpendingHidden(canvasElement);
@@ -215,8 +228,11 @@ export const VerificationAdvancesWithoutReload: Story = {
 };
 export const VerificationSurvivesTransientUnavailable: Story = {
   render: () => <TransientPollingCardStory />,
+  beforeEach: () => {
+    resetTransientPoll();
+    return resetTransientPoll;
+  },
   play: async ({ canvasElement }) => {
-    transientPoll.phase = 0;
     const canvas = within(canvasElement);
     await expect(await canvas.findByText("Checking your details")).toBeVisible();
     releaseTransientPoll(1);
