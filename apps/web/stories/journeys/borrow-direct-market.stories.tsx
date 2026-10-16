@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, within } from "storybook/test";
 import { HttpResponse, http } from "msw";
+import { getHomeQueryClient } from "@/client/query/query-client";
 import { BorrowExperience } from "@/client/borrowing/borrowing-experience";
 import { shellContentFrameClassName } from "@/components/shell-layout";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -89,5 +90,24 @@ export const ReducingOnlyCollateralHolder: Story = {
     await expect(screen.getByRole("button", { name: "Add collateral" })).toBeEnabled();
     await expect(screen.getByRole("button", { name: "Back to Borrow" })).toBeVisible();
     await expect(screen.queryByRole("button", { name: /^Borrow/ })).toBeNull();
+  },
+};
+
+let detailRequests = 0;
+
+export const RefreshFailureWithCachedDetail: Story = {
+  beforeEach: () => { getHomeQueryClient().clear(); detailRequests = 0; },
+  parameters: { msw: { handlers: [http.get(`/api/borrow/markets/${ethMarketId}`, () => {
+    detailRequests++;
+    return detailRequests === 1 ? HttpResponse.json(reducingOnlyCollateralSnapshot()) : HttpResponse.json({}, { status: 503 });
+  })] } },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await expect(await screen.findByRole("button", { name: "Add collateral" })).toBeEnabled();
+    await getHomeQueryClient().refetchQueries({ type: "active" });
+    await expect(await screen.findByRole("alert")).toHaveTextContent("Borrow is unavailable");
+    await expect(screen.queryByRole("button", { name: "Add collateral" })).toBeNull();
+    await expect(screen.queryByRole("button", { name: /^Withdraw/ })).toBeNull();
+    await expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
   },
 };
