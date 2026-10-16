@@ -235,7 +235,7 @@ function BorrowDirectMarket({
   const [dialogSnapshot, setDialogSnapshot] = useState<BorrowMarketSnapshot | null>(null);
   const [dialogOpen, setDialogOpen] = useState(true);
   const [operation, setOperation] = useState<BorrowOperation | null>(null);
-  if (!dialogSnapshot && snapshot && canOpen) {
+  if (!dialogSnapshot && snapshot && canOpen && detailView === "ready") {
     setDialogSnapshot(snapshot);
     setOperation(BigInt(snapshot.position.collateralRaw) > BigInt(0) ? "borrow" : "supply-and-borrow");
   }
@@ -263,7 +263,7 @@ function BorrowDirectMarket({
       {session?.smartAccount && (detailView === "failed" || detailView === "failed-with-data") ? (
         <LoadErrorCard texture="cant-load" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
       ) : null}
-      {snapshot && !canOpen && !dialogSnapshot ? (
+      {snapshot && detailView === "ready" && !canOpen && !dialogSnapshot ? (
         <Card className="overflow-hidden">
           <CardContent>
             <div className="space-y-4 sm:px-1">
