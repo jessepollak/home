@@ -176,6 +176,7 @@ export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
       while (true) {
         if (request.signal.aborted) {
           if (initial?.capability.handoff) await store.handoffCustomer(resolved.id, true, true, sent.messageId);
+          else await takeOverWhenUnavailable(deps, store, resolved.id, sent.messageId);
           return { handler: (await store.handlerForCustomer(resolved.id, initial?.capability ?? { available: false, handoff: false }))?.handler ?? "operator", conversationId: conversation.id };
         }
         const usable = await effectiveOrNull(deps);
@@ -221,7 +222,10 @@ export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
           try {
             if (text && !failed) savedReply ??= store.saveAssistant(conversation.id, messageId, text, runId);
             if (savedReply) await savedReply;
-            if (!text && assistant.capability.handoff) await store.handoffCustomer(resolved.id, true, true, sent.messageId);
+            if (!text) {
+              if (assistant.capability.handoff) await store.handoffCustomer(resolved.id, true, true, sent.messageId);
+              else await takeOverWhenUnavailable(deps, store, resolved.id, sent.messageId);
+            }
           } finally { await store.releaseAssistantRun(conversation.id, runId); }
         })();
         observeSafely(() => abortRelease?.catch(() => {
