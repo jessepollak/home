@@ -65,8 +65,9 @@ function processRunning(pid, {
   if (platform !== "linux") return true;
   try {
     return processStateIsRunning(readStat(pid));
-  } catch {
-    return false;
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "ESRCH") return false;
+    throw error;
   }
 }
 
@@ -377,8 +378,14 @@ test("distinguishes running processes from zombies and missing proc entries", ()
   const options = { kill, platform: "linux" };
   assert.equal(processRunning(123, { ...options, readStat: () => "123 (node) R 1 2 3" }), true);
   assert.equal(processRunning(123, { ...options, readStat: () => "123 (node) Z 1 2 3" }), false);
-  const readStat = () => { throw new Error("stat entry is gone"); };
+  const readStat = () => { throw Object.assign(new Error("stat entry is gone"), { code: "ENOENT" }); };
   assert.equal(processRunning(123, { ...options, readStat }), false);
+  for (const code of ["EACCES", "EMFILE"]) {
+    assert.throws(() => processRunning(123, {
+      ...options,
+      readStat: () => { throw Object.assign(new Error("stat unreadable"), { code }); },
+    }), { code });
+  }
   assert.equal(processRunning(123, { ...options, readStat, platform: "darwin" }), true);
   assert.equal(processRunning(123, {
     ...options,
@@ -458,6 +465,7 @@ function fixture(settings = {}) {
   let frameUrlReads = 0;
   let state = "phone";
   let confirmationReads = 0;
+  let lingerReads = 0;
   const text = {
     phone: "Enter your phone number", email: "Enter your email",
     otp: "Enter 6-digit verification code",
@@ -488,7 +496,10 @@ function fixture(settings = {}) {
           const clicked = () => {
             clickStates.push(state);
             if (state === "review") confirmationReads = 3;
-            else state = next[state];
+            else {
+              if (state === "identity") lingerReads = settings.identityLingerReads ?? 0;
+              state = next[state];
+            }
           };
           if (expression.includes("return 'frame-not-sandbox'")) {
             assert.ok(badgeChecks >= (state === "review" ? 3 : 4));
@@ -548,8 +559,9 @@ function fixture(settings = {}) {
             getComputedStyle: () => ({ visibility: "visible", display: "block" }),
           });
         } else {
-          value = text[state];
-          if (state === "review" && confirmationReads > 0 && --confirmationReads === 0) state = "confirm";
+          value = lingerReads > 0 ? text.identity : text[state];
+          if (lingerReads > 0) lingerReads -= 1;
+          else if (state === "review" && confirmationReads > 0 && --confirmationReads === 0) state = "confirm";
         }
         result = { result: { value } };
         if (expression === "location.href" && settings.frameUrlFailure) result.exceptionDetails = {};
@@ -858,6 +870,13 @@ test("rechecks fresh Coinbase sandbox text before fake confirmation", async () =
   assert.ok(f.clickStates.includes("review"));
   assert.ok(!f.clickStates.includes("confirm"));
   assert.ok(f.summaries().some(({ stage }) => stage === "payment-guard"));
+});
+
+test("waits out a lingering identity screen instead of re-submitting it", async () => {
+  const f = fixture({ identityLingerReads: 3 });
+  assert.equal(await runAgentBrowserHarness(f.options), 0);
+  assert.deepEqual(f.clickStates, ["phone", "email", "otp", "identity", "review", "confirm"]);
+  assert.equal(f.fills.filter(({ state }) => state === "identity").length, 2);
 });
 
 test("happy path uses pinned semantics, every guard, and full stage order", async () => {
