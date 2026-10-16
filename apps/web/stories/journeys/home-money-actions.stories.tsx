@@ -66,6 +66,7 @@ const meta = {
     await expect(cashOut).toHaveFocus();
     await userEvent.keyboard("[Space]");
     await waitForReady(() => expect(body.getByRole("dialog", { name: "Cash out" })).toBeVisible());
+    await waitForReady(() => expect(body.getByRole("dialog", { name: "Cash out" }).querySelector('[data-money-step="loading"]')).toBeNull());
     await expect(new URL(window.location.href).searchParams.get("flow")).toBe("cash-out");
     await expect(within(body.getByRole("dialog", { name: "Cash out" })).queryByRole("textbox", { name: "To" })).toBeNull();
     await userEvent.click(body.getByRole("button", { name: "Close cash-out dialog" }));
@@ -76,6 +77,7 @@ const meta = {
       await expect(actions.getByRole("button", { name: "Send" })).toHaveFocus();
       await userEvent.keyboard("{Enter}");
       await waitForReady(() => expect(body.getByRole("dialog", { name: "Send" })).toBeVisible());
+      await waitForReady(() => expect(body.getByRole("dialog", { name: "Send" }).querySelector('[data-money-step="loading"]')).toBeNull());
       await expect(new URL(window.location.href).searchParams.get("flow")).toBe("send");
       await userEvent.click(body.getByRole("button", { name: "Close send dialog" }));
       await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
