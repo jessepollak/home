@@ -6,6 +6,7 @@ import type { ExactDecimal } from "@/shared/balances/types";
 import type { FetchLike } from "@/server/market-data/codex/execute";
 import { createBoundedCache } from "@/server/cache/bounded";
 import { createWriteOrder } from "@/server/cache/write-order";
+import { composeDeadline } from "@/server/http/deadline";
 import { readJson } from "@/shared/http/read-json";
 
 export const COINBASE_DAILY_FX_ORIGIN = "https://api.coinbase.com" as const;
@@ -129,8 +130,7 @@ async function fetchDailyRate({
   timeoutMs: number;
   signal?: AbortSignal;
 }): Promise<ExactDecimal | null> {
-  const timeout = AbortSignal.timeout(Number.isFinite(timeoutMs) && timeoutMs >= 1 && timeoutMs <= 2_147_483_647 ? Math.trunc(timeoutMs) : 1);
-  const deadlineSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  const deadlineSignal = composeDeadline(signal, Number.isFinite(timeoutMs) && timeoutMs >= 1 && timeoutMs <= 2_147_483_647 ? Math.trunc(timeoutMs) : 1);
   try {
     const response = await fetchImpl(coinbaseDailyFxUrl(request), {
       method: "GET",

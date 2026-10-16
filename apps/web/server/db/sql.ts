@@ -1,6 +1,7 @@
 import "server-only";
 
 import { serverEnvironment } from "@/server/config/env";
+import { composeDeadline } from "@/server/http/deadline";
 
 import { attachDatabasePool } from "@vercel/functions";
 import { Pool, type PoolClient } from "pg";
@@ -177,10 +178,7 @@ export function createPostgresSqlExecutor(
       options: SqlQueryOptions = {},
     ) {
       const timeoutMs = boundedSqlTimeoutMs(options.timeoutMs);
-      const deadline = timeoutMs === null ? null : AbortSignal.timeout(timeoutMs);
-      const signal = deadline === null
-        ? options.signal
-        : options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+      const signal = timeoutMs === null ? options.signal : composeDeadline(options.signal, timeoutMs);
       return beginTransaction(
         async (tx) => {
           if (timeoutMs !== null) {
