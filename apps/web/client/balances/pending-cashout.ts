@@ -16,9 +16,16 @@ const LOADING_ESTIMATE = { state: "loading" } as const;
 const RETURN_SNAPSHOT_MAX_ATTEMPTS = 6;
 const RETURN_SNAPSHOT_RETRY_MS = 30_000;
 
+function receiptBlockUnobserved(receiptBlockNumber: string, receiptBlockHash: string | undefined, snapshot: BalancesSnapshot): boolean {
+  const receiptBlock = BigInt(receiptBlockNumber);
+  const snapshotBlock = BigInt(snapshot.block.number);
+  if (receiptBlock === snapshotBlock) return receiptBlockHash !== snapshot.block.hash.toLowerCase();
+  return receiptBlock > snapshotBlock;
+}
+
 function withdrawalUnobserved(withdraw: RecentMoneyActionOperation, snapshot: BalancesSnapshot): boolean {
   return withdraw.status !== "confirmed" || (withdraw.receiptBlockNumber !== undefined
-    ? BigInt(withdraw.receiptBlockNumber) > BigInt(snapshot.block.number)
+    ? receiptBlockUnobserved(withdraw.receiptBlockNumber, withdraw.receiptBlockHash, snapshot)
     : withdraw.settledAt === undefined);
 }
 

@@ -146,14 +146,18 @@ test.each([
     .toEqual({ state: "escrow", baseUnits: "50000000", partial: expected !== null });
 });
 
+const otherBlockHash = `0x${"0".repeat(64)}` as const;
+
 test.each([
-  ["block ahead of snapshot", (BigInt(snapshot.block.number) + BigInt(1)).toString(), undefined, { state: "indeterminate" }],
-  ["block at snapshot", snapshot.block.number, undefined, null],
-  ["block before snapshot", (BigInt(snapshot.block.number) - BigInt(1)).toString(), undefined, null],
-  ["missing block and unsettled", undefined, undefined, { state: "indeterminate" }],
-  ["missing block and settled", undefined, "2026-09-15T13:00:00Z", null],
-] as const)("reconciles a confirmed withdrawal with %s", (_label, receiptBlockNumber, settledAt, expected) => {
-  const linkedWithdraw = { ...withdraw("confirmed"), receiptBlockNumber, settledAt };
+  ["block ahead of snapshot", (BigInt(snapshot.block.number) + BigInt(1)).toString(), undefined, { state: "indeterminate" }, snapshot.block.hash],
+  ["block at snapshot with a matching hash", snapshot.block.number, undefined, null, snapshot.block.hash],
+  ["block at snapshot with a different hash", snapshot.block.number, undefined, { state: "indeterminate" }, otherBlockHash],
+  ["block at snapshot without a hash", snapshot.block.number, undefined, { state: "indeterminate" }, undefined],
+  ["block before snapshot", (BigInt(snapshot.block.number) - BigInt(1)).toString(), undefined, null, otherBlockHash],
+  ["missing block and unsettled", undefined, undefined, { state: "indeterminate" }, undefined],
+  ["missing block and settled", undefined, "2026-09-15T13:00:00Z", null, undefined],
+] as const)("reconciles a confirmed withdrawal with %s", (_label, receiptBlockNumber, settledAt, expected, receiptBlockHash) => {
+  const linkedWithdraw = { ...withdraw("confirmed"), receiptBlockNumber, receiptBlockHash, settledAt };
   const returned = withProgress({ state: "returned", returnedAtomic: "50000000", remainingAtomic: "0" });
   expect(selectPendingCashoutEscrow([returned, linkedWithdraw], snapshot)).toEqual(expected);
   const known = withProgress({ depositId: "known-escrow" });
@@ -163,7 +167,8 @@ test.each([
 
 test.each([
   ["confirmed block ahead of snapshot", { ...withdraw("confirmed"), receiptBlockNumber: (BigInt(snapshot.block.number) + BigInt(1)).toString() }, { state: "indeterminate" }],
-  ["confirmed block at snapshot", { ...withdraw("confirmed"), receiptBlockNumber: snapshot.block.number }, null],
+  ["confirmed block at snapshot with a matching hash", { ...withdraw("confirmed"), receiptBlockNumber: snapshot.block.number, receiptBlockHash: snapshot.block.hash }, null],
+  ["confirmed block at snapshot with a different hash", { ...withdraw("confirmed"), receiptBlockNumber: snapshot.block.number, receiptBlockHash: otherBlockHash }, { state: "indeterminate" }],
   ["confirmed block before snapshot", { ...withdraw("confirmed"), receiptBlockNumber: (BigInt(snapshot.block.number) - BigInt(1)).toString() }, null],
   ["confirmed missing block and unsettled", withdraw("confirmed"), { state: "indeterminate" }],
   ["confirmed missing block and settled", { ...withdraw("confirmed"), settledAt: "2026-09-15T13:00:00Z" }, null],
