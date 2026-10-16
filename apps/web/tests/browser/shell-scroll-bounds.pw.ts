@@ -57,3 +57,35 @@ test("account flows and tab changes keep the document as the scroll owner", asyn
   expect(geometry.scrollY).toBeGreaterThan(0);
   expect(Math.abs(geometry.navGap - floatingNavigationOffset)).toBeLessThanOrEqual(1);
 });
+
+for (const width of [320, 390, 1440]) {
+  test(`Home stays readable and reachable at 200% text on a ${width}px viewport`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
+    await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+
+    const title = page.locator("[data-shell-header-title]");
+    await expect(title).toHaveText("Home");
+    const titleFit = await title.evaluate((element) => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
+    expect(titleFit.scrollWidth).toBeLessThanOrEqual(titleFit.clientWidth);
+
+    const figure = page.locator('[data-slot="money-ticker"]').first();
+    const balance = figure.locator('xpath=ancestor::*[@data-slot="card"][1]');
+    await expect(figure).toBeVisible();
+    const [cardBox, figureBox] = await Promise.all([balance.boundingBox(), figure.boundingBox()]);
+    if (!cardBox || !figureBox) throw new Error("balance card or figure is not rendered");
+    expect(figureBox.x).toBeGreaterThanOrEqual(cardBox.x);
+    expect(figureBox.x + figureBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    if (width >= 1024) return;
+    const addMoney = page.getByRole("group", { name: "Money actions" }).locator("a, button").filter({ hasText: "Add money" });
+    await addMoney.focus();
+    const { bottom, navTop } = await page.evaluate(() => {
+      const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');
+      const button = document.activeElement;
+      if (!nav || !button) throw new Error("navigation or focused action is missing");
+      return { bottom: button.getBoundingClientRect().bottom, navTop: nav.getBoundingClientRect().top };
+    });
+    expect(bottom).toBeLessThanOrEqual(navTop);
+  });
+}

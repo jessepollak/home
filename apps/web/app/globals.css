@@ -9,6 +9,8 @@
   --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --spacing-hairline: 1px;
+  --spacing-shell-header-avatar: 32px;
+  --spacing-shell-header-control: 44px;
   --spacing-shell-mobile-navigation: max(3.25rem, calc(44px + .5rem));
   --spacing-shell-search-field: 3rem;
   --transition-duration-fast: var(--motion-duration-fast);

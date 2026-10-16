@@ -94,7 +94,7 @@ export function HomeHeaderStatus({
           <Button
             variant="ghost"
             size="icon"
-            className="size-11"
+            className="size-shell-header-control"
             aria-label={status.message}
             data-home-status=""
           />

@@ -138,10 +138,11 @@ function HomeTotalBalance({
         <p className="text-sm text-muted-foreground">Total balance</p>
         {showStatus ? <span id={statusId} className="sr-only">{statusLabel}</span> : null}
         {assetBalances?.cachedAt !== undefined ? <span className="sr-only">Updating balance saved {formatPresentationDate(assetBalances.cachedAt, { style: "date-time-zone" })}.</span> : null}
-        <div className="flex min-h-10 items-center" data-shimmer={isLoading ? "hero" : undefined}>
+        <div className="@container flex min-h-10 items-center" data-shimmer={isLoading ? "hero" : undefined}>
         {isLoading ? <><Skeleton className="h-10 w-48" /><span className="sr-only">Updating…</span></> : (
           <div
             className="text-4xl font-semibold tabular-nums"
+            style={{ fontSize: `min(2.25rem, calc(100cqi / (${Array.from(displayTotal).length} * 0.65)))` }}
             data-total-status={totalStatus === "complete" ? undefined : totalStatus}
           >
             {displayTotal === "—" ? (
