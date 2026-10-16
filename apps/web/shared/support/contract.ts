@@ -37,6 +37,7 @@ export type OperatorSupportMessage = SupportMessage & { authorOperator: `0x${str
 export type OperatorSupportCustomer = { status: string; country: string | null; firstSeenAt: string; lastSeenAt: string; emails: string[]; accountProviders: string[]; wallets: `0x${string}`[]; recentEvents: { name: string; occurredAt: string }[] };
 export type OperatorSupportContext = SupportContextRef & { summary: string | null };
 export type OperatorSupportConversationResponse = { version: typeof SUPPORT_CONTRACT_VERSION; conversation: { id: string; status: "open" | "resolved"; handler: SupportHandler; handedOffAt: string | null; assistantAvailable: boolean; createdAt: string; resolvedAt: string | null; messages: OperatorSupportMessage[]; messagesNextCursor: string | null; contextRefs: OperatorSupportContext[] }; customer: OperatorSupportCustomer };
+export type OperatorSupportReplyResponse = OperatorSupportConversationResponse & { reply: { messageId: string; replayed: boolean } };
 export type OperatorSupportHandlerRequest = { version: typeof SUPPORT_CONTRACT_VERSION; handler: SupportHandler };
 export type SupportCredentialPutRequest = { version: typeof SUPPORT_CONTRACT_VERSION; apiKey: string };
 export type SupportCredentialResponse = { version: typeof SUPPORT_CONTRACT_VERSION; configured: boolean; last4: string | null; updatedAt: string | null; available: boolean };
@@ -189,6 +190,15 @@ export function parseOperatorSupportConversationResponse(value: unknown): Operat
     recentEvents.push({ name: event.name, occurredAt: event.occurredAt });
   }
   return { version: SUPPORT_CONTRACT_VERSION, conversation: { id: c.id, status: c.status, handler: c.handler, handedOffAt: c.handedOffAt, assistantAvailable: c.assistantAvailable, createdAt: c.createdAt, resolvedAt: c.resolvedAt, messages, messagesNextCursor: c.messagesNextCursor, contextRefs }, customer: { status: person.status, country: person.country, firstSeenAt: person.firstSeenAt, lastSeenAt: person.lastSeenAt, emails: person.emails, accountProviders: person.accountProviders, wallets: person.wallets, recentEvents } };
+}
+export function parseOperatorSupportReplyResponse(value: unknown): OperatorSupportReplyResponse | null {
+  if (!object(value) || !keys(value, ["version", "conversation", "customer", "reply"]) || !object(value.reply) || !keys(value.reply, ["messageId", "replayed"]) || !uuid(value.reply.messageId) || typeof value.reply.replayed !== "boolean") return null;
+  const detail = parseOperatorSupportConversationResponse({ version: value.version, conversation: value.conversation, customer: value.customer });
+  if (!detail) return null;
+  const reply = { messageId: value.reply.messageId, replayed: value.reply.replayed };
+  const matched = detail.conversation.messages.find((item) => item.id === reply.messageId);
+  if (matched && (matched.authorType !== "operator" || matched.status !== "sent")) return null;
+  return { ...detail, reply };
 }
 export function parseOperatorSupportSummary(value: unknown): OperatorSupportSummary | null {
   return object(value) && keys(value, ["version", "unreadConversations"]) && value.version === SUPPORT_CONTRACT_VERSION && count(value.unreadConversations) ? { version: SUPPORT_CONTRACT_VERSION, unreadConversations: value.unreadConversations } : null;

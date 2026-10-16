@@ -2,10 +2,12 @@ import {
   SUPPORT_CONTRACT_VERSION,
   parseOperatorSupportConversationResponse,
   parseOperatorSupportListResponse,
+  parseOperatorSupportReplyResponse,
   parseOperatorSupportSummary,
   parseSupportErrorResponse,
   type OperatorSupportConversationResponse,
   type OperatorSupportListResponse,
+  type OperatorSupportReplyResponse,
   type OperatorSupportSummary,
   type SupportHandler,
 } from "@/shared/support/contract";
@@ -17,6 +19,15 @@ export type OperatorConversationResult = { detail: OperatorSupportConversationRe
 function parseConversationResult(value: unknown, response: Response): OperatorConversationResult | null {
   const detail = parseOperatorSupportConversationResponse(value);
   return detail ? { detail, etag: response.headers.get("ETag") } : null;
+}
+
+export type OperatorReplyResult = OperatorConversationResult & { reply: OperatorSupportReplyResponse["reply"] };
+
+function parseReplyResult(value: unknown, response: Response): OperatorReplyResult | null {
+  const parsed = parseOperatorSupportReplyResponse(value);
+  if (!parsed) return null;
+  const { reply, ...detail } = parsed;
+  return { detail, reply, etag: response.headers.get("ETag") };
 }
 
 export class SupportConflictError extends Error {}
@@ -49,7 +60,7 @@ export type OperatorSupportTransport = {
   list: (status: "open" | "resolved" | "all", before?: string) => Promise<OperatorSupportListResponse>;
   conversation: (id: string, options?: { before?: string; etag?: string }) => Promise<OperatorConversationResult | "unchanged">;
   read: (id: string, lastMessageId: string) => Promise<void>;
-  reply: (id: string, body: string, clientMessageId: string, readThroughMessageId: string) => Promise<OperatorConversationResult>;
+  reply: (id: string, body: string, clientMessageId: string, readThroughMessageId: string) => Promise<OperatorReplyResult>;
   status: (id: string, status: "open" | "resolved", observedMessageId: string) => Promise<OperatorConversationResult>;
   handler: (id: string, handler: SupportHandler) => Promise<OperatorConversationResult>;
 };
@@ -63,7 +74,10 @@ export const operatorSupportTransport: OperatorSupportTransport = {
     });
     if (!response.ok) throw new Error("Couldn't mark conversation as read.");
   },
-  reply: (id, body, clientMessageId, readThroughMessageId) => request(`/api/admin/support/conversations/${encodeURIComponent(id)}/messages`, parseConversationResult, { version: SUPPORT_CONTRACT_VERSION, body, clientMessageId, readThroughMessageId }),
+  reply: (id, body, clientMessageId, readThroughMessageId) => request(`/api/admin/support/conversations/${encodeURIComponent(id)}/messages`, (value, response) => {
+    const result = parseReplyResult(value, response);
+    return result?.detail.conversation.id === id ? result : null;
+  }, { version: SUPPORT_CONTRACT_VERSION, body, clientMessageId, readThroughMessageId }),
   status: (id, status, observedMessageId) => request(`/api/admin/support/conversations/${encodeURIComponent(id)}/status`, parseConversationResult, { version: SUPPORT_CONTRACT_VERSION, status, observedMessageId }),
   handler: (id, handler) => request(`/api/admin/support/conversations/${encodeURIComponent(id)}/handler`, parseConversationResult, { version: SUPPORT_CONTRACT_VERSION, handler }, handler === "assistant" ? "Can't hand back yet. Reply to the customer first, or check the Support assistant settings." : conflictMessage),
 };

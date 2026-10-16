@@ -35,7 +35,7 @@ function settingsTransport(settings: Settings): SupportAssistantSettingsTranspor
   };
 }
 
-function Journey({ state = "open", empty = false, draft = false, assistant = "off", list = false, settings }: { state?: "open" | "resolved"; empty?: boolean; draft?: boolean; assistant?: Assistant; list?: boolean; settings?: Settings }) {
+function Journey({ state = "open", empty = false, draft = false, assistant = "off", list = false, settings, replay = false }: { state?: "open" | "resolved"; empty?: boolean; draft?: boolean; assistant?: Assistant; list?: boolean; settings?: Settings; replay?: boolean }) {
   const handling = assistant === "handling";
   const baseMessages = handling ? [...fixture.conversation.messages, assistantReply] : fixture.conversation.messages;
   const initial: OperatorSupportConversationResponse = { ...fixture, conversation: { ...fixture.conversation, status: state, handler: handling ? "assistant" : "operator", assistantAvailable: assistant !== "off", messages: draft ? [...baseMessages, { id: "44444444-4444-4444-8444-444444444444", authorType: "assistant", authorOperator: null, status: "draft", body: "Suggested response", createdAt: timestamp }] : baseMessages } };
@@ -44,9 +44,9 @@ function Journey({ state = "open", empty = false, draft = false, assistant = "of
   const rows = (filter: "open" | "resolved" | "all", conversation: OperatorSupportConversationResponse["conversation"]) => empty || filter === "resolved" && conversation.status !== "resolved" || filter === "open" && conversation.status !== "open" ? [] : list ? [listRow(conversation), assistantRow] : [listRow(conversation)];
   const transport: OperatorSupportTransport = {
     list: async (filter) => ({ version: SUPPORT_CONTRACT_VERSION, conversations: rows(filter, current.current.conversation), nextCursor: null }),
-    conversation: async (_id, options) => ({ detail: options?.before ? { ...current.current, conversation: { ...current.current.conversation, messages: [{ id: olderMessageId, authorType: "customer", authorOperator: null, status: "sent", body: "Earlier note from the customer.", createdAt: "2026-09-27T11:00:00.000Z" }], messagesNextCursor: null } } : current.current, etag: null }),
+    conversation: async (_id, options) => ({ detail: options?.before ? { ...current.current, conversation: { ...current.current.conversation, messages: replay ? [{ id: "55555555-5555-4555-8555-555555555555", authorType: "operator", authorOperator: "0x1111111111111111111111111111111111111111", status: "sent", body: "We can help", createdAt: "2026-09-27T11:00:00.000Z" }] : [{ id: olderMessageId, authorType: "customer", authorOperator: null, status: "sent", body: "Earlier note from the customer.", createdAt: "2026-09-27T11:00:00.000Z" }], messagesNextCursor: null } } : current.current, etag: null }),
     read: async () => {},
-    reply: async (_id, body) => { current.current = { ...current.current, conversation: { ...current.current.conversation, handler: "operator", messages: [...current.current.conversation.messages, { id: "55555555-5555-4555-8555-555555555555", authorType: "operator", authorOperator: "0x1111111111111111111111111111111111111111", status: "sent", body, createdAt: timestamp }] } }; return { detail: current.current, etag: null }; },
+    reply: async (_id, body) => { if (replay) return { detail: current.current, etag: null, reply: { messageId: "55555555-5555-4555-8555-555555555555", replayed: true } }; current.current = { ...current.current, conversation: { ...current.current.conversation, handler: "operator", messages: [...current.current.conversation.messages, { id: "55555555-5555-4555-8555-555555555555", authorType: "operator", authorOperator: "0x1111111111111111111111111111111111111111", status: "sent", body, createdAt: timestamp }] } }; return { detail: current.current, etag: null, reply: { messageId: "55555555-5555-4555-8555-555555555555", replayed: false } }; },
     status: async (_id, status) => { current.current = { ...current.current, conversation: { ...current.current.conversation, status, resolvedAt: status === "resolved" ? timestamp : null } }; return { detail: current.current, etag: null }; },
     handler: async (_id, handler) => {
       if (assistant === "conflict" && handler === "assistant") { current.current = { ...current.current, conversation: { ...current.current.conversation, assistantAvailable: false } }; throw new SupportConflictError("Can't hand back yet. Reply to the customer first, or check the Support assistant settings."); }
@@ -84,6 +84,18 @@ export const SettingsUnavailableDesktop: Story = { ...SettingsUnavailable, param
 export const SettingsConfigured: Story = { args: { empty: true, settings: "configured" }, play: async ({ canvasElement }) => { const canvas = within(canvasElement); const settings = await canvas.findByRole("region", { name: "Support assistant" }); await expect(await within(settings).findByText("Configured · ends in 9f2c")).toBeVisible(); await expect(within(settings).queryByText("Assistant unavailable")).toBeNull(); await expect(within(settings).getByRole("button", { name: "Replace key" })).toBeVisible(); await expect(within(settings).getByRole("button", { name: "Remove key" })).toBeVisible(); } };
 export const SettingsConfiguredDesktop: Story = { ...SettingsConfigured, parameters: { viewport: { defaultViewport: "desktop" } } };
 
+export const ReplyAlreadySentOutsidePage: Story = { args: { replay: true }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  const composer = await canvas.findByRole("textbox", { name: "Reply" });
+  await userEvent.type(composer, "We can help");
+  await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+  await expect(await canvas.findByRole("status")).toHaveTextContent("Already sent");
+  await expect(composer).toHaveValue("We can help");
+  await expect(canvas.getByRole("log")).not.toHaveTextContent("We can help");
+  await expect(canvas.getByRole("button", { name: "Send" })).toBeDisabled();
+} };
+export const ReplyAlreadySentOutsidePageDesktop: Story = { ...ReplyAlreadySentOutsidePage, parameters: { viewport: { defaultViewport: "desktop" } } };
+
 let pollInbox: () => void = () => {};
 let refreshPhase = false;
 let requestedPages: string[] = [];
@@ -115,7 +127,7 @@ function PaginatedInbox({ scenario = "refresh" }: { scenario?: "refresh" | "fail
       return { version: 2, conversations: refreshPhase && (scenario === "refresh" || scenario === "slow") && page === 2 ? [] : [pageRow(page)], nextCursor: refreshPhase && scenario === "cycle" && page === 2 ? "2" : page < (scenario === "slow" ? 21 : 4) ? String(page + 1) : null };
     },
     conversation: async () => ({ detail: fixture, etag: null }), read: async () => {},
-    reply: async () => ({ detail: fixture, etag: null }), status: async () => ({ detail: fixture, etag: null }), handler: async () => ({ detail: fixture, etag: null }),
+    reply: async () => ({ detail: fixture, etag: null, reply: { messageId: "55555555-5555-4555-8555-555555555555", replayed: false } }), status: async () => ({ detail: fixture, etag: null }), handler: async () => ({ detail: fixture, etag: null }),
   };
   return <main className="p-4"><h1>Support</h1><OperatorSupportInbox transport={transport} /></main>;
 }
