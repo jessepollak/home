@@ -217,11 +217,11 @@ test("visibleIn requires a visible element intersecting the scroller viewport", 
 });
 
 test("partial activity sources are reported so a run is not published as complete", () => {
-  const root = mainWith(`<section data-activity-feed=""><p role="status">Onchain transfers are unavailable. Recorded Home actions are still shown.</p><ul><li aria-posinset="1" aria-setsize="4">Recent</li></ul></section>`);
+  const root = mainWith(`<section data-activity-feed=""><p role="status">Some activity is unavailable</p><ul><li aria-posinset="1" aria-setsize="4">Recent</li></ul></section>`);
   expect(activityPartialSources(root)).toHaveLength(1);
-  expect(activityPartialSources(root)[0]).toStartWith("Onchain transfers are unavailable.");
+  expect(activityPartialSources(root)[0]).toBe("Some activity is unavailable");
   expect(activityPartialSources(mainWith(`<section data-activity-feed=""><p role="status">End of activity</p><ul><li aria-posinset="1" aria-setsize="4">Recent</li></ul></section>`))).toEqual([]);
-  expect(activityPartialSources(mainWith(`<section data-activity-feed=""><p role="status">Card purchases may be out of date.</p><ul><li aria-posinset="1" aria-setsize="4">Recent</li></ul></section>`))).toHaveLength(1);
+  expect(activityPartialSources(mainWith(`<section data-activity-feed=""><p role="status">Card purchases may be out of date</p><ul><li aria-posinset="1" aria-setsize="4">Recent</li></ul></section>`))).toHaveLength(1);
   expect(activityPartialSources(mainWith(`${moneySummary(3)}<p role="status">Transfers are unavailable</p>`))).toEqual([]);
   const pageFailed = mainWith(`<section data-activity-feed=""><ul><li aria-posinset="1" aria-setsize="4">Recent</li></ul><p role="alert">More activity could not be loaded. Your current results are unchanged.</p></section>`);
   expect(activityPartialSources(pageFailed)).toHaveLength(1);
@@ -233,19 +233,19 @@ test("a source that fails after the feed fill still marks the run partial", () =
   const root = mainWith(`<section data-activity-feed=""><ul><li aria-posinset="1" aria-setsize="4">Recent</li></ul></section>`);
   const before = activityPartialSources(root);
   expect(before).toEqual([]);
-  root.querySelector("ul")?.insertAdjacentHTML("beforebegin", `<p role="status">Add money and cash-out orders are unavailable.</p>`);
-  expect(mergePartialSources(before, activityPartialSources(root))).toEqual(["Add money and cash-out orders are unavailable."]);
+  root.querySelector("ul")?.insertAdjacentHTML("beforebegin", `<p role="status">Add money and cash-out orders are unavailable</p>`);
+  expect(mergePartialSources(before, activityPartialSources(root))).toEqual(["Add money and cash-out orders are unavailable"]);
 });
 
 test("partial markers captured before a scan survive source recovery", () => {
-  const root = mainWith(`<section data-activity-feed="" data-activity-sources="transfers:ready actions:ready orders:error"><p role="status">Add money and cash-out orders are unavailable.</p><ul><li>Recent</li></ul></section>`);
+  const root = mainWith(`<section data-activity-feed="" data-activity-sources="transfers:ready actions:ready orders:error"><p role="status">Add money and cash-out orders are unavailable</p><ul><li>Recent</li></ul></section>`);
   const before = mergePartialSources(activityPartialSources(root), activityReadinessMarkers(root));
   root.querySelector("section")?.setAttribute("data-activity-sources", "transfers:ready actions:ready orders:ready");
   root.querySelector('[role="status"]')?.remove();
   expect(activityPartialSources(root)).toEqual([]);
   expect(activityReadinessMarkers(root)).toEqual([]);
   expect(mergePartialSources(before, [...activityPartialSources(root), ...activityReadinessMarkers(root)])).toEqual([
-    "Add money and cash-out orders are unavailable.",
+    "Add money and cash-out orders are unavailable",
     "Activity source orders reported error",
   ]);
 });
@@ -279,7 +279,7 @@ test("failed Activity readiness marks cached rows partial without visible unavai
 });
 
 test("visible unavailable prose does not hide failed Activity readiness markers", () => {
-  const root = mainWith(`<section data-activity-feed="" data-activity-sources="transfers:ready actions:ready orders:error"><p role="status">Add money and cash-out orders are unavailable.</p><ul><li>Recent</li></ul></section>`);
+  const root = mainWith(`<section data-activity-feed="" data-activity-sources="transfers:ready actions:ready orders:error"><p role="status">Add money and cash-out orders are unavailable</p><ul><li>Recent</li></ul></section>`);
   expect(activityReadinessMarkers(root)).toEqual(["Activity source orders reported error"]);
 });
 
