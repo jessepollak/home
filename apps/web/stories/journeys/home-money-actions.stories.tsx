@@ -68,8 +68,11 @@ const meta = {
     await waitForReady(() => expect(body.getByRole("dialog", { name: "Cash out" })).toBeVisible());
     await expect(new URL(window.location.href).searchParams.get("flow")).toBe("cash-out");
     await expect(within(body.getByRole("dialog", { name: "Cash out" })).queryByRole("textbox", { name: "To" })).toBeNull();
-    await userEvent.click(body.getByRole("button", { name: "Close cash-out dialog" }));
-    await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
+    await waitForReady(async () => {
+      const close = body.queryByRole("button", { name: "Close cash-out dialog" });
+      if (close) await userEvent.click(close);
+      await expect(body.queryByRole("dialog")).toBeNull();
+    });
     if (!args.sendOff) {
       actions.getByRole("button", { name: "Cash out" }).focus();
       await userEvent.tab();
@@ -77,8 +80,11 @@ const meta = {
       await userEvent.keyboard("{Enter}");
       await waitForReady(() => expect(body.getByRole("dialog", { name: "Send" })).toBeVisible());
       await expect(new URL(window.location.href).searchParams.get("flow")).toBe("send");
-      await userEvent.click(body.getByRole("button", { name: "Close send dialog" }));
-      await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
+      await waitForReady(async () => {
+        const close = body.queryByRole("button", { name: "Close send dialog" });
+        if (close) await userEvent.click(close);
+        await expect(body.queryByRole("dialog")).toBeNull();
+      });
     }
   },
 } satisfies Meta<typeof HomeMoneyActions>;

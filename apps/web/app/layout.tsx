@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   const smokeFixture = process.env.HOME_PLAYWRIGHT_SMOKE === "1" && !process.env.VERCEL;
   return (
-    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+    <html lang="en" className="h-full antialiased scroll-pb-(--shell-navigation-clearance) lg:scroll-pb-4" suppressHydrationWarning>
       <head>
         <meta name="theme-color" content={appearanceThemeColors.light} />
         <script dangerouslySetInnerHTML={{ __html: appearanceBootScript }} />

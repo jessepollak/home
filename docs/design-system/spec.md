@@ -267,6 +267,8 @@ From [Radius](theme.md#radius), [Elevation](theme.md#elevation) and [Type roles]
 --shell-viewport-keyboard-height
 --shell-viewport-pan
 --spacing-hairline
+--spacing-shell-header-avatar
+--spacing-shell-header-control
 --spacing-shell-mobile-navigation
 --spacing-shell-search-field
 --state-hover

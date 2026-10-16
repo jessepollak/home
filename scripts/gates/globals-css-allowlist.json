@@ -80,6 +80,8 @@
       "--shadow-raised",
       "--shadow-toast",
       "--spacing-hairline",
+      "--spacing-shell-header-avatar",
+      "--spacing-shell-header-control",
       "--spacing-shell-mobile-navigation",
       "--spacing-shell-search-field",
       "--transition-duration-base",

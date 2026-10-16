@@ -90,7 +90,7 @@ function ProfileMarkButton({
 
   return (
     <Button
-      className="relative size-11 shrink-0"
+      className="relative size-shell-header-control shrink-0"
       variant="ghost"
       size="icon-lg"
       aria-label={supportUnreadLabel("Account", supportUnreadCount, supportSummaryStatus)}
@@ -99,7 +99,7 @@ function ProfileMarkButton({
     >
       <SupportUnreadDot unreadCount={supportUnreadCount} status={supportSummaryStatus} />
       <span
-        className={`relative isolate grid size-8 place-items-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-foreground ${showShimmer ? "animate-pulse" : ""}`}
+        className={`relative isolate grid size-shell-header-avatar place-items-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-foreground ${showShimmer ? "animate-pulse" : ""}`}
         data-profile={
           showShimmer ? "shimmer" : showPhoto && photoStatus === "ready" ? "photo" : "glyph"
         }
