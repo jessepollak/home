@@ -84,14 +84,21 @@ const savingsOnlySnapshot = buildBalancesSnapshotFixture({ registry: {
   "morpho-steakhouse-usdc": { balance: ready("800000000000000000000"), underlyingBalance: ready("800000000"), value: priced("USD", "80000") },
 } });
 const cashOnlySnapshot = buildBalancesSnapshotFixture({ registry: cashRegistry });
-const sixCurrencySnapshot = buildBalancesSnapshotFixture({ registry: {
+const sixCurrencyRegistry = {
   [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
   [requiredLocalCashAsset("EUR").id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
   [requiredLocalCashAsset("IDR").id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000", 2) },
   [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
   [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
   [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
-} });
+};
+const sixCurrencySnapshot = buildBalancesSnapshotFixture({ registry: sixCurrencyRegistry });
+const sixCurrencyArgentinaSnapshot = buildBalancesSnapshotFixture({ region: "AR", registry: Object.fromEntries(
+  Object.entries(sixCurrencyRegistry).map(([id, holding]) => [id, {
+    ...holding,
+    value: holding.value.status === "priced" ? priced("ARS", holding.value.amount.atoms, holding.value.amount.scale) : holding.value,
+  }]),
+) });
 const partialHoldingSnapshot = buildBalancesSnapshotFixture({ registry: {
   ...cashRegistry,
   idrx: { balance: ready("190000000"), value: { status: "unpriced", reason: "price-unavailable" }, cashValue: pricedCash("IDR", "190000000", 2) },
@@ -386,9 +393,15 @@ export const Funded: Story = { play: assertFunded };
 export const SixHeldCurrencies: Story = { args: { snapshot: sixCurrencySnapshot }, play: async ({ canvasElement }) => {
   const region = within(within(canvasElement).getByRole("region", { name: "Currencies" }));
   await expect(region.getAllByRole("listitem")).toHaveLength(6);
-  for (const [name, amount] of [["US dollar", "$234.00"], ["Euro", "€15.00"], ["Rupiah", "Rp 1,900,000.00"], ["Argentine peso", "$123.45"], ["Brazilian real", "R$ 23.45"], ["Colombian peso", "$1,234.56"]] as const) {
+  for (const [name, amount] of [["US dollar", "$234.00"], ["Euro", "€15.00"], ["Rupiah", "Rp 1,900,000.00"], ["Argentine peso", "ARS 123.45"], ["Brazilian real", "R$ 23.45"], ["Colombian peso", "COP 1,234.56"]] as const) {
     await expect(region.getByRole("button", { name: new RegExp(`^${name}`) })).toHaveTextContent(amount);
   }
+} };
+export const SixHeldCurrenciesArgentina: Story = { args: { snapshot: sixCurrencyArgentinaSnapshot, regionId: "AR" }, play: async ({ canvasElement }) => {
+  const region = within(within(canvasElement).getByRole("region", { name: "Currencies" }));
+  await expect(region.getAllByRole("listitem")).toHaveLength(6);
+  await expect(region.getByRole("button", { name: /^US dollar/ })).toHaveTextContent("$234,00");
+  await expect(region.getByRole("button", { name: /^Argentine peso/ })).toHaveTextContent("ARS 123,45");
 } };
 export const SharedPortfolio: Story = { args: { snapshot: sharedPortfolioSnapshot }, play: async ({ canvasElement }) => {
   const cash = within(canvasElement).getByLabelText("Cash balance");

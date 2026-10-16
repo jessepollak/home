@@ -21,8 +21,11 @@ export function normalizeTypedAmount(raw: string, maxDecimals: number): AmountEd
 }
 
 export function parsePastedAmount(text: string, localeDecimal: "." | ","): AmountEditResult {
-  const stripped = text.trim().replace(/^\p{Sc}|\p{Sc}$/u, "").trim();
-  if (!/^[0-9., '’\u00a0\u202f\u2009]*$/.test(stripped)) return { ok: false };
+  const stripped = text.trim().replace(
+    /^(?:[A-Z]{1,3}\p{Sc}|\p{Sc}|[A-Z]{2,3}|[A-Z][a-z])\s*|\s*(?:[A-Z]{1,3}\p{Sc}|\p{Sc}|[A-Z]{2,3}|[A-Z][a-z])$/u,
+    "",
+  ).trim();
+  if (!/^[0-9., '’\u00a0\u202f\u2009]+$/.test(stripped)) return { ok: false };
 
   const lastPoint = stripped.lastIndexOf(".");
   const lastComma = stripped.lastIndexOf(",");

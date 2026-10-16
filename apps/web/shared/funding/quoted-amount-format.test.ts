@@ -8,8 +8,8 @@ describe("onramp receive precision", () => {
     ["base:eurc", 6, "EURC", "1234567", "€1,234567"],
     ["base:idrx", 2, "IDRX", "1234567", "Rp\u00a012.345,67"],
     ["base:wbrl", 18, "wBRL", "1234567890123456789", "R$\u00a01,234567890123456789"],
-    ["base:wars", 18, "wARS", "1234567890123456789", "$1,234567890123456789"],
-    ["base:wcop", 18, "wCOP", "1234567890123456789", "$1,234567890123456789"],
+    ["base:wars", 18, "wARS", "1234567890123456789", "ARS\u00a01,234567890123456789"],
+    ["base:wcop", 18, "wCOP", "1234567890123456789", "COP\u00a01,234567890123456789"],
   ] as const)("preserves all atomic digits for %s without conversion", (assetId, assetDecimals, assetSymbol, atoms, expected) => {
     expect(formatOnrampReceive(atoms, { assetId, assetDecimals, assetSymbol })).toBe(expected);
   });
@@ -32,8 +32,8 @@ describe("onramp fee formatting", () => {
     ["EURC", "€1,50"],
     ["IDRX", "Rp\u00a01,50"],
     ["wBRL", "R$\u00a01,50"],
-    ["wARS", "$1,50"],
-    ["wCOP", "$1,50"],
+    ["wARS", "ARS\u00a01,50"],
+    ["wCOP", "COP\u00a01,50"],
   ])("formats registered cash token %s in its native denomination", (symbol, expected) => {
     expect(formatOnrampFee("1.50", symbol)).toBe(expected);
   });
