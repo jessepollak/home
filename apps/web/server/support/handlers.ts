@@ -3,7 +3,7 @@ import "server-only";
 import { readDatabaseUrl } from "@/server/config/env";
 
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
-import { SUPPORT_CONTRACT_VERSION, parseCustomerSupportChatRequest, parseCustomerSupportHandoffRequest, parseSupportCredentialPutRequest, parseOperatorSupportHandlerRequest, parseOperatorSupportListQuery, parseOperatorSupportReplyRequest, parseOperatorSupportStatusRequest, parseSupportMessageCursor, parseSupportReadRequest, type OperatorSupportConversationResponse, type SupportAssistantCapability, type SupportErrorCode, type SupportHandler, type SupportStreamData } from "@/shared/support/contract";
+import { SUPPORT_CONTRACT_VERSION, parseCustomerSupportChatRequest, parseCustomerSupportHandoffRequest, parseSupportCredentialPutRequest, parseOperatorSupportHandlerRequest, parseOperatorSupportListQuery, parseOperatorSupportReplyRequest, parseOperatorSupportStatusRequest, parseSupportMessageCursor, parseSupportReadRequest, type OperatorSupportConversationResponse, type OperatorSupportReplyResponse, type SupportAssistantCapability, type SupportErrorCode, type SupportHandler, type SupportStreamData } from "@/shared/support/contract";
 import { createUIMessageStream, createUIMessageStreamResponse, streamText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import { authorizeSession } from "@/server/auth/authorize";
@@ -52,8 +52,8 @@ async function conversationEtag(result: OperatorSupportConversationResponse | nu
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(result)));
   return `"${Buffer.from(digest).toString("base64url")}"`;
 }
-async function conversationJson(result: OperatorSupportConversationResponse | null, status: number): Promise<Response> {
-  const response = privateJson(result, status);
+async function conversationJson(result: OperatorSupportConversationResponse | null, status: number, reply?: OperatorSupportReplyResponse["reply"]): Promise<Response> {
+  const response = privateJson(reply && result ? { ...result, reply } : result, status);
   response.headers.set("ETag", await conversationEtag(result));
   return response;
 }
@@ -462,7 +462,7 @@ export function createOperatorSupportReplyHandler(deps: Dependencies = {}) {
     if (sent.outcome === "conflict") return fail("/api/admin/support/conversations/[id]/messages", "SUPPORT_CONFLICT", 409);
     if (sent.outcome === "not-found") return fail("/api/admin/support/conversations/[id]/messages", "NOT_FOUND", 404);
     const result = await access.store.operatorConversation(id, undefined, await capability(deps));
-    return result ? conversationJson(result, sent.replayed ? 200 : 201) : fail("/api/admin/support/conversations/[id]/messages", "NOT_FOUND", 404);
+    return result ? conversationJson(result, sent.replayed ? 200 : 201, { messageId: sent.messageId, replayed: sent.replayed }) : fail("/api/admin/support/conversations/[id]/messages", "NOT_FOUND", 404);
   });
 }
 export function createOperatorSupportStatusHandler(deps: Dependencies = {}) {

@@ -16,6 +16,7 @@ import { logAtLatest, newestVisibleMessageId } from "@/client/support/log-visibi
 
 type Filter = "open" | "resolved" | "all";
 type GenerationError = { generation: number; message: string; source?: "handler" };
+type ReplayedReply = { generation: number; messageId: string; body: string; pendingKey: string };
 type InboxProps = { conversationId?: string; transport?: OperatorSupportTransport; initialList?: OperatorSupportListResponse; initialConversation?: OperatorSupportConversationResponse };
 type InboxList = OperatorSupportListResponse & { firstPageIds?: string[]; loadedPages?: number; pageCursors?: string[] };
 const maxInboxPages = 100;
@@ -39,6 +40,13 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
   const [detailError, setDetailError] = useState<GenerationError | null>(null);
   const [busyConversations, setBusyConversations] = useState<Map<string, number>>(() => new Map());
   const [body, setBody] = useState("");
+  const bodyRevision = useRef(0);
+  const replyInputRef = useRef<HTMLTextAreaElement>(null);
+  const earlierButtonRef = useRef<HTMLButtonElement>(null);
+  const [replayedReply, setReplayedReply] = useState<ReplayedReply | null>(null);
+  const [reviewError, setReviewError] = useState("");
+  const [reviewFocus, setReviewFocus] = useState(0);
+  const reviewToken = useRef(0);
   const [actionError, setActionError] = useState<GenerationError | null>(null);
   const readMessage = useRef("");
   const listSeq = useRef(0);
@@ -77,6 +85,9 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
     setActionError(null);
     setDetailError(null);
     setBody("");
+    setReplayedReply(null);
+    setReviewError("");
+    setReviewFocus(0);
   }
   const [historyBoundary, setHistoryBoundary] = useState<string | null>(null);
   useLayoutEffect(() => {
@@ -202,6 +213,7 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
     setActionError(null);
     try {
       const result = await operation();
+      if (!mounted.current) return;
       if (filterRef.current !== "all" && result.detail.conversation.status !== filterRef.current) {
         setList((previous) => previous ? { ...previous, conversations: previous.conversations.filter((row) => row.id !== result.detail.conversation.id) } : previous);
       }
@@ -211,19 +223,20 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
       detailTag.current = { id: targetId, etag: result.etag };
       setDetail(result.detail);
     } catch (error) {
-      if (error instanceof SupportConflictError && generationRef.current === generation) {
+      if (mounted.current && error instanceof SupportConflictError && generationRef.current === generation) {
         void loadDetail(targetId);
         void loadList(filterRef.current);
       }
-      setActionError((previous) => generationRef.current === generation ? { generation, message: error instanceof Error ? error.message : "Couldn't update conversation. Try again.", ...(source ? { source } : {}) } : previous);
-    } finally { setBusyConversations((current) => { if (current.get(targetId) !== token) return current; const next = new Map(current); next.delete(targetId); return next; }); }
+      setActionError((previous) => mounted.current && generationRef.current === generation ? { generation, message: error instanceof Error ? error.message : "Couldn't update conversation. Try again.", ...(source ? { source } : {}) } : previous);
+    } finally { if (mounted.current) setBusyConversations((current) => { if (current.get(targetId) !== token) return current; const next = new Map(current); next.delete(targetId); return next; }); }
   };
   const send = (event?: FormEvent) => {
     event?.preventDefault();
     const trimmed = normalizeSupportBody(body);
-    if (!conversationId || !trimmed || busy) return;
+    if (!conversationId || !trimmed || busy || trimmed === visibleReplay?.body) return;
     const targetId = conversationId;
     const generation = generationRef.current;
+    const revision = bodyRevision.current;
     const observed = (detail && detail.conversation.id === targetId ? newestVisibleMessageId(conversationLogRef.current, (author) => author === "customer") : null) ?? targetId;
     const pendingKey = JSON.stringify([targetId, trimmed]);
     const existing = pendingReplies.current.get(pendingKey);
@@ -231,13 +244,20 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
     pendingReplies.current.set(pendingKey, pending);
     void mutate(targetId, async () => {
       const result = await transport.reply(targetId, trimmed, pending.clientMessageId, observed);
-      if (pendingReplies.current.get(pendingKey)?.clientMessageId === pending.clientMessageId) pendingReplies.current.delete(pendingKey);
-      if (generationRef.current === generation) setBody((current) => normalizeSupportBody(current) === trimmed ? "" : current);
+      if (!result.reply.replayed && pendingReplies.current.get(pendingKey)?.clientMessageId === pending.clientMessageId) pendingReplies.current.delete(pendingKey);
+      if (mounted.current && generationRef.current === generation) {
+        if (result.reply.replayed) {
+          setReplayedReply({ generation, messageId: result.reply.messageId, body: trimmed, pendingKey });
+          setReviewError("");
+        } else if (bodyRevision.current === revision) {
+          setBody((current) => normalizeSupportBody(current) === trimmed ? "" : current);
+        }
+      }
       return result;
     });
   };
   const loadEarlier = async () => {
-    if (!conversationId || !olderCursor || loadingEarlier) return;
+    if (!conversationId || !olderCursor || loadingEarlier) return null;
     const targetId = conversationId;
     const generation = generationRef.current;
     const from = olderCursor;
@@ -245,15 +265,17 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
     setEarlierError(null);
     try {
       const result = await transport.conversation(targetId, { before: from });
-      if (generationRef.current !== generation || result === "unchanged") return;
+      if (!mounted.current || generationRef.current !== generation || result === "unchanged") return null;
       setHistory((previous) => [...result.detail.conversation.messages, ...previous]);
       setHistoryCursor(result.detail.conversation.messagesNextCursor);
       setHistoryLoaded(true);
       if (!historyLoaded) setHistoryBoundary(from);
+      return result.detail.conversation.messages;
     } catch (error) {
-      setEarlierError((previous) => generationRef.current === generation ? { generation, message: error instanceof Error ? error.message : "Couldn't load earlier messages. Try again." } : previous);
+      if (mounted.current) setEarlierError((previous) => generationRef.current === generation ? { generation, message: error instanceof Error ? error.message : "Couldn't load earlier messages. Try again." } : previous);
+      return null;
     } finally {
-      if (generationRef.current === generation) setLoadingEarlier(false);
+      if (mounted.current && generationRef.current === generation) setLoadingEarlier(false);
     }
   };
 
@@ -302,6 +324,41 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
     );
   }, [conversationId, newestObservedCustomer, visibilityEpoch, scrollRevision, detail, transport, loadList]);
   const olderCursor = historyLoaded ? historyCursor : oldestMessagesCursor;
+  const visibleReplay = replayedReply?.generation === viewGeneration ? replayedReply : null;
+  const replayInPage = visibleReplay ? sentMessages.some((message) => message.id === visibleReplay.messageId) : false;
+  const reviewThread = async () => {
+    if (!visibleReplay || loadingEarlier) return;
+    const generation = generationRef.current;
+    const token = ++reviewToken.current;
+    setReviewError("");
+    atLatestRef.current = false;
+    if (!replayInPage && olderCursor) {
+      const page = await loadEarlier();
+      if (!mounted.current || generationRef.current !== generation || reviewToken.current !== token) return;
+      if (!page) { setReviewError("Couldn't review this reply. Try again."); return; }
+    } else if (!replayInPage) {
+      setReviewError("Couldn't find this reply in the thread. Try refreshing the conversation.");
+    }
+    setReviewFocus((revision) => revision + 1);
+  };
+  useLayoutEffect(() => {
+    if (!reviewFocus || !visibleReplay) return;
+    const message = conversationLogRef.current?.querySelector<HTMLElement>(`[data-message-id="${visibleReplay.messageId}"]`);
+    const target = message ?? earlierButtonRef.current;
+    target?.focus();
+    target?.scrollIntoView({ block: "nearest" });
+  }, [reviewFocus, visibleReplay]);
+  const newReply = () => {
+    if (!visibleReplay) return;
+    ++reviewToken.current;
+    pendingReplies.current.delete(visibleReplay.pendingKey);
+    ++bodyRevision.current;
+    setBody((currentBody) => normalizeSupportBody(currentBody) === visibleReplay.body ? "" : currentBody);
+    setReplayedReply(null);
+    setReviewError("");
+    setReviewFocus(0);
+    replyInputRef.current?.focus();
+  };
   const busy = conversationId !== undefined && busyConversations.has(conversationId);
   const visibleDetailError = detailError && detailError.generation === viewGeneration ? detailError.message : "";
   const visibleEarlierError = earlierError && earlierError.generation === viewGeneration ? earlierError.message : "";
@@ -335,11 +392,12 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
           {current.conversation.handler === "assistant" || current.conversation.assistantAvailable ? <Item variant="outline" size="sm"><ItemContent><ItemTitle>{current.conversation.handler === "assistant" ? "Assistant is handling this" : "An operator is handling this"}</ItemTitle></ItemContent><ItemActions><Button variant="outline" size="touch" loading={busy} onClick={() => void mutate(conversationId, () => transport.handler(conversationId, current.conversation.handler === "assistant" ? "operator" : "assistant"), "handler")}>{current.conversation.handler === "assistant" ? "Take over" : "Hand back to assistant"}</Button></ItemActions></Item> : null}
           {visibleHandlerError ? <p role="alert">{visibleHandlerError}</p> : null}
           <div ref={conversationLogRef} onScroll={(event) => { atLatestRef.current = logAtLatest(event.currentTarget); setScrollRevision((revision) => revision + 1); }} role="log" aria-label="Messages" aria-live="polite" className="grid max-h-[50dvh] content-start gap-3 overflow-y-auto py-2">
-            {olderCursor ? <div className="grid justify-items-center gap-1"><Button variant="outline" size="touch" loading={loadingEarlier} onClick={() => void loadEarlier()}>Load earlier messages</Button>{visibleEarlierError ? <p role="alert" className="text-sm text-destructive">{visibleEarlierError}</p> : null}</div> : null}
-            {sentMessages.map((message) => <div key={message.id} data-message-id={message.id} data-message-author={message.authorType} className="grid">{message.authorType === "assistant" ? null : <span aria-hidden="true" className={message.authorType === "operator" ? "ms-auto text-xs text-muted-foreground" : "text-xs text-muted-foreground"}>{authorLabel(message)}</span>}<SupportMessageBubble author={message.authorType} side="operator" speaker={message.authorType === "operator" ? authorLabel(message) : undefined}>{message.body}</SupportMessageBubble></div>)}
+            {olderCursor ? <div className="grid justify-items-center gap-1"><Button ref={earlierButtonRef} variant="outline" size="touch" loading={loadingEarlier} onClick={() => void loadEarlier()}>Load earlier messages</Button>{visibleEarlierError ? <p role="alert" className="text-sm text-destructive">{visibleEarlierError}</p> : null}</div> : null}
+            {sentMessages.map((message) => <div key={message.id} data-message-id={message.id} data-message-author={message.authorType} tabIndex={-1} className="grid">{message.authorType === "assistant" ? null : <span aria-hidden="true" className={message.authorType === "operator" ? "ms-auto text-xs text-muted-foreground" : "text-xs text-muted-foreground"}>{authorLabel(message)}</span>}<SupportMessageBubble author={message.authorType} side="operator" speaker={message.authorType === "operator" ? authorLabel(message) : undefined}>{message.body}</SupportMessageBubble></div>)}
           </div>
           {drafts.length > 0 && <section aria-label="Suggested reply" className="grid gap-2"><h3 className="font-medium">Suggested reply</h3>{drafts.map((draft) => <SupportMessageBubble key={draft.id} author="assistant" side="operator">{draft.body}</SupportMessageBubble>)}</section>}
-          <form onSubmit={send} className="grid gap-2"><label htmlFor="operator-support-reply" className="text-sm font-medium">Reply</label>{current.conversation.handler === "assistant" ? <p id="operator-support-reply-description" className="text-sm text-muted-foreground">Sending takes over from the assistant.</p> : null}<Textarea id="operator-support-reply" value={body} onInput={(event) => setBody(event.currentTarget.value)} onKeyDown={onKeyDown} maxLength={2000} aria-invalid={Boolean(body && !normalizeSupportBody(body))} aria-describedby={current.conversation.handler === "assistant" ? "operator-support-reply-description" : undefined} /><Button type="submit" size="touch" loading={busy} disabled={!normalizeSupportBody(body)}>Send</Button>{visibleActionError ? <p role="alert">{visibleActionError}</p> : null}</form>
+          {visibleReplay ? <Item variant="outline" size="sm"><ItemContent><ItemTitle><span role="status">Already sent</span></ItemTitle><ItemDescription lines="wrap">{replayInPage ? "This reply is already in the thread." : "This reply was sent earlier. Review the thread before sending a new reply."}</ItemDescription>{reviewError ? <p role="alert">{reviewError}</p> : null}<div className="flex flex-wrap gap-2"><Button variant="outline" size="touch" loading={loadingEarlier} onClick={() => void reviewThread()}>Review thread</Button><Button variant="ghost" size="touch" onClick={newReply}>New reply</Button></div></ItemContent></Item> : null}
+          <form onSubmit={send} className="grid gap-2"><label htmlFor="operator-support-reply" className="text-sm font-medium">Reply</label>{current.conversation.handler === "assistant" ? <p id="operator-support-reply-description" className="text-sm text-muted-foreground">Sending takes over from the assistant.</p> : null}<Textarea ref={replyInputRef} id="operator-support-reply" value={body} onInput={(event) => { ++bodyRevision.current; setBody(event.currentTarget.value); }} onKeyDown={onKeyDown} maxLength={2000} aria-invalid={Boolean(body && !normalizeSupportBody(body))} aria-describedby={current.conversation.handler === "assistant" ? "operator-support-reply-description" : undefined} /><Button type="submit" size="touch" loading={busy} disabled={!normalizeSupportBody(body) || normalizeSupportBody(body) === visibleReplay?.body}>Send</Button>{visibleActionError ? <p role="alert">{visibleActionError}</p> : null}</form>
         </>}
       </section>
       {current && <aside aria-label="Customer details" className="min-w-0"><CustomerDetail data={current} /></aside>}

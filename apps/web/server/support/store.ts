@@ -223,13 +223,13 @@ export class SupportStore {
     return { version: SUPPORT_CONTRACT_VERSION, conversation: { id: row.id, status: row.status, handler: effectiveHandler(row, capability), handedOffAt: row.handed_off_at ? date(row.handed_off_at) : null, assistantAvailable: capability.available, createdAt: date(row.created_at), resolvedAt: row.resolved_at ? date(row.resolved_at) : null, messages: page.messages.map((m) => ({ ...message(m), authorOperator: m.author_operator })), messagesNextCursor: page.nextCursor, contextRefs: contexts.rows.map((r) => ({ kind: r.kind, id: r.ref_id, summary: contextSummary(r) })) }, customer: { status: person.status, country: person.country, firstSeenAt: date(person.first_seen_at), lastSeenAt: date(person.last_seen_at), emails: [...new Set(credentials.rows.flatMap((c) => c.email ? [c.email] : []))], accountProviders: [...new Set(credentials.rows.map((c) => c.account_provider))], wallets: wallets.rows.map((w) => w.address), recentEvents: events.rows.map((e) => ({ name: e.name, occurredAt: date(e.occurred_at) })) } };
   }
 
-  async sendOperator(id: string, actor: `0x${string}`, input: OperatorSupportReplyRequest): Promise<{ outcome: "ok"; response: OperatorSupportConversationResponse | null; replayed: boolean } | { outcome: "not-found" } | { outcome: "conflict" }> {
+  async sendOperator(id: string, actor: `0x${string}`, input: OperatorSupportReplyRequest): Promise<{ outcome: "ok"; response: OperatorSupportConversationResponse | null; replayed: boolean; messageId: string } | { outcome: "not-found" } | { outcome: "conflict" }> {
     const sent = await this.sql.transaction(async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [actor]);
       const row = (await tx.query<ConversationRow>("SELECT * FROM support_conversations WHERE id=$1 FOR UPDATE", [id])).rows[0];
       if (!row) return { outcome: "not-found" } as const;
       const existing = (await tx.query<{ id: string }>("SELECT id FROM support_messages WHERE conversation_id=$1 AND author_type='operator' AND client_message_id=$2", [id, input.clientMessageId])).rows[0];
-      if (existing) return { outcome: "ok", replayed: true } as const;
+      if (existing) return { outcome: "ok", replayed: true, messageId: existing.id } as const;
       if (row.status !== "open") return { outcome: "conflict" } as const;
       const state = (await tx.query<{ observed: number | null; newer: number | null; unanswered: number | null }>(`SELECT
         (SELECT 1 FROM support_messages o WHERE o.id=$2 AND o.conversation_id=$1) AS observed,
@@ -243,14 +243,15 @@ export class SupportStore {
       if (state && (state.newer !== null || (state.observed === null && state.unanswered !== null))) return { outcome: "conflict" } as const;
       const rate = (await tx.query<{ count: string }>("SELECT count(*)::text AS count FROM support_messages WHERE author_type='operator' AND author_operator=$1 AND status='sent' AND created_at > clock_timestamp() - interval '1 minute'", [actor])).rows[0];
       if (Number(rate.count) >= 60) throw new SupportRateLimitedError(60);
+      const messageId = crypto.randomUUID();
       await tx.query(`WITH sent AS (
         INSERT INTO support_messages (id,conversation_id,author_type,author_operator,body,client_message_id,created_at)
         VALUES ($1,$2,'operator',$3,$4,$5,clock_timestamp()) RETURNING created_at)
         UPDATE support_conversations c SET last_message_at=date_trunc('milliseconds',sent.created_at),last_operator_message_at=sent.created_at,updated_at=sent.created_at,handler='operator',handed_off_at=COALESCE(c.handed_off_at,sent.created_at),assistant_run_id=NULL,assistant_run_message_id=NULL,assistant_run_expires_at=NULL
-        FROM sent WHERE c.id=$2`, [crypto.randomUUID(), id, actor, input.body, input.clientMessageId]);
+        FROM sent WHERE c.id=$2`, [messageId, id, actor, input.body, input.clientMessageId]);
       await tx.query(`UPDATE support_conversations c SET operator_read_at=GREATEST(COALESCE(c.operator_read_at,$3::timestamptz),m.created_at)
         FROM support_messages m WHERE c.id=$1 AND m.id=$2 AND m.conversation_id=c.id AND m.status IN ('sent','draft')`, [id, input.readThroughMessageId, "1970-01-01T00:00:00.000Z"]);
-      return { outcome: "ok", replayed: false } as const;
+      return { outcome: "ok", replayed: false, messageId } as const;
     });
     return sent.outcome === "ok" ? { ...sent, response: await this.operatorConversation(id) } : sent;
   }
