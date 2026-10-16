@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { presentationRegions, regionIds } from "@/config/regions";
 import {
   MONEY_CHANGE_COLOR_TOKENS,
   formatBasisPoints,
@@ -59,12 +60,12 @@ const localeCases = [
   {
     regionId: "AR" as const,
     currency: "ARS",
-    fiat: "$1.234,56",
+    fiat: "ARS\u00a01.234,56",
     token: "−123,45 USDC",
-    compact: "$64,21K",
+    compact: "ARS\u00a064,21K",
     percentage: "4,50%",
     delta: "−0,67%",
-    tiny: "$0,0000001234",
+    tiny: "ARS\u00a00,0000001234",
     date: "7 de sept de 2026, 11:05 a. m.",
   },
   {
@@ -94,6 +95,8 @@ describe("explicit fiat presentation modes", () => {
       .toBe(formatFiatAmount("1234.56", "BRL", { regionId: "BR" }));
     expect(formatFiatAmount("1234.56", "IDR", { currencyNative: true }))
       .toBe(formatFiatAmount("1234.56", "IDR", { regionId: "ID" }));
+    expect(formatFiatAmount("1234.50", "ARS", { currencyNative: true }))
+      .toBe("ARS\u00a01.234,50");
   });
 
   test("keeps every high-scale bigint digit in both presentation modes", () => {
@@ -154,6 +157,76 @@ describe("explicit fiat presentation modes", () => {
 });
 
 describe("presentation money formatting", () => {
+  test("disambiguates cash currencies across en-US money formatters", () => {
+    const cases = [
+      ["USD", "23400", "$234.00"],
+      ["ARS", "12345", "ARS\u00a0123.45"],
+      ["COP", "123456", "COP\u00a01,234.56"],
+      ["EUR", "1500", "€15.00"],
+      ["BRL", "2345", "R$\u00a023.45"],
+      ["IDR", "190000000", "Rp\u00a01,900,000.00"],
+      ["MXN", "12345", "MXN\u00a0123.45"],
+      ["CAD", "12345", "CAD\u00a0123.45"],
+    ] as const;
+    for (const regionId of ["GLOBAL", "US"] as const) {
+      for (const [currency, cents, expected] of cases) {
+        const atoms = BigInt(cents) * BigInt(10) ** BigInt(16);
+        expect(formatPresentationCashAmount(atoms, 18, currency, { regionId })).toBe(expected);
+        expect(formatExactPresentationCashAmount(atoms, 18, currency, regionId)).toBe(expected);
+        expect(formatPresentationFiat({ atoms: cents, scale: 2 }, currency, 2, regionId)).toBe(expected);
+      }
+      expect(formatExactPresentationCashAmount("123450000000000000001", 18, "ARS", regionId))
+        .toBe("ARS\u00a0123.450000000000000001");
+      expect(formatExactPresentationCashAmount("1234560000000000000001", 18, "COP", regionId))
+        .toBe("COP\u00a01,234.560000000000000001");
+    }
+  });
+
+  test("leads local pesos with their code and keeps US dollars narrow in peso locales", () => {
+    const cases = [
+      ["USD", "23400", "$234,00"],
+      ["ARS", "12345", "ARS\u00a0123,45"],
+      ["COP", "123456", "COP\u00a01.234,56"],
+    ] as const;
+    for (const regionId of ["AR", "CO"] as const) {
+      for (const [currency, cents, expected] of cases) {
+        const atoms = BigInt(cents) * BigInt(10) ** BigInt(16);
+        expect(formatPresentationCashAmount(atoms, 18, currency, { regionId })).toBe(expected);
+        expect(formatExactPresentationCashAmount(atoms, 18, currency, regionId)).toBe(expected);
+        expect(formatPresentationFiat({ atoms: cents, scale: 2 }, currency, 2, regionId)).toBe(expected);
+      }
+      expect(formatExactPresentationCashAmount("123450000000000000001", 18, "ARS", regionId))
+        .toBe("ARS\u00a0123,450000000000000001");
+      expect(formatExactPresentationCashAmount("1234560000000000000001", 18, "COP", regionId))
+        .toBe("COP\u00a01.234,560000000000000001");
+    }
+    expect(formatPresentationCashAmount("15000000", 6, "EUR", { regionId: "DE" })).toBe("15,00\u00a0€");
+    expect(formatPresentationCashAmount("234000000", 6, "USD", { regionId: "DE" })).toBe("234,00\u00a0$");
+  });
+
+  test("preserves signs, tiny thresholds, and unavailable currency fallbacks", () => {
+    expect(formatPresentationCashAmount("-5000000", 6, "ARS")).toBe("−ARS\u00a05.00");
+    expect(formatPresentationCashAmount("1", 6, "ARS")).toBe("<ARS\u00a00.01");
+    expect(formatPresentationCashAmount("-1", 6, "ARS")).toBe("−<ARS\u00a00.01");
+    expect(formatPresentationCashAmount("bad", 6, "ARS")).toBe("—");
+    expect(formatPresentationCashAmount("1000000", 6, "unknown")).toBe("1.00\u00a0UNKNOWN");
+    expect(formatPresentationCashAmount("1000000", 6, "XYZ")).toBe("XYZ\u00a01.00");
+    expect(formatPresentationCashAmount("1000000", 6, "HKD")).toBe("HKD\u00a01.00");
+    expect(formatPresentationCashAmount("1000000", 6, "USD")).toBe("$1.00");
+  });
+
+  test("keeps supported currency affixes pairwise distinct in every presentation region", () => {
+    const currencies = [...new Set([
+      ...Object.values(presentationRegions).flatMap((region) => region.currency.code === null ? [] : [region.currency.code]),
+      "USD",
+    ])];
+    for (const regionId of regionIds) {
+      const affixes = currencies.map((currency) => formatPresentationCashAmount("1000000", 6, currency, { regionId })
+        .replace(/[\p{N}\s.,]/gu, ""));
+      expect(new Set(affixes).size).toBe(currencies.length);
+    }
+  });
+
   test("presents atomic stablecoin amounts as fiat without rounding or changing the input", () => {
     const raw = "123456789999";
     const cases: Array<[AtomicAmount, number, string]> = [
@@ -289,7 +362,7 @@ describe("presentation money formatting", () => {
         regionId: "BR",
       }),
     ];
-    const expected = ["$1,234.50", "$1.234,50", "Rp\u00A01.234", "1,23 USDC"];
+    const expected = ["$1,234.50", "ARS\u00a01.234,50", "Rp\u00A01.234", "1,23 USDC"];
 
     for (let pass = 0; pass < 3; pass += 1) {
       expect(formatCases.map((format) => format())).toEqual(expected);

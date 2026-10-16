@@ -141,13 +141,13 @@ const currencyPresentations = {
   ARS: {
     code: "ARS",
     name: "Argentine peso",
-    symbol: "AR$",
+    symbol: "ARS",
     candidateAsset: candidateAsset("wARS", "Ripio", "Additional verification"),
   },
   AUD: {
     code: "AUD",
     name: "Australian dollar",
-    symbol: "A$",
+    symbol: "AUD",
     candidateAsset: candidateAsset("AUDD", "AUDC", "Verification pending"),
   },
   BRL: {
@@ -159,7 +159,7 @@ const currencyPresentations = {
   CAD: {
     code: "CAD",
     name: "Canadian dollar",
-    symbol: "C$",
+    symbol: "CAD",
     candidateAsset: candidateAsset("CADD", "Tetra Trust", "Additional verification"),
   },
   CHF: {
@@ -171,13 +171,13 @@ const currencyPresentations = {
   CLP: {
     code: "CLP",
     name: "Chilean peso",
-    symbol: "CLP$",
+    symbol: "CLP",
     candidateAsset: candidateAsset("wCLP", "Ripio", "Additional verification"),
   },
   COP: {
     code: "COP",
     name: "Colombian peso",
-    symbol: "COL$",
+    symbol: "COP",
     candidateAsset: candidateAsset("wCOP", "Ripio", "Additional verification"),
   },
   EUR: {
@@ -205,7 +205,7 @@ const currencyPresentations = {
   MXN: {
     code: "MXN",
     name: "Mexican peso",
-    symbol: "MX$",
+    symbol: "MXN",
     candidateAsset: candidateAsset("MXNB", "Juno / Bitso", "Verification pending"),
   },
   MYR: {
@@ -223,7 +223,7 @@ const currencyPresentations = {
   NZD: {
     code: "NZD",
     name: "New Zealand dollar",
-    symbol: "NZ$",
+    symbol: "NZD",
     candidateAsset: candidateAsset("NZDD", "NZDD", "Verification pending"),
   },
   PEN: {
@@ -235,7 +235,7 @@ const currencyPresentations = {
   SGD: {
     code: "SGD",
     name: "Singapore dollar",
-    symbol: "S$",
+    symbol: "SGD",
     candidateAsset: candidateAsset("XSGD", "StraitsX", "Verification pending"),
   },
   TRY: {

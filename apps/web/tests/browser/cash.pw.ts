@@ -384,7 +384,7 @@ for (const width of [390, 1280]) {
     await page.getByRole("button", { name: "Close conversion" }).click();
     await currencies.getByRole("button", { name: /^Argentine peso/ }).click();
     const detail = page.getByRole("dialog", { name: "Argentine peso" });
-    await expect(detail).toContainText("$123.45");
+    await expect(detail).toContainText("ARS 123.45");
     await expect(detail).not.toContainText(CASH_CONVERSION_UNAVAILABLE_REASON);
     await expect(detail.getByRole("button", { name: "Convert" })).toBeEnabled();
   });

@@ -98,10 +98,22 @@ describe("parsePastedAmount", () => {
     }
   });
 
-  test("strips currency symbols, whitespace and apostrophe grouping", () => {
+  test("strips one currency affix, whitespace and apostrophe grouping", () => {
     for (const [text, locale, value] of [
       ["$1,234.56", ".", "1234.56"],
       ["$12.50", ".", "12.50"],
+      ["ARS 123.45", ".", "123.45"],
+      ["COP 1,234.56", ".", "1234.56"],
+      ["US$ 234,00", ",", "234.00"],
+      ["R$ 23,45", ",", "23.45"],
+      ["Rp 1.900.000", ",", "1900000"],
+      ["1.234,50 USD", ",", "1234.50"],
+      ["ARS\u00a0123.45", ".", "123.45"],
+      ["CA$123.45", ".", "123.45"],
+      ["123.45CA$", ".", "123.45"],
+      ["123,45\u00a0US$", ",", "123.45"],
+      ["USD123.45", ".", "123.45"],
+      ["123.45USD", ".", "123.45"],
       ["12,50 €", ",", "12.50"],
       ["€ 3", ".", "3"],
       ["1 234,56 €", ",", "1234.56"],
@@ -117,8 +129,13 @@ describe("parsePastedAmount", () => {
     }
   });
 
-  test("rejects embedded or multiple currency symbols", () => {
-    for (const text of ["1$000", "12€34", "$1$2", "$1€", "€ 3 $"]) {
+  test("rejects embedded or multiple currency affixes", () => {
+    for (const text of [
+      "1$000", "12€34", "$1$2", "$1€", "€ 3 $",
+      "ARS 1 USD", "AB$C 1", "USD $1", "$1 USD", "1 CAD 2",
+      "A 1", "ABCD$ 1", "1 ABCD$",
+      "12ab", "12\u0430b", "12NaN", "1ee", "ab 12", "12 usd",
+    ]) {
       expect(parsePastedAmount(text, ".")).toEqual({ ok: false });
       expect(parsePastedAmount(text, ",")).toEqual({ ok: false });
     }
@@ -138,7 +155,7 @@ describe("parsePastedAmount", () => {
   });
 
   test("rejects unrecognized text and signs", () => {
-    for (const text of ["1e5", "-3", "+3", "12 USDC", "abc", "1E5", "1/2", "١٢"]) {
+    for (const text of ["1e5", "-3", "+3", "12 USDC", "abc", "1E5", "1/2", "١٢", "ARS", "Rp", "US$"]) {
       expect(parsePastedAmount(text, ".")).toEqual({ ok: false });
       expect(parsePastedAmount(text, ",")).toEqual({ ok: false });
     }
