@@ -79,8 +79,8 @@ export const SendOffPausedReviewBack: Story = {
     const dialog = await openedDialog(canvasElement, "Confirm");
     await waitForReady(() => expect(within(dialog).getByRole("button", { name: "Send $1.00" })).toBeVisible());
     await userEvent.click(within(dialog).getAllByRole("button", { name: "Back" })[0]);
-    await waitForReady(() => expect(within(dialog).getByRole("textbox", { name: "Amount" })).toBeVisible());
-    await expect(within(dialog).queryByRole("button", { name: "Send $1.00" })).toBeNull();
+    await waitForReady(() => expect(storyScreen(canvasElement).queryByRole("dialog")).toBeNull());
+    await expect(storyScreen(canvasElement).queryByRole("textbox", { name: "Amount" })).toBeNull();
   },
 };
 
