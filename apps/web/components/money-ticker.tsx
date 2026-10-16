@@ -11,7 +11,10 @@ import {
   type ReactNode,
 } from "react";
 
+import { groupedIntegerBreakpoints } from "@/shared/formatting";
+
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const MoneyWrapContext = createContext(false);
 const MoneyMotionContext = createContext<boolean | undefined>(undefined);
 const staticDigitStyle = {
   "--money-ticker-digit-padding": "calc(round(nearest, 0.125em, 1px) * 2)",
@@ -102,6 +105,10 @@ export function MoneyMotionProvider({
   );
 }
 
+export function MoneyWrapProvider({ children }: { children?: ReactNode }) {
+  return <MoneyWrapContext.Provider value>{children}</MoneyWrapContext.Provider>;
+}
+
 export function MoneyTicker({
   value,
   animated = true,
@@ -112,6 +119,7 @@ export function MoneyTicker({
   style,
   ...props
 }: MoneyTickerProps) {
+  const wrap = useContext(MoneyWrapContext);
   const reducedMotion = useReducedMotion();
   const [firstValue] = useState(value);
   const [hasChanged, setHasChanged] = useState(false);
@@ -120,10 +128,22 @@ export function MoneyTicker({
   const staticDigits = staticUntilChange && (!hasChanged || !animationsEnabled);
   const parts = splitMoneyTickerValue(value);
   const characters = Array.from(parts.numeric);
+  const starts = wrap ? [0, ...groupedIntegerBreakpoints(parts.numeric)] : [0];
+  const unwrappedUnit = { characters, prefix: parts.prefix, suffix: parts.suffix, key: "unit-0" };
+  const units = wrap ? starts.map((start, index) => ({
+    characters: characters.slice(start, starts[index + 1] ?? characters.length),
+    prefix: index === 0 ? parts.prefix : "",
+    suffix: "",
+    key: `unit-${starts.length - index}`,
+  })) : [unwrappedUnit];
+  const separatedSuffix = wrap && parts.suffix.startsWith(" ");
+  if (wrap && parts.suffix) {
+    units.push({ characters: [], prefix: "", suffix: parts.suffix, key: "unit-suffix" });
+  }
   const digitCount = characters.filter(isAsciiDigit).length;
   const characterCount = Array.from(value).length;
   const [reservedCharacters, setReservedCharacters] = useState(characterCount);
-  const reservesWidth = align === "end" && reserveDigits;
+  const reservesWidth = align === "end" && reserveDigits && !wrap;
 
   if (reservesWidth && characterCount > reservedCharacters) {
     setReservedCharacters(characterCount);
@@ -135,41 +155,13 @@ export function MoneyTicker({
     minInlineSize: reservesWidth ? `${reservedCharacters}ch` : undefined,
   } satisfies CSSProperties;
 
-  return (
-    <span
-      {...props}
-      className={[
-        "relative inline-flex w-fit max-w-full whitespace-nowrap tabular-nums text-inherit",
-        align === "start" ? "justify-start" : "justify-end",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      style={tickerStyle}
-      role="img"
-      aria-label={props["aria-label"] ?? value}
-      data-slot="money-ticker"
-      data-animated={animationsEnabled ? "true" : "false"}
-      data-static-digits={staticUntilChange ? String(staticDigits) : undefined}
-      data-align={align}
-      data-reserve-digits={reservesWidth ? "true" : "false"}
-      data-reserved-digits={digitCount}
-    >
-      <span
-        className="pointer-events-none absolute inset-0 overflow-hidden opacity-0"
-        aria-hidden="true"
-      >
-        {value}
-      </span>
-      <span
-        className="inline-flex items-baseline"
-        aria-hidden="true"
-        data-slot="money-ticker-track"
-      >
-        {parts.prefix ? (
-          <span className="whitespace-pre">{parts.prefix}</span>
+  function renderUnit(unit: (typeof units)[number]) {
+    return (
+      <>
+        {unit.prefix ? (
+          <span className={wrap ? "whitespace-pre-line wrap-anywhere" : "whitespace-pre"}>{unit.prefix}</span>
         ) : null}
-        {characters.map((character, index) => {
+        {unit.characters.map((character, index) => {
           if (!isAsciiDigit(character)) {
             return (
               // oxlint-disable-next-line react/no-array-index-key -- Character position is the identity for ticker animation.
@@ -205,9 +197,52 @@ export function MoneyTicker({
             />
           );
         })}
-        {parts.suffix ? (
-          <span className="whitespace-pre">{parts.suffix}</span>
+        {unit.suffix ? (
+          <span className={wrap ? "whitespace-pre-line wrap-anywhere" : "whitespace-pre"}>{unit.suffix}</span>
         ) : null}
+      </>
+    );
+  }
+
+  return (
+    <span
+      {...props}
+      className={[
+        "relative inline-flex w-fit max-w-full tabular-nums text-inherit",
+        !wrap && "whitespace-nowrap",
+        align === "start" ? "justify-start" : "justify-end",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={tickerStyle}
+      role="img"
+      aria-label={props["aria-label"] ?? value}
+      data-slot="money-ticker"
+      data-animated={animationsEnabled ? "true" : "false"}
+      data-static-digits={staticUntilChange ? String(staticDigits) : undefined}
+      data-align={align}
+      data-reserve-digits={reservesWidth ? "true" : "false"}
+      data-reserved-digits={digitCount}
+    >
+      <span
+        className="pointer-events-none absolute inset-0 overflow-hidden opacity-0"
+        aria-hidden="true"
+      >
+        {value}
+      </span>
+      <span
+        className={wrap
+          ? ["flex min-w-0 flex-wrap items-baseline", align === "start" ? "justify-start" : "justify-end"].join(" ")
+          : "inline-flex items-baseline"}
+        aria-hidden="true"
+        data-slot="money-ticker-track"
+      >
+        {wrap ? units.map((unit, index) => (
+          <span className={["inline-flex min-w-0 flex-wrap items-baseline whitespace-nowrap", separatedSuffix && index === units.length - 2 && "pe-0.5"].filter(Boolean).join(" ")} key={unit.key}>
+            {renderUnit(unit)}
+          </span>
+        )) : renderUnit(unwrappedUnit)}
       </span>
     </span>
   );

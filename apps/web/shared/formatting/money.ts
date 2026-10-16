@@ -5,6 +5,20 @@ import {
   type RegionId,
 } from "@/config/regions";
 
+const groupedIntegerPattern = /(?<!\d)(?!0\D)\d{1,3}([,.'\u2019\u00a0\u202f\u2009])\d{3}(?:\1\d{3})*(?!\d)/g;
+
+export function groupedIntegerBreakpoints(value: string): number[] {
+  const boundaries: number[] = [];
+  for (const match of value.matchAll(groupedIntegerPattern)) {
+    let end = match.index;
+    for (const group of match[0].split(match[1] ?? "").slice(0, -1)) {
+      end += group.length + 1;
+      boundaries.push(end);
+    }
+  }
+  return boundaries;
+}
+
 const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i;
 function isStringNumericLiteral(value: string): value is Intl.StringNumericLiteral {

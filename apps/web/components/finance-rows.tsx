@@ -1,6 +1,8 @@
-import { useId, type HTMLAttributes, type ReactNode } from "react";
+import { Fragment, useId, type HTMLAttributes, type ReactNode } from "react";
 import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronDown, ChevronRight, RotateCw } from "lucide-react";
+import { MoneyWrapProvider } from "@/components/money-ticker";
 import { StatusMark } from "@/components/ui/status-texture";
+import { groupedIntegerBreakpoints } from "@/shared/formatting";
 import { Button } from "@/components/ui/button";
 import {
   Item,
@@ -145,11 +147,11 @@ function FinanceRow({
         <ItemTitle
           className={labelSuffix === undefined ? "w-full min-w-0 justify-end text-end" : "order-2 -mb-0.5 ms-auto max-w-full shrink-0 justify-end text-end"}
           numeric={!isStatus}
-          truncate={isStatus ? "status" : "wrap"}
+          truncate={isStatus ? "status" : "amount"}
           tone={valueTitleTone[valueTone]}
           data-value-tone={valueTone}
         >
-          {value}
+          {isStatus ? value : typeof value === "string" ? breakAtGroupSeparators(value) : <MoneyWrapProvider>{value}</MoneyWrapProvider>}
         </ItemTitle>
       )}
       {valueContext === undefined ? null : (
@@ -277,6 +279,17 @@ function FinanceRow({
       ) : null}
     </li>
   );
+}
+
+function breakAtGroupSeparators(value: string): ReactNode {
+  const boundaries = groupedIntegerBreakpoints(value);
+  if (boundaries.length === 0) return value;
+  return [
+    value.slice(0, boundaries[0]),
+    ...boundaries.map((start, index) => (
+      <Fragment key={start}><wbr />{value.slice(start, boundaries[index + 1])}</Fragment>
+    )),
+  ];
 }
 
 function DirectionIcon({ value }: { value: string }) {
