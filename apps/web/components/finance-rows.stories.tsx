@@ -4,6 +4,7 @@ import { ArrowDown, HandCoins, PiggyBank } from "lucide-react";
 import { expect, userEvent, within } from "storybook/test";
 import { CurrencyMark, CurrencyMarkStack, GlyphMark } from "./currency-mark";
 import { ActivityRow, BalanceRow } from "./finance-rows";
+import { MoneyTicker } from "./money-ticker";
 
 function textEdge(element: HTMLElement, edge: "left" | "right") {
   const range = document.createRange();
@@ -16,6 +17,33 @@ async function expectAligned(left: HTMLElement, right: HTMLElement, edge: "left"
   const drift = Math.abs(left.getBoundingClientRect()[edge] - right.getBoundingClientRect()[edge]);
   await expect(drift).toBeLessThanOrEqual(1);
   await expect(Math.abs(textEdge(left, edge) - textEdge(right, edge))).toBeLessThanOrEqual(1);
+}
+
+function characterTops(element: HTMLElement) {
+  const range = document.createRange();
+  const characters: { character: string; top: number; left: number; right: number }[] = [];
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!(node instanceof Text)) continue;
+    const text = node;
+    for (let index = 0; index < text.length; index += 1) {
+      range.setStart(text, index);
+      range.setEnd(text, index + 1);
+      const box = range.getClientRects()[0];
+      if (box) characters.push({ character: text.data.charAt(index), top: Math.round(box.top), left: box.left, right: box.right });
+    }
+  }
+  return characters;
+}
+
+async function expectNoDigitSplit(element: HTMLElement) {
+  const characters = characterTops(element);
+  for (const [index, current] of characters.entries()) {
+    const next = characters[index + 1];
+    if (next && /\d/.test(current.character) && /\d/.test(next.character)) {
+      await expect(next.top).toBe(current.top);
+    }
+  }
 }
 
 function FinanceRowStory({ row }: { row: "activity" | "attention" | "working" | "balance" | "borrow" | "nux" }) {
@@ -178,7 +206,7 @@ export const NuxWithoutValue: Story = {
 function LongValueRows() {
   return (
     <div className="flex flex-col gap-4">
-      {[390, 320].map((width) => (
+      {[390, 320, 280].map((width) => (
         <ul key={width} className="max-w-full list-none p-0" style={{ width }} data-row-width={width}>
           <BalanceRow
             icon={<PiggyBank className="size-4" />}
@@ -189,6 +217,24 @@ function LongValueRows() {
             onActivate={() => {}}
             activateLabel="View Staked ETH"
           />
+          <BalanceRow
+            icon={<HandCoins className="size-4" />}
+            label="Borrow Cash"
+            context="Healthy"
+            value={<MoneyTicker value="$12,345,678.90" animated={false} />}
+            valueContext="5.01% APR"
+            onActivate={() => {}}
+            activateLabel="View Borrow Cash"
+          />
+          <BalanceRow
+            icon={<ArrowDown className="size-4" />}
+            label="Sent cbBTC"
+            context="Pending"
+            value={<MoneyTicker value="−0.000001 cbBTC" animated={false} />}
+            valueContext="5.01% APR"
+            onActivate={() => {}}
+            activateLabel="View Sent cbBTC"
+          />
         </ul>
       ))}
     </div>
@@ -196,7 +242,7 @@ function LongValueRows() {
 }
 
 async function expectLongValuesVisible(canvasElement: HTMLElement, wrapped: boolean) {
-  for (const width of [390, 320]) {
+  for (const width of [390, 320, 280]) {
     const list = canvasElement.querySelector<HTMLElement>(`[data-row-width="${width}"]`);
     if (!list) throw new Error(`Missing ${width}px finance row`);
     const canvas = within(list);
@@ -218,6 +264,7 @@ async function expectLongValuesVisible(canvasElement: HTMLElement, wrapped: bool
     await expect(list.getBoundingClientRect().width).toBe(width);
     await expect(labelBox.width).toBeGreaterThanOrEqual(40);
     await expect(value.scrollWidth).toBeLessThanOrEqual(value.clientWidth + 1);
+    if (width >= 320) await expectNoDigitSplit(value);
     await expect(textBox.left).toBeGreaterThanOrEqual(valueBox.left - 1);
     await expect(textBox.right).toBeLessThanOrEqual(valueBox.right + 1);
     await expect(textBox.bottom).toBeLessThanOrEqual(valueBox.bottom + 1);
@@ -229,8 +276,38 @@ async function expectLongValuesVisible(canvasElement: HTMLElement, wrapped: bool
     } else if (width === 390) {
       await expect(Math.abs(labelBox.top - valueBox.top)).toBeLessThanOrEqual(1);
     }
-    await expect(canvas.getByText("5.01% APR")).toBeVisible();
+    await expect(within(row).getByText("5.01% APR")).toBeVisible();
     await expect(row.querySelector("[data-slot=item-actions]")).not.toBeNull();
+    for (const tickerLabel of ["Borrow Cash", "Sent cbBTC"]) {
+      const tickerRow = canvas.getByText(tickerLabel).closest("[data-slot=item]");
+      const tickerColumn = tickerRow?.querySelector<HTMLElement>("[data-slot=finance-row-value]");
+      const track = tickerColumn?.querySelector<HTMLElement>("[data-slot=money-ticker-track]");
+      if (!tickerColumn || !track) throw new Error("Missing ticker finance row layout");
+      const tickerColumnBox = tickerColumn.getBoundingClientRect();
+      const description = `${width}px ${tickerLabel} at ${wrapped ? "200%" : "normal"} text`;
+      const characters = characterTops(track);
+      for (const character of characters) {
+        if (/\s/.test(character.character)) continue;
+        await expect(character.left, `${description}: ${character.character} start edge (column ${tickerColumnBox.left}–${tickerColumnBox.right}, character ${character.left}–${character.right})`)
+          .toBeGreaterThanOrEqual(tickerColumnBox.left - 1);
+        await expect(character.right, `${description}: ${character.character} end edge (column ${tickerColumnBox.left}–${tickerColumnBox.right}, character ${character.left}–${character.right})`)
+          .toBeLessThanOrEqual(tickerColumnBox.right + 1);
+      }
+      const amountEnd = characters.filter(({ character }) => /\d/.test(character)).at(-1);
+      const symbolStart = characters.find(({ character }) => /[A-Za-z]/.test(character));
+      if (amountEnd && symbolStart && amountEnd.top === symbolStart.top) {
+        await expect(Math.max(amountEnd.left, symbolStart.left) - Math.min(amountEnd.right, symbolStart.right), `${description}: number to symbol gap`)
+          .toBeGreaterThanOrEqual(1);
+      }
+      await expect(tickerColumn.scrollWidth, `${description} ticker column overflow`)
+        .toBeLessThanOrEqual(tickerColumn.clientWidth + 1);
+      if (tickerLabel === "Borrow Cash") {
+        if (width >= 320) await expectNoDigitSplit(track);
+        if (wrapped && width === 320) {
+          await expect(new Set(characterTops(track).map(({ top }) => top)).size).toBeGreaterThan(1);
+        }
+      }
+    }
   }
 }
 
@@ -292,6 +369,27 @@ function StatusValueRows() {
             valueTone="muted"
             valueKind="status"
             valueContext="$12.34"
+          />
+          <BalanceRow
+            icon={<CurrencyMark size="sm" currency="CA" symbol="CAD" />}
+            iconTone="mark"
+            label="Canadian dollar"
+            context="CAD"
+            value="12.345.678,9000 CBETH"
+          />
+          <BalanceRow
+            icon={<CurrencyMark size="sm" currency="CA" symbol="CAD" />}
+            iconTone="mark"
+            label="Canadian dollar"
+            context="CAD"
+            value="12,345 TOKEN"
+          />
+          <BalanceRow
+            icon={<CurrencyMark size="sm" currency="CA" symbol="CAD" />}
+            iconTone="mark"
+            label="Canadian dollar"
+            context="CAD"
+            value="12’345’678.9000 CBETH"
           />
         </ul>
       ))}
@@ -367,6 +465,13 @@ async function expectStatusValuesVisible(canvasElement: HTMLElement, enlarged: b
     const amount = within(amountRow).getByText("12,345,678.90 USDC");
     await expect(amount.scrollWidth).toBeLessThanOrEqual(amount.clientWidth + 1);
     await expect(amount.scrollHeight).toBeLessThanOrEqual(amount.clientHeight + 1);
+    await expect(amount.textContent).toBe("12,345,678.90 USDC");
+    await expectNoDigitSplit(amount);
+    for (const [index, grouped] of ["12.345.678,9000 CBETH", "12,345 TOKEN", "12’345’678.9000 CBETH"].entries()) {
+      const groupedAmountRow = rows[4 + index];
+      if (!groupedAmountRow) throw new Error("Missing grouped amount row");
+      await expectNoDigitSplit(within(groupedAmountRow).getByText(grouped));
+    }
     const statusContextRow = rows[3];
     if (!statusContextRow) throw new Error("Missing status context row");
     const status = within(statusContextRow).getByText("Unavailable", { exact: true });

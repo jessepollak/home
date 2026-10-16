@@ -26,6 +26,7 @@ export {
   formatUsdStablecoinAmount,
   formatWadFeePercent,
   formatWadPercent,
+  groupedIntegerBreakpoints,
   joinAmountAndSymbol,
   moneyChangeTone,
   presentationCurrencyMetadata,
