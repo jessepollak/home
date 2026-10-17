@@ -118,6 +118,18 @@ test("grandfathering can shrink but cannot admit a new path against the base", (
   assert.deepEqual(f.check().findings, []);
 });
 
+test("a grandfathered test file cannot gain new test cases against the merge base", (t) => {
+  const f = fixture(t);
+  f.write(`apps/web/${residue}`, "import { test } from 'bun:test';\ntest('new navigation test', () => {});\n");
+  const result = f.check();
+  assert.match(result.findings.join("\n"), /client\/query\/cache.test.ts: gained 1 new test case\(s\) \("new navigation test"\); grandfathered files cannot gain new test cases; use story coverage or move to a protected category in docs\/architecture.md#test-policy/);
+});
+
+test("an unchanged grandfathered test file passes the gate", (t) => {
+  const f = fixture(t);
+  assert.deepEqual(f.check().findings, []);
+});
+
 for (const mutation of [
   (value) => { delete value.categories.auth; },
   (value) => { value.categories.auth = ""; },
