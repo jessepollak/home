@@ -152,6 +152,13 @@ export function evaluateStyleDriftBudget({ files, budget, reference = null }) {
   return { increases: increases.sort(), stale: stale.sort(), invalid: invalid.sort(), raises: raises.sort() };
 }
 
+export function initialBudget(files, rebuild) {
+  const counted = rebuild
+    ? Object.fromEntries(files.map(({ path: file, content }) => [file, countStyleDrift(file, content)]).filter(([, counts]) => Object.keys(counts).length))
+    : {};
+  return { families: styleDriftFamilies, scopes: [primitiveStyleScope], files: counted };
+}
+
 export function shrinkBudget({ files, budget }) {
   const { scanned, base } = entries(files, budget);
   const result = {};
@@ -174,8 +181,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   } else {
     try {
       const files = repositoryFiles();
-      const budget = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8"))
-        : shrink ? { families: styleDriftFamilies, files: Object.fromEntries(files.map(({ path: file, content }) => [file, countStyleDrift(file, content)]).filter(([, counts]) => Object.keys(counts).length)) } : { families: styleDriftFamilies, files: {} };
+      const budget = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : initialBudget(files, shrink);
       let reference = null;
       const baseFindings = [];
       try {

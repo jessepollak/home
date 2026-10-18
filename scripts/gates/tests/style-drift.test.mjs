@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { classifyStyleUtility } from "../../../apps/web/oxlint/policy/style-drift.mjs";
-import { BASELINE_PATH, countStyleDrift, evaluateStyleDriftBudget, isStyleDriftSource, readBaseBudget, repositoryFiles, shrinkBudget } from "../style-drift.mjs";
+import { BASELINE_PATH, countStyleDrift, evaluateStyleDriftBudget, initialBudget, isStyleDriftSource, readBaseBudget, repositoryFiles, shrinkBudget } from "../style-drift.mjs";
 
 const budget = JSON.parse(readFileSync(new URL("../../../apps/web/oxlint/policy/style-drift-baseline.json", import.meta.url), "utf8"));
 const families = ["shadow", "duration", "ease", "radius", "status-color", "status-motion", "status-mark"];
@@ -275,4 +275,15 @@ test("primitive baselines are status-only, need the scope marker, and may be ini
     `${file}: text-destructive baseline 1 > 0; the checked-in baseline may only shrink: merge or rebase the base branch if it lowered this count, or revert the raise`,
   ]);
   assert.deepEqual(shrinkBudget({ files: [], budget: withScope }), { families, scopes, files: {} });
+});
+
+test("a missing baseline initializes scopes so a rebuild or check is valid", () => {
+  const files = [{ path: "components/new.tsx", content: 'export const a = "rounded-[13px]";' }];
+  for (const rebuild of [true, false]) {
+    const budget = initialBudget(files, rebuild);
+    assert.deepEqual(evaluateStyleDriftBudget({ files, budget }).invalid, []);
+  }
+  const rebuilt = initialBudget(files, true);
+  assert.deepEqual(shrinkBudget({ files, budget: rebuilt }), rebuilt);
+  assert.deepEqual(initialBudget(files, false).files, {});
 });
