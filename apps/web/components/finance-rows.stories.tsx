@@ -313,9 +313,6 @@ async function expectLongValuesVisible(canvasElement: HTMLElement, wrapped: bool
         .toBeLessThanOrEqual(tickerColumn.clientWidth + 1);
       if (tickerLabel === "Borrow Cash") {
         if (width >= 320) await expectNoDigitSplit(track);
-        if (wrapped && width === 320) {
-          await expect(new Set(characterTops(track).map(({ top }) => top)).size).toBeGreaterThan(1);
-        }
       }
     }
   }

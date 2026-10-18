@@ -500,3 +500,50 @@ test("Cash Convert keeps the last currency reachable above a simulated mobile ke
     });
   }
 });
+
+for (const { width, textZoom } of [{ width: 320, textZoom: 100 }, { width: 390, textZoom: 200 }]) {
+  test(`Cash currency rows keep names and amounts unclipped at ${width}px and ${textZoom}% text`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await seedSignedInSession(page);
+    await installApiFixtures(page, { balances: buildBalancesSnapshotFixture({ registry: {
+      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
+      [requiredLocalCashAsset("EUR").id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+      [requiredLocalCashAsset("IDR").id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000") },
+      [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
+      [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
+      [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
+    } }) });
+    await page.goto("/home");
+    await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
+    const currencies = page.getByRole("region", { name: "Currencies" });
+    await expect(currencies.getByRole("listitem")).toHaveCount(6);
+    await page.evaluate((zoom) => { document.documentElement.style.fontSize = `${zoom}%`; }, textZoom);
+    for (const name of ["Argentine peso", "Colombian peso"]) await expect(currencies.getByText(name, { exact: true })).toBeVisible();
+    for (const amount of ["ARS 123.45", "Rp 1,900,000.00"]) {
+      const ticker = currencies.getByRole("img", { name: amount }).first();
+      await expect(ticker).toBeVisible();
+      const lines = await ticker.evaluate((element) => element.getBoundingClientRect().height / Number.parseFloat(getComputedStyle(element).fontSize));
+      expect(lines).toBeLessThan(2);
+    }
+    await expect.poll(() => currencies.getByRole("listitem").evaluateAll((items) => items.flatMap((item) => {
+      const clipped: string[] = [];
+      const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node.textContent?.trim();
+        const element = node.parentElement;
+        if (!text || !element || element.closest(".sr-only") || getComputedStyle(element).opacity === "0") continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rect = range.getBoundingClientRect();
+        for (let ancestor: HTMLElement | null = element; ancestor && ancestor !== item.parentElement; ancestor = ancestor.parentElement) {
+          const style = getComputedStyle(ancestor);
+          if (style.overflowX === "visible" || style.position === "absolute") continue;
+          const box = ancestor.getBoundingClientRect();
+          const ellipsized = style.textOverflow === "ellipsis" && ancestor.scrollWidth > ancestor.clientWidth;
+          if (rect.left < box.left - 0.5 || rect.right > box.right + 0.5 || ellipsized) clipped.push(text);
+        }
+      }
+      return clipped;
+    }))).toEqual([]);
+  });
+}

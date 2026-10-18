@@ -150,7 +150,7 @@ const itemTitleVariants = cva(
         wrap: "whitespace-normal wrap-anywhere",
         amount: "block whitespace-normal wrap-break-word",
         status: "block whitespace-normal wrap-break-word text-pretty @max-[14rem]/finance-row:hyphens-auto",
-        stacked: "block truncate @max-[14rem]/finance-row:whitespace-normal @max-[14rem]/finance-row:wrap-break-word @max-[14rem]/finance-row:hyphens-auto",
+        stacked: "block truncate @max-[20rem]/finance-row:whitespace-normal @max-[20rem]/finance-row:wrap-break-word @max-[14rem]/finance-row:hyphens-auto",
       },
     },
     defaultVariants: {

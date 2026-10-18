@@ -184,7 +184,7 @@ function FinanceRow({
           {typeof icon === "string" ? <DirectionIcon value={icon} /> : icon}
         </span>
       </ItemMedia>
-      <div className={cn("flex min-w-0 flex-1 items-start", labelSuffix === undefined ? cn("@max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", kind === "activity" ? "gap-1" : "gap-3", contextLines === 2 && "flex-wrap gap-y-1") : "flex-wrap gap-x-2 gap-y-0 @max-[14rem]/finance-row:order-3 @max-[14rem]/finance-row:basis-full")} data-slot="finance-row-body">
+      <div className={cn("flex min-w-0 flex-1 items-start", labelSuffix === undefined ? cn("@max-[14rem]/finance-row:order-3 @max-[14rem]/finance-row:basis-full @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", kind === "activity" ? "gap-1" : "gap-3", contextLines === 2 && "flex-wrap gap-y-1") : "flex-wrap gap-x-2 gap-y-0 @max-[14rem]/finance-row:order-3 @max-[14rem]/finance-row:basis-full")} data-slot="finance-row-body">
         {labelSuffix === undefined ? (
           <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", isStatus && "flex-[0_1_auto]", contextLines === 2 && !isStatus && "min-w-min", reservesEmptyContext && "min-h-[calc(2.875em+0.125rem)] justify-center", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
             {labelAndContext}
@@ -203,7 +203,7 @@ function FinanceRow({
         ) : <div className="contents" data-slot="finance-row-value">{valuePieces}</div> : null}
       </div>
       {action ? (
-        <ItemActions className={cn("shrink-0", labelSuffix !== undefined && "@max-[14rem]/finance-row:order-2 @max-[14rem]/finance-row:ms-auto")}>
+        <ItemActions className="shrink-0 @max-[14rem]/finance-row:order-2 @max-[14rem]/finance-row:ms-auto">
           <Button
             type="button"
             variant="secondary"
@@ -219,7 +219,7 @@ function FinanceRow({
           </Button>
         </ItemActions>
       ) : readRetry || attention || working || (activation && (chevron || disclosure)) ? (
-        <ItemActions aria-hidden="true" className={labelSuffix !== undefined ? "@max-[14rem]/finance-row:order-2 @max-[14rem]/finance-row:ms-auto" : undefined}>
+        <ItemActions aria-hidden="true" className="@max-[14rem]/finance-row:order-2 @max-[14rem]/finance-row:ms-auto">
           {readRetry
             ? <span className="size-4" />
             : attention
@@ -238,7 +238,7 @@ function FinanceRow({
     <li {...liProps} className={cn("@container/finance-row", readRetry && "relative", liProps?.className)}>
       <Item
         data-kind={kind}
-        className={cn("flex-nowrap items-center gap-3 py-2", labelSuffix !== undefined && "@max-[14rem]/finance-row:flex-wrap", activation && "h-auto cursor-pointer")}
+        className={cn("flex-nowrap items-center gap-3 py-2 @max-[14rem]/finance-row:flex-wrap", activation && "h-auto cursor-pointer")}
         {...(activation
           ? {
               render: (
@@ -270,7 +270,7 @@ function FinanceRow({
           type="button"
           variant="ghost"
           size="icon-lg"
-          className="absolute -inset-e-0.5 top-1/2 z-10 size-11 -translate-y-1/2"
+          className="absolute -inset-e-0.5 top-1/2 z-10 size-11 -translate-y-1/2 @max-[14rem]/finance-row:top-0.5 @max-[14rem]/finance-row:translate-y-0"
           aria-label={readRetry.label}
           onClick={readRetry.onRetry}
         >
