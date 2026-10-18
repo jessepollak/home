@@ -217,7 +217,7 @@ export const ArgentinePesoDetail: Story = { play: async ({ canvasElement }) => {
   const row = within(within(canvasElement).getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^Argentine peso/ });
   await userEvent.click(row);
   const detail = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Argentine peso" }));
-  await waitForReady(() => expect(detail.getByRole("img", { name: "$123.45" })).toBeVisible());
+  await waitForReady(() => expect(detail.getByRole("img", { name: "ARS\u00a0123.45" })).toBeVisible());
   await expect(detail.queryByText(CASH_CONVERSION_UNAVAILABLE_REASON)).toBeNull();
   await waitForReady(() => expect(detail.getByRole("button", { name: "Convert" })).toBeEnabled());
 } };

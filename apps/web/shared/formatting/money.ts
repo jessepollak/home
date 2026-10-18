@@ -36,6 +36,7 @@ const numberFormatCache = new Map<string, Intl.NumberFormat>();
 const numberFormatCacheLimit = 256;
 const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
 const dateTimeFormatCacheLimit = 256;
+type CurrencyDisplay = "narrowSymbol" | "code";
 
 function cachedNumberFormat(
   locale: string,
@@ -1095,18 +1096,33 @@ function formatCurrencyDecimal(
   regionId: RegionId,
 ): string {
   const localizedAmount = localizeCanonicalDecimal(amount, regionId);
-  let parts: Intl.NumberFormatPart[];
   try {
-    parts = cachedNumberFormat(presentationLocale(regionId), {
-      style: "currency",
-      currency,
-      currencyDisplay: "narrowSymbol",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).formatToParts(BigInt(0));
+    const { prefix, suffix } = currencyAffixes(
+      presentationLocale(regionId), currency, resolvedCurrencyDisplay(currency, regionId),
+    );
+    return joinCurrencySuffix(joinCurrencyPrefix(prefix, localizedAmount), suffix);
   } catch {
     return joinAmountAndSymbol(localizedAmount, currency.trim().toUpperCase(), true);
   }
+}
+
+function resolvedCurrencyDisplay(currency: string, regionId: RegionId): CurrencyDisplay {
+  if (currency === "USD") return "narrowSymbol";
+  const { prefix, suffix } = currencyAffixes(presentationLocale(regionId), currency, "narrowSymbol");
+  return collapseSpaces(`${prefix}${suffix}`, "") === "$" ? "code" : "narrowSymbol";
+}
+
+function currencyAffixes(locale: string, currency: string, currencyDisplay: CurrencyDisplay): {
+  prefix: string;
+  suffix: string;
+} {
+  const parts = cachedNumberFormat(locale, {
+    style: "currency",
+    currency,
+    currencyDisplay,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).formatToParts(BigInt(0));
   const numericTypes = new Set<Intl.NumberFormatPartTypes>([
     "integer", "group", "decimal", "fraction",
   ]);
@@ -1117,7 +1133,7 @@ function formatCurrencyDecimal(
   }
   const prefix = parts.slice(0, firstNumeric).map((part) => part.value).join("");
   const suffix = parts.slice(lastNumeric + 1).map((part) => part.value).join("");
-  return joinCurrencySuffix(joinCurrencyPrefix(prefix, localizedAmount), suffix);
+  return { prefix, suffix };
 }
 
 function formatCompactPrice(
