@@ -3,6 +3,7 @@ import "server-only";
 import { isRecord, isStringEnum } from "../response-guards";
 import type { CardJourneyConfig } from "./journey-config";
 import { readProviderJson } from "../read-provider-json";
+import { composeDeadline } from "@/server/http/deadline";
 
 export type BridgeCustomer = Readonly<{
   id: string;
@@ -52,7 +53,7 @@ export function createBridgeClient(config: CardJourneyConfig, fetcher: typeof fe
   async function request(path: string, init?: { body: string; key: string }, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
     const response = await fetcher(`${config.bridgeOrigin}${path}`, {
-      method: init ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000),
+      method: init ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: composeDeadline(signal, 5000),
       headers: { "Api-Key": config.bridgeApiKey, ...(init ? { "Content-Type": "application/json", "Idempotency-Key": init.key } : {}) },
       ...(init ? { body: init.body } : {}),
     });

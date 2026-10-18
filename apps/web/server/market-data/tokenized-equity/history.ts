@@ -4,6 +4,7 @@ import { BASE_CHAIN_ID, stockAssets } from "@/config/invest-assets";
 import { createBoundedCache } from "@/server/cache/bounded";
 import { createBaseRpcClient, parseRpcQuantity } from "@/server/chain/rpc";
 import { MARKET_HISTORY_WINDOWS } from "@/server/market-data/codex/history";
+import { composeDeadline, composeSignals } from "@/server/http/deadline";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import {
   expectedMarketPriceHistorySource,
@@ -118,7 +119,7 @@ async function fill(feed: TokenizedEquityFeed, range: MarketPriceRange, deps: {
 }): Promise<MarketPriceHistoryResponse> {
   const start = deps.now();
   const controller = new AbortController();
-  const signal = AbortSignal.any([controller.signal, deps.deadline(), AbortSignal.timeout(10_000)]);
+  const signal = composeDeadline(composeSignals([controller.signal, deps.deadline()]), 10_000);
   let outcome: FillStats["outcome"] = "complete";
   let methods = 0;
   let inFlight = 0;

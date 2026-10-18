@@ -3,6 +3,7 @@ import "server-only";
 import { isRecord as record, isStringEnum, matchesId } from "../response-guards";
 import type { CardJourneyConfig } from "../bridge/journey-config";
 import { readProviderJson } from "../read-provider-json";
+import { composeDeadline } from "@/server/http/deadline";
 import type { CardPurchase } from "@/shared/cards/transactions-contract";
 import type { ProgramPurchase } from "../program";
 
@@ -11,7 +12,7 @@ const ids = { authorization: /^iauth_[A-Za-z0-9]+$/, transaction: /^(?:ipi_|itx_
 export function createStripeTransactionClient(config: Pick<CardJourneyConfig, "stripeSecretKey" | "stripeApiVersion">, fetcher: typeof fetch = fetch, signal?: AbortSignal) {
   async function get(path: string): Promise<unknown> {
     const response = await fetcher(`https://api.stripe.com/v1/issuing/${path}`, {
-      method: "GET", redirect: "manual", cache: "no-store", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000),
+      method: "GET", redirect: "manual", cache: "no-store", signal: composeDeadline(signal, 5000),
       headers: { [["Author", "ization"].join("")]: `Bearer ${config.stripeSecretKey}`, "Stripe-Version": config.stripeApiVersion },
     });
     if (!response.ok) throw new Error(`Stripe read failed (${response.status})`);

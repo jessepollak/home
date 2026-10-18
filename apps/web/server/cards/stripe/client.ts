@@ -3,6 +3,7 @@ import "server-only";
 import { isRecord, isStringEnum } from "../response-guards";
 import type { CardJourneyConfig } from "../bridge/journey-config";
 import { readProviderJson } from "../read-provider-json";
+import { composeDeadline } from "@/server/http/deadline";
 
 export type StripeCard = Readonly<{
   id: string;
@@ -41,7 +42,7 @@ export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fe
   async function request(path: string, params?: URLSearchParams, key?: string, root = false, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
     const response = await fetcher(`https://api.stripe.com/v1/${root ? "" : "issuing/"}${path}`, {
-      method: params ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000),
+      method: params ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: composeDeadline(signal, 5000),
       headers: { [["Author", "ization"].join("")]: ["Bearer", config.stripeSecretKey].join(" "), "Stripe-Version": config.stripeApiVersion,
         ...(params ? { "Content-Type": "application/x-www-form-urlencoded", ...(key ? { "Idempotency-Key": key } : {}) } : {}) },
       ...(params ? { body: params.toString() } : {}),

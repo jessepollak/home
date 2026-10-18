@@ -9,6 +9,7 @@ import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { baseRpc, parseRpcDataWord, parseRpcQuantity, type BaseRpcOptions } from "@/server/chain/rpc";
 import { resolveCustomer } from "@/server/customers/resolve";
 import { getSqlExecutor } from "@/server/db/sql";
+import { composeDeadline } from "@/server/http/deadline";
 import { createCardAccountStore, type CardAccountLink } from "../account-store";
 import { readCardState } from "../journey";
 import { programFor } from "../programs";
@@ -100,8 +101,7 @@ export function createCardAllowancePreparation(deps: Dependencies = {}) {
     let previous: bigint;
     let block: bigint;
     try {
-      const deadline = AbortSignal.timeout(5_000);
-      const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;
+      const combined = composeDeadline(signal, 5_000);
       block = parseRpcQuantity(await rpc("eth_blockNumber", [], { signal: combined, timeoutMs: 5_000 }), "block number");
       const result = await rpc("eth_call", [{ to: BASE_USDC_ADDRESS, data: encodeFunctionData({ abi: erc20Abi, functionName: "allowance", args: [session.smartAccount.address, spender] }) }, `0x${block.toString(16)}`], { signal: combined, timeoutMs: 5_000 });
       if (combined.aborted) throw new Error("Card allowance read expired");

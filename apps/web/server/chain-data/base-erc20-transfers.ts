@@ -1,6 +1,7 @@
 import "server-only";
 
 import { ACTIVITY_HISTORY_START } from "@/shared/activity/types";
+import { composeDeadline } from "@/server/http/deadline";
 
 import { parseAddress, parseHash32 } from "@/shared/chain/hex";
 import { parseCdpSqlResponseEnvelope } from "./cdp-sql-client";
@@ -165,8 +166,7 @@ export function createBaseErc20TransferHistory({
         if (lastCapacityError !== null) {
           const remainingMs = sqlBudgetMs - (now().getTime() - attemptsStartedAt);
           if (remainingMs <= 0) throw lastCapacityError;
-          const deadline = AbortSignal.timeout(remainingMs);
-          signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
+          signal = composeDeadline(input.signal, remainingMs);
         }
         try {
           response = await transport.run({

@@ -47,7 +47,7 @@ import { moneyModalPublicApi, noAlternateMoneyModal, noSheetPrimitiveReexports, 
 import { explorationStoryTag } from "./rules/exploration-story-tag.mjs";
 import { ownerIdentityHelper } from "./rules/owner-identity.mjs";
 import { noDeferredEffectSetstate } from "./rules/react-effects.mjs";
-import { noInlineRequestJson, noManualAbortTimeout } from "./rules/http-primitives.mjs";
+import { noBareComposedDeadline, noInlineRequestJson, noManualAbortTimeout } from "./rules/http-primitives.mjs";
 import { noFetchInClientComponents, queryKeyFactory } from "./rules/client-data.mjs";
 import { noAddressLiteralRegex } from "./rules/address-literals.mjs";
 import { noRawProcessEnv } from "./rules/raw-env.mjs";
@@ -106,6 +106,7 @@ const homePlugin = {
     "no-amount-fallback": noAmountFallback,
     "no-inline-request-json": noInlineRequestJson,
     "no-manual-abort-timeout": noManualAbortTimeout,
+    "no-bare-composed-deadline": noBareComposedDeadline,
     "no-fetch-in-client-components": noFetchInClientComponents,
     "query-key-factory": queryKeyFactory,
     "no-address-literal-regex": noAddressLiteralRegex,

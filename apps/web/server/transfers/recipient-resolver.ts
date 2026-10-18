@@ -3,6 +3,7 @@ import "server-only";
 import { createPublicClient, getAddress, http, namehash, parseAbi } from "viem";
 import { base, mainnet } from "viem/chains";
 import { resolveBaseRpcUrl, resolveEthereumRpcUrl } from "@/server/chain/rpc";
+import { composeDeadline } from "@/server/http/deadline";
 import {
   normalizeResolvedRecipientAddress,
   normalizeTransferRecipientName,
@@ -288,8 +289,7 @@ function resolverSignal(external: AbortSignal | undefined, timeoutMs = DEFAULT_T
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) {
     throw new Error("The recipient resolver timeout must be 1-10000ms.");
   }
-  const timeout = AbortSignal.timeout(timeoutMs);
-  return external ? AbortSignal.any([external, timeout]) : timeout;
+  return composeDeadline(external, timeoutMs);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

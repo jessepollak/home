@@ -178,3 +178,44 @@ export const noManualAbortTimeout = {
     };
   },
 };
+
+function isAbortSignalCall(sourceCode, node, method) {
+  const call = unwrap(node);
+  if (call?.type !== "CallExpression") return false;
+  const callee = unwrap(call.callee);
+  return memberIs(callee, method) && platformIdentifier(sourceCode, callee.object, ["AbortSignal"]);
+}
+
+function boundTimeout(sourceCode, identifier) {
+  const variable = identifierVariable(sourceCode, identifier);
+  const definition = variable?.defs.length === 1 ? variable.defs[0] : null;
+  return definition?.type === "Variable" && definition.node?.id.type === "Identifier"
+    && definition.node.parent?.kind === "const" && isAbortSignalCall(sourceCode, definition.node.init, "timeout");
+}
+
+export const noBareComposedDeadline = {
+  meta: {
+    type: "problem",
+    schema: optionSchema,
+    messages: {
+      rejected: "Compose a caller signal with a timeout through composeDeadline (or composeSignals) in server/http/deadline.ts; AbortSignal.any can hold its sources weakly, so a timeout signal only the composite references can be collected before it fires.",
+    },
+  },
+  create(context) {
+    if (allowedFile(context, [])) return {};
+    return {
+      CallExpression(node) {
+        if (!isAbortSignalCall(context.sourceCode, node, "any")) return;
+        const sources = unwrap(node.arguments[0]);
+        if (sources?.type !== "ArrayExpression") return;
+        const bare = sources.elements.some((element) => {
+          const source = unwrap(element);
+          if (!source || source.type === "SpreadElement") return false;
+          return isAbortSignalCall(context.sourceCode, source, "timeout")
+            || source.type === "Identifier" && boundTimeout(context.sourceCode, source);
+        });
+        if (bare) context.report({ node, messageId: "rejected" });
+      },
+    };
+  },
+};

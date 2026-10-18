@@ -4,6 +4,7 @@ import { encodeFunctionData, erc20Abi } from "viem";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { baseRpc, parseRpcDataWord, parseRpcQuantity, type BaseRpcOptions } from "@/server/chain/rpc";
 import { privateJson } from "@/server/http/private-response";
+import { composeDeadline, composeSignals } from "@/server/http/deadline";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { CARD_ALLOWANCE_CONTRACT_VERSION, parseCardSpendingResponse, type CardSpendingError, type CardSpendingResponse } from "@/shared/cards/allowance-contract";
 import { readCardAllowanceRegistry, type CardAllowanceRegistry } from "./config";
@@ -28,7 +29,7 @@ export function createCardSpendingHandler(deps: Partial<Dependencies> = {}) {
   const resolveProgram = deps.programFor ?? programFor;
   const customer = deps.customer ?? ((session: VerifiedAccountSession) => resolveCustomer(session, { create: false }));
   const rpc = deps.rpc ?? baseRpc;
-  const deadline = deps.deadline ?? (() => AbortSignal.timeout(5_000));
+  const injectedDeadline = deps.deadline;
   const now = deps.now ?? (() => new Date().toISOString());
 
   return async function GET(request: Request): Promise<Response> {
@@ -53,7 +54,7 @@ export function createCardSpendingHandler(deps: Partial<Dependencies> = {}) {
           setEnabled = program?.provider === "bridge" && program.mode === "production" && configured.bridge.mode === "production" && program.funding.strategy === "allowance-pull" &&
             program.funding.prerequisitesMet && configured.maximumBaseUnits !== null;
         } catch { setEnabled = false; }
-        const signal = AbortSignal.any([request.signal, deadline()]);
+        const signal = injectedDeadline ? composeSignals([request.signal, injectedDeadline()]) : composeDeadline(request.signal, 5_000);
         const options = { signal, timeoutMs: 5_000 };
         const block = parseRpcQuantity(await rpc("eth_blockNumber", [], options), "block number");
         signal.throwIfAborted();

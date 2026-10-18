@@ -2,6 +2,7 @@ import "server-only";
 
 import { getDirectPortfolioAssets, portfolioVaults } from "@/config/portfolio-assets";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
+import { composeDeadline } from "@/server/http/deadline";
 import { contractHistoryAsset, isStaticArchiveRead, morphoHistoryAssets, nativeHistoryAsset } from "./assets";
 import { resolveBucketQuantities } from "./quantities";
 import { deriveTracking } from "./tracking";
@@ -86,8 +87,7 @@ export function createHistoryIngest(deps: {
       const enrolled = await store.getAddress(HISTORY_CHAIN_ID, address);
       if (!enrolled) return { ...report, status: "not-enrolled" };
       let row = enrolled;
-      const deadlineSignal = AbortSignal.timeout(Math.max(0, input.deadline - startedAt.getTime()));
-      const signal = input.signal ? AbortSignal.any([input.signal, deadlineSignal]) : deadlineSignal;
+      const signal = composeDeadline(input.signal, Math.max(0, input.deadline - startedAt.getTime()));
       const cutoff = input.deadline - (input.deadline - startedAt.getTime() >= 1000 ? 1000 : 0);
       const timeLeft = () => !signal.aborted && now().getTime() < cutoff;
       const checkAbort = () => { if (signal.aborted) throw signal.reason; };
@@ -237,7 +237,7 @@ export function createHistoryIngest(deps: {
         unverified.length === 0 && pendingComparisons.size === 0 ? "ready" : "building";
       return report;
       } catch (error) {
-        if (deadlineSignal.aborted && !input.signal?.aborted) return report;
+        if (signal.aborted && !input.signal?.aborted) return report;
         throw error;
       }
     },

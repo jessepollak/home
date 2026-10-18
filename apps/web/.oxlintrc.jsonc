@@ -746,7 +746,8 @@
         "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "rules": {
-        "home/no-manual-abort-timeout": "error"
+        "home/no-manual-abort-timeout": "error",
+        "home/no-bare-composed-deadline": ["error", { "allow": ["server/cards/immersve/immersve-client.ts"] }]
       }
     },
     {

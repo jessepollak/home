@@ -4,7 +4,7 @@ import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs"
 applyRuleCheckTimeout();
 
 const { directory, lint: lintFixtures } = await createOxlintWorkspace("home-oxlint-http-primitives-", {
-  rules: ["no-inline-request-json", "no-manual-abort-timeout"],
+  rules: ["no-inline-request-json", "no-manual-abort-timeout", "no-bare-composed-deadline"],
 });
 
 let fixtureIndex = 0;
@@ -420,4 +420,63 @@ describe("no-manual-abort-timeout", () => {
     }
   }, budgetMs);
 
+});
+
+describe("no-bare-composed-deadline", () => {
+  const message = "Compose a caller signal with a timeout through composeDeadline (or composeSignals) in server/http/deadline.ts; AbortSignal.any can hold its sources weakly, so a timeout signal only the composite references can be collected before it fires.";
+
+  it("rejects a composite whose timeout source is built in the composition or bound to a const", async () => {
+    const cases = [
+      "const signal = AbortSignal.any([caller, AbortSignal.timeout(5000)]);",
+      "const signal = AbortSignal.any([AbortSignal.timeout(5000), caller]);",
+      "const signal = AbortSignal.any([caller, deps.deadline(), AbortSignal.timeout(10_000)]);",
+      "const signal = caller ? AbortSignal.any([caller, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000);",
+      "const signal = AbortSignal.any(([caller, AbortSignal.timeout(5000)] as AbortSignal[]));",
+      "const signal = AbortSignal.any([caller, (AbortSignal.timeout(5000) as AbortSignal)]);",
+      "const deadline = AbortSignal.timeout(5000); const signal = AbortSignal.any([caller, deadline]);",
+      "const signal = AbortSignal.any([caller, deadline]); const deadline = AbortSignal.timeout(5000);",
+      "const deadline = AbortSignal.timeout(5000); const signal = caller ? AbortSignal.any([caller, deadline]) : deadline;",
+      "const timeout = AbortSignal.timeout(5000); timeout.throwIfAborted(); return AbortSignal.any([parent, timeout]);",
+      "const timeout = AbortSignal.timeout(5000); const signal = AbortSignal.any([caller, timeout]); if (timeout.aborted) fail();",
+      "const timeout = AbortSignal.timeout(5000); timeout.addEventListener('abort', onAbort, { once: true }); return AbortSignal.any([parent, timeout]);",
+    ];
+    for (const findings of await lintCases(cases, "no-bare-composed-deadline")) {
+      expect(findings).toHaveLength(1);
+      expect(findings[0].message).toBe(message);
+    }
+  }, budgetMs);
+
+  it("accepts composites without a timeout built or bound in the same file", async () => {
+    const cases = [
+      "const signal = AbortSignal.any([caller, other]);",
+      "const signal = AbortSignal.any([caller, ...extra]);",
+      "const signal = AbortSignal.any(sources);",
+      "const signal = composeDeadline(caller, 5000);",
+      "const signal = AbortSignal.timeout(5000);",
+      "const signal = AbortSignal.any([caller, deps.deadline()]);",
+      "let timeout = AbortSignal.timeout(5000); const signal = AbortSignal.any([caller, timeout]);",
+      "const timeout = makeTimeout(5000); const signal = AbortSignal.any([caller, timeout]);",
+      "const { timeout } = signals; const signal = AbortSignal.any([caller, timeout]);",
+      "other.any([caller, AbortSignal.timeout(5000)]);",
+      "AbortSignal.race([caller, AbortSignal.timeout(5000)]);",
+      "AbortSignal.any([caller, other.timeout(5000)]);",
+    ];
+    for (const findings of await lintCases(cases, "no-bare-composed-deadline")) expect(findings).toHaveLength(0);
+  }, budgetMs);
+
+  it("treats a shadowed AbortSignal as the caller's own binding", async () => {
+    const cases = [
+      "function compose(AbortSignal) { return AbortSignal.any([caller, AbortSignal.timeout(5000)]); }",
+      'import { AbortSignal } from "./signals"; AbortSignal.any([caller, AbortSignal.timeout(5000)]);',
+    ];
+    for (const findings of await lintCases(cases, "no-bare-composed-deadline")) expect(findings).toHaveLength(0);
+  }, budgetMs);
+
+  it("reports the whole composite call and honors exact option paths", async () => {
+    const code = "void AbortSignal.any([caller, AbortSignal.timeout(5000)]);";
+    const [finding] = await lint(code);
+    expect(finding.labels[0].span).toMatchObject({ offset: 5, length: 52 });
+    expect(await lint(code, "server/probe.ts", { rule: "no-bare-composed-deadline", options: { allow: ["server/probe.ts"] } })).toHaveLength(0);
+    expect(await lint(code, "server/probe.ts", { rule: "no-bare-composed-deadline", options: { allow: ["server/other.ts"] } })).toHaveLength(1);
+  }, budgetMs);
 });
