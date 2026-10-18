@@ -292,7 +292,7 @@ export function ActivityPanelView({
 
   const cardUnavailable = activity.status === "ready" && activity.page.cards?.status === "unavailable";
   const footer = activity.status === "ready" && !onchainUnavailable ? (
-    activity.page.nextCursor === null ? hasRows ? (
+    activity.page.nextCursor === null ? hasRows && !historyUnknown ? (
       <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
     ) : null : (
       <ActivityContinuation activity={activity} inlineStatus={inlineStatus} feedStatus={plain && !historyUnknown} />

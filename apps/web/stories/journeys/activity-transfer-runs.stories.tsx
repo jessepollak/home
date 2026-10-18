@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { useState, type ComponentProps } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { waitForReady } from "@/tests/helpers/story-readiness";
 import { ActivityPanelView } from "@/client/activity";
@@ -107,12 +108,44 @@ export const ActivityPageActionsUnavailable: Story = {
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByText("Your Home actions are unavailable")).toBeVisible();
+    await expect(canvas.queryByText("End of activity")).toBeNull();
     const retry = canvas.getByRole("button", { name: "Retry Home actions" });
     await expect(retry).toBeVisible();
     await expect(retry).toHaveAccessibleDescription("Your Home actions are unavailable");
     await userEvent.click(retry);
     await expect(args.retryActions).toHaveBeenCalledTimes(1);
     await expectConciseNotices(canvasElement);
+  },
+};
+
+function RecoveringSources(args: ComponentProps<typeof ActivityPanelView>) {
+  const [actionsStatus, setActionsStatus] = useState<"ready" | "error">("error");
+  const [ordersStatus, setOrdersStatus] = useState<"ready" | "error">("error");
+  return (
+    <ActivityPanelView
+      {...args}
+      actionsStatus={actionsStatus}
+      retryActions={() => setActionsStatus("ready")}
+      ordersStatus={ordersStatus}
+      retryOrders={() => setOrdersStatus("ready")}
+    />
+  );
+}
+
+export const ActivityPageEndMarkerFollowsSources: Story = {
+  args: { activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "page", header: null },
+  render: (args) => <RecoveringSources {...args} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Your Home actions are unavailable")).toBeVisible();
+    await expect(canvas.getByText("Add money and cash-out orders are unavailable")).toBeVisible();
+    await expect(canvas.queryByText("End of activity")).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Retry Home actions" }));
+    await expect(canvas.queryByText("Your Home actions are unavailable")).toBeNull();
+    await expect(canvas.queryByText("End of activity")).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Retry orders" }));
+    await expect(canvas.queryByText("Add money and cash-out orders are unavailable")).toBeNull();
+    await expect(canvas.getByText("End of activity")).toBeVisible();
   },
 };
 
