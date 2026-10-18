@@ -29,6 +29,22 @@ function withdrawalUnobserved(withdraw: RecentMoneyActionOperation, snapshot: Ba
     : withdraw.settledAt === undefined);
 }
 
+function equalHeightWithdrawalKey(operation: RecentMoneyActionOperation, snapshot: BalancesSnapshot): string | null {
+  if (operation.action.kind !== "cash-out-withdraw" || operation.status !== "confirmed" || operation.receiptBlockNumber === undefined ||
+    BigInt(operation.receiptBlockNumber) !== BigInt(snapshot.block.number) ||
+    operation.receiptBlockHash === snapshot.block.hash.toLowerCase()) return null;
+  return `withdraw:${operation.action.id}:${operation.receiptBlockNumber}:${operation.receiptBlockHash ?? ""}`;
+}
+
+function snapshotRetryKeys(operations: readonly RecentMoneyActionOperation[], snapshot: BalancesSnapshot): string[] {
+  const keys: string[] = [];
+  for (const operation of operations) {
+    const key = equalHeightWithdrawalKey(operation, snapshot);
+    if (key) keys.push(key);
+  }
+  return [...keys, ...returnedOrdersAwaitingSnapshotKeys(operations, snapshot)];
+}
+
 function returnedOrdersAwaitingSnapshotKeys(operations: readonly RecentMoneyActionOperation[], snapshot: BalancesSnapshot): string[] {
   const keys: string[] = [];
   for (const operation of operations) {
@@ -139,7 +155,7 @@ export function usePendingCashoutEscrow(
     if (!ownerKey || !snapshotKey || !snapshot || !confirmed || actionsStatus !== "ready" ||
       !data || data.truncated || data.incomplete || !stableEstimate) return;
     const timers: ReturnType<typeof setTimeout>[] = [];
-    for (const awaitingKey of returnedOrdersAwaitingSnapshotKeys(data.operations, snapshot)) {
+    for (const awaitingKey of snapshotRetryKeys(data.operations, snapshot)) {
       const key = `${ownerKey}:${awaitingKey}`;
       const attempt = returnSnapshotAttempts.current.get(key);
       if (attempt && attempt.attempts >= RETURN_SNAPSHOT_MAX_ATTEMPTS) continue;
