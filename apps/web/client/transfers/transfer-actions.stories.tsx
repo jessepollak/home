@@ -10,7 +10,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { encodeUsdcTransfer } from "@/shared/transfers/transfer-helpers";
 import { HomeShellRoutingProvider, readHomeInboundPanelState, type HomeShellRouting } from "@/client/home/panel-routing";
 import type { ShellFlow } from "@/config/shell-location";
-import { TransferActions } from "./transfer-actions";
+import { TransferActions, TransferActionsForWallet } from "./transfer-actions";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
@@ -132,7 +132,7 @@ function OfferingFlipHarness({ initialSendOffered = false }: { initialSendOffere
   }), [routeFlow]);
   return (
     <HomeShellRoutingProvider value={routing}>
-      <div data-send-offered={sendOffered}>
+      <div data-send-offered={sendOffered} data-route-flow={routeFlow ?? ""}>
         <TransferActions availableAssets={availableAssets} regionId="US" sendOffered={sendOffered} />
       </div>
     </HomeShellRoutingProvider>
@@ -162,5 +162,68 @@ export const SendOffBareFlowReopensAfterOfferingTurnsOff: Story = {
     offeringChanges.dispatchEvent(new Event("reopen"));
     await waitForReady(() => expect(screen.getByRole("dialog", { name: "Cash out" })).toBeVisible());
     await expect(screen.queryByRole("dialog", { name: "Send" })).toBeNull();
+  },
+};
+
+export const SendOffWhileAtDestinationKeepsSendStep: Story = {
+  render: () => <OfferingFlipHarness initialSendOffered />,
+  play: async ({ canvasElement }) => {
+    const dialog = await openedDialog(canvasElement, "Send");
+    await waitForReady(() => expect(within(dialog).getByRole("textbox", { name: "Amount" })).toBeVisible());
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Amount" }), "5");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await waitForReady(() => expect(within(dialog).getByRole("textbox", { name: "To" })).toBeVisible());
+    offeringChanges.dispatchEvent(new Event("send-off"));
+    await waitForReady(() => expect(within(dialog).getByRole("textbox", { name: "To" })).toBeVisible());
+    await expect(canvasElement.querySelector("[data-route-flow]")).toHaveAttribute("data-route-flow", "send");
+  },
+};
+
+function FlowHarness({ actionId = ACTION_ID, rejectResume = false }: { actionId?: string | null; rejectResume?: boolean }) {
+  const [routeFlow, setRouteFlow] = useState<ShellFlow | null>("send");
+  const [routeActionId, setRouteActionId] = useState<string | null>(actionId);
+  const activeWallet: AccountWalletClient = useMemo(() => rejectResume
+    ? { ...wallet, resumeMoneyAction: async () => { throw new Error("unavailable"); } }
+    : wallet, [rejectResume]);
+  const routing: HomeShellRouting = useMemo(() => ({
+    state: readHomeInboundPanelState(
+      { panel: "home", account: null, shelf: null, asset: null, market: null },
+      new URLSearchParams(routeFlow ? `flow=${routeFlow}` : ""),
+    ),
+    popRevision: 0,
+    rootRequest: null,
+    openPanel: noop,
+    pushRoute: noop,
+    leaveRoute: noop,
+    canOpenAssetDetail: () => false,
+    openAssetDetail: () => false,
+    setFlow: (next, options) => { setRouteFlow(next); setRouteActionId(options?.actionId ?? null); return true; },
+    clearFlow: () => { setRouteFlow(null); setRouteActionId(null); },
+  }), [routeFlow]);
+  return (
+    <HomeShellRoutingProvider value={routing}>
+      <div data-route-flow={routeFlow ?? ""}>
+        <TransferActionsForWallet wallet={activeWallet} availableAssets={availableAssets} regionId="US" sendOffered={false} initialActionId={routeActionId} />
+      </div>
+    </HomeShellRoutingProvider>
+  );
+}
+
+export const SendOffUnresumableActionKeepsFlowInUrl: Story = {
+  render: () => <FlowHarness rejectResume />,
+  play: async ({ canvasElement }) => {
+    const dialog = await openedDialog(canvasElement, "Cash out");
+    await waitForReady(() => expect(within(dialog).getByRole("button", { name: "Continue" })).toBeVisible());
+    await expect(canvasElement.querySelector("[data-route-flow]")).toHaveAttribute("data-route-flow", "cash-out");
+    await expect(within(dialog).queryByRole("textbox", { name: "To" })).toBeNull();
+  },
+};
+
+export const SendOffBareFlowKeepsFlowInUrl: Story = {
+  render: () => <FlowHarness actionId={null} />,
+  play: async ({ canvasElement }) => {
+    const dialog = await openedDialog(canvasElement, "Cash out");
+    await waitForReady(() => expect(within(dialog).getByRole("button", { name: "Continue" })).toBeVisible());
+    await expect(canvasElement.querySelector("[data-route-flow]")).toHaveAttribute("data-route-flow", "cash-out");
   },
 };

@@ -91,6 +91,11 @@ export function TransferActionsForWallet({
     setSyncedEntryKey(routeEntryKey);
     if (routing && routeOpen) setEntry(effectiveEntry);
   }
+  useEffect(() => {
+    if (!routeOpen || transferFlow === entry) return;
+    if (routing) routing.setFlow(entry, { mode: "replace", opener: routing.flowOpener ?? null });
+    else commitClientUrl(flowHref(window.location.pathname, entry), "replace");
+  }, [entry, routeOpen, routing, transferFlow]);
   const visibleSend = modalOwner === boundary && (routing ? routeOpen : sendOpen);
   const dropPrivate = modalOwner !== null && modalOwner !== boundary;
 
@@ -141,10 +146,11 @@ export function TransferActionsForWallet({
     if (routing) routing.setFlow(flow, { actionId, mode: "replace", opener: routing.flowOpener ?? null });
     else commitClientUrl(flowHref(window.location.pathname, flow, actionId), "replace");
   }, [routing]);
+  const firstStepFlow = entry === "send" && !sendOffered ? "cash-out" : entry;
   const showFirstStep = useCallback(() => {
-    if (routing) routing.setFlow(entry, { mode: "replace", opener: routing.flowOpener ?? null });
-    else commitClientUrl(flowHref(window.location.pathname, entry), "replace");
-  }, [entry, routing]);
+    if (routing) routing.setFlow(firstStepFlow, { mode: "replace", opener: routing.flowOpener ?? null });
+    else commitClientUrl(flowHref(window.location.pathname, firstStepFlow), "replace");
+  }, [firstStepFlow, routing]);
   const switchToSend = () => {
     setEntry("send");
     if (routing) routing.setFlow("send", { mode: "replace", opener: routing.flowOpener ?? null });

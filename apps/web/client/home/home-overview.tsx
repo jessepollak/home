@@ -142,7 +142,7 @@ function HomeTotalBalance({
         {isLoading ? <><Skeleton className="h-10 w-48" /><span className="sr-only">Updating…</span></> : (
           <div
             className="text-4xl font-semibold tabular-nums"
-            style={{ fontSize: `min(2.25rem, calc(100cqi / (${Array.from(displayTotal).length} * 0.65)))` }}
+            style={{ fontSize: `max(0.75rem, min(2.25rem, calc(100cqi / (${Array.from(displayTotal).length} * 0.65))))` }}
             data-total-status={totalStatus === "complete" ? undefined : totalStatus}
           >
             {displayTotal === "—" ? (
