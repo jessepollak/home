@@ -81,6 +81,7 @@
     { "pattern": "server/savings/share-bound.property.test.ts", "category": "money-math" },
     { "pattern": "server/secrets/at-rest.test.ts", "category": "auth" },
     { "pattern": "server/support/handlers.test.ts", "category": "route-contract-parser" },
+    { "pattern": "server/transfers/recipient-resolver.test.ts", "category": "money-path-provider-failure" },
     { "pattern": "shared/**/contract*.test.ts", "category": "route-contract-parser" },
     { "pattern": "shared/account/contracts/*.test.ts", "category": "route-contract-parser" },
     { "pattern": "shared/actions/contracts/*.test.ts", "category": "route-contract-parser" },

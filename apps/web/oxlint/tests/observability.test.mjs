@@ -1086,6 +1086,100 @@ describe("no-silent-catch", () => {
     expect(results.fixture1).toHaveLength(0);
   }, budgetMs);
 
+  it("does not credit reporting calls in arguments an optional chain can skip", async () => {
+    const skippable = [
+      "receiver?.get(reportClientError(e));",
+      "receiver?.a.get(reportClientError(e));",
+      "receiver?.a!.get(reportClientError(e));",
+      "receiver.a?.().get(reportClientError(e));",
+      "receiver.get?.(reportClientError(e));",
+      "reportClientError?.(e);",
+      "receiver?.[reportClientError(e)]();",
+      "receiver?.[reportClientError(e).get(1)]();",
+      "receiver?.[reportClientError(e)].get(1);",
+      "(receiver?.get(reportClientError(e)) ?? fallback).flag ||= true;",
+      "(receiver?.a.get(reportClientError(e)) ?? fallback).flag ||= true;",
+    ];
+    const accepted = [
+      "receiver.get(reportClientError(e));",
+      "reportClientError(e)?.get(1);",
+      "reportClientError(e)?.a.get(1);",
+      "reportClientError(e)?.();",
+      "receiver[reportClientError(e)]?.();",
+      "receiver.get(reportClientError(e))?.();",
+      "receiver[reportClientError(e).get(1)]?.();",
+      "receiver.a.get(1, reportClientError(e));",
+      "(receiver?.a).get(reportClientError(e));",
+      "receiver?.a.get(1); reportClientError(e);",
+      "(receiver.get(reportClientError(e)) ?? fallback).flag ||= true;",
+    ];
+    const forms = (body) => ({
+      tryCatch: `async function handle(receiver) { try { await run(); } catch (e) { ${body} } }`,
+      catchHandler: `async function handle(receiver) { await run().catch((e) => { ${body} }); }`,
+      thenHandler: `async function handle(receiver) { await run().then(ok, (e) => { ${body} }); }`,
+    });
+    const header = 'import { reportClientError } from "@/client/observability/client-reporter"; ';
+    const fixtures = {};
+    skippable.forEach((body, index) => {
+      for (const [form, code] of Object.entries(forms(body))) fixtures[`skip${index}-${form}`] = header + code;
+    });
+    accepted.forEach((body, index) => {
+      for (const [form, code] of Object.entries(forms(body))) fixtures[`ok${index}-${form}`] = header + code;
+    });
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result, name).toHaveLength(name.startsWith("skip") ? 1 : 0);
+  }, budgetMs);
+
+  it("does not credit a recovery call an optional chain can skip", async () => {
+    const skippable = [
+      "controller?.abort();",
+      "pending?.delete(key);",
+      "state?.reset();",
+    ];
+    const accepted = [
+      "controller.abort();",
+      "pending.delete(key);",
+      "state.reset();",
+    ];
+    const forms = (body) => ({
+      tryCatch: `function handle(controller, pending, state, key) { try { run(); } catch { ${body} } }`,
+      catchHandler: `function handle(controller, pending, state, key) { run().catch(() => { ${body} }); }`,
+      thenHandler: `function handle(controller, pending, state, key) { run().then(ok, () => { ${body} }); }`,
+    });
+    const fixtures = {};
+    skippable.forEach((body, index) => {
+      for (const [form, code] of Object.entries(forms(body))) fixtures[`skip${index}-${form}`] = code;
+    });
+    accepted.forEach((body, index) => {
+      for (const [form, code] of Object.entries(forms(body))) fixtures[`ok${index}-${form}`] = code;
+    });
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result, name).toHaveLength(name.startsWith("skip") ? 1 : 0);
+  }, budgetMs);
+
+  it("analyzes long callee chains within the rule-check budget", async () => {
+    const chain = ".get()".repeat(40);
+    const cases = {
+      trailingReport: [`receiver${chain}.get(reportClientError(e));`, 0],
+      headReport: [`reportClientError(e)${chain};`, 0],
+      linkArgumentReport: [`receiver.get(reportClientError(e))${chain};`, 0],
+      linkComputedReport: [`receiver[reportClientError(e)]()${chain};`, 0],
+      silent: [`receiver${chain};`, 1],
+      skippedReport: [`receiver?.get()${chain}.get(reportClientError(e));`, 1],
+    };
+    const fixtures = {};
+    const expected = {};
+    const header = 'import { reportClientError } from "@/client/observability/client-reporter"; ';
+    for (const [name, [body, count]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `${header} try { run(); } catch (e) { ${body} }`;
+      fixtures[`${name}Catch`] = `${header} run().catch((e) => { ${body} });`;
+      fixtures[`${name}Then`] = `${header} run().then(ok, (e) => { ${body} });`;
+      expected[`${name}Try`] = expected[`${name}Catch`] = expected[`${name}Then`] = count;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result, name).toHaveLength(expected[name]);
+  }, budgetMs);
+
   it("accepts collection cleanup and void-wrapped reporting calls", async () => {
     const results = await lint({
       fixture1: `

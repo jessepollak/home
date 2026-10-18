@@ -555,6 +555,7 @@ function boundRecoveryCallee(state, callee) {
 
 function recoveryCallDisposes(state, node, name) {
   if (node.optional || !name || !recoveryCall.test(name)) return false;
+  if (calleeChainEvaluation(node).skips) return false;
   const callee = unwrapTransparent(node.callee);
   return callee?.type !== "Identifier" || boundRecoveryCallee(state, callee);
 }
@@ -779,6 +780,41 @@ function surfacedTelemetryWrite(node) {
 
 const conditionalAssignments = new Set(["&&=", "||=", "??="]);
 
+const calleeChainWrappers = new Set([
+  "ParenthesizedExpression",
+  "TSAsExpression",
+  "TSNonNullExpression",
+  "TSSatisfiesExpression",
+  "TSTypeAssertion",
+  "TSInstantiationExpression",
+]);
+
+function calleeChainEvaluation(call) {
+  const links = [];
+  let current = call.callee;
+  while (current) {
+    if (calleeChainWrappers.has(current.type)) current = current.expression;
+    else if (current.type === "MemberExpression") {
+      links.push(current);
+      current = current.object;
+    } else if (current.type === "CallExpression") {
+      links.push(current);
+      current = current.callee;
+    } else break;
+  }
+  const evaluated = current ? [{ node: current, calleeWalked: false }] : [];
+  let skips = false;
+  for (const link of links.reverse()) {
+    if (link.optional) {
+      skips = true;
+      break;
+    }
+    if (link.type === "CallExpression") evaluated.push({ node: link, calleeWalked: true });
+    else if (link.computed) evaluated.push({ node: link.property, calleeWalked: false });
+  }
+  return { evaluated, skips };
+}
+
 function assignmentTargetHasDisposition(state, target) {
   let current = unwrapTransparent(target);
   while (current?.type === "MemberExpression") {
@@ -788,7 +824,7 @@ function assignmentTargetHasDisposition(state, target) {
   return current?.type !== "Identifier" && expressionHasDisposition(state, current);
 }
 
-function expressionHasDisposition(state, node) {
+function expressionHasDisposition(state, node, calleeEvaluated = false) {
   if (!node) return false;
   if (!state.requireTelemetrySink && !state.requireReport && node.type === "AssignmentExpression"
     && !conditionalAssignments.has(node.operator)
@@ -812,10 +848,13 @@ function expressionHasDisposition(state, node) {
     }
     if (state.requireReport) return false;
     if (recoveryCallDisposes(state, node, name)) return true;
-    return !node.optional && node.arguments.some((argument) =>
-      argument.type !== "SpreadElement"
-        ? expressionHasDisposition(state, argument)
-        : expressionHasDisposition(state, argument.argument));
+    const chain = node.type === "CallExpression" && !calleeEvaluated
+      ? calleeChainEvaluation(node) : { evaluated: [], skips: false };
+    return chain.evaluated.some((part) => expressionHasDisposition(state, part.node, part.calleeWalked))
+      || (!node.optional && !chain.skips && node.arguments.some((argument) =>
+        argument.type !== "SpreadElement"
+          ? expressionHasDisposition(state, argument)
+          : expressionHasDisposition(state, argument.argument)));
   }
   if (transparentExpression.has(node.type)) {
     return expressionHasDisposition(state, node.expression ?? node.argument);

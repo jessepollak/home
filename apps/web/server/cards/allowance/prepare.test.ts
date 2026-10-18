@@ -124,6 +124,22 @@ describe("card allowance preparation", () => {
     abort.abort();
     await expect(service()(session, set, abort.signal)).rejects.toMatchObject({ code: "CARD_ALLOWANCE_UNAVAILABLE" });
   });
+  test("an abort during the pinned allowance read fails closed even when the read returns data", async () => {
+    const abort = new AbortController();
+    const prepare = createCardAllowancePreparation({
+      registry: () => baseRegistry,
+      programFor: async () => fakeProgram({ mode: "production" }).program,
+      customer: async () => ({ id: "customer-1", walletId: "wallet-1" }),
+      account: async () => ({ customerId: "customer-1", mode: "production", provider: "bridge", accountId: "bridge-1", cardholderId: "holder-fixture", cards: [{ id: "11111111-1111-4111-8111-111111114821", providerCardId: "ic_test", walletAddress: owner }] }),
+      state: async () => state(),
+      rpc: async (method) => {
+        if (method === "eth_blockNumber") return "0x64";
+        abort.abort();
+        return `0x${BigInt(5_000_000).toString(16).padStart(64, "0")}`;
+      },
+    });
+    await expect(prepare(session, set, abort.signal)).rejects.toMatchObject({ code: "CARD_ALLOWANCE_UNAVAILABLE" });
+  });
   test("rejects unchanged set and already-zero revoke", async () => {
     await refusal({ chain: "unchanged" }, "CARD_ALLOWANCE_UNCHANGED");
     await refusal({ chain: "already-zero" }, "CARD_ALLOWANCE_UNCHANGED", revoke);
