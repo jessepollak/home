@@ -4,7 +4,7 @@ import { ArrowDown, HandCoins, PiggyBank } from "lucide-react";
 import { expect, userEvent, within } from "storybook/test";
 import { CurrencyMark, CurrencyMarkStack, GlyphMark } from "./currency-mark";
 import { ActivityRow, BalanceRow } from "./finance-rows";
-import { MoneyTicker } from "./money-ticker";
+import { MoneyTicker, MoneyWrapProvider } from "./money-ticker";
 
 function textEdge(element: HTMLElement, edge: "left" | "right") {
   const range = document.createRange();
@@ -242,6 +242,7 @@ function LongValueRows() {
 }
 
 async function expectLongValuesVisible(canvasElement: HTMLElement, wrapped: boolean) {
+  let gapChecks = 0;
   for (const width of [390, 320, 280]) {
     const list = canvasElement.querySelector<HTMLElement>(`[data-row-width="${width}"]`);
     if (!list) throw new Error(`Missing ${width}px finance row`);
@@ -293,11 +294,20 @@ async function expectLongValuesVisible(canvasElement: HTMLElement, wrapped: bool
         await expect(character.right, `${description}: ${character.character} end edge (column ${tickerColumnBox.left}–${tickerColumnBox.right}, character ${character.left}–${character.right})`)
           .toBeLessThanOrEqual(tickerColumnBox.right + 1);
       }
-      const amountEnd = characters.filter(({ character }) => /\d/.test(character)).at(-1);
-      const symbolStart = characters.find(({ character }) => /[A-Za-z]/.test(character));
-      if (amountEnd && symbolStart && amountEnd.top === symbolStart.top) {
-        await expect(Math.max(amountEnd.left, symbolStart.left) - Math.min(amountEnd.right, symbolStart.right), `${description}: number to symbol gap`)
-          .toBeGreaterThanOrEqual(1);
+      const lastDigit = characters.filter(({ character }) => /\d/.test(character)).at(-1);
+      if (lastDigit) {
+        const line = characters.filter(({ top }) => top === lastDigit.top);
+        const digits = line.filter(({ character }) => /\d/.test(character));
+        const letters = line.filter(({ character }) => /[A-Za-z]/.test(character));
+        if (letters.length > 0) {
+          const gap = Math.max(Math.min(...digits.map(({ left }) => left)), Math.min(...letters.map(({ left }) => left)))
+            - Math.min(Math.max(...digits.map(({ right }) => right)), Math.max(...letters.map(({ right }) => right)));
+          gapChecks += 1;
+          await expect(gap, `${description}: number to symbol gap`).toBeGreaterThanOrEqual(1);
+        }
+        if (!wrapped && tickerLabel === "Sent cbBTC" && list.closest("[dir=rtl]")) {
+          await expect(gapChecks, `${description}: gap check ran`).toBeGreaterThan(0);
+        }
       }
       await expect(tickerColumn.scrollWidth, `${description} ticker column overflow`)
         .toBeLessThanOrEqual(tickerColumn.clientWidth + 1);
@@ -327,6 +337,30 @@ export const LongValueAtEnlargedText: Story = {
     } finally {
       root.style.fontSize = previous;
     }
+  },
+};
+
+function SeparatorFitTicker() {
+  return (
+    <div className="flex flex-col gap-2">
+      <div data-testid="natural-number" className="w-fit"><MoneyTicker value="123.45" animated={false} /></div>
+      <div data-testid="tight-column" className="flex justify-end">
+        <MoneyWrapProvider><MoneyTicker value="123.45 USDC" animated={false} /></MoneyWrapProvider>
+      </div>
+    </div>
+  );
+}
+
+export const WrappedAmountKeepsDigitsWithSymbolSeparator: Story = {
+  render: () => <SeparatorFitTicker />,
+  play: async ({ canvasElement }) => {
+    const natural = canvasElement.querySelector<HTMLElement>("[data-testid=natural-number] [data-slot=money-ticker-track]");
+    const column = canvasElement.querySelector<HTMLElement>("[data-testid=tight-column]");
+    const track = column?.querySelector<HTMLElement>("[data-slot=money-ticker-track]");
+    if (!natural || !column || !track) throw new Error("Missing separator fit layout");
+    column.style.width = `${natural.getBoundingClientRect().width + 1}px`;
+    const digitTops = new Set(characterTops(track).filter(({ character }) => /\d/.test(character)).map(({ top }) => top));
+    await expect(digitTops.size).toBe(1);
   },
 };
 
@@ -539,6 +573,11 @@ export const RtlStatusValueAtEnlargedText: Story = {
       root.style.fontSize = previous;
     }
   },
+};
+
+export const RtlLongValueAtNormalText: Story = {
+  render: () => <div dir="rtl"><LongValueRows /></div>,
+  play: async ({ canvasElement }) => expectLongValuesVisible(canvasElement, false),
 };
 
 export const RtlLongValueAtEnlargedText: Story = {

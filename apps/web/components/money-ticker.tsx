@@ -3,6 +3,7 @@
 import NumberFlow from "@number-flow/react";
 import {
   createContext,
+  Fragment,
   useContext,
   useState,
   useSyncExternalStore,
@@ -239,9 +240,14 @@ export function MoneyTicker({
         data-slot="money-ticker-track"
       >
         {wrap ? units.map((unit, index) => (
-          <span className={["inline-flex min-w-0 flex-wrap items-baseline whitespace-nowrap", separatedSuffix && index === units.length - 2 && "pe-0.5"].filter(Boolean).join(" ")} key={unit.key}>
-            {renderUnit(unit)}
-          </span>
+          <Fragment key={unit.key}>
+            {separatedSuffix && index === units.length - 1 ? (
+              <span aria-hidden="true" className="w-0.5 flex-none" data-slot="money-ticker-separator" />
+            ) : null}
+            <span className="inline-flex min-w-0 flex-wrap items-baseline whitespace-nowrap">
+              {renderUnit(unit)}
+            </span>
+          </Fragment>
         )) : renderUnit(unwrappedUnit)}
       </span>
     </span>
