@@ -29,6 +29,12 @@
       "kind": "assertion",
       "count": 1,
       "reason": "Intentionally malformed SDK return fixture exercises rejection of a non-string token the SDK type forbids."
+    },
+    {
+      "path": "apps/web/server/support/handlers.test.ts",
+      "kind": "assertion",
+      "count": 1,
+      "reason": "The reply-route regression drives the real SupportStore, AdminAuditLog and SupportAssistantStore with a hand-written SqlExecutor as its only double; its canned rows are read back through the store's generic query<T> signature, which a concrete row array cannot satisfy without one narrowing cast."
     }
   ]
 }

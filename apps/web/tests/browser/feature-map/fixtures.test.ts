@@ -8,7 +8,7 @@ import { parseActivityPage } from "../../../shared/activity/contract";
 import { parseActivityOrders } from "../../../shared/activity/contract-orders";
 import { sessionBody } from "../fixtures/bodies";
 import { parseAddress } from "../../../shared/chain/hex";
-import { parseOperatorSupportConversationResponse, parseOperatorSupportListResponse, parseOperatorSupportSummary } from "../../../shared/support/contract";
+import { parseOperatorSupportConversationResponse, parseOperatorSupportListResponse, parseOperatorSupportReplyResponse, parseOperatorSupportSummary } from "../../../shared/support/contract";
 import { operatorSupportFixtureConversationId, operatorSupportFixtureRoutes } from "./operator-support-fixture";
 import { assertFundingProvidersResponse, readProviderBindings } from "../../../shared/funding/contracts/providers";
 import { isRecord } from "../../../shared/guards";
@@ -30,7 +30,7 @@ test("operator support fixtures parse with the shared response contracts", () =>
     else if (route.endsWith("/conversations?**")) expect(parseOperatorSupportListResponse(body)).not.toBeNull();
     else if (route.endsWith("/read")) expect(body).toEqual({});
     else {
-      const detail = parseOperatorSupportConversationResponse(body);
+      const detail = route.endsWith("/messages") ? parseOperatorSupportReplyResponse(body) : parseOperatorSupportConversationResponse(body);
       expect(detail).not.toBeNull();
       expect(detail?.conversation.id).toBe(operatorSupportFixtureConversationId);
       expect(detail?.conversation.messages[0]).toMatchObject({

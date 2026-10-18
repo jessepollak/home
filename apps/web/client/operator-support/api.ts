@@ -1,4 +1,5 @@
 import {
+  OPERATOR_REPLY_CONTRACT_VERSION,
   SUPPORT_CONTRACT_VERSION,
   parseOperatorSupportConversationResponse,
   parseOperatorSupportListResponse,
@@ -27,11 +28,11 @@ function parseReplyResult(value: unknown, response: Response): OperatorReplyResu
   const parsed = parseOperatorSupportReplyResponse(value);
   if (!parsed) return null;
   const { reply, ...detail } = parsed;
-  return { detail, reply, etag: response.headers.get("ETag") };
+  return { detail: { ...detail, version: SUPPORT_CONTRACT_VERSION }, reply, etag: response.headers.get("ETag") };
 }
 
 export class SupportConflictError extends Error {}
-type MutationBody = { version: typeof SUPPORT_CONTRACT_VERSION; status: "open" | "resolved"; observedMessageId: string } | { version: typeof SUPPORT_CONTRACT_VERSION; body: string; clientMessageId: string; readThroughMessageId: string } | { version: typeof SUPPORT_CONTRACT_VERSION; lastMessageId: string } | { version: typeof SUPPORT_CONTRACT_VERSION; handler: SupportHandler };
+type MutationBody = { version: typeof SUPPORT_CONTRACT_VERSION; status: "open" | "resolved"; observedMessageId: string } | { version: typeof OPERATOR_REPLY_CONTRACT_VERSION; body: string; clientMessageId: string; readThroughMessageId: string } | { version: typeof SUPPORT_CONTRACT_VERSION; lastMessageId: string } | { version: typeof SUPPORT_CONTRACT_VERSION; handler: SupportHandler };
 const conflictMessage = "This conversation changed. Review the latest messages, then try again.";
 
 async function request<T>(path: string, parser: Parser<T>, body?: MutationBody, conflict?: string): Promise<T>;
@@ -77,7 +78,7 @@ export const operatorSupportTransport: OperatorSupportTransport = {
   reply: (id, body, clientMessageId, readThroughMessageId) => request(`/api/admin/support/conversations/${encodeURIComponent(id)}/messages`, (value, response) => {
     const result = parseReplyResult(value, response);
     return result?.detail.conversation.id === id ? result : null;
-  }, { version: SUPPORT_CONTRACT_VERSION, body, clientMessageId, readThroughMessageId }),
+  }, { version: OPERATOR_REPLY_CONTRACT_VERSION, body, clientMessageId, readThroughMessageId }),
   status: (id, status, observedMessageId) => request(`/api/admin/support/conversations/${encodeURIComponent(id)}/status`, parseConversationResult, { version: SUPPORT_CONTRACT_VERSION, status, observedMessageId }),
   handler: (id, handler) => request(`/api/admin/support/conversations/${encodeURIComponent(id)}/handler`, parseConversationResult, { version: SUPPORT_CONTRACT_VERSION, handler }, handler === "assistant" ? "Can't hand back yet. Reply to the customer first, or check the Support assistant settings." : conflictMessage),
 };

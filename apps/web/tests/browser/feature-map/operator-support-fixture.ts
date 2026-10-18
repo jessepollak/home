@@ -3,6 +3,7 @@ import { json } from "../fixtures/api";
 import { FIXED_NOW } from "../fixtures/fixed-time";
 import { fixtureOperatorAddress } from "../fixtures/session";
 import {
+  OPERATOR_REPLY_CONTRACT_VERSION,
   SUPPORT_CONTRACT_VERSION,
   parseOperatorSupportHandlerRequest,
   parseOperatorSupportReplyRequest,
@@ -10,6 +11,7 @@ import {
   type OperatorSupportConversationResponse,
   type OperatorSupportListResponse,
   type OperatorSupportMessage,
+  type OperatorSupportReplyResponse,
   type SupportHandler,
 } from "../../../shared/support/contract";
 
@@ -67,6 +69,10 @@ function detail(status: Status = "open", handler: SupportHandler = "assistant", 
   };
 }
 
+function replyResponse(response: OperatorSupportConversationResponse, messageId: string, replayed: boolean): OperatorSupportReplyResponse {
+  return { ...response, version: OPERATOR_REPLY_CONTRACT_VERSION, reply: { messageId, replayed } };
+}
+
 function clipPreview(body: string): string {
   let text = "";
   for (const point of body) {
@@ -99,7 +105,7 @@ export function operatorSupportFixtureRoutes(): ReadonlyArray<readonly [string, 
     ["**/api/admin/support/summary", { version: SUPPORT_CONTRACT_VERSION, unreadConversations: 1 }],
     ["**/api/admin/support/conversations?**", list()],
     [`**${conversationPath}`, detail()],
-    [`**${conversationPath}/messages`, detail("open", "operator", [customerMessage, operatorMessage()])],
+    [`**${conversationPath}/messages`, replyResponse(detail("open", "operator", [customerMessage, operatorMessage()]), operatorMessage().id, false)],
     [`**${conversationPath}/status`, detail("resolved")],
     [`**${conversationPath}/handler`, detail("open", "operator")],
     [`**${conversationPath}/read`, {}],
@@ -134,14 +140,17 @@ export async function installOperatorSupportFixtures(page: Page): Promise<void> 
       if (path === `${conversationPath}/messages`) {
         const parsed = parseOperatorSupportReplyRequest(request.postDataJSON());
         if (!parsed) return invalid(route);
-        if (!replyIds.has(parsed.clientMessageId)) {
+        const replayed = replyIds.has(parsed.clientMessageId);
+        if (!replayed) {
           const id = `55555555-5555-4555-8555-${(++replyCounter).toString(16).padStart(12, "0")}`;
           replyIds.set(parsed.clientMessageId, id);
           handler = "operator";
           unread = false;
           messages = [...messages, { ...operatorMessage(parsed.body), id }];
         }
-        return json(route, detail(status, handler, messages));
+        const response = detail(status, handler, messages);
+        const messageId = replyIds.get(parsed.clientMessageId);
+        return json(route, parsed.version === OPERATOR_REPLY_CONTRACT_VERSION && messageId ? replyResponse(response, messageId, replayed) : response);
       }
       if (path === `${conversationPath}/status`) {
         const parsed = parseOperatorSupportStatusRequest(request.postDataJSON());

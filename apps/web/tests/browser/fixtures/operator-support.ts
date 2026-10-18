@@ -11,6 +11,6 @@ export const supportDetail: OperatorSupportConversationResponse = {
   customer: { status: "active", country: "US", firstSeenAt: at, lastSeenAt: at, emails: ["customer@example.com"], accountProviders: ["base-account"], wallets: [], recentEvents: [] },
 };
 export const supportOlderDetail: OperatorSupportConversationResponse = { ...supportDetail, conversation: { ...supportDetail.conversation, messages: [supportReply], messagesNextCursor: null } };
-export const supportReplayResponse: OperatorSupportReplyResponse = { ...supportDetail, reply: { messageId: supportReplyId, replayed: true } };
-export const supportFreshResponse: OperatorSupportReplyResponse = { ...supportDetail, conversation: { ...supportDetail.conversation, messages: [...supportDetail.conversation.messages, supportReply] }, reply: { messageId: supportReplyId, replayed: false } };
+export const supportReplayResponse: OperatorSupportReplyResponse = { ...supportDetail, version: 3, reply: { messageId: supportReplyId, replayed: true } };
+export const supportFreshResponse: OperatorSupportReplyResponse = { ...supportDetail, version: 3, conversation: { ...supportDetail.conversation, messages: [...supportDetail.conversation.messages, supportReply] }, reply: { messageId: supportReplyId, replayed: false } };
 export const supportList: OperatorSupportListResponse = { version: 2, conversations: [supportConversationId, supportOtherConversationId].map((id) => ({ id, status: "open", handler: "operator", lastMessageAt: at, preview: "My funding order needs help", lastAuthorType: "customer", unread: false, customerLabel: id === supportConversationId ? "customer@example.com" : "other@example.com" })), nextCursor: null };

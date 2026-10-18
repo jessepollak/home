@@ -1,6 +1,7 @@
 import { parseAddress } from "@/shared/chain/hex";
 
 export const SUPPORT_CONTRACT_VERSION = 2 as const;
+export const OPERATOR_REPLY_CONTRACT_VERSION = 3 as const;
 
 export type SupportAuthorType = "customer" | "operator" | "assistant";
 export type SupportMessageStatus = "sent" | "draft";
@@ -37,12 +38,12 @@ export type OperatorSupportMessage = SupportMessage & { authorOperator: `0x${str
 export type OperatorSupportCustomer = { status: string; country: string | null; firstSeenAt: string; lastSeenAt: string; emails: string[]; accountProviders: string[]; wallets: `0x${string}`[]; recentEvents: { name: string; occurredAt: string }[] };
 export type OperatorSupportContext = SupportContextRef & { summary: string | null };
 export type OperatorSupportConversationResponse = { version: typeof SUPPORT_CONTRACT_VERSION; conversation: { id: string; status: "open" | "resolved"; handler: SupportHandler; handedOffAt: string | null; assistantAvailable: boolean; createdAt: string; resolvedAt: string | null; messages: OperatorSupportMessage[]; messagesNextCursor: string | null; contextRefs: OperatorSupportContext[] }; customer: OperatorSupportCustomer };
-export type OperatorSupportReplyResponse = OperatorSupportConversationResponse & { reply: { messageId: string; replayed: boolean } };
+export type OperatorSupportReplyResponse = Omit<OperatorSupportConversationResponse, "version"> & { version: typeof OPERATOR_REPLY_CONTRACT_VERSION; reply: { messageId: string; replayed: boolean } };
 export type OperatorSupportHandlerRequest = { version: typeof SUPPORT_CONTRACT_VERSION; handler: SupportHandler };
 export type SupportCredentialPutRequest = { version: typeof SUPPORT_CONTRACT_VERSION; apiKey: string };
 export type SupportCredentialResponse = { version: typeof SUPPORT_CONTRACT_VERSION; configured: boolean; last4: string | null; updatedAt: string | null; available: boolean };
 export type OperatorSupportSummary = { version: typeof SUPPORT_CONTRACT_VERSION; unreadConversations: number };
-export type OperatorSupportReplyRequest = { version: typeof SUPPORT_CONTRACT_VERSION; body: string; clientMessageId: string; readThroughMessageId: string };
+export type OperatorSupportReplyRequest = { version: typeof SUPPORT_CONTRACT_VERSION | typeof OPERATOR_REPLY_CONTRACT_VERSION; body: string; clientMessageId: string; readThroughMessageId: string };
 export type SupportReadRequest = { version: typeof SUPPORT_CONTRACT_VERSION; lastMessageId: string };
 export type OperatorSupportStatusRequest = { version: typeof SUPPORT_CONTRACT_VERSION; status: "open" | "resolved"; observedMessageId: string };
 export type OperatorSupportListQuery = { status: "open" | "resolved" | "all"; before?: string; limit: number };
@@ -101,9 +102,9 @@ export function parseSupportCredentialResponse(value: unknown): SupportCredentia
   return { version: SUPPORT_CONTRACT_VERSION, configured, last4, updatedAt, available };
 }
 export function parseOperatorSupportReplyRequest(value: unknown): OperatorSupportReplyRequest | null {
-  if (!object(value) || value.version !== SUPPORT_CONTRACT_VERSION || !keys(value, ["version", "body", "clientMessageId", "readThroughMessageId"])) return null;
+  if (!object(value) || (value.version !== SUPPORT_CONTRACT_VERSION && value.version !== OPERATOR_REPLY_CONTRACT_VERSION) || !keys(value, ["version", "body", "clientMessageId", "readThroughMessageId"])) return null;
   const body = normalizeSupportBody(value.body);
-  return body === null || !messageId(value.clientMessageId) || !uuid(value.readThroughMessageId) ? null : { version: SUPPORT_CONTRACT_VERSION, body, clientMessageId: value.clientMessageId, readThroughMessageId: value.readThroughMessageId };
+  return body === null || !messageId(value.clientMessageId) || !uuid(value.readThroughMessageId) ? null : { version: value.version, body, clientMessageId: value.clientMessageId, readThroughMessageId: value.readThroughMessageId };
 }
 export function parseSupportReadRequest(value: unknown): SupportReadRequest | null {
   return object(value) && keys(value, ["version", "lastMessageId"]) && value.version === SUPPORT_CONTRACT_VERSION && uuid(value.lastMessageId)
@@ -192,13 +193,13 @@ export function parseOperatorSupportConversationResponse(value: unknown): Operat
   return { version: SUPPORT_CONTRACT_VERSION, conversation: { id: c.id, status: c.status, handler: c.handler, handedOffAt: c.handedOffAt, assistantAvailable: c.assistantAvailable, createdAt: c.createdAt, resolvedAt: c.resolvedAt, messages, messagesNextCursor: c.messagesNextCursor, contextRefs }, customer: { status: person.status, country: person.country, firstSeenAt: person.firstSeenAt, lastSeenAt: person.lastSeenAt, emails: person.emails, accountProviders: person.accountProviders, wallets: person.wallets, recentEvents } };
 }
 export function parseOperatorSupportReplyResponse(value: unknown): OperatorSupportReplyResponse | null {
-  if (!object(value) || !keys(value, ["version", "conversation", "customer", "reply"]) || !object(value.reply) || !keys(value.reply, ["messageId", "replayed"]) || !uuid(value.reply.messageId) || typeof value.reply.replayed !== "boolean") return null;
-  const detail = parseOperatorSupportConversationResponse({ version: value.version, conversation: value.conversation, customer: value.customer });
+  if (!object(value) || value.version !== OPERATOR_REPLY_CONTRACT_VERSION || !keys(value, ["version", "conversation", "customer", "reply"]) || !object(value.reply) || !keys(value.reply, ["messageId", "replayed"]) || !uuid(value.reply.messageId) || typeof value.reply.replayed !== "boolean") return null;
+  const detail = parseOperatorSupportConversationResponse({ version: SUPPORT_CONTRACT_VERSION, conversation: value.conversation, customer: value.customer });
   if (!detail) return null;
   const reply = { messageId: value.reply.messageId, replayed: value.reply.replayed };
   const matched = detail.conversation.messages.find((item) => item.id === reply.messageId);
   if (matched && (matched.authorType !== "operator" || matched.status !== "sent")) return null;
-  return { ...detail, reply };
+  return { ...detail, version: OPERATOR_REPLY_CONTRACT_VERSION, reply };
 }
 export function parseOperatorSupportSummary(value: unknown): OperatorSupportSummary | null {
   return object(value) && keys(value, ["version", "unreadConversations"]) && value.version === SUPPORT_CONTRACT_VERSION && count(value.unreadConversations) ? { version: SUPPORT_CONTRACT_VERSION, unreadConversations: value.unreadConversations } : null;
