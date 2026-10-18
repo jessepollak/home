@@ -481,9 +481,9 @@ test("older-window card-source failure keeps newer cards and shows its warning",
   await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
   await expect.poll(async () => {
     await page.clock.runFor(100);
-    return feed.getByText("Card purchases may be out of date.").count();
+    return feed.getByText("Card purchases may be out of date").count();
   }).toBe(1);
-  await expect(feed.getByText("Card purchases may be out of date.")).toBeVisible();
+  await expect(feed.getByText("Card purchases may be out of date")).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   await expect(rows).toHaveCount(3);
 });
