@@ -226,6 +226,7 @@ function BorrowDirectMarket({
 }) {
   const detail = useBorrowDetail(session, marketId, fetchAccountResource, true);
   const detailView = queryViewState(detail, { hasCachedData: detail.data !== undefined });
+  const refreshPending = detail.data !== undefined && !detail.isFetchedAfterMount;
   const snapshot = detail.data ?? null;
   const hasCollateral = snapshot ? BigInt(snapshot.position.collateralRaw) > BigInt(0) : false;
   const risk = borrowRiskState(snapshot?.position.healthFactorWad ?? null);
@@ -235,7 +236,7 @@ function BorrowDirectMarket({
   const [dialogSnapshot, setDialogSnapshot] = useState<BorrowMarketSnapshot | null>(null);
   const [dialogOpen, setDialogOpen] = useState(true);
   const [operation, setOperation] = useState<BorrowOperation | null>(null);
-  if (!dialogSnapshot && snapshot && canOpen && detailView === "ready") {
+  if (!dialogSnapshot && snapshot && canOpen && detailView === "ready" && !refreshPending) {
     setDialogSnapshot(snapshot);
     setOperation(BigInt(snapshot.position.collateralRaw) > BigInt(0) ? "borrow" : "supply-and-borrow");
   }
@@ -259,11 +260,11 @@ function BorrowDirectMarket({
         <p className="text-sm text-muted-foreground">Borrow USDC against your crypto on Base.</p>
       </div>
       {!session?.smartAccount && !sessionSettling ? <Alert role="status"><AlertTitle>Sign in to view Borrow</AlertTitle></Alert> : null}
-      {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detailView === "loading") ? <BorrowOverviewLoading /> : null}
+      {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && (detailView === "loading" || (detailView === "ready" && refreshPending && !dialogSnapshot))) ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && (detailView === "failed" || detailView === "failed-with-data") ? (
         <LoadErrorCard texture="cant-load" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
       ) : null}
-      {snapshot && detailView === "ready" && !canOpen && !dialogSnapshot ? (
+      {snapshot && detailView === "ready" && !refreshPending && !canOpen && !dialogSnapshot ? (
         <Card className="overflow-hidden">
           <CardContent>
             <div className="space-y-4 sm:px-1">

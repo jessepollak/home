@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, within } from "storybook/test";
 import { HttpResponse, http } from "msw";
-import { getHomeQueryClient } from "@/client/query/query-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { BorrowExperience } from "@/client/borrowing/borrowing-experience";
 import { shellContentFrameClassName } from "@/components/shell-layout";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -108,6 +109,37 @@ export const RefreshFailureWithCachedDetail: Story = {
     await expect(await screen.findByRole("alert")).toHaveTextContent("Borrow is unavailable");
     await expect(screen.queryByRole("button", { name: "Add collateral" })).toBeNull();
     await expect(screen.queryByRole("button", { name: /^Withdraw/ })).toBeNull();
+    await expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+  },
+};
+
+function openableSnapshot(): BorrowMarketSnapshot {
+  const entry = fixtureOverview.opportunities.find((candidate) => candidate.availability.status === "available" && candidate.market.id === ethMarketId);
+  if (entry?.availability.status !== "available") throw new Error("Borrow market fixture is unavailable.");
+  return entry.availability.snapshot;
+}
+
+let refreshGate = Promise.withResolvers<void>();
+
+export const RefreshFailureBeforeOpeningCachedMarket: Story = {
+  beforeEach: async () => {
+    await import("@/client/borrowing/borrow-money-dialog");
+    refreshGate = Promise.withResolvers<void>();
+    const client = getHomeQueryClient();
+    client.clear();
+    client.setQueryData(ownerQueryKey(dataOwnerKey(session), "borrow-market", ethMarketId), openableSnapshot());
+  },
+  parameters: { msw: { handlers: [http.get(`/api/borrow/markets/${ethMarketId}`, async () => {
+    await refreshGate.promise;
+    return HttpResponse.json({}, { status: 503 });
+  })] } },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await expect(await screen.findByText("Loading Borrow overview")).toBeInTheDocument();
+    await expect(screen.queryByRole("dialog")).toBeNull();
+    refreshGate.resolve();
+    await expect(await screen.findByRole("alert")).toHaveTextContent("Borrow is unavailable");
+    await expect(screen.queryByRole("dialog")).toBeNull();
     await expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
   },
 };
