@@ -85,11 +85,14 @@ export function TransferActionsForWallet({
   const routeOpen = transferFlow !== null;
   const effectiveEntry = transferFlow === "send" && (sendOffered || initialActionId !== null) ? "send" : "cash-out";
   const routeEntryKey = `${transferFlow ?? ""}:${initialActionId ?? ""}`;
+  const routeEntryAction = initialActionId !== null;
   const [entry, setEntry] = useState<"send" | "cash-out">(effectiveEntry);
-  const [syncedEntryKey, setSyncedEntryKey] = useState(routeEntryKey);
-  if (syncedEntryKey !== routeEntryKey) {
-    setSyncedEntryKey(routeEntryKey);
-    if (routing && routeOpen) setEntry(effectiveEntry);
+  const [synced, setSynced] = useState({ key: routeEntryKey, hadAction: routeEntryAction, boundary });
+  if (synced.key !== routeEntryKey || synced.boundary !== boundary) {
+    setSynced({ key: routeEntryKey, hadAction: routeEntryAction, boundary });
+    const droppedAction = synced.boundary === boundary
+      && synced.hadAction && !routeEntryAction && synced.key.split(":")[0] === (transferFlow ?? "");
+    if (routing && routeOpen && !droppedAction) setEntry(effectiveEntry);
   }
   useEffect(() => {
     if (!routeOpen || transferFlow === entry) return;
@@ -151,6 +154,10 @@ export function TransferActionsForWallet({
     if (routing) routing.setFlow(firstStepFlow, { mode: "replace", opener: routing.flowOpener ?? null });
     else commitClientUrl(flowHref(window.location.pathname, firstStepFlow), "replace");
   }, [firstStepFlow, routing]);
+  const clearSubmittedAction = useCallback(() => {
+    if (routing) routing.setFlow(entry, { mode: "replace", opener: routing.flowOpener ?? null });
+    else commitClientUrl(flowHref(window.location.pathname, entry), "replace");
+  }, [entry, routing]);
   const switchToSend = () => {
     setEntry("send");
     if (routing) routing.setFlow("send", { mode: "replace", opener: routing.flowOpener ?? null });
@@ -201,7 +208,7 @@ export function TransferActionsForWallet({
         resumeActionId={initialActionId}
         onReview={showReview}
         onInvalidResume={showFirstStep}
-        onSubmitted={showFirstStep}
+        onSubmitted={clearSubmittedAction}
         onClose={close}
         onClosed={finishClose}
       />

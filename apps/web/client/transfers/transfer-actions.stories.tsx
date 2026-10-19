@@ -179,12 +179,24 @@ export const SendOffWhileAtDestinationKeepsSendStep: Story = {
   },
 };
 
-function FlowHarness({ actionId = ACTION_ID, rejectResume = false }: { actionId?: string | null; rejectResume?: boolean }) {
+function FlowHarness({ actionId = ACTION_ID, rejectResume = false, switchOwner = false }: { actionId?: string | null; rejectResume?: boolean; switchOwner?: boolean }) {
+  const [ownerSwitched, setOwnerSwitched] = useState(false);
+  useEffect(() => {
+    if (!switchOwner) return;
+    const onSwitch = () => setOwnerSwitched(true);
+    offeringChanges.addEventListener("owner-switch", onSwitch);
+    return () => offeringChanges.removeEventListener("owner-switch", onSwitch);
+  }, [switchOwner]);
   const [routeFlow, setRouteFlow] = useState<ShellFlow | null>("send");
   const [routeActionId, setRouteActionId] = useState<string | null>(actionId);
-  const activeWallet: AccountWalletClient = useMemo(() => rejectResume
-    ? { ...wallet, resumeMoneyAction: async () => { throw new Error("unavailable"); } }
-    : wallet, [rejectResume]);
+  const activeWallet: AccountWalletClient = useMemo(() => {
+    const base = rejectResume
+      ? { ...wallet, resumeMoneyAction: async () => { throw new Error("unavailable"); } }
+      : wallet;
+    return ownerSwitched && wallet.session
+      ? { ...base, ownerKey: `${wallet.ownerKey}-other`, session: { ...wallet.session, user: { ...wallet.session.user, subject: `${wallet.session.user.subject}-other` } } }
+      : base;
+  }, [rejectResume, ownerSwitched]);
   const routing: HomeShellRouting = useMemo(() => ({
     state: readHomeInboundPanelState(
       { panel: "home", account: null, shelf: null, asset: null, market: null },
@@ -224,6 +236,29 @@ export const SendOffBareFlowKeepsFlowInUrl: Story = {
   play: async ({ canvasElement }) => {
     const dialog = await openedDialog(canvasElement, "Cash out");
     await waitForReady(() => expect(within(dialog).getByRole("button", { name: "Continue" })).toBeVisible());
+    await expect(canvasElement.querySelector("[data-route-flow]")).toHaveAttribute("data-route-flow", "cash-out");
+  },
+};
+
+export const SendOffSubmittedPausedSendStaysSend: Story = {
+  render: () => <FlowHarness />,
+  play: async ({ canvasElement }) => {
+    const dialog = await openedDialog(canvasElement, "Confirm");
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Send $1.00" }));
+    await waitForReady(() => expect(within(canvasElement.ownerDocument.body).getByRole("dialog", { name: "Send" })).toBeVisible());
+    await expect(canvasElement.querySelector("[data-route-flow]")).toHaveAttribute("data-route-flow", "send");
+    await expect(storyScreen(canvasElement).getByRole("button", { name: "Close send dialog" })).toBeVisible();
+  },
+};
+
+export const SendOffOwnerSwitchAfterSubmitResetsEntry: Story = {
+  render: () => <FlowHarness switchOwner />,
+  play: async ({ canvasElement }) => {
+    const dialog = await openedDialog(canvasElement, "Confirm");
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Send $1.00" }));
+    await waitForReady(() => expect(storyScreen(canvasElement).getByRole("dialog", { name: "Send" })).toBeVisible());
+    offeringChanges.dispatchEvent(new Event("owner-switch"));
+    await openedDialog(canvasElement, "Cash out");
     await expect(canvasElement.querySelector("[data-route-flow]")).toHaveAttribute("data-route-flow", "cash-out");
   },
 };
