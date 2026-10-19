@@ -21,7 +21,11 @@ try {
 }
 
 const expected = (await import(resolve(repository, "package.json"))).default.devDependencies["agent-browser"];
-const version = spawnSync(binary, ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+const version = spawnSync(binary, ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], timeout: 10000, killSignal: "SIGKILL" });
+if ((version.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
+  console.error(`Pinned agent-browser did not answer --version within 10s. Reinstall it with \`${BROWSER_REINSTALL_COMMAND}\`.`);
+  process.exit(1);
+}
 if (version.error || version.status !== 0) {
   console.error(`Pinned agent-browser failed its version check. Reinstall it with \`${BROWSER_REINSTALL_COMMAND}\`.`);
   process.exit(1);
@@ -32,7 +36,16 @@ if (actual !== `agent-browser ${expected}`) {
   process.exit(1);
 }
 
-const result = spawnSync(binary, process.argv.slice(2), { stdio: "inherit" });
+const args = process.argv.slice(2);
+const timeout = Number(process.env.HOME_AGENT_BROWSER_TIMEOUT_MS);
+const result = spawnSync(binary, args, {
+  stdio: "inherit",
+  ...(Number.isInteger(timeout) && timeout > 0 ? { timeout, killSignal: "SIGKILL" as const } : {}),
+});
+if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
+  console.error(`agent-browser ${args[0] ?? "command"} did not return within ${timeout / 1000}s.`);
+  process.exit(124);
+}
 if (result.error) {
   console.error(result.error);
   process.exit(1);
