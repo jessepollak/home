@@ -30,6 +30,8 @@ For a new surface, or for additional states where Before adds no information, us
 
 Do not commit media or upload only one representative from a larger retained set. The tables present evidence you retained; they do not require capturing a screenshot matrix.
 
+Preview media must be GitHub attachments (`https://github.com/user-attachments/assets/<id>` or `https://user-images.githubusercontent.com/<path>`) or repository-relative files that exist on the PR head. Board links, `story:<story-id>`, and Vercel/Storybook links are not media. A row without a capture must say exactly `Preview unchanged` with a reason, such as `Preview unchanged: no rendered change`. Docs-only, CI-only, and pure server PRs may instead use `N/A: <reason>` to exempt Preview. The PR body shape gate fails dangling references and media-less rows without the exact phrase and a reason.
+
 Capture the live implementation in a real browser — preview, production, or localhost on the PR head. Design comps, empty scaffolds, and unlabeled `/dev` harness shots are not proof. If you push new UI changes after capturing, replace the screenshot; do not keep stale ones.
 
 Use the [review-board workflow](design-system/component-workshop.md#review-boards) for design proposals and selection. Add **Before / Proposed / Implemented** media references inside this same Preview section when useful; record approval links and observed facts in Evidence. A review board manifest is for arranging stories, not a second approval or screenshot-evidence system.
