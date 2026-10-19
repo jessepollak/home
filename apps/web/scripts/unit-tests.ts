@@ -106,7 +106,7 @@ export function mergeJunit(reports: string[]) {
 }
 
 export type BatchStatus = "pass" | "test failures" | "runtime crash" | "runtime error" | "no matching tests";
-export function classifyBatch(exit: number | null, signal: string | null, xml: string | null, nameFilter: boolean): BatchStatus {
+export function classifyBatch(exit: number | null, signal: Bun.Subprocess["signalCode"], xml: string | null, nameFilter: boolean): BatchStatus {
   if (signal || (exit !== 0 && exit !== 1)) return "runtime crash";
   if (!xml) return "runtime crash";
   try {
@@ -120,7 +120,7 @@ export function classifyBatch(exit: number | null, signal: string | null, xml: s
   }
 }
 
-export type BatchResult = { index: number; partition: "dom" | "non-dom"; files: string[]; exit: number | null; signal: string | null; status: BatchStatus; peakRssBytes: number | null; seconds: number; overLimit: boolean };
+export type BatchResult = { index: number; partition: "dom" | "non-dom"; files: string[]; exit: number | null; signal: Bun.Subprocess["signalCode"]; status: BatchStatus; peakRssBytes: number | null; seconds: number; overLimit: boolean };
 export function summarize(results: BatchResult[]) {
   const counts = { pass: 0, failed: 0, crashed: 0, errored: 0, empty: 0 };
   for (const result of results) {
@@ -135,7 +135,7 @@ export function summarize(results: BatchResult[]) {
   return `Batches: ${counts.pass} passed, ${counts.failed} test failures, ${counts.crashed} Bun runtime crashes, ${counts.errored} Bun runtime errors, ${counts.empty} without matching tests (${results.filter((result) => result.partition === "dom").length} DOM, ${results.filter((result) => result.partition === "non-dom").length} non-DOM); max peak RSS ${(max / 1024 ** 3).toFixed(2)} GiB; elapsed ${seconds.toFixed(1)}s`;
 }
 
-type CommandResult = { exit: number | null; signal: string | null; maxRSS?: number; seconds: number };
+type CommandResult = { exit: number | null; signal: Bun.Subprocess["signalCode"]; maxRSS?: number; seconds: number };
 export type Command = (args: string[], cwd: string) => Promise<CommandResult>;
 export const spawnCommand: Command = async (args, cwd) => {
   const start = performance.now();
