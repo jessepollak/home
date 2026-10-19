@@ -134,7 +134,7 @@ fi
 
 bun dev
 ```
-For a fresh worktree of an existing clone, run `bun run worktree:bootstrap` first: it installs a real dependency tree and reports a base that is behind `origin`'s default branch without rebasing. Add `-- --copy-env` to copy `apps/web/.env.local` from the primary checkout when it is absent.
+For a fresh worktree of an existing clone, run `bun run worktree:bootstrap` first: it installs a real dependency tree, prunes stale Next generated types when no dev server owns them, and reports a base that is behind `origin`'s default branch without rebasing. Add `-- --copy-env` to copy `apps/web/.env.local` from the primary checkout when it is absent.
 
 Open `http://localhost:3000`. Public surfaces work without credentials. The optional pre-release deployment password gate is disabled unless `HOME_ACCESS_REQUIRED=1`; it is not Home customer or administrator authentication. Hosted launch and recovery are documented in [Vercel deploy](docs/vercel-deploy.md#launch); the separate [pre-release access gate](docs/vercel-deploy.md#pre-release-production-access) does not grant production authorization.
 

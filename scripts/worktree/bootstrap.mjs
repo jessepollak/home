@@ -15,6 +15,7 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertPinnedBrowserReady, repairPinnedBrowser } from "../verify/pinned-agent-browser.mjs";
+import { pruneStaleNextTypes } from "./next-types.mjs";
 
 export const BOOTSTRAP_COMMAND = "bun run worktree:bootstrap";
 export const COPY_ENV_FLAG = "--copy-env";
@@ -379,7 +380,7 @@ export function copyWorktreeEnv(root, git = gitCommand, { copy = false } = {}) {
   return { status: "copied", target, source };
 }
 
-export function bootstrap(root, { git = gitCommand, run = runCommand, log = console.log, copyEnv = false } = {}) {
+export function bootstrap(root, { git = gitCommand, run = runCommand, log = console.log, copyEnv = false, devServer } = {}) {
   const problems = dependencyProblems(root);
   for (const problem of problems) {
     log(`worktree: ${problem.relative} is ${describeProblem(problem)}`);
@@ -389,6 +390,15 @@ export function bootstrap(root, { git = gitCommand, run = runCommand, log = cons
     log("worktree: applied the lockfile with `bun install --frozen-lockfile`");
   } else if (dependencies.state === "verified") {
     log("worktree: dependencies already match bun.lock");
+  }
+  const nextTypes = pruneStaleNextTypes(root, { devServer });
+  if (nextTypes.state === "pruned") {
+    log(`worktree: pruned stale Next generated types in ${nextTypes.directories.join(", ")}`);
+  } else if (nextTypes.state === "in-use") {
+    const disposition = nextTypes.removedDirectories?.length > 0
+      ? `pruned stale Next generated types in ${nextTypes.removedDirectories.join(", ")}; kept ${nextTypes.keptDirectories.join(", ")}`
+      : "stale Next generated types left alone";
+    log(`worktree: ${disposition} because a dev server may be running (apps/web/.next/dev/lock: ${nextTypes.devServer.state}); stop the dev server, then rerun \`${BOOTSTRAP_COMMAND}\``);
   }
   const browser = repairPinnedBrowser(root);
   if (browser.state === "repaired") {
@@ -410,7 +420,7 @@ export function bootstrap(root, { git = gitCommand, run = runCommand, log = cons
   }
   const summary = `worktree ready: dependencies ${dependencies.state}; base ${baseSummary(base)}; env ${env.status}`;
   log(summary);
-  return { dependencies, browser, base, env, summary };
+  return { dependencies, nextTypes, browser, base, env, summary };
 }
 
 if (executedAsScript(import.meta.url)) {

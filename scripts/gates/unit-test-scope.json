@@ -106,6 +106,7 @@
     { "pattern": "tests/amount-adapters.property.test.ts", "category": "money-math" },
     { "pattern": "tests/auth/**", "category": "auth" },
     { "pattern": "tests/route-contract-inventory.test.ts", "category": "repository-gate" },
+    { "pattern": "tests/storybook-request-guard.test.ts", "category": "repository-gate" },
     { "pattern": "tests/review-board/frame-loading.test.ts", "category": "review-board-runtime" },
     { "pattern": "tests/review-board/load-queue.test.ts", "category": "review-board-runtime" },
     { "pattern": "tests/review-board/preview-update.test.ts", "category": "review-board-runtime" },
@@ -177,7 +178,6 @@
     { "path": "tests/review-board/review-build.test.ts", "reason": "Existing review-board build configuration, not frame runtime." },
     { "path": "tests/review-board/url-state.test.ts", "reason": "Existing review-board URL navigation, not frame runtime." },
     { "path": "tests/review-board/vercel-comments.test.ts", "reason": "Existing review-board annotation geometry, not frame runtime." },
-    { "path": "tests/storybook-request-guard.test.ts", "reason": "Existing Storybook fixture request plumbing suite." },
     { "path": "tests/well-known/apple-pay-domain-association.test.ts", "reason": "Existing public document routing configuration suite." }
   ]
 }

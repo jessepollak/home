@@ -29,12 +29,17 @@ const STORYBOOK_RUNTIME_EXACT_PATHS = [
   "/tests/browser/feature-map/search-fixtures.ts",
 ] as const;
 
+function isAppStylesheetPath(pathname: string): boolean {
+  return pathname.startsWith("/app/") && pathname.endsWith(".css");
+}
+
 export function isStorybookRuntimeRequest(request: Request, storybookOrigin: string): boolean {
   const url = new URL(request.url);
   if (url.origin !== storybookOrigin) return false;
   if (request.method !== "GET" && request.method !== "HEAD") return false;
 
   return STORYBOOK_RUNTIME_EXACT_PATHS.some((path) => url.pathname === path) ||
+    isAppStylesheetPath(url.pathname) ||
     /^\/tests\/browser\/fixtures\/(?:[\w-]+\/)*[\w-]+\.(?:ts|tsx|js|mjs)$/.test(url.pathname) ||
     STORYBOOK_RUNTIME_PATHS.some((path) => url.pathname.startsWith(path));
 }

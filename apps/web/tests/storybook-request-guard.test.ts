@@ -33,6 +33,43 @@ describe("Storybook unexpected-request guard", () => {
     }
   });
 
+  test("allows the app global stylesheet", () => {
+    expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}/app/globals.css`), ORIGIN)).not.toThrow();
+  });
+
+  test("allows a timestamped Vite global stylesheet reload", () => {
+    expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}/app/globals.css?t=1792446159612`), ORIGIN)).not.toThrow();
+  });
+
+  test("allows a direct Vite global stylesheet request", () => {
+    expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}/app/globals.css?direct`), ORIGIN)).not.toThrow();
+  });
+
+  test("allows a nested app stylesheet", () => {
+    expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}/app/(shell)/shell.css`), ORIGIN)).not.toThrow();
+  });
+
+  test("allows HEAD for an app stylesheet", () => {
+    expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}/app/globals.css`, { method: "HEAD" }), ORIGIN)).not.toThrow();
+  });
+
+  test.each([
+    "/app/globals.scss",
+    "/app/page.tsx",
+    "/styles.css",
+    "/api/styles.css",
+  ])("rejects non-app-stylesheet path %s", (path) => {
+    expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}${path}`), ORIGIN)).toThrow("[Storybook request guard]");
+  });
+
+  test("rejects POST for an app stylesheet", () => {
+    expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}/app/globals.css`, { method: "POST" }), ORIGIN)).toThrow("[Storybook request guard]");
+  });
+
+  test("rejects an app stylesheet from another origin", () => {
+    expect(() => rejectUnexpectedStoryRequest(new Request("https://provider.example.invalid/app/globals.css"), ORIGIN)).toThrow("[Storybook request guard]");
+  });
+
   test("fails visibly for unexpected component, API, and external requests", () => {
     for (const request of [
       new Request(`${ORIGIN}/api/balances`),

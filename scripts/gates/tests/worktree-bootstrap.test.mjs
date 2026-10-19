@@ -133,6 +133,36 @@ test("bootstrap repairs a non-executable pinned browser in an installed dependen
   assert.equal(result.browser.state, "repaired");
 });
 
+for (const state of ["stopped", "running", "unknown"]) {
+  test(`bootstrap handles stale Next types with a ${state} dev server before base reporting`, (t) => {
+    const root = scratch(t);
+    installedApp(root);
+    const validator = join(root, "apps/web/.next/dev/types/validator.ts");
+    mkdirSync(dirname(validator), { recursive: true });
+    writeFileSync(validator, 'const handler = {} as typeof import("../../../app/removed/page.js");');
+    const lines = [];
+    const result = bootstrap(root, {
+      git: scriptedGit({}),
+      run: () => ({ status: 0 }),
+      log: (line) => lines.push(line),
+      devServer: { state },
+    });
+    const typeLines = lines.filter((line) => line.startsWith("worktree:") && line.includes("Next generated types"));
+    assert.equal(typeLines.length, 1);
+    assert.ok(lines.indexOf(typeLines[0]) < lines.findIndex((line) => line.startsWith("worktree: base")));
+    if (state === "stopped") {
+      assert.equal(result.nextTypes.state, "pruned");
+      assert.match(typeLines[0], /pruned stale Next generated types/);
+      assert.throws(() => statSync(validator), { code: "ENOENT" });
+    } else {
+      assert.equal(result.nextTypes.state, "in-use");
+      assert.match(typeLines[0], /left alone because a dev server may be running.*apps\/web\/\.next\/dev\/lock/);
+      assert.equal(statSync(validator).isFile(), true);
+    }
+    assert.equal(lines.at(-1), "worktree ready: dependencies verified; base unknown (not a git repository); env skipped");
+  });
+}
+
 test("bootstrap rejects an installed pinned browser without a native binary", (t) => {
   const root = scratch(t);
   if (nativeBrowserBinary(root) === undefined) {
