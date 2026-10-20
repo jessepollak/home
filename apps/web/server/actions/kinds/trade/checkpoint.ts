@@ -1,6 +1,7 @@
 import "server-only";
 
 import cdpPackage from "../../../../node_modules/@coinbase/cdp-sdk/package.json";
+import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import type { Address } from "@/shared/trading/server-types";
 import type { CdpSwapsClient, SwapQuote } from "./cdp-swaps";
 import { PRICE_PATH, SWAPS_PATH } from "./cdp-swaps";
@@ -9,7 +10,17 @@ import { checkQuoteCompatibility, rfqMakerAuthorizations, swapExecutionMatches, 
 import { verifyRfqMakerAuthorizations } from "./rfq-maker";
 
 const DEFAULT_TOKEN = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" as Address;
-const ACCEPTABLE_READINESS = new Set(["ready", "insufficient-balance"]);
+const USDC = BASE_USDC_ADDRESS.toLowerCase();
+const ACQUISITION_CAP_USDC = BigInt(1_000_000);
+const ACQUISITION_BUFFER_BPS = BigInt(1_000);
+const ACCEPTABLE_READINESS = new Set(["ready", "insufficient-balance", "acquirable"]);
+
+export function acquisitionUsdc({ shortfall, buy }: { shortfall: bigint; buy: { fromAmount: bigint; toAmount: bigint } | null }): bigint | null {
+  if (shortfall <= BigInt(0) || buy === null || buy.fromAmount <= BigInt(0) || buy.toAmount <= BigInt(0)) return null;
+  const numerator = shortfall * (BigInt(10_000) + ACQUISITION_BUFFER_BPS) * buy.fromAmount;
+  const denominator = BigInt(10_000) * buy.toAmount;
+  return (numerator + denominator - BigInt(1)) / denominator;
+}
 
 export type CheckpointAmounts = { buy: bigint; sell: bigint };
 export function checkpointExitCode(report: Awaited<ReturnType<typeof runSwapsCheckpoint>>): 0 | 2 {
@@ -62,7 +73,9 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     simulationIncomplete: boolean | null;
     balanceIssue: boolean;
     executionReadiness: "ready" | string;
+    acquisitionUsdc: string | null;
   }>;
+  let buyRate: { fromAmount: bigint; toAmount: bigint } | null = null;
   let sellAmount = deriveSellFromBuy ? BigInt(0) : amounts.sell;
   for (const direction of ["buy", "sell"] as const) {
     const request = { direction, token, fromAmount: direction === "buy" ? amounts.buy : sellAmount, taker, slippageBps: 100 };
@@ -95,6 +108,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
     let simulationIncomplete: boolean | null = null;
     let balanceIssue = false;
     let executionReadiness = failure ?? "no-liquidity";
+    let acquisitionAmount: string | null = null;
     if (quote.liquidityAvailable) {
       ({ targetMatchesRouter, calldataMatches, actionSelectors, actionsVerified, inputSpend } = swapExecutionMatches(request, quote, swapRouter ?? "0x0000000000000000000000000000000000000000"));
       if (swapRouter === null || block === null) { actionsVerified = null; inputSpend = null; compatibilityReason = "chain-unavailable"; executionReadiness = "chain-unavailable"; }
@@ -139,6 +153,29 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
         } catch (error) {
           executionReadiness = makerFailure ?? (error instanceof TradePreparationError ? error.reason : "provider-unavailable");
         }
+        if (direction === "buy" && makerFailure === null && actionsVerified === true && quote.toAmount > BigInt(0)) {
+          try {
+            validateSwapQuote({ request, quote: { ...quote, issues: { ...quote.issues, balance: null } }, now, currentBlockNumber: block, swapRouter, reportUnknownActions: false });
+            buyRate = { fromAmount: quote.fromAmount, toAmount: quote.toAmount };
+          } catch {
+            buyRate = null;
+          }
+        }
+        if (direction === "sell" && executionReadiness === "insufficient-balance" && providerRequest.fromToken !== USDC) {
+          const balance = quote.issues.balance;
+          if (balance !== null && balance.token === providerRequest.fromToken && balance.currentBalance < request.fromAmount) {
+            const needed = acquisitionUsdc({ shortfall: request.fromAmount - balance.currentBalance, buy: buyRate });
+            if (needed !== null) {
+              try {
+                validateSwapQuote({ request, quote: { ...quote, issues: { ...quote.issues, balance: null } }, now, currentBlockNumber: block, swapRouter, reportUnknownActions: false });
+                acquisitionAmount = needed.toString();
+                if (needed <= ACQUISITION_CAP_USDC) executionReadiness = "acquirable";
+              } catch {
+                executionReadiness = "insufficient-balance";
+              }
+            }
+          }
+        }
       }
     }
     directions.push({
@@ -156,7 +193,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
       permit2Present: quote.liquidityAvailable && quote.permit2 !== null,
       permit2Compatible, permit2Reason, spenderMatchesTarget, targetMatchesRouter, calldataMatches,
       actionSelectors, actionsVerified, inputSpend, quoteCompatible, compatibilityReason, allowanceSpenderIsPermit2,
-      simulationIncomplete, balanceIssue, executionReadiness,
+      simulationIncomplete, balanceIssue, executionReadiness, acquisitionUsdc: acquisitionAmount,
     });
   }
   return {

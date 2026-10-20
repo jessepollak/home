@@ -67,7 +67,7 @@ With `COINBASE_ONRAMP_MODE=sandbox`, a complete September 16 `agent-browser` run
 
 ## Local development versus provider hosted acceptance
 
-The seven steps complete **local adapter development**: a local clone walk proves only the environment and path actually exercised. Plan live validation under the [verification ladder](../operating-manual.md#verification-ladder). Provider-specific constraints can still require the protected production alias. Tool-produced evidence satisfies the applicable rung; `Real money: not tested` applies only when policy blocks a required rung because the bot balance is insufficient or the confirm amount or recipient cannot be established from the review screen.
+The seven steps complete **local adapter development**: a local clone walk proves only the environment and path actually exercised. Plan live validation under the [verification ladder](../operating-manual.md#verification-ladder). Provider-specific constraints can still require the protected production alias. Tool-produced evidence satisfies the applicable rung; `Real money: not tested` applies only when policy blocks a required rung because the bot's USDC balance is insufficient for the confirm or a permitted setup acquisition, that acquisition exceeds the $1 cap or cannot be prepared through Home, the confirm amount or recipient cannot be established from the review screen, or `HOME_VERIFY_ACCOUNT_ADDRESS` is not provisioned.
 
 Provider-specific acceptance playbooks belong beside their adapters so implementation details, operational gates, and recovery procedures stay together. The Ripio provider folder contains the worked example: phase-by-phase checkbox gates with owners and approvers, the six-rail matrix, local recovery checklists, and claim semantics.
 
