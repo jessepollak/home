@@ -55,6 +55,15 @@ export default async function SettingsPage() {
     <OperatorSection address={address} heading="Settings">
       <ul className="grid gap-3">
         <li>
+          <Item variant="outline" render={<Link href="/admin/settings/brand" />}>
+            <ItemContent className="min-w-0">
+              <ItemTitle>Brand</ItemTitle>
+              <ItemDescription>Set the name, description and colors customers see.</ItemDescription>
+            </ItemContent>
+            <ItemActions><ChevronRight className="size-4 rtl:-scale-x-100" aria-hidden="true" /></ItemActions>
+          </Item>
+        </li>
+        <li>
           <Item variant="outline" render={<Link href="/admin/settings/funding" />}>
             <ItemContent className="min-w-0">
               <ItemTitle>Money in and out</ItemTitle>

@@ -171,7 +171,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     }
     expectUncacheable(await page.reload());
     await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
-    for (const path of ["/admin/nope", "/admin/settings/brand", "/admin/customers/x/y"]) {
+    for (const path of ["/admin/nope", "/admin/settings/unknown", "/admin/customers/x/y"]) {
       const unknown = await page.goto(path);
       expect(unknown?.status()).toBe(404);
       expectUncacheable(unknown);

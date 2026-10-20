@@ -14,6 +14,7 @@ import {
 } from "./cdp-client";
 import { SignInEmail } from "./sign-in-email";
 import { SignInOtp } from "./sign-in-otp";
+import { useBrandName } from "@/client/brand/brand-name";
 import { BaseAccountOnlySignIn } from "./sign-in-base-account";
 import { SignInBlockedPanel, SignInStatus } from "./sign-in-shell";
 
@@ -69,6 +70,7 @@ export function AccountSignInSheet({
   onClose: () => void;
   onVerified?: () => void;
 }) {
+  const brandName = useBrandName();
   const {
     projectConfigured,
     signInAvailability,
@@ -298,7 +300,7 @@ export function AccountSignInSheet({
         <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-left">
           <span />
           <DrawerTitle id="account-sign-in-title" className="text-center">
-            {step === "otp" ? "Check your email" : "Sign in to Home"}
+            {step === "otp" ? "Check your email" : `Sign in to ${brandName}`}
           </DrawerTitle>
           <Button
             className="size-11 shrink-0"

@@ -7,7 +7,9 @@ import { privateJson } from "@/server/http/private-response";
 import { readJsonBody } from "@/server/http/request";
 import { authorizeOperatorRequest } from "@/server/operator/api";
 import { readOperatorConfig, type OperatorConfig } from "@/server/operator/config";
+import { writeObservabilityEvent } from "@/server/observability/log";
 import { invalidateInvestVisibility } from "@/server/operator-settings/invest";
+import { BRAND_SETTINGS_DOMAIN } from "@/shared/operator-branding/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parsePutSettingsRequest, validCursor, type OperatorSettingsErrorCode } from "@/shared/operator-settings/contract";
 import { AdminAuditLog } from "./audit";
@@ -15,6 +17,7 @@ import { OperatorSettingsConflictError, OperatorSettingsStore, OperatorSettingsV
 import { invalidateRegionPolicy } from "./regions";
 import { REGIONS_SETTINGS_DOMAIN } from "@/shared/operator-settings/regions";
 import { invalidateProductOffering } from "./offering";
+import { invalidateBrand } from "./brand";
 
 type Dependencies = {
   authorize?: (request: Request) => Promise<VerifiedAccountSession | Response>;
@@ -22,6 +25,7 @@ type Dependencies = {
   store?: () => OperatorSettingsStore;
   audit?: () => AdminAuditLog;
   invalidateInvest?: () => void;
+  invalidateBrand?: () => void;
 };
 
 function error(code: OperatorSettingsErrorCode, status: number): Response {
@@ -93,6 +97,10 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
         if (domain === REGIONS_SETTINGS_DOMAIN) invalidateRegionPolicy();
         if (domain === "invest") (deps.invalidateInvest ?? invalidateInvestVisibility)();
         if (domain === "products") invalidateProductOffering();
+        if (domain === BRAND_SETTINGS_DOMAIN) {
+          try { (deps.invalidateBrand ?? invalidateBrand)(); }
+          catch (cause) { writeObservabilityEvent({ kind: "unhandled-server-error", route: "/api/admin/settings/brand", errorName: cause instanceof Error ? cause.name : "UnknownError" }); }
+        }
         return privateJson({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, ...written }, 200);
       } catch (cause) {
         if (cause instanceof OperatorSettingsConflictError) {

@@ -8,6 +8,8 @@ import {
   type ComponentPropsWithoutRef,
   type MouseEventHandler,
 } from "react";
+import { useBrandName } from "@/client/brand/brand-name";
+import { BRAND_COPY_FALLBACK_NAME } from "@/shared/operator-branding/theme";
 import { Button } from "@/components/ui/button";
 import styles from "./home-mark.module.css";
 
@@ -116,6 +118,8 @@ const MarkArtwork = memo(function MarkArtwork({ interactive = true }: { interact
 
 export function HomeMark(props: HomeMarkProps) {
   const desktop = useSyncExternalStore(subscribeDesktop, isDesktop, serverDesktop);
+  const brandName = useBrandName();
+  const markLabel = brandName === BRAND_COPY_FALLBACK_NAME ? BRAND_COPY_FALLBACK_NAME : `${brandName} home`;
   const { className, compact = false, "aria-label": ariaLabel, ...controlProps } = props;
   const controlClass = className ? `${styles.control} ${className}` : styles.control;
   const artwork = <>
@@ -126,7 +130,7 @@ export function HomeMark(props: HomeMarkProps) {
   return (
     <span className={compact ? `${styles.root} ${styles.compact}` : styles.root} data-home-mark="">
       {"href" in controlProps && controlProps.href !== undefined ? (
-        <a {...controlProps} className={controlClass} aria-label={ariaLabel ?? "Home"}>
+        <a {...controlProps} className={controlClass} aria-label={ariaLabel ?? markLabel}>
           {artwork}
         </a>
       ) : (
@@ -135,7 +139,7 @@ export function HomeMark(props: HomeMarkProps) {
           type={controlProps.type ?? "button"}
           variant="ghost"
           className={controlClass}
-          aria-label={ariaLabel ?? "Home"}
+          aria-label={ariaLabel ?? markLabel}
         >
           {artwork}
         </Button>

@@ -33,7 +33,6 @@ export function parseBrandSettings(value: unknown): BrandSettings | null {
   return { displayName, description, primaryColor, backgroundColor };
 }
 
-/** @public contrast calculation used by the brand application follow-up */
 export const BRAND_FOREGROUND_MIN_CONTRAST = 4.5;
 
 function luminance(color: string): number {
@@ -44,14 +43,12 @@ function luminance(color: string): number {
   return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722;
 }
 
-/** @public contrast calculation used by the brand application follow-up */
 export function contrastRatio(a: string, b: string): number {
   const first = luminance(a);
   const second = luminance(b);
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 
-/** @public foreground tokens used by the brand application follow-up */
 export function deriveBrandTokens(settings: BrandSettings): { primaryForeground: "#000000" | "#ffffff"; backgroundForeground: "#000000" | "#ffffff" } {
   return {
     primaryForeground: contrastRatio(settings.primaryColor, "#ffffff") >= BRAND_FOREGROUND_MIN_CONTRAST ? "#ffffff" : "#000000",

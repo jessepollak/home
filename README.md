@@ -104,7 +104,7 @@ Built on this branch today. Provider integrations still need live, funded confir
 - Sign in with email (CDP embedded wallet) or Base Account; network fees can be paid in USDC through a paymaster.
 - Layer boundaries, dead code, and design-system rules are enforced in lint and CI, with Playwright and Storybook coverage.
 
-In progress: tokenized stock trading, card programs (provider foundations only), operator fees, applying saved brand settings to customer pages, and the operator support inbox.
+In progress: tokenized stock trading, card programs (provider foundations only), operator fees, and the operator support inbox.
 
 ## Deploy your own
 
@@ -165,7 +165,7 @@ bun check      # repository gates, test, lint, typecheck, and build
 
 | Customize | Start here |
 | --- | --- |
-| Brand, colors, and navigation | `apps/web/config/brand.ts`, `apps/web/app/globals.css`, `apps/web/config/navigation.ts` |
+| Brand, colors, and navigation | Defaults in `apps/web/config/brand.ts`, `apps/web/app/globals.css`, `apps/web/config/navigation.ts`; operators edit name, description and light colors in Admin → Settings → Brand |
 | Countries and currency presentation | `apps/web/config/regions.ts`; administrators choose offered regions in `/admin` Settings |
 | Wallet, savings, and Invest assets | `apps/web/config/portfolio-assets.ts`, `apps/web/shared/savings/config.ts`, `apps/web/config/invest-assets.ts`; administrators hide Invest categories and assets in `/admin` Settings |
 | Account, data, funding, and protocol providers | `apps/web/server/` and the matching setup guides in `docs/` |

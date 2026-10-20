@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import { brandedPageTitle } from "@/server/operator-settings/brand";
 import { InvestmentsPageContent } from "@/client/home/shell-pages";
 
-export const metadata: Metadata = { title: "Investments · Home", description: "Your verified Home account." };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: await brandedPageTitle("Investments") };
+}
 
 export default function Page() {
   return <InvestmentsPageContent />;

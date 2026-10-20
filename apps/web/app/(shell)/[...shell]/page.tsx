@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { brandedPageTitle } from "@/server/operator-settings/brand";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { parseShellLocation } from "@/config/shell-location";
@@ -20,7 +21,7 @@ export async function generateMetadata({
 }: PageProps<"/[...shell]">): Promise<Metadata> {
   const { shell } = await params;
   const panel = parseShellLocation(`/${shell.join("/")}`).panel;
-  return { title: `${shellTitles[panel]} · Home`, description: "Your verified Home account." };
+  return { title: await brandedPageTitle(shellTitles[panel]) };
 }
 
 export default function ShellFallbackPage() {

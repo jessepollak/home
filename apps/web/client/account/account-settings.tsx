@@ -11,6 +11,7 @@ import { useAccountExport } from "@/client/account/use-account-export";
 import { useInviteLink } from "@/client/account/use-invite-link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { useBrandName } from "@/client/brand/brand-name";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Item,
@@ -58,13 +59,14 @@ function serverShareSnapshot() {
 }
 
 function InviteLinkControl({ url }: { url: string }) {
+  const brandName = useBrandName();
   const [shareError, setShareError] = useState(false);
   const canShare = useSyncExternalStore(subscribeShare, shareSnapshot, serverShareSnapshot);
 
   async function shareLink(): Promise<"shared" | "cancelled" | "failed"> {
     setShareError(false);
     try {
-      await navigator.share({ title: "Home", url });
+      await navigator.share({ title: brandName, url });
       return "shared";
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
@@ -141,6 +143,7 @@ export function AccountSettings({
   const deletion = useAccountDeletion({ ownerKey: accountSessionOwnerKey, fetchAccountResource, onCompleted: completeDeletion });
   const leaving = Boolean(accountSessionOwnerKey && leavingOwner === accountSessionOwnerKey);
   useLayoutEffect(() => { if (leaving) leaveRegion.current?.focus(); }, [leaving]);
+  const brandName = useBrandName();
   const [appearanceMessage, setAppearanceMessage] = useState("");
   const support = useOptionalSupport();
   const region = presentationRegions[regionId];
@@ -336,7 +339,7 @@ export function AccountSettings({
                   <LogOut className="size-4" aria-hidden="true" />
                   Sign out
                 </Button>
-                <span id="sign-out-hint" hidden>Sign out of Home</span>
+                <span id="sign-out-hint" hidden>Sign out of {brandName}</span>
               </li>
             </ul>
           </CardContent>
@@ -388,7 +391,7 @@ export function AccountSettings({
                   <ItemDescription>
                     {accountExport.state === "error"
                       ? "Couldn't create your export. Nothing in your account changed."
-                      : "Download a copy of your Home data"}
+                      : `Download a copy of your ${brandName} data`}
                   </ItemDescription>
                   <ItemDescription role="status" aria-live="polite">
                     {accountExport.state === "generating" ? "Preparing your export"

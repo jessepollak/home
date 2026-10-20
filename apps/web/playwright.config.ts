@@ -94,11 +94,11 @@ process.env.HOME_ACCESS_SIGNING_SECRET = accessSigningSecret;
 export default defineConfig({
   globalSetup: products ? undefined : regression ? "./tests/browser/global-setup.ts" : productionNavigation ? undefined : "./tests/browser/smoke-setup.ts",
   testDir: "./tests/browser",
-  testMatch: products ? "products-settings.pw.ts" : "**/*.pw.ts",
-  testIgnore: products ? [] : ["**/products-settings.pw.ts"],
+  testMatch: products ? ["products-settings.pw.ts", "settings-brand.pw.ts"] : "**/*.pw.ts",
+  testIgnore: products ? [] : ["**/products-settings.pw.ts", "**/settings-brand.pw.ts"],
   fullyParallel: !products && !regression && !productionNavigation,
   workers: products || regression || productionNavigation ? 1 : 2,
-  globalTimeout: products ? 180_000 : !regression && !productionNavigation && process.env.CI ? 90_000 : undefined,
+  globalTimeout: products ? 300_000 : !regression && !productionNavigation && process.env.CI ? 90_000 : undefined,
   ...browserSmokeCiPolicy(Boolean(process.env.CI), { rejectRetryOnlyPass: products || regression }),
   ...(products ? { outputDir: "test-results/products", reporter: [["list"], ["json", { outputFile: "test-results/products.json" }]] } satisfies Parameters<typeof defineConfig>[0] : {}),
   ...(productionNavigation ? {
