@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readMigrationSql } from "@/tests/helpers/migrations";
 import { createCardAccountStore } from "./account-store";
 const url = process.env.FUNDING_PG_TEST_URL?.trim();
 const schema = `card_accounts_${randomBytes(4).toString("hex")}`;
@@ -23,7 +23,7 @@ let admin: Bun.SQL, sql: SqlExecutor;
       await tx.unsafe(await readMigrationSql("022_card_programs.sql"));
     });
     sql = createPostgresSqlExecutor(url!, { schema });
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); });
   test("backfills sandbox rows, preserves UUID and drops replaced columns", async () => {
     expect(await createCardAccountStore(sql).read(owner, "sandbox")).toEqual({ customerId: owner, mode: "sandbox", provider: "bridge",

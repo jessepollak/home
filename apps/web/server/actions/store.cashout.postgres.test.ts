@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { ActionsStore, actionOwnerKey } from "./store";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
@@ -54,7 +54,7 @@ describePostgres("cash-out lockout eligibility", () => {
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   beforeEach(async () => {
     const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
     setSystemTime(clock.rows[0]!.instant);

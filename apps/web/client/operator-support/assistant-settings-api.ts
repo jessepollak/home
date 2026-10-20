@@ -1,5 +1,5 @@
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseOperatorSettingsErrorResponse, parseSettingsResponse, parseSupportAssistantSettings, type PutSettingsRequest, type SupportAssistantSettings } from "@/shared/operator-settings/contract";
-import { SUPPORT_CONTRACT_VERSION, parseSupportCredentialResponse, parseSupportErrorResponse, type SupportCredentialPutRequest, type SupportCredentialResponse } from "@/shared/support/contract";
+import { SUPPORT_CONTRACT_VERSION, parseSupportCredentialResponse, parseOperatorSupportErrorResponse, type SupportCredentialPutRequest, type SupportCredentialResponse } from "@/shared/support/contract";
 
 export type SupportAssistantSettingsSnapshot = { value: SupportAssistantSettings; revision: number };
 
@@ -56,7 +56,7 @@ async function readSettings(path: string, method: "GET" | "PUT", body?: PutSetti
 async function readCredential(method: "GET" | "PUT" | "DELETE", body?: RequestBody): Promise<SupportCredentialResponse> {
   const { response, value } = await send(credentialPath, method, body);
   if (!response.ok) {
-    const error = parseSupportErrorResponse(value);
+    const error = parseOperatorSupportErrorResponse(value);
     if (error?.error.code === "INVALID_REQUEST") throw new Error("Enter a key between 8 and 512 characters.");
     throw new Error(error?.error.code === "SUPPORT_UNAVAILABLE" ? "Keys can't be stored right now. Try again later." : unavailable);
   }

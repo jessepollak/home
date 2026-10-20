@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readMigrationSql } from "@/tests/helpers/migrations";
 import { createCardTransactionStore } from "./transaction-store";
 const url = process.env.FUNDING_PG_TEST_URL?.trim(); const schema = `card_transactions_${randomBytes(4).toString("hex")}`;
 const owner = "11111111-1111-4111-8111-111111111111", other = "22222222-2222-4222-8222-222222222222";
@@ -21,7 +21,7 @@ const base = { cardId: "provider-card", authorizationId: "auth-fixture", amountM
     await sql.query("INSERT INTO customers(id,first_seen_at,last_seen_at,first_seen_source) VALUES ($1,now(),now(),'sign_in'),($2,now(),now(),'sign_in')", [owner, other]);
     await sql.query("INSERT INTO card_accounts(customer_id,mode,provider) VALUES ($1,'sandbox','bridge'),($2,'sandbox','immersve')", [owner, other]);
     await sql.query("INSERT INTO cards(id,customer_id,mode,provider,provider_card_id,wallet_address) VALUES ($1,$2,'sandbox','bridge','provider-card',$5),($3,$4,'sandbox','immersve','provider-card',$5)", [card, owner, otherCard, other, "0x1111111111111111111111111111111111111111"]);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); });
   test("upsert and supersession are scoped by provider, mode and owner", async () => {
     const store = createCardTransactionStore(sql);

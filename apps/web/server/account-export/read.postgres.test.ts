@@ -6,7 +6,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createPostgresSqlExecutor, type SqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
 import { actionOwnerKey } from "@/server/actions/store";
 import { PostgresBalanceSnapshotStore } from "@/server/balances/snapshot-store";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { AccountExportReader } from "./read";
 import { createAccountExportHandler } from "./handler";
 
@@ -80,7 +80,7 @@ function records(body: AccountExportResponse, name: string) {
     await seed(2);
     await sql.query("INSERT INTO webhook_subscriptions(subscription_id,secret,target,event_type) VALUES ('excluded',$1,'https://example.test','balance')", [secret]);
     await sql.query("INSERT INTO support_assistant_credentials(id,envelope,last4,updated_at,updated_by) VALUES ('default',$1,'ABCD',$2,$3)", [secret, at, address(2)]);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); });
 
   test("exports every class without another customer's facts or any secret material", async () => {

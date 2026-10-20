@@ -1,4 +1,4 @@
-import { AUTH_BOUNDARY_ERROR_CODES, type AuthBoundaryErrorCode } from "@/shared/account/contracts/auth-boundary";
+import type { AuthBoundaryErrorCode } from "@/shared/account/contracts/auth-boundary";
 import { parseAddress } from "@/shared/chain/hex";
 
 export const SUPPORT_CONTRACT_VERSION = 2 as const;
@@ -49,7 +49,8 @@ export type SupportReadRequest = { version: typeof SUPPORT_CONTRACT_VERSION; las
 export type OperatorSupportStatusRequest = { version: typeof SUPPORT_CONTRACT_VERSION; status: "open" | "resolved"; observedMessageId: string };
 export type OperatorSupportListQuery = { status: "open" | "resolved" | "all"; before?: string; limit: number };
 export type SupportErrorCode = AuthBoundaryErrorCode | "OPERATOR_FORBIDDEN" | "NOT_FOUND" | "INVALID_REQUEST" | "CROSS_ORIGIN" | "RATE_LIMITED" | "SUPPORT_UNAVAILABLE" | "CUSTOMER_CLOSED" | "SUPPORT_CONFLICT";
-export type SupportErrorResponse = { error: { code: SupportErrorCode; message?: string } };
+export type OperatorSupportErrorCode = Exclude<SupportErrorCode, "ACCOUNT_DELETED" | "INVALID_ACCOUNT_PROVIDER" | "BASE_ACCOUNT_DISABLED" | "AMBIGUOUS_AUTHENTICATION">;
+export type OperatorSupportErrorResponse = { error: { code: OperatorSupportErrorCode; message?: string } };
 
 function object(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function keys(value: Record<string, unknown>, required: string[], optional: string[] = []): boolean {
@@ -205,11 +206,11 @@ export function parseOperatorSupportReplyResponse(value: unknown): OperatorSuppo
 export function parseOperatorSupportSummary(value: unknown): OperatorSupportSummary | null {
   return object(value) && keys(value, ["version", "unreadConversations"]) && value.version === SUPPORT_CONTRACT_VERSION && count(value.unreadConversations) ? { version: SUPPORT_CONTRACT_VERSION, unreadConversations: value.unreadConversations } : null;
 }
-export function parseSupportErrorResponse(value: unknown): SupportErrorResponse | null {
-  const codes: SupportErrorCode[] = [...AUTH_BOUNDARY_ERROR_CODES, "OPERATOR_FORBIDDEN", "NOT_FOUND", "INVALID_REQUEST", "CROSS_ORIGIN", "RATE_LIMITED", "SUPPORT_UNAVAILABLE", "CUSTOMER_CLOSED", "SUPPORT_CONFLICT"];
+const OPERATOR_SUPPORT_ERROR_CODES: readonly OperatorSupportErrorCode[] = ["UNAUTHENTICATED", "AUTH_UNAVAILABLE", "OPERATOR_FORBIDDEN", "NOT_FOUND", "INVALID_REQUEST", "CROSS_ORIGIN", "RATE_LIMITED", "SUPPORT_UNAVAILABLE", "CUSTOMER_CLOSED", "SUPPORT_CONFLICT"];
+export function parseOperatorSupportErrorResponse(value: unknown): OperatorSupportErrorResponse | null {
   if (!object(value) || !keys(value, ["error"]) || !object(value.error) || !keys(value.error, ["code"], ["message"])) return null;
   const error = value.error;
-  const code = codes.find((code) => code === error.code);
+  const code = OPERATOR_SUPPORT_ERROR_CODES.find((code) => code === error.code);
   if (!code) return null;
   let message: string | undefined;
   if (Object.hasOwn(error, "message")) {

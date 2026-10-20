@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql, readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readMigrationSql, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { PostgresFundingProviderCustomerStore } from "./customer-store";
 
 const connectionString = process.env.FUNDING_PG_TEST_URL?.trim();
@@ -52,7 +52,7 @@ describePostgres("PostgresFundingProviderCustomerStore production contract", () 
     for (const migration of await readAllMigrationSql()) await inTestSchema(migration);
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
     store = new PostgresFundingProviderCustomerStore(sql);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
 
   beforeEach(async () => {
     await sql.query("TRUNCATE funding_provider_customers, funding_orders");
