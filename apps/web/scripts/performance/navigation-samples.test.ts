@@ -191,7 +191,7 @@ test("pools p95 across sessions, separates history return from back-to, and comp
   expect(rounded).toContain("| cash:to | 2 | 35 | 10.56 | 60 |");
   expect(rounded).toContain("| home-cash | 1 | 3.33 |");
   expect(rounded).toContain("| home-cash | 60 | 70.46 | +10.46 |");
-  expect(() => summarizeNavigation(samples.filter((row) => row.scenario !== "invest"))).toThrow();
+  expect(summarizeNavigation(samples.filter((row) => row.scenario !== "invest")).groups["home-invest"]).toBeUndefined();
 });
 
 const comparison = { version: 1, summary: summarizeNavigation(samples), fling: { timing: { p95: 27, over33: 4, droppedPct: 2, blockingMs: 1 } },

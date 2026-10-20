@@ -1,5 +1,6 @@
 import { parseClientPerformanceReport, type HomeNavigationReport } from "../../shared/observability/client-performance.contract";
 import { median, percentile } from "./evaluate";
+import { outcomesMarkdown, type outcomesResult } from "./outcomes";
 
 export type Scenario = "cash" | "invest" | "back";
 export type Leg = "to" | "return";
@@ -52,17 +53,23 @@ function metrics(samples: NavigationSample[]): Metrics {
 }
 
 export function summarizeNavigation(samples: NavigationSample[]): NavigationSummary {
-  const legs = Object.fromEntries((["cash", "invest", "back"] as const).flatMap((scenario) => (["to", "return"] as const).map((leg) => {
+  const legs = Object.fromEntries((["cash", "invest", "back"] as const).flatMap((scenario) => (["to", "return"] as const).flatMap((leg) => {
     const subset = samples.filter((sample) => sample.scenario === scenario && sample.leg === leg);
-    return [`${scenario}:${leg}`, metrics(subset)];
+    return subset.length ? [[`${scenario}:${leg}`, metrics(subset)]] : [];
   }))) as Record<string, Metrics>;
   const groups: NavigationSummary["groups"] = {};
   for (const [name, subset] of [
     ["home-cash", samples.filter((sample) => sample.scenario === "cash")],
     ["home-invest", samples.filter((sample) => sample.scenario === "invest")],
     ["back", samples.filter((sample) => sample.scenario === "back" && sample.leg === "return")],
-  ] as const) groups[name] = { ...metrics(subset), pass: metrics(subset).p95 <= 100 };
-  groups["all-gated"] = metrics(samples.filter((sample) => sample.scenario !== "back" || sample.leg === "return"));
+  ] as const) {
+    if (subset.length) {
+      const row = metrics(subset);
+      groups[name] = { ...row, pass: row.p95 <= 100 };
+    }
+  }
+  const gated = samples.filter((sample) => sample.scenario !== "back" || sample.leg === "return");
+  if (gated.length) groups["all-gated"] = metrics(gated);
   return { groups, legs };
 }
 type FlingTiming = { p95: number; over33: number; droppedPct: number; blockingMs: number };
@@ -70,7 +77,7 @@ type FlingSample = { p95: number; over33: number; droppedPct: number; blockingMs
 type Comparison = { summary: NavigationSummary; fling: { timing: FlingTiming };
   environment: { appSha: string; headless: boolean; webkit: string; chromium: string; platform: string; cpu: string; cores: number; fixtureClock: string };
   options: { skipBuild: boolean; rows: number; flingRepeat: number; headed: boolean; smoke: boolean; sessions?: number; roundTrips?: number };
-  label: string | null; flingAttempts?: { attempt: number; ok: boolean }[] };
+  label: string | null; flingAttempts?: { attempt: number; ok: boolean }[]; outcomes?: ReturnType<typeof outcomesResult> };
 
 const legsInOrder = ["cash:to", "cash:return", "invest:to", "invest:return", "back:to", "back:return"] as const;
 const roundTo = (value: number, places: number) => Number(value.toFixed(places));
@@ -127,6 +134,8 @@ export function isFlingResult(value: unknown, expectedRepeat: number): boolean {
 export function baselineMismatches(current: unknown, baseline: unknown): string[] {
   const mismatches: string[] = [];
   const run = object(current);
+  const failures = object(run.outcomes).failures;
+  if (Array.isArray(failures) && failures.length) mismatches.push("outcomes: run has failures");
   const previousRun = object(baseline);
   if (previousRun.version !== 1) mismatches.push("version: unsupported");
   const currentOptions = object(run.options);
@@ -204,7 +213,9 @@ export function navigationMarkdown(result: Comparison, baseline?: unknown, basel
   const signed = (value: number) => `${roundTo(value, 2) > 0 ? "+" : ""}${format(value)}`;
   const { groups, legs } = result.summary;
   const lines = [`# Warm navigation profile${result.label ? ` — ${result.label}` : ""}`, "", `App SHA: ${result.environment.appSha}`,
+    ...(result.outcomes ? ["", ...outcomesMarkdown(result.outcomes.byLeg, result.outcomes.failures, result.outcomes.completedSamples)] : []),
     ...(result.options.skipBuild ? ["Build: reused existing .next (--skip-build); provenance not verified"] : []), "", "## Gate groups (report-only, ≤100 ms)", "",
+    ...(result.outcomes?.failures.length ? ["Percentiles cover completed samples only; non-completed outcomes are excluded.", ""] : []),
     "| Group | n | p50 ms | pooled p95 ms | max ms | Status |", "|---|---:|---:|---:|---:|---|",
     ...Object.entries(groups).map(([name, row]) => `| ${name} | ${row.n} | ${format(row.p50)} | ${format(row.p95)} | ${format(row.max)} | ${row.pass === undefined ? "—" : row.pass ? "pass" : "fail"} |`),
     "", "## Per-leg", "", "| Leg | n | p50 ms | p95 ms | max ms |", "|---|---:|---:|---:|---:|",

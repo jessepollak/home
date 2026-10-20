@@ -6,7 +6,9 @@ import { inlineFixtureMark, twoFrames, type CpuRate, type Session } from "./brow
 import { navigationCycles, navigationSettleMs, navigationTraceCategories } from "./config";
 import { median, percentile } from "./evaluate";
 import { closeDetailRow, fillFeed, installFeed, openDetailRow, scrollFeedTo, selectDetailRow } from "./feed";
-import { browserBack, home, navigate, ready, warmNavigation } from "./navigation";
+import { browserBack, gotoReady, home, navigate, warmNavigation } from "./navigation";
+import { outcomesMarkdown, type LoggedFailure, type outcomesResult } from "./outcomes";
+import { outcomeFromError } from "./readiness";
 import { aggregateReact, reactAvailability, reactCommitCollectorSource, summarizeReactWindow, type ReactAttributionReport, type ReactCommitCollector, type ReactWindowSummary } from "./react-attribution";
 
 export type NavigationLeg = "outbound" | "home" | "back" | "detail";
@@ -30,7 +32,16 @@ export type NavigationAttributionReport = {
   samples: NavigationAttributionSample[]; plainLatenciesByPath: Record<string, number[]>;
   webkit: WebKitResult & { paths: ReturnType<typeof aggregateWebKit>[] };
   react: ReactAttributionReport | null;
+  outcomes: ReturnType<typeof outcomesResult>;
 };
+
+export function recordClassified(error: unknown, ctx: { group: string; paths: readonly string[] }, log: LoggedFailure[]): void {
+  const failure = outcomeFromError(error, { path: ctx.paths[0]!, leg: null });
+  if (!failure || failure.outcome === "completed") throw error;
+  for (const path of ctx.paths) {
+    log.push({ ...failure, outcome: failure.outcome, group: ctx.group, path });
+  }
+}
 
 export function latencySummary(values: number[]) {
   return { samples: values.length, p50: values.length ? median(values) : null, p95: values.length ? percentile(values, 0.95) : null };
@@ -203,16 +214,15 @@ export async function runChromiumNavigationAttribution(session: Session, baseUrl
   await page.clock.install({ time: new Date() });
   await inlineFixtureMark(page);
   const fixture = await installFeed(page, rows);
-  await page.goto(`${baseUrl}/home`, { waitUntil: "domcontentloaded" });
-  await ready(page, "/home");
+  await gotoReady(page, baseUrl, "/home");
   await fillFeed(session, rows, fixture.filled, "section[data-activity-feed]");
   fixture.verify();
   await page.evaluate<void, "top" | "bottom">(scrollFeedTo, "top");
   await twoFrames(page);
-  await warmNavigation(page, [path]);
+  await warmNavigation(page, [path], { baseUrl });
   return collectChromiumAttribution(session, {
     legs: ["outbound", "home"], path: () => path,
-    measure: (leg) => leg === "outbound" ? navigate(page, path) : home(page),
+    measure: (leg, cycle) => leg === "outbound" ? navigate(page, path, undefined, cycle, baseUrl) : home(page, undefined, cycle, baseUrl),
   }, options);
 }
 
@@ -302,11 +312,11 @@ async function collectChromiumAttribution(session: Session, scenario: Attributio
   }
 }
 
-function backScenario(page: Page): AttributionScenario {
+function backScenario(page: Page, baseUrl: string): AttributionScenario {
   return {
     legs: ["home", "back"], path: (leg) => leg === "home" ? "Back (Home tab)" : "Back (browser history)",
-    before: () => navigate(page, "/cash"),
-    measure: (leg) => leg === "home" ? home(page) : browserBack(page),
+    before: () => navigate(page, "/cash", undefined, 0, baseUrl),
+    measure: (leg, cycle) => leg === "home" ? home(page, undefined, cycle, baseUrl) : browserBack(page, cycle, baseUrl),
   };
 }
 
@@ -333,8 +343,7 @@ async function prepareChromiumFeed(session: Session, baseUrl: string, rows: numb
   await page.clock.install({ time: new Date() });
   await inlineFixtureMark(page);
   const fixture = await installFeed(page, rows);
-  await page.goto(`${baseUrl}${path}`, { waitUntil: "domcontentloaded" });
-  await ready(page, path);
+  await gotoReady(page, baseUrl, path);
   await fillFeed(session, rows, fixture.filled, path === "/home" ? "section[data-activity-feed]" : undefined);
   fixture.verify();
 }
@@ -343,8 +352,8 @@ export async function runChromiumBackAttribution(session: Session, baseUrl: stri
   await prepareChromiumFeed(session, baseUrl, rows, "/home", options);
   await session.page.evaluate<void, "top" | "bottom">(scrollFeedTo, "top");
   await twoFrames(session.page);
-  await warmNavigation(session.page, ["/cash"]);
-  return collectChromiumAttribution(session, backScenario(session.page), options);
+  await warmNavigation(session.page, ["/cash"], { baseUrl });
+  return collectChromiumAttribution(session, backScenario(session.page, baseUrl), options);
 }
 
 export async function runChromiumDetailAttribution(session: Session, baseUrl: string, rows: number, options: { collectCommits?: boolean } = {}) {
@@ -365,8 +374,7 @@ export async function runWebKitNavigation(browser: Browser, baseUrl: string, row
     // real and every timer stays cancellable; only Chromium holds query freshness with the clock.
     await inlineFixtureMark(page);
     const fixture = await installFeed(page, rows);
-    await page.goto(`${baseUrl}/home`, { waitUntil: "domcontentloaded" });
-    await ready(page, "/home");
+    await gotoReady(page, baseUrl, "/home");
     const end = page.locator('section[data-activity-feed] [role="status"]').filter({ hasText: "End of activity" });
     const until = Date.now() + 120_000;
     while (!(fixture.filled() && await end.isVisible()) && Date.now() < until) {
@@ -377,7 +385,7 @@ export async function runWebKitNavigation(browser: Browser, baseUrl: string, row
     fixture.verify();
     await page.evaluate<void, "top" | "bottom">(scrollFeedTo, "top");
     await twoFrames(page);
-    await warmNavigation(page, [path], { freezeTime: false });
+    await warmNavigation(page, [path], { freezeTime: false, baseUrl });
     const samples: WebKitSample[] = [];
     const started = Date.now();
     for (let cycle = 1; cycle <= navigationCycles; cycle++) for (const leg of ["outbound", "home"] as const) {
@@ -394,7 +402,7 @@ export async function runWebKitNavigation(browser: Browser, baseUrl: string, row
           stop: () => { cancelAnimationFrame(frame); return gaps; },
         };
       });
-      const latencyMs = leg === "outbound" ? await navigate(page, path) : await home(page);
+      const latencyMs = leg === "outbound" ? await navigate(page, path, undefined, cycle, baseUrl) : await home(page, undefined, cycle, baseUrl);
       const frameGaps = await page.evaluate(() => (window as typeof window & { __homeFrameGaps: { stop: () => number[] } }).__homeFrameGaps.stop());
       samples.push({ path, leg, cycle, latencyMs, frameGaps, frameGapP95Ms: frameGaps.length ? percentile(frameGaps, 0.95) : null,
         frameGapMaxMs: frameGaps.length ? Math.max(...frameGaps) : null, longFrameCount: frameGaps.filter((gap) => gap > 50).length });
@@ -412,8 +420,7 @@ async function runWebKitReturnOrDetail(browser: Browser, baseUrl: string, rows: 
     await installApiFixtures(page, { clock: "system" });
     await inlineFixtureMark(page);
     const fixture = await installFeed(page, rows);
-    await page.goto(`${baseUrl}${path}`, { waitUntil: "domcontentloaded" });
-    await ready(page, path);
+    await gotoReady(page, baseUrl, path);
     const section = path === "/home" ? "section[data-activity-feed]" : 'section[aria-label="Activity"]:not(#navigation-panel)';
     const end = page.locator(`${section} [role="status"]`).filter({ hasText: "End of activity" });
     const until = Date.now() + 120_000;
@@ -427,8 +434,8 @@ async function runWebKitReturnOrDetail(browser: Browser, baseUrl: string, rows: 
     if (path === "/home") {
       await page.evaluate<void, "top" | "bottom">(scrollFeedTo, "top");
       await twoFrames(page);
-      await warmNavigation(page, ["/cash"], { freezeTime: false });
-      scenario = backScenario(page);
+      await warmNavigation(page, ["/cash"], { freezeTime: false, baseUrl });
+      scenario = backScenario(page, baseUrl);
     } else scenario = await detailScenario(page);
     const samples: WebKitSample[] = [];
     const started = Date.now();
@@ -476,8 +483,9 @@ export function attributionMarkdown(report: NavigationAttributionReport | null):
   lines.push(`${report.rows}-row feed; pooled over cycles and measured legs per path. All durations are ms. Chromium uses the existing mobile viewport and CPU throttle; WebKit is desktop and unthrottled.`,
     "Warm round trips report click → destination ready. Back returns to Home from /cash in separate Home-tab and browser-history windows, reporting action → Home ready. Activity detail is the /activity dialog open on the 300-row feed, reporting click → dialog visible.",
     "Attribution windows include two animation frames and the existing 75 ms settle; presented time and pipeline stages are separate, not app latency. Activity detail closes outside the window before the next cycle.",
-    "— means unavailable: no samples/plain timing, missing trace thread metadata or complete presenting-frame pipeline, unsupported long-animation-frame observer, no LoAF duration/invoker, or no rAF gaps. Engine failures are named below.",
-    "", "### Chromium", "", "| Path | Samples | Latency p50 | Latency p95 | Window p50 | Presented samples | Presented p50 | Presented p95 |", "|---|---:|---:|---:|---:|---:|---:|---:|",
+    "— means unavailable: no samples/plain timing, missing trace thread metadata or complete presenting-frame pipeline, unsupported long-animation-frame observer, no LoAF duration/invoker, or no rAF gaps. Engine failures are named below; percentiles and latency tables use completed samples only.",
+    "", ...outcomesMarkdown(report.outcomes.byLeg, report.outcomes.failures, report.outcomes.completedSamples, "### Outcomes"),
+    "### Chromium", "", "| Path | Samples | Latency p50 | Latency p95 | Window p50 | Presented samples | Presented p50 | Presented p95 |", "|---|---:|---:|---:|---:|---:|---:|---:|",
     ...report.chromium.map((row) => `| ${row.path} | ${row.latency.samples} | ${value(row.latency.p50)} | ${value(row.latency.p95)} | ${value(row.windowMs)} | ${row.presented.samples} | ${value(row.presented.p50)} | ${value(row.presented.p95)} |`),
     "", "#### Main thread (per-window medians)", "", "| Path | Script | Forced style | Forced layout | Lifecycle style | Lifecycle layout | Paint | Other | Busy |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ...report.chromium.map((row) => `| ${row.path} | ${["scriptMs", "forcedStyleMs", "forcedLayoutMs", "lifecycleStyleMs", "lifecycleLayoutMs", "paintMs", "otherMs", "busyMs"].map((key) => value(row.main[key])).join(" | ")} |`),

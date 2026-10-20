@@ -3,17 +3,19 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { platform } from "node:os";
 import { measureRoute } from "./bundle";
-import { launch, launchWebKit, withSession } from "./browser";
+import { launch, launchBounded, launchWebKit, withSession } from "./browser";
 import { balancesPaintKinds, balancesPaintRoutes, cpuThrottle, feedSizes, gateIds, maxTracedScenarios, modalCycles, navigationAttributionRows, navigationPaths, repetitions, routes, type GateId } from "./config";
 import { balancesPaintLimit, evaluateStructural, evaluateTiming, exitCode, limitFor, median, medianPaintSample, percentile, type Baseline, type StructuralInput, type TimingInput } from "./evaluate";
 import { runFeed } from "./feed";
 import { runModal } from "./modal";
 import { runNavigation } from "./navigation";
 import { runWalletNavigation } from "./wallet";
-import { aggregateAttribution, aggregateWebKit, attributionMarkdown, runChromiumBackAttribution, runChromiumDetailAttribution, runChromiumNavigationAttribution,
+import { aggregateAttribution, aggregateWebKit, attributionMarkdown, recordClassified, runChromiumBackAttribution, runChromiumDetailAttribution, runChromiumNavigationAttribution,
   runWebKitBackAttribution, runWebKitDetailAttribution, runWebKitNavigation,
   type NavigationAttributionReport, type WebKitResult } from "./navigation-attribution";
 import { aggregateReact, type ReactAttributionReport } from "./react-attribution";
+import { outcomeHeadline, outcomesResult, type LoggedFailure } from "./outcomes";
+import { outcomeFromError } from "./readiness";
 
 const baselineFile = join(import.meta.dir, "baseline.json");
 function parseArgs(argv: string[]) {
@@ -53,7 +55,7 @@ async function main() {
   await mkdir(outDir, { recursive: true });
   for (const entry of ["results.json", "summary.md", "traces"]) await rm(join(outDir, entry), { recursive: true, force: true });
   const sha = process.env.GITHUB_SHA || spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim() || null;
-  const browser = await launch();
+  const browser = await launchBounded(launch, 120_000);
   const phaseRows: { name: string; durationMs: number }[] = [];
   const structuralInputs: StructuralInput[] = [];
   const timingInputs: TimingInput[] = [];
@@ -61,6 +63,7 @@ async function main() {
   const wallets: Awaited<ReturnType<typeof runWalletNavigation>>[] = [];
   const plainLatenciesByPath: Record<string, number[]> = {};
   let navigationAttribution: NavigationAttributionReport | null = null;
+  const outcomeFailures: LoggedFailure[] = [];
   const reruns = new Map<string, (dir: string) => Promise<void>>();
   const cpuScenarios: Record<string, { requested: number[]; applied: number[] }> = {};
   const cpuMismatches: string[] = [];
@@ -232,10 +235,19 @@ async function main() {
     }
     if (!only && !seed) {
       const samples: NavigationAttributionReport["samples"] = [], chromium: NavigationAttributionReport["chromium"] = [];
+      const attempt = async <T>(group: "chromium" | "react", paths: readonly string[], run: () => Promise<T>): Promise<T | null> => {
+        try { return await run(); }
+        catch (error) { recordClassified(error, { group, paths }, outcomeFailures); return null; }
+      };
+      const recordWebKitFailure = (error: unknown, paths: string[]) => {
+        const failure = outcomeFromError(error, { path: paths[0]!, leg: null });
+        if (failure && failure.outcome !== "completed") recordClassified(error, { group: "webkit", paths }, outcomeFailures);
+      };
       for (const path of navigationPaths) {
         const key = `nav-attribution-${navigationAttributionRows}-${path.slice(1)}`;
-        const result = await phase(key, () => withSession(browser, null, (session) =>
-          runChromiumNavigationAttribution(session, baseUrl, navigationAttributionRows, path)));
+        const result = await attempt("chromium", [path], () => phase(key, () => withSession(browser, null, (session) =>
+          runChromiumNavigationAttribution(session, baseUrl, navigationAttributionRows, path))));
+        if (!result) { chromium.push(aggregateAttribution(path, [], plainLatenciesByPath[path] ?? [], null)); continue; }
         recordCpu(key, result.cpu);
         samples.push(...result.samples);
         const aggregated = aggregateAttribution(path, result.samples, plainLatenciesByPath[path] ?? [], result.topInvokerByPath[path] ?? null);
@@ -248,8 +260,12 @@ async function main() {
       const attributionPaths = [...navigationPaths, ...additionalScenarios.flatMap((scenario) => scenario.labels)];
       for (const scenario of additionalScenarios) {
         const key = `nav-attribution-${navigationAttributionRows}-${scenario.name}`;
-        const result = await phase(key, () => withSession(browser, null, (session) =>
-          scenario.chromium(session, baseUrl, navigationAttributionRows)));
+        const result = await attempt("chromium", scenario.labels, () => phase(key, () => withSession(browser, null, (session) =>
+          scenario.chromium(session, baseUrl, navigationAttributionRows))));
+        if (!result) {
+          for (const label of scenario.labels) chromium.push(aggregateAttribution(label, [], plainLatenciesByPath[label] ?? [], null));
+          continue;
+        }
         recordCpu(key, result.cpu);
         samples.push(...result.samples);
         for (const label of scenario.labels) chromium.push(aggregateAttribution(label, result.samples, plainLatenciesByPath[label] ?? [], result.topInvokerByPath[label] ?? null));
@@ -257,14 +273,17 @@ async function main() {
       const webkit: WebKitResult = { browser: null, samples: [], errors: [] };
       try {
         await phase("nav-attribution-webkit", async () => {
-          const desktop = await launchWebKit();
+          const desktop = await launchBounded(launchWebKit, 120_000);
           webkit.browser = `webkit ${desktop.version()}`;
           try {
             for (const path of navigationPaths) {
               try {
                 webkit.samples.push(...await phase(`nav-attribution-webkit-${path.slice(1)}`, () =>
                   runWebKitNavigation(desktop, baseUrl, navigationAttributionRows, path)));
-              } catch (error) { webkit.errors.push({ path, reason: error instanceof Error ? error.message : String(error) }); }
+              } catch (error) {
+                webkit.errors.push({ path, reason: error instanceof Error ? error.message : String(error) });
+                recordWebKitFailure(error, [path]);
+              }
             }
             for (const scenario of additionalScenarios) {
               try {
@@ -272,32 +291,40 @@ async function main() {
                   scenario.webkit(desktop, baseUrl, navigationAttributionRows)));
               } catch (error) {
                 for (const path of scenario.labels) webkit.errors.push({ path, reason: error instanceof Error ? error.message : String(error) });
+                recordWebKitFailure(error, scenario.labels);
               }
             }
           } finally { await desktop.close(); }
         });
-      } catch (error) { webkit.errors.push({ path: null, reason: error instanceof Error ? error.message : String(error) }); }
+      } catch (error) {
+        webkit.errors.push({ path: null, reason: error instanceof Error ? error.message : String(error) });
+        recordWebKitFailure(error, ["browser-launch/close"]);
+      }
       const react: ReactAttributionReport = { url: reactProfilingUrl, samples: [], paths: [], hooks: [],
         reason: reactProfilingUrl ? null : "No profiling build configured" };
       if (reactProfilingUrl) for (const path of navigationPaths) {
         const key = `nav-attribution-react-${navigationAttributionRows}-${path.slice(1)}`;
-        const result = await phase(key, () => withSession(browser, null, (session) =>
-          runChromiumNavigationAttribution(session, reactProfilingUrl, navigationAttributionRows, path, { collectCommits: true })));
+        const result = await attempt("react", [path], () => phase(key, () => withSession(browser, null, (session) =>
+          runChromiumNavigationAttribution(session, reactProfilingUrl, navigationAttributionRows, path, { collectCommits: true }))));
+        if (!result) continue;
         recordCpu(key, result.cpu);
         react.samples.push(...result.samples);
         react.hooks.push({ path, injected: result.hookInjected, reason: result.reactReason });
       }
       if (reactProfilingUrl) for (const scenario of additionalScenarios) {
         const key = `nav-attribution-react-${navigationAttributionRows}-${scenario.name}`;
-        const result = await phase(key, () => withSession(browser, null, (session) =>
-          scenario.chromium(session, reactProfilingUrl, navigationAttributionRows, { collectCommits: true })));
+        const result = await attempt("react", scenario.labels, () => phase(key, () => withSession(browser, null, (session) =>
+          scenario.chromium(session, reactProfilingUrl, navigationAttributionRows, { collectCommits: true }))));
+        if (!result) continue;
         recordCpu(key, result.cpu);
         react.samples.push(...result.samples);
         for (const path of scenario.labels) react.hooks.push({ path, injected: result.hookInjected, reason: result.reactReason });
       }
       react.paths = attributionPaths.map((path) => aggregateReact(path, react.samples));
       navigationAttribution = { rows: navigationAttributionRows, pooling: "cycles and measured legs per path", chromium, samples, plainLatenciesByPath,
-        webkit: { ...webkit, paths: attributionPaths.map((path) => aggregateWebKit(path, webkit.samples)) }, react };
+        webkit: { ...webkit, paths: attributionPaths.map((path) => aggregateWebKit(path, webkit.samples)) }, react,
+        outcomes: outcomesResult([...samples.map(({ path, leg }) => ({ group: "chromium", path, leg })),
+          ...webkit.samples.map(({ path, leg }) => ({ group: "webkit", path, leg }))], outcomeFailures) };
     }
     const structural = evaluateStructural(structuralInputs), timing = evaluateTiming(timingInputs);
     const failures = new Set<string>();
@@ -319,10 +346,12 @@ async function main() {
       environment: { browser: `chromium ${browser.version()}`, viewport: "mobile", cpuThrottle, platform: platform() },
       phases: phaseRows, structural, timing, wallets, cpu: { requested: cpuThrottle, pass: cpuMismatches.length === 0, mismatches: cpuMismatches, scenarios: cpuScenarios },
       timingMode: "report-only", reportOnlyUntil: "2026-10-11", traces,
-      navigationAttribution,
+      navigationAttribution, baselineEligible: outcomeFailures.length === 0,
     };
     await writeFile(join(outDir, "results.json"), JSON.stringify(results, null, 2) + "\n");
+    const headline = navigationAttribution?.outcomes.headline ?? outcomeHeadline(0, outcomeFailures);
     const lines = ["# Performance budgets", "", `Run: ${round(results.durationMs / 1000)} s · ${results.environment.browser} · ${results.environment.platform}`,
+      ...(outcomeFailures.length ? [`**Not a clean run: ${headline}; not eligible to update the committed baseline.**`] : []),
       cpuMismatches.length ? `CPU throttle: requested ${cpuThrottle}×, MISMATCH in ${cpuMismatches.join(", ")}`
         : `CPU throttle: requested ${cpuThrottle}×, applied ${cpuThrottle}× on all ${Object.values(cpuScenarios).reduce((sum, row) => sum + row.applied.length, 0)} samples`,
       "", "## Structural (blocking)", "", "| Gate | Scenario | Value | Limit | Pass |", "|---|---|---:|---:|:---:|",
@@ -339,8 +368,8 @@ async function main() {
       ...(traces.length ? ["Traces: " + traces.join(", "), ""] : [])];
     await writeFile(join(outDir, "summary.md"), lines.join("\n"));
     if (cpuMismatches.length) throw new Error(`CPU throttle mismatch in ${cpuMismatches.join(", ")}; see results.json cpu`);
-    process.exitCode = exitCode(structural);
-    console.log(`Performance budgets: ${structural.filter((row) => !row.pass).length} structural failures, ${timing.filter((row) => row.breach).length} report-only timing breaches; ${round(results.durationMs / 1000)} s`);
+    process.exitCode = Math.max(exitCode(structural), outcomeFailures.length ? 2 : 0);
+    console.log(`Performance budgets: ${structural.filter((row) => !row.pass).length} structural failures, ${timing.filter((row) => row.breach).length} report-only timing breaches${navigationAttribution ? `; ${headline}` : ""}; ${round(results.durationMs / 1000)} s`);
   } finally { await browser.close(); }
 }
 

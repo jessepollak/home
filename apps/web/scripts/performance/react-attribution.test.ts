@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { aggregateReact, reactAvailability, reactCommitCollectorSource, sliceCommits, summarizeCommits, summarizeReactWindow,
   type ReactCommit, type ReactCommitCollector, type ReactSample } from "./react-attribution";
 import { attributionMarkdown, type NavigationAttributionReport } from "./navigation-attribution";
+import { outcomesResult } from "./outcomes";
 
 type Fiber = { stateNode?: unknown; actualDuration?: number; child?: Fiber; sibling?: Fiber };
 type Hook = { inject: (renderer: object) => number; onCommitFiberRoot: (id: number, root: { current?: Fiber }) => void;
@@ -174,6 +175,7 @@ describe("React window summaries", () => {
   });
   test("Markdown reports configured, missing and non-injected profiling legs honestly", () => {
     const report: NavigationAttributionReport = { rows: 300, pooling: "cycles and measured legs per path", chromium: [], samples: [], plainLatenciesByPath: {},
+      outcomes: outcomesResult([], []),
       webkit: { browser: null, samples: [], paths: [], errors: [] }, react: { url: null, samples: [], hooks: [], reason: "No profiling build configured",
         paths: [aggregateReact("/cash", [])] } };
     expect(attributionMarkdown(report)).toContain("| /cash | — | — | — | — | — | — | — | — | — |");

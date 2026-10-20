@@ -1,9 +1,10 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, webkit, type Browser, type BrowserContext, type CDPSession, type Page } from "@playwright/test";
+import { chromium, errors, webkit, type Browser, type BrowserContext, type CDPSession, type Page } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "../../tests/browser/fixtures/api";
 import { cpuThrottle, type GateId } from "./config";
 import { installPerformanceFixtures } from "./fixtures";
+import { HarnessWaitFailure } from "./readiness";
 
 export type CpuRate = { requested: number; applied: number };
 export type Session = { page: Page; context: BrowserContext; cdp: CDPSession; cpu: CpuRate; fixtures?: Awaited<ReturnType<typeof installApiFixtures>> };
@@ -174,8 +175,17 @@ export async function inlineFixtureMark(page: Page) {
   }, { marks, external });
 }
 
-export async function launch() { return chromium.launch({ headless: true, channel: "chromium" }); }
-export async function launchWebKit() { return webkit.launch({ headless: true }); }
+export async function launchBounded<T>(run: (timeout: number) => Promise<T>, deadlineMs: number): Promise<T> {
+  const started = performance.now();
+  try { return await run(deadlineMs); }
+  catch (error) {
+    if (!(error instanceof errors.TimeoutError)) throw error;
+    throw new HarnessWaitFailure("browser-launch", deadlineMs, performance.now() - started);
+  }
+}
+
+export async function launch(timeout?: number) { return chromium.launch({ headless: true, channel: "chromium", timeout }); }
+export async function launchWebKit(timeout?: number) { return webkit.launch({ headless: true, timeout }); }
 
 export async function resourceSnapshot(session: Session) {
   await session.cdp.send("HeapProfiler.collectGarbage");

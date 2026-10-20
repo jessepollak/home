@@ -6,8 +6,11 @@ import { cpus, homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { webkit } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "../tests/browser/fixtures/api";
-import { inlineFixtureMark, launch, twoFrames, withSession } from "./performance/browser";
+import { inlineFixtureMark, launch, launchBounded, twoFrames, withSession } from "./performance/browser";
 import { installFeed, runFeed } from "./performance/feed";
+import { gotoReady, ready } from "./performance/navigation";
+import { flingAttemptOutcome, outcomesMarkdown, outcomesResult, type LoggedFailure } from "./performance/outcomes";
+import { HarnessWaitFailure, outcomeFromError } from "./performance/readiness";
 import { baselineMismatches, compactNavigationBaseline, firstNextEnvFile, hasNavigationCapGuard, isFlingResult, navigationMarkdown, parseNavigationReport, patchNavigationCap, readNavigationBaseline, summarizeNavigation, validateNavigationSample,
   type NavigationSample, type Scenario, type Leg } from "./performance/navigation-samples";
 
@@ -220,15 +223,15 @@ async function startServer(dir: string, port: number, logPath: string, active: S
   void exited.catch(() => {});
   try {
     const ready = (async () => {
-      const until = Date.now() + 120_000;
-      while (Date.now() < until) {
+      const started = performance.now();
+      while (performance.now() - started < 120_000) {
         try {
           const response = await fetch(`http://127.0.0.1:${port}/home`, { signal: AbortSignal.timeout(2_000) });
           if (response.status < 500) return;
         } catch { await sleep(250); continue; }
         await sleep(250);
       }
-      throw new Error("Server readiness timed out");
+      throw new HarnessWaitFailure("fixture-start", 120_000, performance.now() - started);
     })();
     await Promise.race([ready, exited]);
     return { child, assertAlive: () => {
@@ -261,6 +264,11 @@ async function runSession(browser: Awaited<ReturnType<typeof webkit.launch>>, ba
   const reports: NonNullable<ReturnType<typeof parseNavigationReport>>[] = [];
   let capPatches = 0;
   let routeFailure: Error | null = null;
+  const samples: NavigationSample[] = [];
+  const failures: LoggedFailure[] = [];
+  let rafIntervals: number[] = [];
+  let current = { path: "/home", leg: "initial-home", cycle: null as number | null };
+  const result = () => ({ session, capPatched: capPatches === 1, rafIntervals, samples, reports, failures });
   try {
     await seedSignedInSession(page);
     await installApiFixtures(page, { clock: fixtureClock });
@@ -284,9 +292,8 @@ async function runSession(browser: Awaited<ReturnType<typeof webkit.launch>>, ba
         } else await route.fulfill({ response });
       } catch (error) { routeFailure = error as Error; await route.abort(); }
     });
-    await page.goto(`${baseUrl}/home`, { waitUntil: "domcontentloaded" });
+    await gotoReady(page, baseUrl, "/home", { leg: "initial-home" });
     console.log(`Session ${session}: Home loaded, filling feed`);
-    await page.getByRole("button", { name: "Send", exact: true }).first().waitFor({ timeout: 30_000 });
     const scrollFeed = (bottom: boolean) => page.evaluate((toBottom) => {
       const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
       const scroller = main && main.scrollHeight > main.clientHeight + 1 ? main : document.scrollingElement;
@@ -306,7 +313,7 @@ async function runSession(browser: Awaited<ReturnType<typeof webkit.launch>>, ba
     if (routeFailure) throw routeFailure;
     if (capPatches !== 1) throw new Error(`Navigation recorder cap patched ${capPatches} times, expected 1`);
     console.log(`Session ${session}: feed filled; cap patched; ${reports.length} reports`);
-    const rafIntervals = await withDeadline(page.evaluate(() => new Promise<number[]>((done) => {
+    rafIntervals = await withDeadline(page.evaluate(() => new Promise<number[]>((done) => {
       const intervals: number[] = []; let last = 0;
       const tick = (now: number) => { if (last) intervals.push(now - last); last = now; if (intervals.length >= 20) done(intervals); else requestAnimationFrame(tick); };
       requestAnimationFrame(tick);
@@ -315,19 +322,22 @@ async function runSession(browser: Awaited<ReturnType<typeof webkit.launch>>, ba
     const cash = page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ });
     const invest = nav.getByRole("button", { name: "Invest", exact: true });
     const home = nav.getByRole("button", { name: "Home", exact: true });
-    const samples: NavigationSample[] = [];
+    let warmUp = 0;
     const action = async (run: () => Promise<unknown>, route: "/cash" | "/invest" | "/home", from: "/home" | "/cash" | "/invest", trigger: "in-app" | "history", record?: { roundTrip: number; scenario: Scenario; leg: Leg }) => {
       if (routeFailure) throw routeFailure;
+      const leg = record ? `${record.scenario}:${record.leg}` : `warm-up ${++warmUp}`;
+      current = { path: route, leg, cycle: record?.roundTrip ?? null };
       const index = reports.length;
       await run();
-      const deadline = Date.now() + 15_000;
-      while (reports.length === index && Date.now() < deadline) {
+      const started = performance.now();
+      while (reports.length === index && performance.now() - started < 15_000) {
         if (routeFailure) throw routeFailure;
         await sleep(20);
       }
+      if (routeFailure) throw routeFailure;
       const report = reports[index];
-      if (!report) throw new Error(`No navigation report ${from} → ${route} (${trigger}) within 15 s`);
-      await page.waitForURL((url) => url.pathname === route, { timeout: 15_000 });
+      await ready(page, route, { baseUrl, leg, cycle: record?.roundTrip });
+      if (!report) throw new HarnessWaitFailure("report-arrival", 15_000, performance.now() - started);
       if (record) {
         validateNavigationSample(report, { route, from, trigger });
         samples.push({ session, ...record, route: report.route, from: report.from, trigger: report.trigger,
@@ -351,7 +361,13 @@ async function runSession(browser: Awaited<ReturnType<typeof webkit.launch>>, ba
     }
     if (routeFailure) throw routeFailure;
     console.log(`Session ${session}: ${samples.length} measured samples; ${reports.length} total reports`);
-    return { session, capPatched: capPatches === 1, rafIntervals, samples, reports };
+    return result();
+  } catch (error) {
+    if (routeFailure) throw routeFailure;
+    const outcome = outcomeFromError(error, current);
+    if (!outcome || outcome.outcome === "completed") throw error;
+    failures.push({ ...outcome, outcome: outcome.outcome, session, roundTrip: current.cycle });
+    return result();
   } finally { await context.close(); }
 }
 
@@ -390,7 +406,7 @@ async function main() {
     const server = await startServer(options.appDir, options.port, logPath, active);
     try {
     const baseUrl = `http://127.0.0.1:${options.port}`;
-    const webkitBrowser = await webkit.launch({ headless: !options.headed });
+    const webkitBrowser = await launchBounded((timeout) => webkit.launch({ headless: !options.headed, timeout }), 30_000);
     let sessions: Awaited<ReturnType<typeof runSession>>[];
     const webkitVersion = webkitBrowser.version();
     const environment = { appSha: git(options.appDir, ["rev-parse", "HEAD"]), appDirty: git(options.appDir, ["status", "--porcelain"]) !== "",
@@ -403,12 +419,16 @@ async function main() {
         server.assertAlive();
       }
     } finally { console.log("Closing WebKit"); await withDeadline(webkitBrowser.close(), "WebKit close", 60_000); console.log("WebKit closed"); }
+    const failures = sessions.flatMap((session) => session.failures);
+    const samples = sessions.flatMap((session) => session.samples);
+    const completed = samples.map((sample) => ({ path: sample.route, leg: `${sample.scenario}:${sample.leg}` }));
     console.log("Starting isolated Chromium fling");
     const flingDeadlineMs = 180_000;
     type FlingResult = { flings: Awaited<ReturnType<typeof runFeed>>["flings"];
       timing: Awaited<ReturnType<typeof runFeed>>["timing"]; browserVersion: string };
-    const flingAttempts: { attempt: number; ok: boolean; exitCode: number | null; durationMs: number; stderrTail: string; strayChromiumReaped: number | null; reapError?: string }[] = [];
+    const flingAttempts: { attempt: number; ok: boolean; exitCode: number | null; durationMs: number; stderrTail: string; strayChromiumReaped: number | null; reapError?: string; outcome?: "harness-wait-failure"; wait?: "worker-start" }[] = [];
     let fling: FlingResult | undefined;
+    const workerStartFailures: LoggedFailure[] = [];
     for (let attempt = 1; attempt <= 2; attempt++) {
       const started = Date.now();
       const child = trackChild(spawn(process.execPath, [import.meta.path, "--fling-worker", baseUrl, String(options.flingRepeat)], { cwd: options.appDir,
@@ -441,30 +461,47 @@ async function main() {
           catch (error) { reapError = (error as Error).message; }
         }
         flingErrors.delete(child);
-        flingAttempts.push({ attempt, ok: !failure, exitCode: child.exitCode, durationMs: Date.now() - started, stderrTail: flingStderrTail(errorOutput), strayChromiumReaped, ...(reapError ? { reapError } : {}) });
+        const durationMs = Date.now() - started;
+        const outcome = flingAttemptOutcome(failure !== undefined, errorOutput);
+        if (outcome) workerStartFailures.push({ outcome, path: "/home", leg: `fling attempt ${attempt}`, cycle: null,
+          detail: { wait: "worker-start", deadlineMs: flingDeadlineMs, elapsedMs: durationMs },
+          message: failure?.message ?? "Fling worker did not start measuring" });
+        flingAttempts.push({ attempt, ok: !failure, exitCode: child.exitCode, durationMs, stderrTail: flingStderrTail(errorOutput), strayChromiumReaped,
+          ...(outcome ? { outcome, wait: "worker-start" as const } : {}), ...(reapError ? { reapError } : {}) });
       }
       if (fling) break;
       console.error(`${failure?.message}; ${childFailureDetail(`Chromium fling attempt ${attempt}`, flingDeadlineMs, errorOutput)}`);
       server.assertAlive();
     }
     if (!fling) {
-      const summary = summarizeNavigation(sessions.flatMap((session) => session.samples));
+      failures.push(...workerStartFailures);
+      const summary = summarizeNavigation(samples);
+      const outcomes = outcomesResult(completed, failures);
+      server.assertAlive();
       await writeFile(join(options.outDir, "results.json"), JSON.stringify({ version: 1, label: options.label, startedAt,
         options: { port: options.port, sessions: options.sessions, roundTrips: options.roundTrips, rows: options.rows, flingRepeat: options.flingRepeat,
           smoke: options.smoke, skipBuild: options.skipBuild, headed: options.headed },
         environment: { ...environment, chromium: null }, capPatched: sessions.every((session) => session.capPatched),
-        sessions, summary, fling: null, flingAttempts, baselineComparable: false }, null, 2) + "\n");
+        sessions, summary, fling: null, flingAttempts, outcomes, baselineComparable: false, baselineEligible: outcomes.baselineEligible }, null, 2) + "\n");
+      server.assertAlive();
+      await writeFile(join(options.outDir, "summary.md"), [`# Warm navigation profile`, "", `App SHA: ${environment.appSha}`, "",
+        ...outcomesMarkdown(outcomes.byLeg, failures, completed.length), "Chromium fling attempts failed; no fling percentiles are available.", ""].join("\n"));
+      server.assertAlive();
+      if (options.updateBaseline && !outcomes.baselineEligible) console.log("Baseline update skipped: run has non-completed outcomes.");
+      console.log(`Wrote ${options.outDir}/results.json and summary.md; ${outcomes.headline}`);
+      if (failures.length) throw new Error(`Navigation profile recorded ${failures.length} non-completed outcome(s); see summary.md in ${options.outDir}; Chromium fling attempts 1 and 2 failed`);
       throw new Error(`Chromium fling attempts 1 and 2 failed; ${childFailureDetail("Chromium fling", flingDeadlineMs, flingAttempts.at(-1)!.stderrTail)}`);
     }
     server.assertAlive();
     const chromiumVersion = fling.browserVersion;
-    const summary = summarizeNavigation(sessions.flatMap((session) => session.samples));
+    const summary = summarizeNavigation(samples);
+    const outcomes = outcomesResult(completed, failures);
     const result = { version: 1, label: options.label, startedAt,
       options: { port: options.port, sessions: options.sessions, roundTrips: options.roundTrips, rows: options.rows,
         flingRepeat: options.flingRepeat, smoke: options.smoke, skipBuild: options.skipBuild, headed: options.headed },
       capPatched: sessions.every((session) => session.capPatched),
       environment: { ...environment, chromium: chromiumVersion },
-      sessions, summary, fling: { flings: fling.flings, timing: fling.timing }, flingAttempts };
+      sessions, summary, outcomes, fling: { flings: fling.flings, timing: fling.timing }, flingAttempts };
     let content: string | undefined;
     if (!options.updateBaseline) {
       try { content = await readFile(options.baseline, "utf8"); }
@@ -481,13 +518,30 @@ async function main() {
     server.assertAlive();
     await writeFile(join(options.outDir, "summary.md"), navigationMarkdown(result, baseline, baselineNote ?? undefined) + "\n");
     server.assertAlive();
-    if (options.updateBaseline) {
+    if (options.updateBaseline && !outcomes.baselineEligible) console.log("Baseline update skipped: run has non-completed outcomes.");
+    if (options.updateBaseline && outcomes.baselineEligible) {
       await mkdir(dirname(options.baseline), { recursive: true });
       await writeFile(options.baseline, JSON.stringify(compactNavigationBaseline(result), null, 2) + "\n");
     }
     server.assertAlive();
-    console.log(`Wrote ${options.outDir}/results.json and summary.md; navigation p95: ${Object.entries(summary.groups).map(([key, row]) => `${key}=${row.p95}ms`).join(", ")}${baseline !== undefined && !baselineComparable ? `; baseline comparison suppressed (${mismatches.map((entry) => entry.split(":")[0]).join(", ")})` : ""}`);
+    console.log(`Wrote ${options.outDir}/results.json and summary.md; ${outcomes.headline}; navigation p95: ${Object.entries(summary.groups).map(([key, row]) => `${key}=${row.p95}ms`).join(", ")}${baseline !== undefined && !baselineComparable ? `; baseline comparison suppressed (${mismatches.map((entry) => entry.split(":")[0]).join(", ")})` : ""}`);
+    if (failures.length) throw new Error(`Navigation profile recorded ${failures.length} non-completed outcome(s); see summary.md in ${options.outDir}`);
     } finally { await stopServer(server.child); await Promise.all([...active].map(stopTrackedChild)); }
+  } catch (error) {
+    const failure = outcomeFromError(error, { path: "/home", leg: null });
+    if (failure?.outcome === "harness-wait-failure" && failure.detail && "wait" in failure.detail
+      && (failure.detail.wait === "browser-launch" || failure.detail.wait === "fixture-start")) {
+      const failures: LoggedFailure[] = [{ ...failure, outcome: failure.outcome }];
+      const outcomes = outcomesResult([], failures);
+      await writeFile(join(options.outDir, "results.json"), JSON.stringify({ version: 1, label: options.label, startedAt,
+        options: { port: options.port, sessions: options.sessions, roundTrips: options.roundTrips, rows: options.rows,
+          flingRepeat: options.flingRepeat, smoke: options.smoke, skipBuild: options.skipBuild, headed: options.headed },
+        sessions: [], summary: summarizeNavigation([]), outcomes, baselineComparable: false, baselineEligible: false }, null, 2) + "\n");
+      await writeFile(join(options.outDir, "summary.md"), ["# Warm navigation profile", "", ...outcomesMarkdown(outcomes.byLeg, failures, 0)].join("\n"));
+      if (options.updateBaseline) console.log("Baseline update skipped: run has non-completed outcomes.");
+      console.log(`Wrote ${options.outDir}/results.json and summary.md; ${outcomes.headline}`);
+    }
+    throw error;
   } finally {
     await Promise.all([...active].map(stopTrackedChild));
     process.off("SIGINT", onSignal); process.off("SIGTERM", onSignal);
@@ -498,7 +552,7 @@ async function flingWorker() {
   const repeat = Number(repeatArg);
   if (!baseUrl || !Number.isSafeInteger(repeat) || repeat < 1) throw new Error("Invalid fling worker arguments");
   console.error("fling worker: launching chromium");
-  const browser = await withDeadline(launch(), "Chromium launch", 120_000);
+  const browser = await launchBounded(launch, 120_000);
   const browserVersion = browser.version();
   let browserIdentity: BrowserIdentity | null = null;
   try { browserIdentity = playwrightBrowserIdentity(listedProcesses(), process.pid); }

@@ -4,6 +4,7 @@ import { attributeWindow, summarizeLoaf, type LoafEntry, type TraceEvent } from 
 import { aggregateAttribution, aggregateWebKit, attributionMarkdown, awaitTraceEnd, drainTailFrames, endTraceWithDeadline, latencySummary, mapTraceWindows, overheadDelta, sliceLoaf, summarizeLoafWindow, topInvokerByPath,
   type NavigationAttributionSample, type NavigationLeg, type NavigationWindow, type WebKitSample } from "./navigation-attribution";
 import { aggregateReact } from "./react-attribution";
+import { outcomesResult } from "./outcomes";
 
 const windows = (): NavigationWindow[] => [
   { path: "/cash", leg: "outbound", cycle: 1, latencyMs: 20, startMs: 10, endMs: 110, startMark: "out-start", endMark: "out-end" },
@@ -301,6 +302,7 @@ describe("navigation attribution aggregation", () => {
       { startMs: 80, durationMs: 80, blockingMs: 10, styleAndLayoutMs: 15, forcedStyleAndLayoutMs: 4, forcedSharePct: 5, invoker: "animation-frame", invokerMs: 30, leg: "outbound", cycle: 1 },
     ]);
     const lines = attributionMarkdown({ rows: 300, pooling: "cycles and measured legs per path", chromium: [aggregated], samples: [attributed], plainLatenciesByPath: {}, react: null,
+      outcomes: outcomesResult([{ group: "chromium", path: "/cash", leg: "outbound" }], []),
       webkit: { browser: null, samples: [], paths: [], errors: [] } });
     expect(lines).toContain("#### Long animation frames (per frame, start in window, ≥50 ms)");
     expect(lines).toContain("| Window | Start | Duration | Blocking | Style + layout phase | Forced style + layout | Forced share | Top script invoker |");
@@ -336,6 +338,7 @@ describe("navigation attribution aggregation", () => {
     const chromium = paths.map((path) => aggregateAttribution(path, samples, []));
     const react = { url: null, samples: [], paths: paths.map((path) => aggregateReact(path, samples)), hooks: [], reason: "No profiling build configured" };
     const lines = attributionMarkdown({ rows: 300, pooling: "cycles and measured legs per path", chromium, samples, plainLatenciesByPath: {}, react,
+      outcomes: outcomesResult(samples.map(({ path, leg }) => ({ group: "chromium", path, leg })), []),
       webkit: { browser: null, samples: [], paths: paths.map((path) => aggregateWebKit(path, [])), errors: [] } });
     for (const [index, path] of paths.entries()) {
       const row = chromium[index];
@@ -359,6 +362,7 @@ describe("navigation attribution aggregation", () => {
   });
   test("Markdown names report-only, unavailability and WebKit failures without fake zero timing", () => {
     const lines = attributionMarkdown({ rows: 300, pooling: "cycles and measured legs per path", chromium: [aggregateAttribution("/cash", [], [])], samples: [], plainLatenciesByPath: {}, react: null,
+      outcomes: outcomesResult([], []),
       webkit: { browser: null, samples: [], paths: [aggregateWebKit("/cash", [])], errors: [{ path: "/cash", reason: "engine unavailable" }] } });
     expect(lines).toContain("## Navigation attribution (report only)");
     expect(lines).toContain("### Desktop WebKit");
