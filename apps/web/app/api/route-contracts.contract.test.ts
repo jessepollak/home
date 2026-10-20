@@ -8,16 +8,15 @@ const acceptedGaps = {
     "actions/[id]/confirm/route.ts": ["shared/actions/contracts/confirm.ts"],
     "actions/[id]/route.ts": ["shared/actions/contracts/get.ts"],
     "actions/prepare/route.ts": ["shared/actions/contracts/prepare.ts"],
-    "actions/trade-pending/route.ts": ["shared/actions/contracts/trade-pending.ts"],
   },
   unversionedContracts: new Set([
+    "shared/account/contracts/auth-boundary.ts",
     "shared/actions/contracts/confirm.ts", "shared/actions/contracts/get.ts",
     "shared/actions/contracts/prepare.ts", "shared/fees/contract.ts",
     "shared/funding/contracts/errors.ts",
     "shared/funding/provider-contract.ts",
   ]),
   parserlessContracts: new Set([
-    "shared/actions/contracts/trade-pending.ts",
     "shared/funding/provider-contract.ts",
   ]),
   handlerUnlinked: new Set<string>(),

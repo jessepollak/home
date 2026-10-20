@@ -12,16 +12,16 @@ type UiBoundaryWallet = OwnerSessionWallet & {
 
 export function ownerSessionBoundary(wallet: OwnerSessionWallet): string | null {
   const session = wallet.session;
-  return wallet.ownerKey && session?.smartAccount
-    ? `${wallet.ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address.toLowerCase()}\u0000${session.accountProvider}`
+  return wallet.ownerKey && session
+    ? `${wallet.ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount?.address.toLowerCase() ?? ""}\u0000${session.accountProvider}`
     : null;
 }
 
 export function uiBoundary(wallet: UiBoundaryWallet): string | null {
-  return wallet.status === "verified" ? ownerSessionBoundary(wallet) : null;
+  return wallet.status === "verified" && wallet.session?.smartAccount ? ownerSessionBoundary(wallet) : null;
 }
 
-export function supportOwnerKey(wallet: { status: string; verification: string | null; session: VerifiedAccountSession | null }): string | null {
+export function credentialOwnerKey(wallet: { status: string; verification: string | null; session: VerifiedAccountSession | null }): string | null {
   return wallet.status === "verified" && wallet.verification === "server" && wallet.session
     ? `${wallet.session.accountProvider}\u0000${wallet.session.user.subject}`
     : null;

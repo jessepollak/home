@@ -1,5 +1,11 @@
 export const sheetHostExceptions = [
   {
+    file: "client/account/account-deletion-view.tsx",
+    imports: ["DrawerDescription", "DrawerHeader", "DrawerTitle"],
+    owner: "account privacy",
+    reason: "non-money account-deletion confirmation metadata on the shared AppDrawer host",
+  },
+  {
     file: "app/admin/operator-shell.tsx",
     imports: ["Drawer", "DrawerContent", "DrawerHeader", "DrawerTitle"],
     owner: "operator console",

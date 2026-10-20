@@ -1,5 +1,6 @@
 import { parseAddress, parseHash32, type Hash32 } from "@/shared/chain/hex";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 import { parsePresentedAction, type ActionSummaryResponse } from "./get";
 import { readCashoutProgress, type CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import {
@@ -41,6 +42,13 @@ export function parseActionListItem(value: unknown): ActionListItem | null {
 export const LIST_ACTIONS_CONTRACT_VERSION = 1 as const;
 export const RECENT_ACTIONS_LIMIT = 100 as const;
 export const RETAINED_SAVINGS_DEPOSITS_LIMIT = 20 as const;
+
+export type ListActionsErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses action-list auth-boundary errors for clients */
+export function parseListActionsErrorResponse(value: unknown): ListActionsErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 
 export type ListActionsResponse = {
   version: typeof LIST_ACTIONS_CONTRACT_VERSION;

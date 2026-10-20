@@ -22,7 +22,7 @@ export interface SqlExecutor {
     values?: unknown[],
     options?: SqlQueryOptions,
   ): Promise<SqlQueryResult<T>>;
-  transaction<T>(fn: (tx: SqlExecutor) => Promise<T>): Promise<T>;
+  transaction<T>(fn: (tx: SqlExecutor) => Promise<T>, options?: SqlQueryOptions): Promise<T>;
   dispose?(): Promise<void>;
 }
 
@@ -193,7 +193,7 @@ export function createPostgresSqlExecutor(
         signal,
       );
     },
-    transaction: (fn) => beginTransaction(fn),
+    transaction: (fn, options) => beginTransaction(fn, options?.signal),
     async dispose() {
       if (disposed) return;
       disposed = true;

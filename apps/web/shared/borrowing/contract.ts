@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 import { parseAddress, parseHash32, type Hash32 } from "@/shared/chain/hex";
 import type { BorrowAddress, BorrowAssetRef, BorrowMarketId } from "./config";
 import { getBorrowMarketRef } from "./config";
@@ -114,6 +115,12 @@ export type BorrowOverviewOpportunity = z.output<typeof opportunitySchema>;
 export type BorrowOverviewResponse = z.output<typeof overviewSchema>;
 export type ParsedBorrowOverviewResponse = z.output<typeof parsedOverviewSchema>;
 export type BorrowResponse = BorrowOverviewResponse;
+export type BorrowErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses borrowing auth-boundary errors for clients */
+export function parseBorrowErrorResponse(value: unknown): BorrowErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 
 export function parseSnapshot(value: unknown, expectedOwner: `0x${string}`): ParsedBorrowMarketSnapshot | null {
   const result = parsedSnapshotSchema.safeParse(value);

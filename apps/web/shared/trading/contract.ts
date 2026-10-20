@@ -1,4 +1,5 @@
 import { parseAddress, type Address, type Hash32 } from "@/shared/chain/hex";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 import { CONVERT_PROVIDER } from "@/shared/currencies/types";
 import type { OperatorFeeRecord } from "@/shared/fees/contract";
 import type { CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
@@ -89,6 +90,16 @@ export const TRADE_ERROR_CODES = [
   "TRADE_NOT_ROUTED",
 ] as const;
 export type TradeErrorCode = (typeof TRADE_ERROR_CODES)[number];
+export type TradeErrorResponse = { error: { code: TradeErrorCode; message: string } } | AuthBoundaryErrorResponse;
+
+/** @public parses trade-domain and auth-boundary errors for clients */
+export function parseTradeErrorResponse(value: unknown): TradeErrorResponse | null {
+  const boundaryError = parseAuthBoundaryErrorResponse(value);
+  if (boundaryError) return boundaryError;
+  if (!isRecord(value) || !isRecord(value.error) || !isTradeErrorCode(value.error.code) ||
+    typeof value.error.message !== "string" || value.error.message.length === 0) return null;
+  return { error: { code: value.error.code, message: value.error.message } };
+}
 
 export const TRADE_UNAVAILABLE_REASONS = [
   "provider-unconfigured",

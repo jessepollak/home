@@ -47,3 +47,8 @@ test("raw Stripe purchase lists reject malformed pages and another card's purcha
     await expect(client.list("transaction", "ic_synthetic", 0)).rejects.toThrow(item.error);
   }
 });
+
+test.each(["closed", "expired"])("approved %s authorization records terminal closure", async (status) => {
+  const client = createStripeTransactionClient(config, Object.assign(async () => Response.json({ ...authorization, status }), { preconnect: fetch.preconnect }));
+  expect(await client.read("authorization", "iauth_synthetic")).toMatchObject({ status: "pending", authorizationClosed: true });
+});

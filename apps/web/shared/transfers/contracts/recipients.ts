@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 import {
   normalizeResolvedRecipientAddress,
   normalizeTransferRecipientName,
@@ -43,6 +44,12 @@ const recentRecipientsResponseSchema = z.object({
 export type TransferRecipientNameResponse = z.output<typeof recipientNameResponseSchema>;
 export type RecentTransferRecipient = z.output<typeof recentRecipientSchema>;
 export type RecentTransferRecipientsResponse = z.output<typeof recentRecipientsResponseSchema>;
+export type TransferRecipientsErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses transfer-recipient auth-boundary errors for clients */
+export function parseTransferRecipientsErrorResponse(value: unknown): TransferRecipientsErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 
 export function readTransferRecipientNameResponse(
   value: unknown,

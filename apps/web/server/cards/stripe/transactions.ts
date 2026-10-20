@@ -69,7 +69,7 @@ function parseStripePurchase(value: unknown, kind: "authorization" | "transactio
   let reason: string | null = null;
   let authorizationId: string | null = null;
   if (kind === "authorization") {
-    if (typeof value.approved !== "boolean" || !isStringEnum(value.status, ["pending", "closed", "reversed"])) throw new Error("Invalid Stripe authorization status");
+    if (typeof value.approved !== "boolean" || !isStringEnum(value.status, ["pending", "closed", "expired", "reversed"])) throw new Error("Invalid Stripe authorization status");
     status = !value.approved ? "declined" : value.status === "reversed" ? "reversed" : "pending";
     const history = value.request_history;
     const entry: unknown = Array.isArray(history) ? history.at(-1) : null;
@@ -81,7 +81,7 @@ function parseStripePurchase(value: unknown, kind: "authorization" | "transactio
     const auth = record(value.authorization) ? value.authorization.id : value.authorization;
     authorizationId = typeof auth === "string" && ids.authorization.test(auth) ? auth : null;
   }
-  return { id, cardId, authorizationId, kind, amountMinor: String(Math.abs(value.amount)), currency: value.currency.toUpperCase(),
+  return { id, cardId, authorizationId, ...(kind === "authorization" ? { authorizationClosed: value.approved === true && (value.status === "closed" || value.status === "expired") } : {}), kind, amountMinor: String(Math.abs(value.amount)), currency: value.currency.toUpperCase(),
     merchantName: merchantName.trim(), merchantCategory: category, status, declineReasonCode: reason,
     createdAt: new Date(value.created * 1000).toISOString(), updatedAt: new Date().toISOString() };
 }

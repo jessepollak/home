@@ -1,6 +1,7 @@
 import * as z from "zod/mini";
 import { parseHash32, type Hash32 } from "@/shared/chain/hex";
 import type { AccountProvider, VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
 import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-progress";
 
 export const ACTIVITY_ORDERS_CONTRACT_VERSION = 1 as const;
@@ -97,6 +98,12 @@ export type ActivityFundingOrder = z.output<typeof fundingOrderSchema>;
 export type ActivityCashoutOrder = z.output<typeof cashoutOrderSchema>;
 export type ActivityOrder = z.output<typeof orderSchema>;
 export type ActivityOrdersResponse = z.output<typeof responseSchema>;
+export type ActivityOrdersErrorResponse = AuthBoundaryErrorResponse;
+
+/** @public parses activity-order auth-boundary errors for clients */
+export function parseActivityOrdersErrorResponse(value: unknown): ActivityOrdersErrorResponse | null {
+  return parseAuthBoundaryErrorResponse(value);
+}
 
 export class ActivityOrdersResponseError extends Error {
   constructor() {

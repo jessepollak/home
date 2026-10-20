@@ -3,6 +3,7 @@ import { recordAuthDiagnostic } from "./auth-diagnostics";
 import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import { deploymentHeaders } from "@/client/query/deployment-headers";
 import { parseSession } from "@/shared/account/contracts/session";
+import { ACCOUNT_DELETED_ERROR_CODE } from "@/shared/account/contracts/auth-boundary";
 import { parseAddress } from "@/shared/chain/hex";
 import {
   ACCOUNT_PROVIDER_HEADER,
@@ -16,6 +17,7 @@ export type {
 
 export type SessionValidationFailure =
   | "access-required"
+  | "account-deleted"
   | "unauthenticated"
   | "provider-disabled"
   | "unavailable"
@@ -115,6 +117,8 @@ export async function validateAccountSession(
   });
 
   if (response.status === 401) {
+    const failure = await readJson(response).catch(() => null);
+    if (failure && typeof failure === "object" && "error" in failure && failure.error && typeof failure.error === "object" && "code" in failure.error && failure.error.code === ACCOUNT_DELETED_ERROR_CODE) throw new SessionValidationError("account-deleted");
     throw new SessionValidationError("unauthenticated");
   }
 

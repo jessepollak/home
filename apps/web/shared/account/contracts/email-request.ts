@@ -1,8 +1,9 @@
+import { AUTH_BOUNDARY_ERROR_CODES } from "./auth-boundary";
 import { parseAddress, type Address } from "@/shared/chain/hex";
 
 export const EMAIL_REQUEST_VERSION = 1 as const;
 
-export const EMAIL_REQUEST_ERROR_CODES = ["EMAIL_REQUEST_UNSUPPORTED", "EMAIL_REQUEST_UNAVAILABLE", "EMAIL_REQUEST_INVALID"] as const;
+export const EMAIL_REQUEST_ERROR_CODES = [...AUTH_BOUNDARY_ERROR_CODES, "EMAIL_REQUEST_UNSUPPORTED", "EMAIL_REQUEST_UNAVAILABLE", "EMAIL_REQUEST_INVALID"] as const;
 export type EmailRequestErrorCode = (typeof EMAIL_REQUEST_ERROR_CODES)[number];
 export type EmailRequestErrorResponse = { error: { code: EmailRequestErrorCode } };
 export function isEmailRequestErrorCode(value: unknown): value is EmailRequestErrorCode {

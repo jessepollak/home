@@ -105,8 +105,11 @@ test("temporary-copy canaries reject missing coverage, both unused-list directio
     write("stories/review/compositions/demo.stories.tsx", `${route} ${composition}`);
     write("app/page.tsx", "export const page = 1;");
     assert.match((await check()).join("\n"), /missing from reviewed list: button/);
-    write("app/page.tsx", `${route} import { UI as Dialog } from "@/components/ui/dialog";`);
-    assert.match((await check()).join("\n"), /Listed component is used in product: dialog/);
+    assert.ok(unused.length > 0, "unused-list canary requires a reviewed product-unused component");
+    for (const name of unused) {
+      write("app/page.tsx", `${route} import { UI as Unused } from "@/components/ui/${name}";`);
+      assert.ok((await check()).includes(`Listed component is used in product: ${name}`));
+    }
     write("app/page.tsx", route);
     write("stories/review/compositions/demo.stories.tsx", `${route} ${strict} export const Demo = {parameters:{a11y:{test:"todo"}}};`);
     assert.match((await check()).join("\n"), /resolves to a11y.test "todo", expected error/);

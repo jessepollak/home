@@ -2,6 +2,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { registerDomTestCleanup } from "@/tests/helpers/dom-test-cleanup";
 import { guardAnimationCancellation } from "@/tests/helpers/animation-cancel-guard";
+import { restoreTestDocumentUrl, testDocumentUrl } from "@/tests/helpers/dom-document-url";
 
 if (typeof window === "undefined") {
   const serverFetchDescriptors = Object.fromEntries(
@@ -12,7 +13,7 @@ if (typeof window === "undefined") {
   );
 
   GlobalRegistrator.register({
-    url: "http://localhost:3111/",
+    url: testDocumentUrl,
     settings: {
       disableCSSFileLoading: true,
       enableImageFileLoading: false,
@@ -38,9 +39,13 @@ const cleanupDomTests = testingLibrary.cleanup;
 export const within = testingLibrary.within;
 
 registerDomTestCleanup(() => {
-  cleanupDomTests();
-  document.body.innerHTML = "";
-  window.localStorage.clear();
-  window.sessionStorage.clear();
-  getHomeQueryClient().clear();
+  try {
+    cleanupDomTests();
+  } finally {
+    document.body.innerHTML = "";
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    getHomeQueryClient().clear();
+    restoreTestDocumentUrl();
+  }
 });

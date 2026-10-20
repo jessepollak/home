@@ -19,7 +19,7 @@ export type ProgramCard = Readonly<{ providerCardId: string; cardholderId: strin
   status: "active" | "frozen" | "restricted" | "canceled" }>;
 export type ProgramCardRead = Readonly<{ providerCardId: string } & ({ ok: true; card: ProgramCard } | { ok: false })>;
 export type EnrollResult = Readonly<{ link: Partial<Pick<ProgramLink, "accountId" | "cardholderId">> }>;
-export type ProgramPurchase = CardPurchase & Readonly<{ cardId: string; authorizationId: string | null }>;
+export type ProgramPurchase = CardPurchase & Readonly<{ cardId: string; authorizationId: string | null; authorizationClosed?: boolean }>;
 export type PurchaseRef = Readonly<{ id: string; kind: "authorization" | "transaction" }>;
 export type CardProgram = Readonly<{
   provider: CardProviderName;

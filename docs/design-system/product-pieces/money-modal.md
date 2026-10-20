@@ -14,6 +14,8 @@
 
 Import money-flow pieces from `@/client/money-modal`; import `deferSheet` and `deferStep` from `@/client/money-modal/deferred-sheet` for lazy loading. Use `MoneyModal` as the host for money journeys; `AppDrawer` is only for non-money app sheets. Compose each screen with `MoneyModalStep` (or `MoneyModalStepLoading`), `MoneyModalHeader` and `MoneyModalBody`. The header accepts either `assetControl` for the amount step's top-left selector (locked when the flow's asset is fixed) or `onBack` for a nested step, never both. Use `MoneyModalFooter` for a primary/secondary pair, `MoneyConfirmFooter` for a required prepared-action confirm, and `MoneyModalActions` for custom footer content. Results use `MoneyResult` and `MoneyResultFooter`; amount entry uses `MoneyAmountDisplay` and `MoneyAssetPicker`.
 
+`MoneyModalFooter` keeps its primary first in DOM and visual order, above an optional ghost secondary action. `primaryVariant="destructive"` uses the owned destructive Button treatment for non-money confirmations such as account deletion; the default remains primary blue. Pass `secondaryRef` to the host's `initialFocusRef` when the safe secondary action should receive initial focus without changing action order. The production composition and Cancel / Escape / reopen behavior are demonstrated by `journeys-account-leave--confirm`.
+
 ## Approved variants
 
 - Entry step with a header asset selector.

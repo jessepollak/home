@@ -6,13 +6,12 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createPostgresSqlExecutor, type SqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
 import { actionOwnerKey } from "@/server/actions/store";
 import { PostgresBalanceSnapshotStore } from "@/server/balances/snapshot-store";
-import { readMigrationSql } from "@/tests/helpers/migrations";
+import { readAllMigrationSql } from "@/tests/helpers/migrations";
 import { AccountExportReader } from "./read";
 import { createAccountExportHandler } from "./handler";
 
 const connectionString = process.env.FUNDING_PG_TEST_URL?.trim();
 const schema = `account_export_test_${randomBytes(4).toString("hex")}`;
-const migrations = ["001_actions.sql", "002_funding_provider_seam.sql", "003_coinbase_hosted_retired.sql", "004_funding_sandbox.sql", "005_balances.sql", "006_valuation_attempts.sql", "007_balance_borrow.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "010_operator_settings.sql", "011_operator_registry.sql", "012_action_outcomes.sql", "013_action_call_commitment.sql", "014_cashout_orders.sql", "014_customer_preferences.sql", "015_invites.sql", "016_action_receipt_observations.sql", "017_record_customer_ids.sql", "017_webhook_subscription_envelopes.sql", "018_cards.sql", "018_customer_email_requests.sql", "018_operator_fee_records.sql", "019_card_events_provider.sql", "020_balance_history.sql", "020_card_accounts.sql", "020_support.sql", "021_card_transactions.sql", "021_cashout_provider_progress.sql", "022_card_programs.sql", "022_funding_order_abandon.sql", "023_account_export_indexes.sql", "023_funding_order_recovery_indexes.sql"];
 const amountA = "900719925474099312345678901234567890";
 const amountB = "987654321098765432109876543210987654";
 const secret = "EXPORTSECRETMARKER";
@@ -72,7 +71,7 @@ function records(body: AccountExportResponse, name: string) {
     await admin.unsafe(`CREATE SCHEMA ${schema}`);
     await admin.begin(async (tx) => {
       await tx.unsafe(`SET LOCAL search_path TO ${schema}`);
-      for (const migration of migrations) await tx.unsafe(await readMigrationSql(migration));
+      for (const migration of await readAllMigrationSql()) await tx.unsafe(migration);
       await tx.unsafe("ALTER TABLE card_events ADD COLUMN raw_payload jsonb; ALTER TABLE card_transactions ADD COLUMN raw_payload jsonb");
     });
     sql = createPostgresSqlExecutor(connectionString, { poolFactory: (config) => new Pool({ ...config, options: `-c search_path=${schema}` }) });
@@ -121,7 +120,7 @@ function records(body: AccountExportResponse, name: string) {
     const market = { marketId: `0x${"a".repeat(64)}` as const, status: "ready" as const, blockNumber: "9007199254740993", collateralRaw: amountA, debtAssetsRaw: "900719925474099312345678901234567891", borrowAprWad: "51000000000000001" };
     const unavailable = { marketId: `0x${"b".repeat(64)}` as const, status: "unavailable" as const };
     const storedMarket = { ...market, secret };
-    expect(await store.putObservation({ ...snapshot, blockNumber: "9007199254740994", borrow: { markets: [storedMarket, unavailable] } })).toBe(true);
+    expect(await store.putObservation({ ...snapshot, observedAt: "2030-01-01T00:00:00.000Z", blockNumber: "9007199254740994", borrow: { markets: [storedMarket, unavailable] } })).toBe(true);
     const body = JSON.parse(JSON.stringify(await reader.read(session(1))));
     expect(parseAccountExportResponse(body)).not.toBeNull();
     expect(records(body, "balance_snapshots")[0].borrow).toEqual({ markets: [market, unavailable] });

@@ -6,7 +6,7 @@ import { restoreHoldingReturn } from "@/client/investments/restore-holding-retur
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { AccountSettings } from "@/client/account/account-settings";
-import { dataOwnerKey, supportOwnerKey } from "@/client/account/owner-keys";
+import { credentialOwnerKey, dataOwnerKey } from "@/client/account/owner-keys";
 import { SupportProvider } from "@/client/support/support-provider";
 import { useAppearance } from "@/client/appearance/use-appearance";
 import { borrowPanelId, cashPanelId, investmentsPanelId, isHomeNestedPanelId, nestedHomePanelTitle, visibleNavigationItems, type ShellPanelId } from "@/config/navigation";
@@ -418,7 +418,7 @@ function DashboardShellBody({
     void account.signOut({ onNavigationSafe: () => router.replace("/", { scroll: false }) }).catch(() => {}); // oxlint-disable-line home/no-silent-catch -- account sign-out owns its signout-error state; navigation is only called when safe
   };
   const investChrome = useOptionalAppChrome();
-  const nestedChromeTitle = isAccountSettingsOpen ? null : isHomeNestedPanelId(activeNavigation)
+  const nestedChromeTitle = isAccountSettingsOpen ? investChrome?.nested?.title ?? null : isHomeNestedPanelId(activeNavigation)
     ? activeNavigation === cashPanelId && location.cashView === "savings" ? "Savings"
       : activeNavigation === investmentsPanelId && location.holding ? investmentsChrome?.title ?? "Investments"
       : nestedHomePanelTitle(activeNavigation)
@@ -430,7 +430,7 @@ function DashboardShellBody({
     : activeNavigation === borrowPanelId && location.market
     ? shellHref({ panel: "borrow" })
     : isHomeNestedPanelId(activeNavigation) ? shellHref({ panel: "home" }) : null;
-  const onNestedChromeBack = activeNavigation === investmentsPanelId && location.holding
+  const onNestedChromeBack = isAccountSettingsOpen ? investChrome?.nested?.onBack ?? closeAccountSettings : activeNavigation === investmentsPanelId && location.holding
     ? closeInvestmentHolding
     : shellParentHref !== null
     ? () => leaveRoute(shellParentHref)
@@ -441,7 +441,7 @@ function DashboardShellBody({
 
   return <HomeShellRoutingProvider value={routingValue}><ShellPageProvider value={pageValue}>
     <ShellSearchProvider content={searchContent} available={searchAvailable} signedOut={isSignedOut} ownerKey={account.ownerKey} shellRef={shellRef} detailTargetRef={searchDetailTargetRef} onLeaveSearch={onLeaveSearch}>
-    <SupportProvider ownerKey={supportOwnerKey(account)} fetchAccountResource={account.fetchAccountResource} fetchAccountResponse={account.fetchAccountResponse}>
+    <SupportProvider ownerKey={credentialOwnerKey(account)} fetchAccountResource={account.fetchAccountResource} fetchAccountResponse={account.fetchAccountResponse}>
     <ShellSearchFrame ref={shellRef} className="flex min-h-dvh flex-col bg-muted [--shell-scrollbar-width:0px] lg:flex-row"
       style={shellNavigationStyle} data-shell-navigation-items={navigationItemCount}>
       {!isSignedOut ? <ShellSearchInert>
@@ -476,6 +476,7 @@ function DashboardShellBody({
                   preferenceMessage={preferenceMessage} isPreferenceReady={isPreferenceReady}
                   accountAddress={isVerified ? account.session?.smartAccount?.address ?? null : null}
                   accountOwnerKey={isVerified && account.session?.smartAccount ? dataOwnerKey(account.session) : null}
+                  accountSessionOwnerKey={credentialOwnerKey(account)}
                   fetchAccountResource={account.fetchAccountResource} showSmallBalances={showSmallBalances}
                   onShowSmallBalancesChange={onShowSmallBalancesChange} appearancePreference={appearancePreference}
                   onAppearancePreferenceChange={setAppearancePreference} onSignOut={signOut} /></div> : children}

@@ -64,7 +64,8 @@ export async function refreshObservedCardEvent(event: CardObservation): Promise<
   const ref = program?.purchases.refFor(event);
   if (!program || !ref || !event.externalIds.card) return;
   const sql = getSqlExecutor();
-  const card = await sql.query<{ id: string }>("SELECT id FROM cards WHERE provider=$1 AND mode=$2 AND provider_card_id=$3", [event.provider, event.mode, event.externalIds.card]);
+  const card = await sql.query<{ id: string }>(
+    "SELECT c.id FROM cards c JOIN customers o ON o.id=c.customer_id WHERE c.provider=$1 AND c.mode=$2 AND c.provider_card_id=$3 AND o.retained_until IS NULL", [event.provider, event.mode, event.externalIds.card]);
   if (!card.rows[0]) return;
   const purchase = await program.purchases.read(ref);
   if (!isProgramPurchase(purchase) || purchase.id !== ref.id || purchase.cardId !== event.externalIds.card) throw new Error("Card purchase mismatch");
