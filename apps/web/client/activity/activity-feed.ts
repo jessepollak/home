@@ -48,6 +48,7 @@ export function mergeActivityFeed(input: {
   orders?: readonly ActivityOrder[];
   cards?: readonly CardPurchase[];
   loadedThrough: string | null;
+  presentedIds?: ReadonlySet<string>;
 }): ActivityFeedItem[] {
   const loadedThroughTime = input.loadedThrough === null ? null : Date.parse(input.loadedThrough);
   const transfersByHash = new Map<string, ActivityTransfer[]>();
@@ -111,7 +112,7 @@ export function mergeActivityFeed(input: {
       .flatMap((operation): ActivityFeedItem[] => {
       const hash = operation.transactionHash?.toLowerCase();
       const transfers = hash ? transfersByHash.get(hash) ?? [] : [];
-      if (transfers.length === 0 && operation.status !== "pending" && loadedThroughTime !== null &&
+      if (!input.presentedIds?.has(`action:${operation.action.id}`) && transfers.length === 0 && operation.status !== "pending" && loadedThroughTime !== null &&
         Date.parse(activityOperationTime(operation)) <= loadedThroughTime &&
         !(operation.action.kind === "cash-out" && cashoutProgress(operation, withdrawals.get(operation.cashout?.depositId?.toLowerCase() ?? "")).inProgress)) return [];
       const sharedHash = hash !== undefined && (actionIdsByHash.get(hash)?.size ?? 0) > 1;
@@ -129,7 +130,7 @@ export function mergeActivityFeed(input: {
     ...(input.orders ?? []).filter((order) => {
       if (order.kind === "cash-out" && actionWins.has(order.id)) return false;
       const timestamp = order.kind === "funding" ? order.movedAt ?? order.updatedAt : order.updatedAt;
-      return isPendingActivityOrder(order) || loadedThroughTime === null || Date.parse(timestamp) > loadedThroughTime;
+      return input.presentedIds?.has(`order:${order.id}`) === true || isPendingActivityOrder(order) || loadedThroughTime === null || Date.parse(timestamp) > loadedThroughTime;
     }).map((order): ActivityFeedItem => {
       const withdraw = order.kind === "cash-out" && order.orderId ? cashoutWithdrawForDeposit(order.orderId, input.operations) : undefined;
       const reviewed = order.kind === "cash-out" ? reviewedByOrder.get(order.id) : undefined;

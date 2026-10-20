@@ -1,0 +1,175 @@
+{
+  "id": "balances-cant-load",
+  "title": "Balances — first-visit can’t load",
+  "summary": "Issue #2045: where the failure message and Try again sit relative to the balance figure when no balances snapshot has ever loaded. Loading comes first; never —, Partial balance or a zero. Production keeps A until Jesse picks.",
+  "refs": {
+    "issue": 2045
+  },
+  "sections": [
+    {
+      "id": "home",
+      "title": "Home",
+      "note": "Home hero: label “Total balance”, no snapshot has ever loaded.",
+      "frames": [
+        {
+          "id": "home-baseline-mobile",
+          "story": "explorations-balances-cant-load--baseline-home",
+          "label": "A · Baseline · Home · 390",
+          "viewport": "mobile",
+          "change": "unchanged",
+          "note": "LoadErrorCard replaces the figure region (production today)."
+        },
+        {
+          "id": "home-baseline-desktop",
+          "story": "explorations-balances-cant-load--baseline-home",
+          "label": "A · Baseline · Home · 1440",
+          "viewport": "desktop",
+          "change": "unchanged",
+          "note": "LoadErrorCard replaces the figure region (production today)."
+        },
+        {
+          "id": "home-quiet-mobile",
+          "story": "explorations-balances-cant-load--quiet-home",
+          "label": "B · Quiet · Home · 390",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Muted figure-shaped bar keeps the hero's shape; one muted line and a text Try again beneath."
+        },
+        {
+          "id": "home-quiet-desktop",
+          "story": "explorations-balances-cant-load--quiet-home",
+          "label": "B · Quiet · Home · 1440",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "Muted figure-shaped bar keeps the hero's shape; one muted line and a text Try again beneath."
+        },
+        {
+          "id": "home-inline-mobile",
+          "story": "explorations-balances-cant-load--inline-home",
+          "label": "C · Inline · Home · 390",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "No placeholder; one row with the message and a trailing Try again."
+        },
+        {
+          "id": "home-inline-desktop",
+          "story": "explorations-balances-cant-load--inline-home",
+          "label": "C · Inline · Home · 1440",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "No placeholder; one row with the message and a trailing Try again."
+        }
+      ]
+    },
+    {
+      "id": "cash",
+      "title": "Cash",
+      "note": "Cash hero: label “Cash”, no snapshot has ever loaded.",
+      "frames": [
+        {
+          "id": "cash-baseline-mobile",
+          "story": "explorations-balances-cant-load--baseline-cash",
+          "label": "A · Baseline · Cash · 390",
+          "viewport": "mobile",
+          "change": "unchanged",
+          "note": "LoadErrorCard replaces the figure region (production today)."
+        },
+        {
+          "id": "cash-baseline-desktop",
+          "story": "explorations-balances-cant-load--baseline-cash",
+          "label": "A · Baseline · Cash · 1440",
+          "viewport": "desktop",
+          "change": "unchanged",
+          "note": "LoadErrorCard replaces the figure region (production today)."
+        },
+        {
+          "id": "cash-quiet-mobile",
+          "story": "explorations-balances-cant-load--quiet-cash",
+          "label": "B · Quiet · Cash · 390",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Muted figure-shaped bar keeps the hero's shape; one muted line and a text Try again beneath."
+        },
+        {
+          "id": "cash-quiet-desktop",
+          "story": "explorations-balances-cant-load--quiet-cash",
+          "label": "B · Quiet · Cash · 1440",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "Muted figure-shaped bar keeps the hero's shape; one muted line and a text Try again beneath."
+        },
+        {
+          "id": "cash-inline-mobile",
+          "story": "explorations-balances-cant-load--inline-cash",
+          "label": "C · Inline · Cash · 390",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "No placeholder; one row with the message and a trailing Try again."
+        },
+        {
+          "id": "cash-inline-desktop",
+          "story": "explorations-balances-cant-load--inline-cash",
+          "label": "C · Inline · Cash · 1440",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "No placeholder; one row with the message and a trailing Try again."
+        }
+      ]
+    },
+    {
+      "id": "investments",
+      "title": "Investments",
+      "note": "Investments hero: label “Investments”, no snapshot has ever loaded.",
+      "frames": [
+        {
+          "id": "investments-baseline-mobile",
+          "story": "explorations-balances-cant-load--baseline-investments",
+          "label": "A · Baseline · Investments · 390",
+          "viewport": "mobile",
+          "change": "unchanged",
+          "note": "LoadErrorCard replaces the figure region (production today)."
+        },
+        {
+          "id": "investments-baseline-desktop",
+          "story": "explorations-balances-cant-load--baseline-investments",
+          "label": "A · Baseline · Investments · 1440",
+          "viewport": "desktop",
+          "change": "unchanged",
+          "note": "LoadErrorCard replaces the figure region (production today)."
+        },
+        {
+          "id": "investments-quiet-mobile",
+          "story": "explorations-balances-cant-load--quiet-investments",
+          "label": "B · Quiet · Investments · 390",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "Muted figure-shaped bar keeps the hero's shape; one muted line and a text Try again beneath."
+        },
+        {
+          "id": "investments-quiet-desktop",
+          "story": "explorations-balances-cant-load--quiet-investments",
+          "label": "B · Quiet · Investments · 1440",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "Muted figure-shaped bar keeps the hero's shape; one muted line and a text Try again beneath."
+        },
+        {
+          "id": "investments-inline-mobile",
+          "story": "explorations-balances-cant-load--inline-investments",
+          "label": "C · Inline · Investments · 390",
+          "viewport": "mobile",
+          "change": "new",
+          "note": "No placeholder; one row with the message and a trailing Try again."
+        },
+        {
+          "id": "investments-inline-desktop",
+          "story": "explorations-balances-cant-load--inline-investments",
+          "label": "C · Inline · Investments · 1440",
+          "viewport": "desktop",
+          "change": "new",
+          "note": "No placeholder; one row with the message and a trailing Try again."
+        }
+      ]
+    }
+  ]
+}

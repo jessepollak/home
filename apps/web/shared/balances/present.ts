@@ -1,28 +1,28 @@
 import { findInvestAssetByAddress } from "@/config/invest-assets";
-import type { FiatCurrencyCode, RegionId } from "@/config/regions";
+import type { FiatCurrencyCode,RegionId } from "@/config/regions";
+import { exactDecimalToFraction } from "@/shared/balances/math";
 import { weightedAprWad } from "@/shared/borrowing/math";
 import {
-  formatPresentationFiat,
-  formatPresentationTokenAmount,
-  formatWadPercent,
-  presentationCurrencyName,
+formatPresentationFiat,
+formatPresentationTokenAmount,
+formatWadPercent,
+presentationCurrencyName,
 } from "@/shared/formatting";
-import { exactDecimalToFraction } from "@/shared/balances/math";
-import { pricePendingCashout, type PendingCashoutEstimate } from "./pending-cashout";
+import { pricePendingCashout,type PendingCashoutEstimate } from "./pending-cashout";
 import {
-  selectBalanceTotals,
-  selectBorrowPositions,
-  selectInvestmentHoldings,
-  selectMoneyGroups,
-  type CashSelection,
+selectBalanceTotals,
+selectBorrowPositions,
+selectInvestmentHoldings,
+selectMoneyGroups,
+type CashSelection,
 } from "./select";
 import type {
-  BalancesSnapshot,
-  BalancesState,
-  BalancesTotal,
-  BorrowPosition,
-  ExactDecimal,
-  Holding,
+BalancesSnapshot,
+BalancesState,
+BalancesTotal,
+BorrowPosition,
+ExactDecimal,
+Holding,
 } from "./types";
 
 const rowNameCollator = new Intl.Collator("en", { sensitivity: "base" });
@@ -45,53 +45,34 @@ export type MoneyGroupPresentation = {
   id: "cash" | "investments" | "unpriced";
   label: "Cash" | "Investments" | "Unpriced";
   displaySubtotal: string | null;
-  subtotalStatus: BalanceFigureStatus;
   rows: BalanceRowModel[];
 };
-
-export type BalanceFigureStatus = "complete" | "partial" | "unavailable";
-
-export type BalanceStatusReason =
-  | "unreadable"
-  | "price-delayed"
-  | "value-unavailable"
-  | "borrow-unconfirmed"
-  | "loan-unpriced"
-  | "pending-cash-out-unpriced"
-  | "pending-cash-out";
 
 export type MoneyBreakdownItem = {
   id: "borrow" | "cash" | "pending-cash-out" | "investments";
   label: "Borrow" | "Cash" | "Pending cash-out" | "Investments";
   value: string;
   weight: number;
-  status: BalanceFigureStatus;
 };
 
 export type HomeSummaryAmount = {
-  status: BalanceFigureStatus;
   value: string | null;
 };
 
 export type HomeMoneySummary = {
   cash: HomeSummaryAmount;
-  investments: HomeSummaryAmount & { assetCount: number; assetCountStatus: BalanceFigureStatus; ownedCount: number };
+  investments: HomeSummaryAmount & { assetCount: number; ownedCount: number };
   borrow:
     | (HomeSummaryAmount & { kind: "position"; rate: string | null; debts: Array<{ marketId: string; baseUnits: string }> })
-    | { kind: "none"; hasCollateral: boolean }
-    | { kind: "unavailable" };
+    | { kind: "none"; hasCollateral: boolean };
 };
 
 export type HomeBalancesPresentation = {
   status: "loading" | "ready" | "unavailable";
   displayTotal: string | null;
-  totalStatus?: BalanceFigureStatus;
-  statusLabel?: string;
-  statusReasons?: BalanceStatusReason[];
   needsCountry?: true;
   breakdown: MoneyBreakdownItem[];
   summary: HomeMoneySummary | null;
-  refreshFailed?: true;
   revalidating?: true;
   cachedAt?: number;
 };
@@ -148,8 +129,6 @@ export function presentHomeBalances(
     return {
       status: "unavailable",
       displayTotal: null,
-      totalStatus: "unavailable",
-      statusLabel: "Balance unavailable",
       breakdown: [],
       summary: null,
     };
@@ -158,41 +137,17 @@ export function presentHomeBalances(
   const net = selectBalanceTotals(state.snapshot).net;
   const pending = pendingCashout?.state === "escrow" && BigInt(pendingCashout.baseUnits) > BigInt(0)
     ? pricePendingCashout(state.snapshot, pendingCashout) : null;
-  const pendingUnpriced = pending === "unpriced";
-  const pendingUnconfirmed = pendingCashout?.state === "escrow" && pendingCashout.partial ||
-    pendingCashout?.state === "indeterminate" || pendingCashout?.state === "unreadable" || pendingCashout?.state === "loading";
   const pendingValue = pending && pending !== "unpriced" && BigInt(pending.atoms) > BigInt(0) ? pending : null;
   const noCurrency = net.status === "no-quote-currency";
-  const loanUnpriced = state.snapshot.borrow.positions.some(({ debt }) =>
-    BigInt(debt.balance.baseUnits) > BigInt(0) && debt.value.status !== "priced"
-  );
-  const unavailable = net.status === "unavailable" || loanUnpriced;
-  const totalStatus: BalanceFigureStatus = noCurrency || unavailable
-    ? "unavailable"
-    : net.status === "partial" || pendingUnpriced || pendingUnconfirmed
-      ? "partial"
-      : "complete";
-  const statusReasons = !noCurrency && totalStatus !== "complete"
-    ? balanceStatusReasons(state.snapshot, loanUnpriced, pendingUnpriced, Boolean(pendingUnconfirmed))
-    : [];
   const combined = net.value && pendingValue ? signedNetWithPending(net.value, net.negative, pendingValue) : null;
   const summary = presentHomeSummary(state.snapshot);
-  const breakdown = presentBreakdown(state.snapshot, pendingValue, pendingCashout?.state === "escrow" && pendingCashout.partial);
+  const breakdown = presentBreakdown(state.snapshot, pendingValue);
 
   return {
     status: "ready",
-    displayTotal: !noCurrency && !unavailable && net.value && net.currency
+    displayTotal: !noCurrency && net.value && net.currency
       ? `${(combined?.negative ?? net.negative) ? "−" : ""}${formatPresentationFiat(combined?.value ?? net.value, net.currency, 2, state.snapshot.region)}`
-      : "—",
-    totalStatus,
-    statusLabel: noCurrency
-      ? "Choose a country in Account to set how money is shown"
-      : unavailable
-        ? "Balance unavailable"
-        : totalStatus === "partial"
-          ? "Partial balance"
-          : undefined,
-    ...(statusReasons.length > 0 ? { statusReasons } : {}),
+      : null,
     ...(noCurrency ? { needsCountry: true as const } : {}),
     breakdown,
     summary,
@@ -200,39 +155,12 @@ export function presentHomeBalances(
   };
 }
 
-function balanceStatusReasons(snapshot: BalancesSnapshot, loanUnpriced: boolean, pendingUnpriced: boolean, pendingUnconfirmed: boolean): BalanceStatusReason[] {
-  const reasons: BalanceStatusReason[] = [];
-  if (snapshot.holdings.some(({ balance }) => balance.status === "unavailable") ||
-    snapshot.coverage.registry === "partial" || snapshot.coverage.catalog !== "complete") {
-    reasons.push("unreadable");
-  }
-  const contributions = [
-    ...snapshot.holdings,
-    ...snapshot.borrow.positions.flatMap(({ collateral, debt }) => [collateral, debt]),
-  ];
-  const positiveContributions = contributions.filter(({ balance }) =>
-    balance.status === "ready" && BigInt(balance.baseUnits) > BigInt(0)
-  );
-  if (positiveContributions.some(({ value }) =>
-    value.status === "unpriced" && value.reason === "price-stale"
-  )) reasons.push("price-delayed");
-  if (positiveContributions.some(({ value }) =>
-    value.status === "unavailable" || value.status === "unpriced" &&
-    value.reason !== "price-stale" && value.reason !== "no-quote-currency"
-  )) reasons.push("value-unavailable");
-  if (snapshot.borrow.coverage === "partial") reasons.push("borrow-unconfirmed");
-  if (loanUnpriced) reasons.push("loan-unpriced");
-  if (pendingUnpriced) reasons.push("pending-cash-out-unpriced");
-  if (pendingUnconfirmed) reasons.push("pending-cash-out");
-  return reasons;
-}
-
-export function presentPendingCashout(snapshot: BalancesSnapshot, escrow: PendingCashoutEstimate): { value: string | null; atLeast: boolean } | null {
-  if (escrow?.state === "indeterminate") return { value: null, atLeast: false };
+export function presentPendingCashout(snapshot: BalancesSnapshot, escrow: PendingCashoutEstimate): { value: string | null } | null {
+  if (escrow?.state === "indeterminate") return { value: null };
   if (escrow?.state !== "escrow" || BigInt(escrow.baseUnits) === BigInt(0)) return null;
   const amount = pricePendingCashout(snapshot, escrow);
   return amount === "unpriced" || BigInt(amount.atoms) === BigInt(0) || !snapshot.quoteCurrency
-    ? null : { value: formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region), atLeast: escrow.partial };
+    ? null : { value: formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region) };
 }
 
 function signedNetWithPending(net: ExactDecimal, negative: boolean, pending: ExactDecimal): { value: ExactDecimal; negative: boolean } {
@@ -296,7 +224,7 @@ function buildMoneyGroups(
     groups.push({
       id: "investments",
       label: "Investments",
-      ...presentHoldingsSubtotal(investmentHoldings, snapshot, snapshot.coverage.catalog !== "complete" || snapshot.borrow.coverage !== "complete"),
+      ...presentHoldingsSubtotal(investmentHoldings, snapshot),
       rows: investmentRows,
     });
   }
@@ -329,9 +257,6 @@ function presentHomeSummary(
     investments: {
       ...summaryAmount(totals.investments, snapshot.region),
       assetCount: assetKeys.size,
-      assetCountStatus: [...selectInvestmentHoldings(snapshot), ...snapshot.borrow.positions.map(({ collateral }) => collateral)].some((holding) => holding.balance.status === "unavailable") ||
-        snapshot.coverage.catalog !== "complete" || snapshot.coverage.registry === "partial" || snapshot.borrow.coverage !== "complete"
-        ? "partial" : "complete",
       ownedCount: [...owned.values()].filter(Boolean).length,
     },
     borrow: presentBorrowSummary(snapshot, totals.borrow),
@@ -347,9 +272,7 @@ function presentBorrowSummary(
     BigInt(position.debt.balance.baseUnits) > BigInt(0)
   );
   if (owing.length === 0) {
-    return snapshot.borrow.coverage === "complete"
-      ? { kind: "none", hasCollateral: positions.some((position) => BigInt(position.collateral.balance.baseUnits) > BigInt(0)) }
-      : { kind: "unavailable" };
+    return { kind: "none", hasCollateral: positions.some((position) => BigInt(position.collateral.balance.baseUnits) > BigInt(0)) };
   }
   const rate = weightedBorrowAprWad(owing);
   return {
@@ -387,19 +310,18 @@ function borrowDebtWeights(positions: readonly BorrowPosition[]): bigint[] {
 
 function summaryAmount(total: BalancesTotal, region: RegionId): HomeSummaryAmount {
   if (
-    (total.status === "complete" || total.status === "partial") &&
+    total.status === "complete" &&
     total.value &&
     total.currency
   ) {
     return {
-      status: total.status,
       value: formatPresentationFiat(total.value, total.currency, 2, region),
     };
   }
-  return { status: "unavailable", value: null };
+  return { value: null };
 }
 
-function presentBreakdown(snapshot: BalancesSnapshot, pending: ExactDecimal | null, pendingPartial: boolean): MoneyBreakdownItem[] {
+function presentBreakdown(snapshot: BalancesSnapshot, pending: ExactDecimal | null): MoneyBreakdownItem[] {
   if (!snapshot.quoteCurrency) return [];
   const totals = selectBalanceTotals(snapshot);
   const hasDebt = selectBorrowPositions(snapshot).some((position) =>
@@ -416,29 +338,26 @@ function presentBreakdown(snapshot: BalancesSnapshot, pending: ExactDecimal | nu
       : []),
     { id: "cash", label: "Cash", total: totals.cash, sign: "" },
     ...(pending && snapshot.quoteCurrency ? [{ id: "pending-cash-out" as const, label: "Pending cash-out" as const,
-      total: { value: pending, currency: snapshot.quoteCurrency, status: pendingPartial ? "partial" as const : "complete" as const }, sign: "" as const }] : []),
+      total: { value: pending, currency: snapshot.quoteCurrency, status: "complete" as const }, sign: "" as const }] : []),
     { id: "investments", label: "Investments", total: totals.investments, sign: "" },
   ];
   const scale = entries.reduce((maximum, { total }) => Math.max(maximum, total.value?.scale ?? 0), 0);
   const magnitudes = entries.map(({ total }) =>
-    (total.status === "complete" || total.status === "partial") && total.value && total.currency
+    total.status === "complete" && total.value && total.currency
       ? scaledAtoms(total.value, scale)
       : BigInt(0)
   );
   const sum = magnitudes.reduce((total, value) => total + value, BigInt(0));
   if (sum <= BigInt(0)) return [];
-  return entries.map((entry, index) => {
+  return entries.flatMap((entry, index) => {
     const { total } = entry;
-    if ((total.status !== "complete" && total.status !== "partial") || !total.value || !total.currency) {
-      return { id: entry.id, label: entry.label, value: "—", weight: 0, status: "unavailable" };
-    }
-    return {
+    if (!total.value || !total.currency) return [];
+    return [{
       id: entry.id,
       label: entry.label,
       value: `${entry.sign}${formatPresentationFiat(total.value, total.currency, 2, snapshot.region)}`,
       weight: Number((magnitudes[index]! * BigInt(2_000) + sum) / (sum * BigInt(2))),
-      status: total.status,
-    };
+    }];
   });
 }
 
@@ -468,17 +387,6 @@ export function presentCashSelection(entry: CashSelection, snapshot: BalancesSna
   }
   const { holding } = entry;
   const currency = holding.cashCurrency!;
-  if (holding.balance.status === "unavailable" || holding.cashValue?.status === "unavailable") {
-    return {
-      key: holding.key,
-      group: "cash",
-      name: presentationCurrencyName(currency),
-      mark: { kind: "flag", currency },
-      primary: "Unavailable",
-      secondary: null,
-      tone: "error",
-    };
-  }
   if (holding.cashValue?.status === "priced") {
     return {
       key: holding.key,
@@ -502,17 +410,6 @@ export function presentCashSelection(entry: CashSelection, snapshot: BalancesSna
 }
 
 function presentAsset(holding: Holding, snapshot: BalancesSnapshot): BalanceRowModel {
-  if (holding.balance.status === "unavailable") {
-    return {
-      key: holding.key,
-      group: "asset",
-      name: holding.name.trim() || holding.symbol.trim(),
-      mark: presentHoldingMark(holding),
-      primary: "Unavailable",
-      secondary: null,
-      tone: "error",
-    };
-  }
   const quantity = tokenQuantity(holding, snapshot);
   const mark = presentHoldingMark(holding);
   if (holding.value.status === "priced") {
@@ -537,21 +434,10 @@ function presentAsset(holding: Holding, snapshot: BalancesSnapshot): BalanceRowM
   };
 }
 
-function presentHoldingsSubtotal(
-  holdings: readonly Holding[],
-  snapshot: BalancesSnapshot,
-  knownIncomplete = false,
-): Pick<MoneyGroupPresentation, "displaySubtotal" | "subtotalStatus"> {
-  if (!snapshot.quoteCurrency) return { displaySubtotal: null, subtotalStatus: "unavailable" };
-  const missing = knownIncomplete || holdings.some((holding) => holding.balance.status !== "ready" ||
-    BigInt(holding.balance.baseUnits) > BigInt(0) && holding.value.status !== "priced");
-  const values = holdings.flatMap((holding) =>
-    holding.balance.status === "ready" && holding.value.status === "priced" ? [holding.value.amount] : []
-  );
-  const amount = sumExactDecimals(values);
-  const subtotalStatus = !missing ? "complete" : BigInt(amount.atoms) > BigInt(0) ? "partial" : "unavailable";
-  return { subtotalStatus, displaySubtotal: subtotalStatus === "unavailable" ? null
-    : formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region) };
+function presentHoldingsSubtotal(holdings: readonly Holding[], snapshot: BalancesSnapshot): Pick<MoneyGroupPresentation, "displaySubtotal"> {
+  if (!snapshot.quoteCurrency) return { displaySubtotal: null };
+  const values = holdings.flatMap((holding) => holding.value.status === "priced" ? [holding.value.amount] : []);
+  return { displaySubtotal: formatPresentationFiat(sumExactDecimals(values), snapshot.quoteCurrency, 2, snapshot.region) };
 }
 
 function sumExactDecimals(values: readonly ExactDecimal[]): ExactDecimal {
@@ -568,7 +454,6 @@ function tokenQuantity(
   snapshot: BalancesSnapshot,
   symbol = holding.symbol,
 ): string {
-  if (holding.balance.status !== "ready") return "Unavailable";
   return formatPresentationTokenAmount(
     BigInt(holding.balance.baseUnits),
     holding.decimals,

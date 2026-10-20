@@ -8,7 +8,7 @@ const sourceOrder: readonly ActivityFeedSource[] = ["transfers", "actions", "ord
 export const activitySourcesAttribute = (sources: Record<ActivityFeedSource, ActivitySourceReadiness>): string =>
   sourceOrder.map((source) => `${source}:${sources[source]}`).join(" ");
 
-export const sourceReadiness = (status: ActivitySourceReadiness, refreshing: boolean, failed = false): ActivitySourceReadiness => refreshing ? "loading" : failed ? "error" : status;
+export const sourceReadiness = (status: ActivitySourceReadiness, hasRows: boolean): ActivitySourceReadiness => hasRows ? "ready" : status;
 
 export const transfersReadiness = (activity: ActivityState & { refreshing?: boolean; failed?: boolean }): ActivitySourceReadiness => {
   if (activity.refreshing) return "loading";

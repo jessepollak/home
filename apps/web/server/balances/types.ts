@@ -3,7 +3,6 @@ import "server-only";
 import type { FiatCurrencyCode } from "@/config/regions";
 import type {
   AssetKey,
-  BalancesCoverage,
   BorrowMarketKey,
   ExactDecimal,
   Holding,
@@ -48,10 +47,17 @@ export type BalancesEnumeration = {
   durationMs: number;
 };
 
+export type ObservationCoverage = {
+  registry: "complete" | "partial";
+  catalog: "complete" | "incomplete" | "unavailable";
+};
+
+export type ReadBalance = HoldingBalance | { status: "unavailable"; baseUnits: null };
+
 export type ReadHolding = UniverseEntry & {
-  balance: HoldingBalance;
-  underlyingBalance?: HoldingBalance;
-  withdrawableBalance?: HoldingBalance;
+  balance: ReadBalance;
+  underlyingBalance?: ReadBalance;
+  withdrawableBalance?: ReadBalance;
 };
 
 export type BorrowMarketRead =
@@ -73,7 +79,7 @@ export type BalancesRead = {
   block: { number: string; hash: `0x${string}`; timestamp: string };
   observedAt: string;
   holdings: ReadHolding[];
-  coverage: BalancesCoverage;
+  coverage: ObservationCoverage;
   enumerationCursor?: string | null;
   borrow?: BorrowRead | null;
 };

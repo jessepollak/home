@@ -11,45 +11,18 @@ import {
 } from "@/components/ui/popover";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import type { HomeAssetBalancesPresentation } from "./home-types";
-import type { BalanceStatusReason } from "@/shared/balances/present";
 
 export type HomeBalancesStatus = {
   message: string;
   recovery: "retry" | "choose-country" | "none";
 };
 
-const statusReasonCopy: Record<BalanceStatusReason, string> = {
-  unreadable: "Some balances couldn’t be read.",
-  "price-delayed": "Some prices are delayed.",
-  "value-unavailable": "Some holdings can’t be valued right now.",
-  "borrow-unconfirmed": "Home couldn’t check for a loan.",
-  "loan-unpriced": "A loan couldn’t be priced, so the total can’t be shown.",
-  "pending-cash-out-unpriced": "A pending cash-out can’t be valued right now.",
-  "pending-cash-out": "A pending cash-out isn’t counted yet.",
-};
-
-export function homeBalancesStatus(
+export function homeCountryStatus(
   assetBalances: HomeAssetBalancesPresentation | undefined,
 ): HomeBalancesStatus | null {
-  if (!assetBalances || assetBalances.status === "loading") return null;
-  if (assetBalances.status === "unavailable") {
-    return { message: "Balances are unavailable", recovery: "retry" };
-  }
-  if (assetBalances.needsCountry && assetBalances.statusLabel) {
-    return { message: assetBalances.statusLabel, recovery: "choose-country" };
-  }
-  if (assetBalances.totalStatus === "partial" || assetBalances.totalStatus === "unavailable") {
-    const reasons = assetBalances.statusReasons ?? [];
-    const partial = assetBalances.totalStatus === "partial";
-    return {
-      message: [
-        partial ? "Partial balance. Total counts only what Home could read and price." : "Balance unavailable.",
-        ...(reasons.length ? reasons.map((reason) => statusReasonCopy[reason]) : ["Balances couldn’t load."]),
-      ].join(" "),
-      recovery: reasons.length === 0 || reasons.some((reason) => reason !== "pending-cash-out") ? "retry" : "none",
-    };
-  }
-  return null;
+  return assetBalances?.needsCountry
+    ? { message: "Choose a country in Account to set how money is shown", recovery: "choose-country" }
+    : null;
 }
 
 export function useReloadHomeBalances(): () => void {
@@ -64,10 +37,10 @@ export function useReloadHomeBalances(): () => void {
 
 export function headerStatus({
   interruption,
-  coverage,
+  country,
 }: {
   interruption: { kind: "offline" | "interrupted" } | null;
-  coverage: HomeBalancesStatus | null;
+  country: HomeBalancesStatus | null;
 }): HomeBalancesStatus | null {
   if (interruption?.kind === "offline") {
     return { message: "You’re offline. Home will update when you reconnect.", recovery: "none" };
@@ -75,7 +48,7 @@ export function headerStatus({
   if (interruption?.kind === "interrupted") {
     return { message: "Home can’t refresh right now. Some information may be out of date.", recovery: "retry" };
   }
-  return coverage;
+  return country;
 }
 
 export function HomeHeaderStatus({

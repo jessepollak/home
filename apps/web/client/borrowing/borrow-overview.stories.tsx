@@ -360,7 +360,7 @@ function BorrowStorySurface({
   return (
     <BorrowOverview
       overview={overview}
-      borrowSummary={{ kind: "position", status: "complete", value: summaryDisplay.total, rate: null, debts: overview.opportunities.flatMap((entry) => entry.availability.status === "available" && BigInt(entry.availability.snapshot.position.debtAssetsRaw) > BigInt(0)
+      borrowSummary={{ kind: "position", value: summaryDisplay.total, rate: null, debts: overview.opportunities.flatMap((entry) => entry.availability.status === "available" && BigInt(entry.availability.snapshot.position.debtAssetsRaw) > BigInt(0)
         ? [{ marketId: entry.market.id, baseUnits: entry.availability.snapshot.position.debtAssetsRaw }] : []) }}
       status={status}
       onRetry={onRetry}

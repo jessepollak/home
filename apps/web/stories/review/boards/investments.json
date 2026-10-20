@@ -32,7 +32,7 @@
     {
       "id": "holdings",
       "title": "Holdings states",
-      "note": "Owned assets, empty and recovery states.",
+      "note": "Owned assets, empty and loading states.",
       "frames": [
         {
           "id": "funded",
@@ -75,22 +75,6 @@
           "note": "Balance and holdings skeletons without a reserved action."
         },
         {
-          "id": "partial-inventory",
-          "story": "explorations-investments-l2--partial-inventory",
-          "label": "Partial Inventory",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "Known holdings remain visible with an incomplete-coverage caveat and retry."
-        },
-        {
-          "id": "registry-outage",
-          "story": "explorations-investments-l2--registry-outage",
-          "label": "Registry Outage",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "No inferred owned rows; unavailable hero total has an outage caveat and retry."
-        },
-        {
           "id": "unpriced",
           "story": "explorations-investments-l2--unpriced",
           "label": "Unpriced",
@@ -123,60 +107,12 @@
           "note": "Return focus to a holding revealed below the initial batch."
         },
         {
-          "id": "refresh-failed",
-          "story": "explorations-investments-l2--refresh-failed",
-          "label": "Refresh Failed",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "Cached holdings with retry."
-        },
-        {
-          "id": "balances-failed",
-          "story": "explorations-investments-l2--balances-failed",
-          "label": "Balances Failed",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "No snapshot; recovery only."
-        },
-        {
           "id": "collateral",
           "story": "explorations-investments-l2--collateral",
           "label": "Collateral",
           "viewport": "mobile",
           "change": "new",
           "note": "Merged and collateral-only holdings."
-        },
-        {
-          "id": "collateral-without-available-entry",
-          "story": "explorations-investments-l2--collateral-without-available-entry",
-          "label": "Collateral · no wallet record",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "Collateral-only asset while inventory is incomplete."
-        },
-        {
-          "id": "partial-borrow-coverage",
-          "story": "explorations-investments-l2--partial-borrow-coverage",
-          "label": "Borrow read failed",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "One borrow market couldn't be read."
-        },
-        {
-          "id": "collateral-catalog-complete-registry-partial",
-          "story": "explorations-investments-l2--collateral-catalog-complete-registry-partial",
-          "label": "Collateral · catalog complete, registry partial",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "Complete catalog establishes zero available cbETH despite an unrelated registry read failure."
-        },
-        {
-          "id": "partial-borrow-no-holdings",
-          "story": "explorations-investments-l2--partial-borrow-no-holdings",
-          "label": "Borrow read failed · no holdings",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "No known holdings while borrow coverage is partial."
         }
       ]
     },
@@ -233,28 +169,12 @@
           "note": "Available wallet versus collateral."
         },
         {
-          "id": "detail-collateral-partial-inventory",
-          "story": "explorations-investments-l2--detail-collateral-partial-inventory",
-          "label": "Detail Collateral Partial Inventory",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "Unknown cbXRP wallet balance makes the total unavailable while $5 collateral remains visible."
-        },
-        {
           "id": "detail-collateral-known-zero",
           "story": "explorations-investments-l2--detail-collateral-known-zero",
           "label": "Detail Collateral Known Zero",
           "viewport": "mobile",
           "change": "new",
-          "note": "Known-zero wallet available beside collateral despite incomplete catalog coverage."
-        },
-        {
-          "id": "detail-collateral-unavailable",
-          "story": "explorations-investments-l2--detail-collateral-unavailable",
-          "label": "Detail Collateral Unavailable",
-          "viewport": "mobile",
-          "change": "new",
-          "note": "Unknown cbBTC wallet balance makes the total unavailable while $35,000 collateral remains visible."
+          "note": "Known-zero wallet balance beside collateral with Sell disabled."
         },
         {
           "id": "detail-stock",

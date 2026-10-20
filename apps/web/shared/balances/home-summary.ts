@@ -1,25 +1,22 @@
-import * as z from "zod/mini";
 import type { RegionId } from "@/config/regions";
-import type { HomeBalancesPresentation } from "./present";
 import { OWNER_SESSION_RETENTION_MS } from "@/shared/account/session-types";
+import * as z from "zod/mini";
+import type { HomeBalancesPresentation } from "./present";
 
 const text = z.string().check(z.maxLength(160));
-const status = z.enum(["complete", "partial", "unavailable"]);
-const reason = z.enum(["unreadable", "price-delayed", "value-unavailable", "borrow-unconfirmed", "loan-unpriced", "pending-cash-out-unpriced", "pending-cash-out"]);
-const amount = { status, value: z.nullable(text) };
+const amount = { value: z.nullable(text) };
 const count = z.number().check(z.int(), z.minimum(0), z.maximum(1_000_000));
 const presentationSchema = z.object({
-  status: z.literal("ready"), displayTotal: z.nullable(text), totalStatus: z.optional(status), statusLabel: z.optional(text), needsCountry: z.optional(z.literal(true)),
-  statusReasons: z.optional(z.array(reason).check(z.maxLength(7))),
+  status: z.literal("ready"), displayTotal: z.nullable(text), needsCountry: z.optional(z.literal(true)),
   breakdown: z.array(z.object({
     id: z.enum(["borrow", "cash", "pending-cash-out", "investments"]),
     label: z.enum(["Borrow", "Cash", "Pending cash-out", "Investments"]),
-    value: text, weight: z.number().check(z.minimum(0)), status,
+    value: text, weight: z.number().check(z.minimum(0)),
   })).check(z.maxLength(4)),
   summary: z.object({
-    cash: z.object(amount), investments: z.object({ ...amount, assetCount: count, assetCountStatus: z.optional(status), ownedCount: count }),
+    cash: z.object(amount), investments: z.object({ ...amount, assetCount: count, ownedCount: count }),
     borrow: z.union([
-      z.object({ kind: z.literal("none"), hasCollateral: z.boolean() }), z.object({ kind: z.literal("unavailable") }),
+      z.object({ kind: z.literal("none"), hasCollateral: z.boolean() }),
       z.object({ ...amount, kind: z.literal("position"), rate: z.nullable(text),
         debts: z.array(z.object({ marketId: text, baseUnits: text })).check(z.maxLength(32)) }),
     ]),
@@ -28,7 +25,7 @@ const presentationSchema = z.object({
 const rateSchema = z.object({ value: z.nullable(text), updatedAt: z.number() });
 export type HomeRateObservation = { value: string | null; updatedAt: number; pending: boolean };
 export type HomeRateLabels = { cash?: { value: string | null; updatedAt: number }; borrow?: { value: string | null; updatedAt: number } };
-const schema = z.object({ version: z.literal(2), owner: z.string().check(z.maxLength(200)), region: text, updatedAt: z.number(), presentation: presentationSchema, rates: z.optional(z.object({ cash: z.optional(rateSchema), borrow: z.optional(rateSchema) })) });
+const schema = z.object({ version: z.literal(3), owner: z.string().check(z.maxLength(200)), region: text, updatedAt: z.number(), presentation: presentationSchema, rates: z.optional(z.object({ cash: z.optional(rateSchema), borrow: z.optional(rateSchema) })) });
 const maxCharacters = 8 * 1024;
 
 export type HomeSummaryRecord = z.infer<typeof schema>;
@@ -52,10 +49,7 @@ export function recentHomeRates(rates: HomeRateLabels | undefined, now = Date.no
   return result;
 }
 export function homeSummaryPresentation(record: HomeSummaryRecord): HomeBalancesPresentation {
-  return { ...record.presentation,
-    summary: { ...record.presentation.summary, investments: { ...record.presentation.summary.investments,
-      assetCountStatus: record.presentation.summary.investments.assetCountStatus ?? record.presentation.summary.investments.status } },
-    revalidating: true, cachedAt: record.updatedAt };
+  return { ...record.presentation, revalidating: true, cachedAt: record.updatedAt };
 }
 export function encodeHomeSummaryCookie(record: HomeSummaryRecord): string | null {
   const value = encodeURIComponent(JSON.stringify(record));

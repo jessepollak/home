@@ -2,6 +2,7 @@ import "server-only";
 
 import type {
   BalanceObservation,
+  BalanceSnapshotRevision,
   BalanceSnapshotRow,
   BalanceSnapshotStore,
 } from "./snapshot-store";
@@ -14,9 +15,14 @@ export class MemoryBalanceSnapshotStore implements BalanceSnapshotStore {
     return row ? structuredClone(row) : null;
   }
 
-  async putObservation(row: BalanceObservation): Promise<boolean> {
+  async putObservation(row: BalanceObservation, expected?: BalanceSnapshotRevision | null): Promise<boolean> {
     const rowKey = key(row.chainId, row.address);
     const existing = this.rows.get(rowKey);
+    if (expected !== undefined && (expected === null
+      ? existing !== undefined
+      : !existing || existing.blockNumber !== expected.blockNumber || existing.observedAt !== expected.observedAt)) {
+      return false;
+    }
     if (existing) {
       const blockOrder = BigInt(row.blockNumber) - BigInt(existing.blockNumber);
       if (blockOrder < BigInt(0) ||

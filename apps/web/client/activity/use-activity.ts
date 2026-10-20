@@ -8,8 +8,6 @@ import {
   parseActivityPage,
 } from "@/shared/activity/contract";
 import { mergeActivityPages, sameActivityTransfer } from "@/shared/activity/pages";
-import { ACTIVITY_WINDOW_DAYS } from "@/shared/activity/types";
-import { CARD_PURCHASES_VERSION } from "@/shared/cards/transactions-contract";
 import type {
   ActivityPage,
   ActivityState,
@@ -36,6 +34,7 @@ import { ResourceFailure } from "@/client/account/resource-failure";
 import type { RegionId } from "@/config/regions";
 import { presentationMoneyMetadata } from "@/shared/formatting";
 import { ownerInfiniteQuery, ownerQuery } from "@/client/query/query-options";
+import { retainActivityPage } from "./retained-activity";
 
 export const activityLatestReadTimeoutMs = 45_000;
 const activityRefreshExtraPages = 10;
@@ -46,6 +45,7 @@ const activityContinuationRetryDelaysMs = [1_000, 3_000] as const;
 export const activityFirstPageRetryDelaysMs = [500, 1_500] as const;
 
 export type UseActivityResult = ActivityState & {
+  ownerKey?: string | null;
   refreshing?: boolean;
   failed?: boolean;
   retry: () => void;
@@ -55,6 +55,8 @@ export type UseActivityResult = ActivityState & {
 };
 
 export const activityOwnerKey = dataOwnerKey;
+
+type RetainedActivityData = InfiniteData<ActivityPage, string | null> & { retainedPage?: ActivityPage };
 
 type ContinuationState = {
   visible: boolean;
@@ -79,9 +81,6 @@ type ValuationRetryState = {
 };
 
 const valuationRetries = new WeakMap<Query, ValuationRetryState>();
-let activityCardReadOrder = 0;
-const cardReadStartedOrder = new WeakMap<object, number>();
-const cardReadCompletedOrder = new WeakMap<object, number>();
 
 function scheduleRetryTimeout(run: () => void, delayMs: number): () => void {
   const timer = setTimeout(run, delayMs);
@@ -159,16 +158,8 @@ function retainFreshCards(
   const [first, ...rest] = data?.pages ?? [];
   if (!data || !first || !data.pages.some((known) => known.onchainStatus !== "unavailable")) return;
   queryClient.setQueryData<InfiniteData<ActivityPage>>(queryKey, {
-    ...data, pages: [{ ...first, cards: page.cards }, ...rest],
+    ...data, pages: [retainActivityPage({ ...first, cards: page.cards }, first), ...rest],
   }, { updatedAt: query.state.dataUpdatedAt });
-}
-
-function firstPageCards(data: unknown): object | undefined {
-  if (!data || typeof data !== "object" || !("pages" in data) || !Array.isArray(data.pages)) return undefined;
-  const first: unknown = data.pages[0];
-  if (!first || typeof first !== "object" || !("cards" in first)) return undefined;
-  const cards: unknown = first.cards;
-  return cards && typeof cards === "object" ? cards : undefined;
 }
 
 function activityQueryOptions(input: {
@@ -179,32 +170,47 @@ function activityQueryOptions(input: {
   fetchActivity: FetchActivity;
   queryClient: QueryClient;
   previousPages?: readonly ActivityPage[];
+  previousPage?: ActivityPage;
   onPartialFirstPage?: (page: ActivityPage) => void;
 }) {
-  const { session, ownerKey, windowEnd, currency, fetchActivity, queryClient, previousPages, onPartialFirstPage } = input;
-  return ownerInfiniteQuery<ActivityPage, string | null>({
+  const { session, ownerKey, windowEnd, currency, fetchActivity, queryClient, previousPages, previousPage, onPartialFirstPage } = input;
+  const seedPage = queryClient.getQueryCache().findAll({ queryKey: ownerQueryKey(ownerKey, "activity") })
+    .flatMap((query) => {
+      const previousWindow = query.queryKey[2];
+      return query.queryKey[3] === currency && query.queryKey[4] === "all" &&
+        typeof previousWindow === "string" && Date.parse(previousWindow) < Date.parse(windowEnd)
+        ? [{ query, windowEnd: previousWindow }] : [];
+    })
+    .sort((left, right) => Date.parse(left.windowEnd) - Date.parse(right.windowEnd))
+    .reduce<ActivityPage | null>((retained, { query }) => {
+      const data = queryClient.getQueryData<RetainedActivityData>(query.queryKey);
+      const page = data?.retainedPage ?? (data?.pages.length ? mergeActivityPages(data.pages) : null);
+      return page ? retainActivityPage(page, retained) : retained;
+    }, previousPage ?? null);
+  const initialData = seedPage
+    ? { pages: [], pageParams: [], retainedPage: seedPage } satisfies RetainedActivityData
+    : undefined;
+  return ownerInfiniteQuery<ActivityPage, string | null, RetainedActivityData>({
     owner: session ? ownerKey : null,
     scope: "activity",
     key: [windowEnd, currency, "all"],
     initialPageParam: null,
+    initialData,
+    initialDataUpdatedAt: 0,
     retry: false,
-    refetchOnWindowFocus: true,
-    structuralSharing: (oldData, newData) => {
-      const shared = replaceEqualDeep(oldData, newData);
-      const cards = firstPageCards(shared);
-      const nextCards = firstPageCards(newData);
-      const readOrder = nextCards ? cardReadStartedOrder.get(nextCards) : undefined;
-      const completedOrder = nextCards ? cardReadCompletedOrder.get(nextCards) : undefined;
-      if (cards && nextCards && cards !== nextCards) {
-        if (readOrder !== undefined) cardReadStartedOrder.set(cards, Math.max(readOrder, cardReadStartedOrder.get(cards) ?? readOrder));
-        if (completedOrder !== undefined) cardReadCompletedOrder.set(cards, Math.max(completedOrder, cardReadCompletedOrder.get(cards) ?? completedOrder));
-      }
-      return shared;
+    structuralSharing: (previous: unknown, next: unknown) => {
+      const known = previous as RetainedActivityData | undefined;
+      const data = next as RetainedActivityData;
+      if (!data.pages.length) return replaceEqualDeep(previous, next);
+      const retainedPage = retainActivityPage(mergeActivityPages(data.pages),
+        known?.retainedPage ?? (known?.pages.length ? mergeActivityPages(known.pages) : seedPage));
+      return replaceEqualDeep(previous, { ...data, retainedPage });
     },
+    refetchOnWindowFocus: true,
     queryFn: async ({ pageParam, queryKey, signal }) => {
       if (!session) throw new Error("Activity is unavailable.");
-      const requestedWindow = queryKey[2] as string;
-      const requestedCurrency = queryKey[3] as typeof currency;
+      const requestedWindow = windowEnd;
+      const requestedCurrency = currency;
       const queryString = new URLSearchParams({
         to: requestedWindow,
         history: "all",
@@ -214,24 +220,21 @@ function activityQueryOptions(input: {
       const knownPages = [
         ...(queryClient.getQueryData<InfiniteData<ActivityPage>>(queryKey)?.pages ?? []),
         ...(previousPages ?? []),
+        ...(seedPage ? [seedPage] : []),
       ];
       const hasHealthyHistory = knownPages.some((known) => known.onchainStatus !== "unavailable");
       const readPage = async () => {
         if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
-        const startOrder = pageParam ? undefined : (activityCardReadOrder += 1);
         const result = parseActivityPage(
           await fetchActivity(queryString, signal), session, requestedWindow, requestedCurrency,
         );
-        if (result.cards && startOrder !== undefined) {
-          cardReadStartedOrder.set(result.cards, startOrder);
-          cardReadCompletedOrder.set(result.cards, activityCardReadOrder += 1);
-        }
         if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
         return result;
       };
       let page: ActivityPage;
       if (pageParam) {
         page = await readPage();
+        if (page.onchainStatus === "unavailable") throw new Error("Activity onchain history is unavailable.");
       } else {
         let retained: { page: ActivityPage; cached: Query | undefined; dataUpdateCount: number | undefined } | undefined;
         for (let attempt = 0; ; attempt += 1) {
@@ -287,7 +290,7 @@ export async function refreshLatestActivity(input: {
   const windowEnd = queryClient.getQueryData<string>(windowKey) ?? initialActivityWindowEnd();
   const currency = presentationMoneyMetadata(regionId).currency;
   const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, currency, "all");
-  const current = queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey);
+  const current = queryClient.getQueryData<RetainedActivityData>(currentKey);
   const currentPages = current?.pages ?? [];
   if (!currentPages.length && queryClient.getQueryCache().findAll({ queryKey: currentKey, exact: true, type: "active" }).length === 0) return "skipped";
   const boundary = currentPages.length ? mergeActivityPages(currentPages).transfers.at(-1) : undefined;
@@ -295,7 +298,7 @@ export async function refreshLatestActivity(input: {
   const nextKey = ownerQueryKey(ownerKey, "activity", nextEnd, currency, "all");
   let partialFirstPage: ActivityPage | undefined;
   const options = activityQueryOptions({
-    session, ownerKey, windowEnd: nextEnd, currency, fetchActivity, queryClient, previousPages: currentPages,
+    session, ownerKey, windowEnd: nextEnd, currency, fetchActivity, queryClient, previousPages: currentPages, previousPage: current?.retainedPage,
     onPartialFirstPage: (page) => { partialFirstPage = page; },
   });
   onPrefetchKey(nextKey);
@@ -362,7 +365,7 @@ type ActivityAdvanceInputs = {
 
 type ActivityAdvanceInputsBox = { current: ActivityAdvanceInputs };
 type ActivityLatestFailure = { windowEnd: string; currency: string } | null;
-type ActivityNewerCards = { to: string; cards: NonNullable<ActivityPage["cards"]>; windowQuery: Query; readOrder: number };
+type ActivityNewerCards = { to: string; cards: NonNullable<ActivityPage["cards"]>; windowQuery: Query };
 type ActivityLatestState = { failure: ActivityLatestFailure; busy: boolean; newerCards: ActivityNewerCards | null };
 type ActivityRunToken = { epoch: number };
 type ActivityRefreshWaiter = {
@@ -404,13 +407,13 @@ class ActivityWindowController {
     for (const listener of this.listeners) listener();
   }
 
-  recordNewerCards(snapshot: Omit<ActivityNewerCards, "windowQuery" | "readOrder">) {
+  recordNewerCards(snapshot: Omit<ActivityNewerCards, "windowQuery">) {
     const windowQuery = this.queryClient.getQueryCache().find({
       queryKey: ownerQueryKey(this.ownerKey, activityWindowScope), exact: true,
     });
     if (!windowQuery) return;
     if (this.newerCards?.windowQuery === windowQuery && Date.parse(this.newerCards.to) >= Date.parse(snapshot.to)) return;
-    this.newerCards = { ...snapshot, windowQuery, readOrder: cardReadCompletedOrder.get(snapshot.cards) ?? (activityCardReadOrder += 1) };
+    this.newerCards = { ...snapshot, windowQuery };
     this.publish();
   }
 
@@ -644,10 +647,12 @@ export function useActivity(
   }));
 
   const mergedPage = useMemo(() => {
+    const retainedPage = query.data?.retainedPage;
+    if (retainedPage) return retainedPage;
     const pages = query.data?.pages;
     if (!pages?.length) return null;
     return mergeActivityPages(pages);
-  }, [query.data?.pages]);
+  }, [query.data]);
 
   const continuationScope = `${ownerKey ?? "signed-out"}\u0000${windowEnd}\u0000${currency}`;
   const controller = ownerKey ? activityWindowController(queryClient, ownerKey) : null;
@@ -656,40 +661,12 @@ export function useActivity(
     controller?.getLatestState ?? latestStateWithoutOwner,
     controller?.getLatestState ?? latestStateWithoutOwner,
   );
-  const currentReadOrder = mergedPage?.cards ? cardReadStartedOrder.get(mergedPage.cards) : undefined;
-  const page = useMemo<ActivityPage | null>(() => {
+  const shownPage = useMemo<ActivityPage | null>(() => {
     const snapshot = state.newerCards;
     if (!mergedPage || !snapshot || snapshot.windowQuery !== activityWindowQuery ||
       Date.parse(snapshot.to) <= Date.parse(mergedPage.window.to)) return mergedPage;
-    const currentRows = mergedPage.cards?.rows ?? [];
-    const currentCards = new Map(currentRows.map((row) => [row.id, row]));
-    const currentWindowTo = Date.parse(mergedPage.window.to);
-    const currentWindowFrom = currentWindowTo - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-    const canReconcile = mergedPage.cards?.status === "ready" && mergedPage.cards.rows.length < 50 &&
-      currentReadOrder !== undefined && currentReadOrder > snapshot.readOrder;
-    const snapshotWindowFrom = Date.parse(snapshot.to) - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-    const snapshotIds = new Set(snapshot.cards.rows.map((row) => row.id));
-    return {
-      ...mergedPage,
-      cards: {
-        version: CARD_PURCHASES_VERSION,
-        status: snapshot.cards.status === "unavailable" || mergedPage.cards?.status === "unavailable"
-          ? "unavailable" : "ready",
-        rows: [
-          ...snapshot.cards.rows.filter((row) => {
-            const createdAt = Date.parse(row.createdAt);
-            return !(canReconcile && createdAt >= currentWindowFrom && createdAt < currentWindowTo &&
-              !currentCards.has(row.id));
-          }).map((row) => {
-            const current = currentCards.get(row.id);
-            return current && Date.parse(current.updatedAt) > Date.parse(row.updatedAt) ? current : row;
-          }),
-          ...(canReconcile ? currentRows.filter((row) =>
-            !snapshotIds.has(row.id) && Date.parse(row.createdAt) >= snapshotWindowFrom) : []),
-        ],
-      },
-    };
-  }, [mergedPage, state.newerCards, activityWindowQuery, currentReadOrder]);
+    return retainActivityPage({ ...mergedPage, cards: snapshot.cards }, mergedPage);
+  }, [mergedPage, state.newerCards, activityWindowQuery]);
   const latestUnavailable = Boolean(ownerKey && state.failure?.windowEnd === windowEnd && state.failure.currency === currency);
   const latestBusy = Boolean(ownerKey && state.busy);
   const observerId = useRef(Symbol());
@@ -964,14 +941,19 @@ export function useActivity(
       markContinuing(false);
       return;
     }
-    if (state.failed) return;
+    if (state.failed) {
+      state.failed = false;
+      state.retries = 0;
+      state.retryAt = 0;
+      markFailed(false);
+    }
     if (!latestRef.current.hasNextPage) {
       markContinuing(false);
       return;
     }
     markContinuing(true);
     void pumpRef.current();
-  }, [markContinuing]);
+  }, [markContinuing, markFailed]);
   const retryLoadMore = useCallback(() => {
     const state = continuationRef.current;
     state.failed = false;
@@ -987,23 +969,23 @@ export function useActivity(
 
   if (!ownerKey) {
     return {
-      status: "unavailable", page: null, loadingMore: false,
+      ownerKey, status: "unavailable", page: null, loadingMore: false,
       refreshing: query.isFetching || query.isPaused || latestBusy,
       loadMoreError: false, continuing: false,
       retry, refresh, setSentinelVisible, retryLoadMore,
     };
   }
-  if (query.isPending) {
+  if (query.isPending && !shownPage) {
     return {
-      status: "loading", page: null, loadingMore: false,
+      ownerKey, status: "loading", page: null, loadingMore: false,
       refreshing: query.isFetching || query.isPaused || latestBusy,
       loadMoreError: false, continuing: false,
       retry, refresh, setSentinelVisible, retryLoadMore,
     };
   }
-  if (!page) {
+  if (!shownPage) {
     return {
-      status: "error", page: null, loadingMore: false,
+      ownerKey, status: "error", page: null, loadingMore: false,
       refreshing: query.isFetching || query.isPaused || latestBusy,
       loadMoreError: false, continuing: false,
       error: readActivityFailure(query.error),
@@ -1011,8 +993,9 @@ export function useActivity(
     };
   }
   return {
+    ownerKey,
     status: "ready",
-    page,
+    page: shownPage,
     refreshing: query.isFetching || query.isPaused || latestBusy,
     failed: query.isError,
     loadingMore: query.isFetchingNextPage,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BalancesResponseError, parseBalancesSnapshot } from "@/shared/balances/contract";
-import { balancesSnapshotFixture, borrowPosition, buildBalancesSnapshotFixture, priced, unavailableBalance } from "@/shared/balances/fixtures";
+import { balancesSnapshotFixture, borrowPosition, buildBalancesSnapshotFixture, priced } from "@/shared/balances/fixtures";
 import type { BalancesSession, BalancesSnapshot } from "@/shared/balances/types";
 import { createBalancesHandler } from "./handler";
 import { assembleBalancesSnapshot } from "./snapshot";
@@ -177,7 +177,7 @@ describe("balances handler", () => {
             block: balancesSnapshotFixture.block,
             observedAt: balancesSnapshotFixture.fetchedAt,
             holdings: [],
-            coverage: balancesSnapshotFixture.coverage,
+            coverage: { registry: "complete", catalog: "complete" },
           },
           borrow: balancesSnapshotFixture.borrow,
           holdings: balancesSnapshotFixture.holdings,
@@ -215,7 +215,7 @@ describe("balances handler", () => {
           block: balancesSnapshotFixture.block,
           observedAt: balancesSnapshotFixture.fetchedAt,
           holdings: [],
-          coverage: balancesSnapshotFixture.coverage,
+          coverage: { registry: "complete", catalog: "complete" },
         },
         borrow: balancesSnapshotFixture.borrow,
         holdings: balancesSnapshotFixture.holdings,
@@ -272,7 +272,7 @@ describe("balances handler", () => {
   async function servedSnapshot(fixture: BalancesSnapshot) {
     const snapshot = assembleBalancesSnapshot({
       owner: fixture.owner.address, region: fixture.region, holdings: fixture.holdings, borrow: fixture.borrow,
-      read: { block: fixture.block, observedAt: fixture.fetchedAt, holdings: [], coverage: fixture.coverage },
+      read: { block: fixture.block, observedAt: fixture.fetchedAt, holdings: [], coverage: { registry: "complete", catalog: "complete" } },
     });
     const handler = createBalancesHandler({
       authorize: async () => verified, readBalances: async () => snapshot,
@@ -285,13 +285,10 @@ describe("balances handler", () => {
 
   test.each([
     ["complete", buildBalancesSnapshotFixture({ catalog: [] }), "complete"],
-    ["partial/unavailable", balancesSnapshotFixture, "partial"],
-    ["unavailable total", buildBalancesSnapshotFixture({
-      registry: { toshi: { balance: unavailableBalance, value: { status: "unavailable" } } },
-    }), "unavailable"],
+    ["unpriced holdings", balancesSnapshotFixture, "complete"],
     ["GLOBAL no-quote-currency", buildBalancesSnapshotFixture({ region: "GLOBAL" }), "no-quote-currency"],
     ["borrow position", buildBalancesSnapshotFixture({
-      borrow: { coverage: "complete", positions: [borrowPosition({
+      borrow: { positions: [borrowPosition({
         collateralBaseUnits: "100000", collateralValue: priced("USD", "10000"),
         debtBaseUnits: "30010000", debtValue: priced("USD", "3001"),
       })] },
@@ -312,22 +309,19 @@ describe("balances handler", () => {
       { name: "dropped registry holding", original: complete, change: (wire) => {
         wire.holdings = wire.holdings.filter((h) => h.id !== "usdc");
       } },
-      { name: "complete registry coverage with unavailable holding", original: partial, change: (wire) => {
-        wire.coverage.registry = "complete";
-      } },
       { name: "unavailable balance retaining priced value", original: partial, change: (wire) => {
         const holding = wire.holdings.find((h) => h.id === "eth");
         if (!holding) throw new Error("Missing ETH fixture holding");
         Object.assign(holding, { balance: { status: "unavailable", baseUnits: null } });
       }, detail: /holdings\./ },
-      { name: "partial total without value", original: partial, change: (wire) => {
+      { name: "complete total without value", original: partial, change: (wire) => {
         wire.total.value = null;
       }, detail: /\btotal\b/ },
       { name: "missing net sign", original: complete, change: (wire) => {
         Reflect.deleteProperty(wire.totals.net, "negative");
       } },
-      { name: "complete net with partial borrow coverage", original: complete, change: (wire) => {
-        wire.borrow.coverage = "partial";
+      { name: "partial total status", original: complete, change: (wire) => {
+        Object.assign(wire.total, { status: "partial" });
       } },
     ];
     for (const { name, original, change, detail } of mutations) {

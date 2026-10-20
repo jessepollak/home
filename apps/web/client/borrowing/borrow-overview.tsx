@@ -67,7 +67,7 @@ function Summary({ overview, borrowSummary, status, onRetry, regionId, summaryRe
   const summary = unavailable ? null : verified;
   const total = summary?.totalDebtRaw === "0" && summary.completeness === "complete"
     ? formatPresentationFiat({ atoms: "0", scale: 2 }, presentationRegions[regionId].currency.code ?? "USD", 2, regionId)
-    : summary?.completeness === "complete" && borrowSummary?.kind === "position" && borrowSummary.status === "complete" && borrowSummary.value && overview && borrowDebtsMatchOverview(overview, borrowSummary.debts)
+    : summary?.completeness === "complete" && borrowSummary?.kind === "position" && borrowSummary.value && overview && borrowDebtsMatchOverview(overview, borrowSummary.debts)
       ? borrowSummary.value
       : summary?.loanToken ? formatCash(summary.totalDebtRaw, summary.loanToken, regionId) : "—";
   return <>

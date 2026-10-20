@@ -9,7 +9,6 @@ import { erc20AssetKey, type BalancesBorrow, type BorrowMarketKey, type BorrowPo
 import type { BalancesRead, BorrowMarketRead, BorrowRead, ReadHolding } from "./types";
 
 export const BALANCES_BORROW_DEADLINE_MS = 4_000;
-export const BORROW_CARRY_FORWARD_BLOCKS = BigInt(60);
 
 type Dependencies = {
   readSnapshots?: MorphoMarketRpcReader["readSnapshots"];
@@ -48,13 +47,11 @@ export const readBorrowPositions = createBorrowPositionsReader();
 export function carryForwardBorrow(
   fresh: BorrowRead,
   prior: BorrowRead | null | undefined,
-  atBlockNumber: string,
 ): BorrowRead {
   const previous = new Map(prior?.markets.map((market) => [market.marketId, market]));
   const carry = (market: BorrowMarketRead | undefined): BorrowMarketRead | undefined => {
     if (market?.status !== "ready") return undefined;
-    const distance = BigInt(atBlockNumber) - BigInt(market.blockNumber);
-    return distance >= BigInt(0) && distance <= BORROW_CARRY_FORWARD_BLOCKS ? market : undefined;
+    return market;
   };
   return {
     markets: fresh.markets.map((market) => market.status === "ready"
@@ -93,9 +90,8 @@ export function borrowPricingPairs(read: BorrowRead | null | undefined): Pricing
   });
 }
 
-export function assembleBorrow(read: BorrowRead | null | undefined, pairs: readonly PricingPair[], price: (holding: ReadHolding) => Holding): BalancesBorrow {
+export function assembleBorrow(pairs: readonly PricingPair[], price: (holding: ReadHolding) => Holding): BalancesBorrow {
   return {
-    coverage: borrowReadComplete(read) ? "complete" : "partial",
     positions: pairs.map((pair): BorrowPosition => {
       const collateral = price(pair.collateral);
       const debt = price(pair.debt);

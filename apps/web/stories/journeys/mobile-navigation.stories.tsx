@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Toaster, toast } from "@/components/ui/toast";
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
 import type { ShellPanelId, NavigationId } from "@/config/navigation";
-import { buildBalancesSnapshotFixture, catalogHolding, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
+import { buildBalancesSnapshotFixture, catalogHolding, priced, pricedCash, ready } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultsResult } from "@/shared/savings/types";
@@ -91,7 +91,7 @@ type Props = {
   homeIndicator: boolean;
   fallback: boolean;
   longLabels: boolean;
-  balances: "funded" | "loading" | "empty" | "partial" | "failed";
+  balances: "funded" | "loading" | "empty" | "failed";
   rtl: boolean;
   reducedMotion: boolean;
   actionToast: boolean;
@@ -106,8 +106,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
   const snapshot = buildBalancesSnapshotFixture(balances === "empty" ? {} : {
     registry: {
       usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") },
-      eth: balances === "partial" ? { balance: unavailableBalance, value: { status: "unavailable" as const } }
-        : { balance: ready("500000000000000000"), value: priced("USD", "160000") },
+      eth: { balance: ready("500000000000000000"), value: priced("USD", "160000") },
       cbbtc: { balance: ready("100000"), value: priced("USD", "9850") },
       eurc: { balance: ready("75000000"), value: priced("USD", "8100"), cashValue: pricedCash("EUR", "7500") },
       "morpho-steakhouse-usdc": { balance: ready("1250000000000000000000"), underlyingBalance: ready("1250000000"), value: priced("USD", "125000") },
@@ -131,7 +130,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
             fetchAccountResource={async () => ({ version: 1, code: "abcdefghjk" })} />
             : panel === "home" ? <div className="space-y-4 lg:grid lg:grid-cols-[3fr_2fr] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
               <div className="self-start"><HomeOverview accountKey={WALLET} assetBalances={presentation} cashRate="4.00% APY" borrowOfferRate={null}
-                destinations={{ onOpenCash: () => setPanel("cash"), onOpenInvestments: () => setPanel(presentation.summary?.investments.ownedCount === 0 && presentation.summary.investments.status === "complete" ? "invest" : "investments"), onOpenBorrow: noop }}
+                destinations={{ onOpenCash: () => setPanel("cash"), onOpenInvestments: () => setPanel(presentation.summary?.investments.ownedCount === 0 ? "invest" : "investments"), onOpenBorrow: noop }}
                 actions={<><Button size="touch">Add money</Button><Button size="touch" variant="outline">Send</Button></>} activity={null} /></div>
               <div><ActivityPanelView activity={activity} regionId="US" density="feed"
                 header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>} /></div>
@@ -694,7 +693,6 @@ export const TransparencyReduced: Story = { beforeEach: withTransparencySwitch, 
 } };
 export const Loading: Story = { args: { balances: "loading" } };
 export const Empty: Story = { args: { balances: "empty" } };
-export const Partial: Story = { args: { balances: "partial" } };
 export const Failed: Story = { args: { balances: "failed" } };
 export const Narrow320: Story = { parameters: { viewport: { defaultViewport: "mobile320" } }, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");

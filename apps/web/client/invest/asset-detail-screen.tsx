@@ -127,7 +127,6 @@ function AssetDetailContent({ asset, market, assetMarkResolution = {}, onBack, o
   }, []);
   const change = resting.pending ? null : resting.change
     ? quote.valueCurrency === "USD" ? resting.change : resting.change.replace(" · ", " in USD · ") : null;
-  const snapshot = market.status === "ready" ? market.snapshots.find((entry) => entry.assetId === asset.id) : undefined;
   const body = <>
     <div className="min-w-0 space-y-1">
       <strong className={`block min-h-12 truncate text-3xl font-semibold tabular-nums sm:min-h-14 sm:text-4xl ${price.tone === "ready" ? "" : "text-muted-foreground"}`}
@@ -148,7 +147,7 @@ function AssetDetailContent({ asset, market, assetMarkResolution = {}, onBack, o
     </div>
     <AssetChart key={asset.id} assetId={asset.id} range={range} stock={asset.category === "stock"} onRangeChange={onRangeChange}
       clock={clock} onReadout={setScrub} onResting={onResting} fallback={ChartLoadFallback} />
-    {ownership ?? <AssetPosition asset={asset} assetMarkResolution={assetMarkResolution} headerAsOf={snapshot?.asOf} />}
+    {ownership ?? <AssetPosition asset={asset} assetMarkResolution={assetMarkResolution} />}
     <AssetStats asset={asset} market={market} clock={clock} range={range} headingLevel={hosted ? 2 : 3} />
     {asset.category !== "stock" ? <AssetRisk asset={asset} headingLevel={hosted ? 2 : 3} /> : null}
     <AssetAbout asset={asset} facts={facts} catalysts={catalysts} now={clock.value} />

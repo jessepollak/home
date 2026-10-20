@@ -58,7 +58,7 @@ function UnavailableSheet({ regionId }: { regionId: "BR" | "NG" | "ID" }) {
 }
 const reviewBalances = presentBalances({ status: "ready", snapshot: buildBalancesSnapshotFixture({
   region: "US", registry: { usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") } },
-  borrow: { coverage: "complete", positions: [borrowPosition({
+  borrow: { positions: [borrowPosition({
     collateralBaseUnits: "100000", collateralValue: priced("USD", "7821"),
     debtBaseUnits: "30010000", debtValue: priced("USD", "3001"),
   })] },

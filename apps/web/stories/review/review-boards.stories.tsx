@@ -16,6 +16,7 @@ import cashOutReviewJson from "./boards/cash-out-review.json";
 import cashOutActionsJson from "./boards/cash-out-actions.json";
 import mutedForegroundJson from "./boards/muted-foreground.json";
 import destructiveContrastJson from "./boards/destructive-contrast.json";
+import balancesCantLoadJson from "./boards/balances-cant-load.json";
 
 const build = readReviewBuild(import.meta.env);
 const savings = parseBoard(savingsJson);
@@ -28,6 +29,7 @@ const cashOutReview = parseBoard(cashOutReviewJson);
 const cashOutActions = parseBoard(cashOutActionsJson);
 const mutedForeground = parseBoard(mutedForegroundJson);
 const destructiveContrast = parseBoard(destructiveContrastJson);
+const balancesCantLoad = parseBoard(balancesCantLoadJson);
 const fixture = parseBoard({
   id: "chrome-fixture", title: "Board chrome test", summary: "Empty document controls", sections: [
     { id: "first", title: "First section", frames: [
@@ -54,6 +56,7 @@ export const CashOutReview: Story = { tags: ["!test", "review-board"], args: { b
 export const CashOutActions: Story = { tags: ["!test", "review-board"], args: { board: cashOutActions, build } };
 export const MutedForeground: Story = { tags: ["!test", "review-board"], args: { board: mutedForeground, build } };
 export const DestructiveContrast: Story = { tags: ["!test", "review-board"], args: { board: destructiveContrast, build } };
+export const BalancesCantLoad: Story = { tags: ["!test", "review-board"], args: { board: balancesCantLoad, build } };
 export const CommentsFollowCanvas: Story = {
   args: { board: fixture, build: fixtureBuild, frameSource: "blank" },
   render: (args) => <div style={{ height: "100dvh", width: 1400 }}><ReviewBoardView {...args} /></div>,

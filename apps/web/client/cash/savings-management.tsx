@@ -56,7 +56,7 @@ export function savingsManagement({ address, snapshot, metadata, nowMs, regionId
 }): SavingsManagement {
   const normalized = address.toLowerCase();
   const holding = snapshot?.holdings.find((entry) => entry.kind === "vault-share" && entry.contractAddress?.toLowerCase() === normalized);
-  const absent = holding === undefined && snapshot?.coverage.registry === "complete";
+  const absent = holding === undefined && snapshot !== null;
   const savedBaseUnits = absent ? "0" : holding?.underlyingBalance?.status === "ready" ? holding.underlyingBalance.baseUnits : null;
   const unreadable = !absent && holding !== undefined && savedBaseUnits === null;
   const depositCandidate = metadata?.candidates.find((candidate) => candidate.vaultAddress.toLowerCase() === normalized) ?? null;
@@ -118,7 +118,7 @@ export function SavingsManagementSheet({ management, titleId, detailsId, details
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">Saved</p>
         <p ref={restoreActionEnabled ? undefined : attachInitialFocus} tabIndex={-1} className="text-3xl font-semibold tabular-nums">
-          {management.unreadable || management.savedBaseUnits === null ? <><span aria-hidden="true">—</span><span className="sr-only">Unavailable</span></> :
+          {management.savedBaseUnits === null ? null :
             <MoneyTicker animated={false} align="start" className="max-w-full" reserveDigits={false} value={formatUsdStablecoinAmount(management.savedBaseUnits)} />}
         </p>
         <p className="text-sm text-muted-foreground">{management.rateLabel}{management.rateLabel === "Rate unavailable" ? "" : " · variable"}</p>

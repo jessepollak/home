@@ -68,15 +68,6 @@ describe("parseBalancesSnapshot", () => {
     expect(JSON.parse(JSON.stringify(parsed))).toEqual(balancesSnapshotFixture);
   });
 
-  test("the reference fixture totals 385288 minor units at partial status", () => {
-    const parsed = parseBalancesSnapshot(clone(balancesSnapshotFixture), session, "US");
-    expect(parsed.total).toEqual({
-      status: "partial",
-      value: { atoms: "385288", scale: 2 },
-      currency: "USD",
-    });
-  });
-
   test("accepts a GLOBAL region snapshot with no quote currency", () => {
     const snapshot = buildBalancesSnapshotFixture({ region: "GLOBAL" });
     expect(snapshot.quoteCurrency).toBeNull();
@@ -181,7 +172,7 @@ describe("parseBalancesSnapshot", () => {
   test("rejects a unit value when the holding is unpriced despite a ready balance", () => {
     const snapshot = clone(balancesSnapshotFixture);
     const holding = snapshot.holdings.find((entry) => entry.id === "eth")!;
-    holding.value = { status: "unpriced", reason: "price-stale" };
+    holding.value = { status: "unpriced", reason: "price-unavailable" };
     holding.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
     expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
   });
@@ -210,24 +201,6 @@ describe("parseBalancesSnapshot", () => {
     const snapshot = clone(balancesSnapshotFixture);
     holdingById(snapshot.holdings, "morpho-steakhouse-usdc").withdrawableBalance = ready("1000124");
     expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
-  });
-
-  test("rejects a ready withdrawal limit when vault shares are unavailable", () => {
-    const snapshot = buildBalancesSnapshotFixture({ registry: {
-      "morpho-steakhouse-usdc": {
-        balance: { status: "unavailable", baseUnits: null },
-        underlyingBalance: { status: "unavailable", baseUnits: null },
-        withdrawableBalance: ready("0"),
-      },
-    } });
-    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
-  });
-
-  test("accepts an unavailable vault withdrawal limit", () => {
-    const snapshot = clone(balancesSnapshotFixture);
-    holdingById(snapshot.holdings, "morpho-steakhouse-usdc").withdrawableBalance = { status: "unavailable", baseUnits: null };
-    const parsed = parseBalancesSnapshot(snapshot, session, "US");
-    expect(holdingById(parsed.holdings, "morpho-steakhouse-usdc").withdrawableBalance).toEqual({ status: "unavailable", baseUnits: null });
   });
 
   type Rejection = {
@@ -266,19 +239,19 @@ describe("parseBalancesSnapshot", () => {
       mutate: (s) => ({ ...s, stale: false }),
     },
     {
-      label: "unavailable balance coerced to zero",
+      label: "price-stale as an unpriced holding reason",
       mutate: (s) => ({
         ...s,
-        holdings: s.holdings.map((h) =>
-          h.id === "toshi" ? { ...h, balance: { status: "unavailable", baseUnits: "0" } } : h,
-        ),
+        holdings: s.holdings.map((h) => h.id === "eth"
+          ? { ...h, value: { status: "unpriced", reason: "price-stale" } } : h),
       }),
     },
     {
-      label: "unavailable balance with a priced value",
+      label: "price-stale as an unpriced cash reason",
       mutate: (s) => ({
         ...s,
-        holdings: s.holdings.map((h) => (h.id === "toshi" ? { ...h, value: priced("USD", "1") } : h)),
+        holdings: s.holdings.map((h) => h.id === "usdc"
+          ? { ...h, cashValue: { status: "unpriced", reason: "price-stale" } } : h),
       }),
     },
     {
@@ -371,10 +344,7 @@ describe("parseBalancesSnapshot", () => {
         ),
       }),
     },
-    { label: "coverage.registry disagrees with holdings", mutate: (s) => ({ ...s, coverage: { ...s.coverage, registry: "complete" } }) },
-    { label: "unknown coverage.catalog", mutate: (s) => ({ ...s, coverage: { ...s.coverage, catalog: "partial" } }) },
-    { label: "partial total without a value", mutate: (s) => ({ ...s, total: { ...s.total, value: null } }) },
-    { label: "unavailable total with a value", mutate: (s) => ({ ...s, total: { status: "unavailable", value: { atoms: "1", scale: 2 }, currency: "USD" } }) },
+    { label: "complete total without a value", mutate: (s) => ({ ...s, total: { ...s.total, value: null } }) },
     { label: "total in the wrong currency", mutate: (s) => ({ ...s, total: { ...s.total, currency: "EUR" } }) },
     {
       label: "wallet row claiming a catalog id",
@@ -419,7 +389,6 @@ describe("parseBalancesSnapshot borrow and net totals", () => {
         usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") },
       },
       borrow: {
-        coverage: "complete",
         positions: [borrowPosition({
           collateralBaseUnits: "100000",
           collateralValue: priced("USD", "10000"),
@@ -481,9 +450,6 @@ describe("parseBalancesSnapshot borrow and net totals", () => {
     }],
     ["a missing APR", (value: BalancesSnapshot) => {
       (value.borrow.positions[0] as { borrowAprWad?: string }).borrowAprWad = "5.1";
-    }],
-    ["a complete net total over a partial borrow read", (value: BalancesSnapshot) => {
-      value.borrow.coverage = "partial";
     }],
     ["a net total without a sign", (value: BalancesSnapshot) => {
       delete (value.totals.net as { negative?: boolean }).negative;

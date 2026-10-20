@@ -67,11 +67,15 @@ test("/activity keeps a cancelled funding checkout when the orders refresh fails
   await activity.getByRole("list", { name: "Pending" }).getByRole("button", { name: /Add money.*\+\$25/ }).click();
   const sheet = page.getByRole("dialog", { name: "Add money" });
   await sheet.getByRole("button", { name: "Cancel deposit" }).click();
-  await expect(page.locator("[data-activity-sources~='orders:error']").first()).toBeAttached();
-  expect(failedRefreshes).toBeGreaterThan(0);
+  await expect.poll(() => failedRefreshes).toBeGreaterThan(0);
   await expect(sheet.getByText("Cancelled", { exact: true })).toBeVisible();
   await expect(sheet.getByRole("button", { name: "Cancel deposit" })).toHaveCount(0);
   await expect(sheet.getByRole("button", { name: "Continue with Coinbase" })).toHaveCount(0);
+  await sheet.getByRole("button", { name: "Close Add money details" }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(activity.getByRole("button", { name: /Add money.*Cancelled/ })).toBeVisible();
+  await expect(activity.getByText("Add money and cash-out orders are unavailable")).toHaveCount(0);
+  await expect(activity.getByRole("button", { name: /Try again|Retry orders|Reload activity/ })).toHaveCount(0);
 });
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {

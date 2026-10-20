@@ -5,7 +5,7 @@ import { waitForReady } from "@/tests/helpers/story-readiness";
 import { CashExperience } from "@/client/cash/cash-experience";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
-import { buildBalancesSnapshotFixture, priced, pricedCash, ready, requiredLocalCashAsset, unavailableBalance } from "@/shared/balances/fixtures";
+import { buildBalancesSnapshotFixture, priced, pricedCash, ready, requiredLocalCashAsset } from "@/shared/balances/fixtures";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
@@ -153,7 +153,7 @@ export const UsdRowWithoutSaveAtZero: Story = { args: { scenario: "zero-save" },
   await expect(await canvas.findByRole("status")).toHaveTextContent("Add money opened");
   await expect(fundingOpenedWithDialog).toBe(false);
 } };
-async function assertNoFundingNux(canvasElement: HTMLElement, unavailable = false, stale = false) {
+async function assertNoFundingNux(canvasElement: HTMLElement) {
   await userEvent.click(within(within(canvasElement).getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^US dollar/ }));
   const body = within(canvasElement.ownerDocument.body);
   await waitForReady(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Convert" })).toBeVisible());
@@ -161,19 +161,9 @@ async function assertNoFundingNux(canvasElement: HTMLElement, unavailable = fals
   await expect(detail.queryByText("Add money to get started")).toBeNull();
   await expect(detail.queryByRole("button", { name: "Add money" })).toBeNull();
   await expect(detail.queryByRole("button", { name: "Save" })).toBeNull();
-  if (unavailable) {
-    await expect(detail.getByRole("img", { name: "Unavailable" })).toBeVisible();
-    await expect(detail.queryByRole("img", { name: "$0.00" })).toBeNull();
-  }
-  if (stale) await expect(detail.getByText("Balance may be out of date.")).toBeVisible();
   await expect(prepared).toHaveLength(0);
 }
-export const StaleZeroUsdDetail: Story = { args: { scenario: "zero-save", balanceStale: true }, play: async ({ canvasElement }) => assertNoFundingNux(canvasElement, false, true) };
-export const UnavailableUsdDetail: Story = { args: { snapshot: buildBalancesSnapshotFixture({ registry: {
-  usdc: { balance: unavailableBalance, value: { status: "unavailable" }, cashValue: { status: "unavailable" } },
-  eurc: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
-} }) }, play: async ({ canvasElement }) => assertNoFundingNux(canvasElement, true) };
-export const PartialZeroUsdDetail: Story = { args: { scenario: "zero-save", snapshot: { ...zeroUsdWithEur, coverage: { ...zeroUsdWithEur.coverage, registry: "partial" } } }, play: async ({ canvasElement }) => assertNoFundingNux(canvasElement) };
+export const StaleZeroUsdDetail: Story = { args: { scenario: "zero-save", balanceStale: true }, play: async ({ canvasElement }) => assertNoFundingNux(canvasElement) };
 export const UnpricedZeroUsdDetail: Story = { args: { scenario: "zero-save", snapshot: buildBalancesSnapshotFixture({ registry: {
   usdc: { balance: ready("0"), value: { status: "unpriced", reason: "price-unavailable" }, cashValue: { status: "unpriced", reason: "price-unavailable" } },
   eurc: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },

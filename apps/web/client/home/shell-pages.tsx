@@ -31,8 +31,7 @@ export function HomePageContent() {
     fetchActivity={page.fetchActivity}
     fetchOperations={page.fetchOperations}
     onOpenCash={() => open?.("cash")}
-    onOpenInvestments={() => open?.(investOffered && page.paintedAssetBalances.summary?.investments.ownedCount === 0 &&
-      page.paintedAssetBalances.summary.investments.status === "complete" ? "invest" : "investments")}
+    onOpenInvestments={() => open?.(investOffered && page.paintedAssetBalances.summary?.investments.ownedCount === 0 ? "invest" : "investments")}
     onOpenBorrow={() => open?.("borrow")}
     initialAddMoney={page.initialAddMoney}
     returnedFromProvider={page.returnedFromProvider}

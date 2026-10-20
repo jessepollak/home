@@ -183,7 +183,7 @@ function forceReducedMotion() {
 }
 function stockValue(session: MarketSession): Holding["value"] {
   if (session === "paused") return { status: "unpriced", reason: "price-paused" };
-  if (session === "stale") return { status: "unpriced", reason: "price-stale" };
+  if (session === "stale") return { status: "unpriced", reason: "price-unavailable" };
   return { status: "priced", currency: "USD", amount: { atoms: "22450", scale: 2 }, asOf: new Date(clock).toISOString(),
     reference: { kind: "tokenized-equity", session } };
 }
@@ -344,16 +344,14 @@ export const StockLastClose: Story = { args: { assetId: "nvdac", position: "stoc
   await expect(await canvas.findByText("1.25 NVDAc", undefined, chartWait)).toBeVisible();
   const balance = within(canvas.getByText("Your balance").closest("li")!);
   await expect(balance.getByText("$224.50")).toBeVisible();
-  await expect(balance.getByText(/^Last close/)).toBeVisible();
-  await expect(canvas.getAllByText(/^Last close/)).toHaveLength(2);
+  await expect(canvas.getAllByText(/^Last close/)).toHaveLength(1);
 } };
 export const StockPaused: Story = { args: { assetId: "nvdac", position: "stock", stockSession: "paused" }, play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   await expect(await canvas.findByText("1.25 NVDAc", undefined, chartWait)).toBeVisible();
   const balance = within(canvas.getByText("Your balance").closest("li")!);
-  await expect(balance.getByText("—")).toBeVisible();
-  await expect(balance.getByText("Paused")).toBeVisible();
-  await expect(canvas.getAllByText("Paused")).toHaveLength(2);
+  await expect(balance.getByText("1.25 NVDAc")).toBeVisible();
+  await expect(canvas.getAllByText("Paused")).toHaveLength(1);
 } };
 export const Desktop: Story = { parameters: { viewport: { defaultViewport: "wide" } } };
 export const Narrow: Story = { parameters: { viewport: { defaultViewport: "narrow" } }, play: async ({ canvasElement }) => {
@@ -369,7 +367,7 @@ export const SignedOut: Story = { args: { position: "blocked" }, play: async ({ 
   await expect(within(canvasElement).queryByText("Your balance")).not.toBeInTheDocument();
 } };
 export const BalanceUnavailable: Story = { args: { position: "error" }, play: async ({ canvasElement }) => {
-  await expect(await within(canvasElement).findByText("Balance unavailable", undefined, chartWait)).toBeVisible();
+  await expect(await within(canvasElement).findByText("Can’t load balances", undefined, chartWait)).toBeVisible();
 } };
 export const StatsUnavailable: Story = { parameters: { msw: { handlers: [historyHandler(), statsHandler("error")] } },
   play: async ({ canvasElement }) => {

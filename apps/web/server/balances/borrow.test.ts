@@ -25,25 +25,27 @@ describe("borrow carry-forward", () => {
   const unavailable = { marketId, status: "unavailable" as const };
 
   test("retains a verified market at the boundary", () => {
-    expect(carryForwardBorrow({ markets: [unavailable] }, { markets: [prior] }, "160").markets).toEqual([prior]);
+    expect(carryForwardBorrow({ markets: [unavailable] }, { markets: [prior] }).markets).toEqual([prior]);
   });
 
   test("drops a stored market the fresh read no longer covers", () => {
-    expect(carryForwardBorrow({ markets: [] }, { markets: [prior] }, "160").markets).toEqual([]);
+    expect(carryForwardBorrow({ markets: [] }, { markets: [prior] }).markets).toEqual([]);
   });
 
-  test.each(["161", "99"])("does not carry a market to block %s", (block) => {
-    expect(carryForwardBorrow({ markets: [unavailable] }, { markets: [prior] }, block).markets).toEqual([unavailable]);
+  test("retains the original block so an old carried market is not current", () => {
+    const carried = carryForwardBorrow({ markets: [unavailable] }, { markets: [prior] });
+    expect(carried.markets).toEqual([prior]);
+    expect(borrowReadCurrent({ borrow: carried, block: { ...PIN, number: "100000", timestamp: "0" } })).toBeFalse();
   });
 
   test("leaves a failure unavailable with no prior ready entry", () => {
-    expect(carryForwardBorrow({ markets: [unavailable] }, null, "101").markets).toEqual([unavailable]);
-    expect(carryForwardBorrow({ markets: [unavailable] }, { markets: [unavailable] }, "101").markets).toEqual([unavailable]);
+    expect(carryForwardBorrow({ markets: [unavailable] }, null).markets).toEqual([unavailable]);
+    expect(carryForwardBorrow({ markets: [unavailable] }, { markets: [unavailable] }).markets).toEqual([unavailable]);
   });
 
   test("prefers a fresh ready market over the prior entry", () => {
     const fresh = { ...prior, blockNumber: "101", debtAssetsRaw: "30" };
-    expect(carryForwardBorrow({ markets: [fresh] }, { markets: [prior] }, "101").markets).toEqual([fresh]);
+    expect(carryForwardBorrow({ markets: [fresh] }, { markets: [prior] }).markets).toEqual([fresh]);
   });
 
   test("a complete carried read is not current until all markets match the registry block", () => {

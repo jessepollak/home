@@ -14,8 +14,7 @@ import { priceHistoryFixture } from "@/tests/browser/feature-map/fixtures";
 import { pinClock } from "@/tests/helpers/pin-clock";
 import { waitForReady } from "@/tests/helpers/story-readiness";
 import type { MarketDataState } from "@/shared/invest/invest-market";
-import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
-import { isMarketPriceRange } from "@/shared/invest/contracts/market-price-history";
+import { isMarketPriceRange, resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import type { AssetCatalyst, AssetFact } from "@/shared/invest/asset-context";
 
 function requireFixture<T>(value: T | undefined): T {
@@ -73,7 +72,7 @@ function Journey({ assetId, held, mode, context }: Props) {
       const snapshot = balancesSnapshot("US", { stocks: true });
       return { ...snapshot, holdings: snapshot.holdings.map((holding) => holding.id === asset.id ? { ...holding,
         balance: { status: "ready" as const, baseUnits: held ? "125000000" : "0" },
-        value: mode === "paused" || mode === "stale" ? { status: "unpriced" as const, reason: mode === "paused" ? "price-paused" as const : "price-stale" as const }
+        value: mode === "paused" ? { status: "unpriced" as const, reason: "price-paused" as const }
           : { status: "priced" as const, currency: "USD" as const, amount: { atoms: "22530", scale: 2 }, asOf: "2026-09-27T22:00:00.000Z",
             reference: { kind: "tokenized-equity" as const, session: "closed" as const } },
       } : holding) };
@@ -201,13 +200,18 @@ export const OnePointRefreshKeepsLastGood: Story = { args: { mode: "one-point-re
   await waitForReady(() => expect(canvas.queryByText(/^Couldn't refresh price history/)).not.toBeInTheDocument());
   await expect(canvas.getByRole("group", { name: /1 week price history, 24 points/ })).toBeVisible();
 } };
-export const Paused: Story = { args: { mode: "paused" }, play: async ({ canvasElement }) => { const canvas = await ready(canvasElement); await waitForReady(() => expect(canvas.getAllByText("Paused")).toHaveLength(2)); } };
-export const Stale: Story = { args: { mode: "stale" }, play: async ({ canvasElement }) => { const canvas = await ready(canvasElement); await waitForReady(() => expect(canvas.getAllByText("Price delayed")).toHaveLength(2)); } };
+export const Paused: Story = { args: { mode: "paused" }, play: async ({ canvasElement }) => { const canvas = await ready(canvasElement); await waitForReady(() => expect(canvas.getAllByText("Paused")).toHaveLength(1)); } };
+export const Stale: Story = { args: { mode: "stale" }, play: async ({ canvasElement }) => {
+  const canvas = await ready(canvasElement);
+  await expect(canvas.getByText("Price delayed")).toBeVisible();
+  await expect(await canvas.findByText("1.25 NVDAc")).toBeVisible();
+  await expect(canvas.getByText("$225.30")).toBeVisible();
+} };
 export const UnavailableRetry: Story = { args: { mode: "retry" }, parameters: { msw: { handlers: [historyHandler("retry")] } }, play: async ({ canvasElement }) => {
   const canvas = await open(canvasElement); await userEvent.click(await canvas.findByRole("button", { name: "Try again" }));
   await expect(await canvas.findByRole("group", { name: /1 week price history/ }, chartWait)).toBeVisible();
 } };
-export const FailedBalance: Story = { args: { mode: "failed-balance" }, play: async ({ canvasElement }) => { const canvas = await ready(canvasElement); await expect(await canvas.findByText("Balance unavailable")).toBeVisible(); } };
+export const FailedBalance: Story = { args: { mode: "failed-balance" }, play: async ({ canvasElement }) => { const canvas = await ready(canvasElement); await expect(await canvas.findByText("Can’t load balances")).toBeVisible(); } };
 export const VerifiedCatalyst: Story = { args: { context: "current" }, play: async ({ canvasElement }) => {
   const canvas = await ready(canvasElement); await expect(canvas.getByRole("link", { name: "Fixture quarterly update" })).toHaveAttribute("href", catalyst.url);
   await expect(canvas.getByText(/^Context ·/)).toBeVisible();

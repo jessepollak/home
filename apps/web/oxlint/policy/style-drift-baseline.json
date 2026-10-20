@@ -25,9 +25,6 @@
     "client/activity/activity-ledger-sheet.tsx": {
       "text-destructive": 3
     },
-    "client/activity/activity-panel.tsx": {
-      "text-destructive": 1
-    },
     "client/borrowing/borrow-overview.tsx": {
       "duration-150": 1,
       "text-destructive": 1

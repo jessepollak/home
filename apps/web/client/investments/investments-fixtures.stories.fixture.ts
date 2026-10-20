@@ -2,7 +2,7 @@ import { BASE_CHAIN_ID, cryptoAssets, stockAssets, type InvestAsset } from "@/co
 import { createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { borrowPosition, buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance, walletHolding } from "@/shared/balances/fixtures";
+import { borrowPosition, buildBalancesSnapshotFixture, priced, pricedCash, ready, walletHolding } from "@/shared/balances/fixtures";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 
 const stock = stockAssets[0]!;
@@ -24,21 +24,17 @@ export const reversedTiedTokensSnapshot = buildBalancesSnapshotFixture({ catalog
 export const collateral = borrowPosition({ collateralBaseUnits: "50000000", collateralValue: priced("USD", "3500000"), debtBaseUnits: "100000000", debtValue: priced("USD", "10000") });
 export const cashRegistry = { usdc: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") }, idrx: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000", 2) } };
 export const investmentRegistry = { cbbtc: { balance: ready("80000000"), value: priced("USD", "5600000") }, eth: { balance: ready("1000000000000000000"), value: priced("USD", "320000") }, nvdac: { balance: ready("200000000"), value: priced("USD", "45000") } };
-export const fundedSnapshot = buildBalancesSnapshotFixture({ registry: { ...investmentRegistry }, catalog: [walletToken, tinyToken], borrow: { coverage: "complete", positions: [collateral] } });
+export const fundedSnapshot = buildBalancesSnapshotFixture({ registry: { ...investmentRegistry }, catalog: [walletToken, tinyToken], borrow: { positions: [collateral] } });
 export const manyHoldingsSnapshot = buildBalancesSnapshotFixture({ catalog: [walletToken, ...Array.from({ length: 59 }, (_, index) => walletHolding({ address: `0x${(index + 1).toString(16).padStart(40, "0")}`, name: `Holding ${String(index + 1).padStart(2, "0")}`, symbol: String.fromCharCode(65 + Math.floor(index / 26), 65 + index % 26), decimals: 18 }, "1000000000000000000", priced("USD", String(6000 - index * 100))))] });
-export const narrowSnapshot = buildBalancesSnapshotFixture({ registry: { ...investmentRegistry }, catalog: [walletToken, tinyToken, longToken], borrow: { coverage: "complete", positions: [collateral] } });
+export const narrowSnapshot = buildBalancesSnapshotFixture({ registry: { ...investmentRegistry }, catalog: [walletToken, tinyToken, longToken], borrow: { positions: [collateral] } });
 export const largeValueSnapshot = buildBalancesSnapshotFixture({ catalog: [walletHolding({ address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", name: "Large investment", symbol: "BIG", decimals: 18 }, "1000000000000000000", priced("USD", "123456789012345"))] });
-export const sharedPortfolioSnapshot = buildBalancesSnapshotFixture({ registry: { ...cashRegistry, ...investmentRegistry }, catalog: [walletToken, tinyToken], borrow: { coverage: "complete", positions: [collateral] } });
+export const sharedPortfolioSnapshot = buildBalancesSnapshotFixture({ registry: { ...cashRegistry, ...investmentRegistry }, catalog: [walletToken, tinyToken], borrow: { positions: [collateral] } });
 export const singleSnapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: investmentRegistry.cbbtc } });
 export const emptySnapshot = buildBalancesSnapshotFixture();
-export const partialSnapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: investmentRegistry.cbbtc, eth: { balance: unavailableBalance, value: { status: "unavailable" } } } });
-export const unreadSnapshot = buildBalancesSnapshotFixture({ registry: { eth: { balance: unavailableBalance, value: { status: "unavailable" } } } });
 export const unpricedSnapshot = buildBalancesSnapshotFixture({ catalog: [unpricedToken] });
 export const metadataFallbackSnapshot = buildBalancesSnapshotFixture({ catalog: [fallbackToken] });
-export const collateralSnapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: investmentRegistry.cbbtc }, borrow: { coverage: "complete", positions: [collateral, { ...collateral, marketId: `0x${"1".repeat(64)}`, collateral: { ...collateral.collateral, key: collateralToken.key, name: collateralToken.name, symbol: collateralToken.symbol, decimals: 18, contractAddress: collateralToken.contractAddress, balance: { status: "ready", baseUnits: "1000000000000000000" }, value: priced("USD", "500"), collateral: { marketId: `0x${"1".repeat(64)}` } } }] } });
-export const collateralPartialInventorySnapshot = buildBalancesSnapshotFixture({ coverage: { catalog: "incomplete" }, borrow: collateralSnapshot.borrow });
-export const collateralKnownZeroSnapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: { balance: ready("0"), value: { status: "unpriced", reason: "price-unavailable" } } }, coverage: { catalog: "incomplete" }, borrow: { coverage: "complete", positions: [collateral] } });
-export const collateralUnavailableSnapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: { balance: unavailableBalance, value: { status: "unavailable" } } }, coverage: { registry: "complete", catalog: "complete" }, borrow: { coverage: "complete", positions: [collateral] } });
+export const collateralSnapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: investmentRegistry.cbbtc }, borrow: { positions: [collateral, { ...collateral, marketId: `0x${"1".repeat(64)}`, collateral: { ...collateral.collateral, key: collateralToken.key, name: collateralToken.name, symbol: collateralToken.symbol, decimals: 18, contractAddress: collateralToken.contractAddress, balance: { status: "ready", baseUnits: "1000000000000000000" }, value: priced("USD", "500"), collateral: { marketId: `0x${"1".repeat(64)}` } } }] } });
+export const collateralKnownZeroSnapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: { balance: ready("0"), value: { status: "unpriced", reason: "price-unavailable" } } }, borrow: { positions: [collateral] } });
 export const notListedSnapshot: BalancesSnapshot = buildBalancesSnapshotFixture({ catalog: [unpricedToken] });
 export const bitcoinAsset = cryptoAssets.find((asset) => asset.id === "cbbtc")!;
 export const stockAsset = stock;

@@ -10,6 +10,6 @@ export function verifiedEmptySavings({ balanceStatus, snapshot, balanceStale, va
   shownCount: number;
 }): boolean {
   return balanceStatus === "ready" && snapshot !== null && snapshot.stale !== true &&
-    !balanceStale && snapshot.coverage.registry === "complete" && vaultStatus === "ready" &&
+    !balanceStale && vaultStatus === "ready" &&
     summary?.balance.status === "available" && summary.funded === false && shownCount === 0;
 }

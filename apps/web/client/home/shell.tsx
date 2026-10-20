@@ -25,7 +25,7 @@ import { ShellSearchHeader } from "./shell-chrome";
 import { HomeShellRoutingProvider, readHomeInboundPanelState, useActivityReturnOwnerBoundary, type ActivityDetailReturn } from "./panel-routing";
 import { ShellPageProvider } from "./shell-page-context";
 import { useShellDocumentScrollRestoration } from "./use-shell-document-scroll-restoration";
-import { HomeHeaderStatus, headerStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
+import { HomeHeaderStatus, headerStatus, homeCountryStatus, useReloadHomeBalances } from "./home-status";
 import { ActionToasts } from "./action-toasts";
 import { scheduleAfterPaint } from "./after-paint";
 import { useProductOffering } from "./product-offering";
@@ -378,7 +378,7 @@ function DashboardShellBody({
   const { regionId, resolutionSource, isPreferenceReady, preferenceMessage, selectRegion, offeredCountries } = region;
   const reloadBalances = useReloadHomeBalances();
   const retryHomeReads = onRetryInterruption ?? reloadBalances;
-  const balanceRowRetry = headerStatus({ interruption, coverage: null })?.recovery === "none" ? undefined : retryHomeReads;
+  const balanceRowRetry = headerStatus({ interruption, country: null })?.recovery === "none" ? undefined : retryHomeReads;
   const pageValue = useMemo(() => ({
     paintedAssetBalances, activitySession, fetchActivity: account.fetchActivity, fetchOperations: account.fetchOperations,
     regionId, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution,
@@ -436,7 +436,7 @@ function DashboardShellBody({
     ? () => leaveRoute(shellParentHref)
     : investChrome?.nested?.onBack ?? (() => router.push("/invest"));
   const homeStatus = isVerified && !isAccountSettingsOpen ? headerStatus({
-    interruption, coverage: activeNavigation === "home" ? homeBalancesStatus(paintedAssetBalances) : null,
+    interruption, country: activeNavigation === "home" ? homeCountryStatus(paintedAssetBalances) : null,
   }) : null;
 
   return <HomeShellRoutingProvider value={routingValue}><ShellPageProvider value={pageValue}>
@@ -453,7 +453,7 @@ function DashboardShellBody({
       </ShellSearchInert> : null}
       <div data-rail-column="" className="flex min-h-0 min-w-0 flex-1 flex-col">
         <span role="status" className="sr-only">{isVerified && interruption && interruptionAnnouncement
-          ? headerStatus({ interruption: { kind: interruptionAnnouncement }, coverage: null })?.message : null}</span>
+          ? headerStatus({ interruption: { kind: interruptionAnnouncement }, country: null })?.message : null}</span>
         <ShellSearchHeader hasDesktopRail={!isSignedOut} isAccountSettingsOpen={isAccountSettingsOpen}
           nestedChromeTitle={nestedChromeTitle} nestedChromeBackLabel={isHomeNestedPanelId(activeNavigation) ? "Back" : investChrome?.nested?.backLabel ?? "Back"} onNestedChromeBack={onNestedChromeBack}
           routeMode="dashboard" activeNavigation={activeNavigation} isVerified={isVerified} account={account}

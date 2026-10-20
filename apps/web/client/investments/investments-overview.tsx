@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { preserveRowFocus } from "./preserve-row-focus";
 import { noteHomeNavigationContent } from "@/client/observability/interaction-performance";
-import { RotateCw } from "lucide-react";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import { ShimmerRows } from "@/client/home/panel-shared";
@@ -18,8 +17,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { selectOwnedInvestments, type OwnedInvestment } from "@/shared/balances/owned-investments";
 import { presentHoldingMark, presentInvestmentTotal, type BalanceRowModel } from "@/shared/balances/present";
 import type { AssetKey, BalancesSnapshot, ExactDecimal, Holding } from "@/shared/balances/types";
-import { holdingValueContext } from "@/shared/balances/value-label";
 import { formatExactPresentationTokenAmount, formatFiatAmount, formatPresentationTokenAmount } from "@/shared/formatting";
+import { BalancesCantLoad } from "@/client/balances/balances-cant-load";
 
 export type InvestmentsOverviewProps = {
   snapshot: BalancesSnapshot | null;
@@ -28,7 +27,6 @@ export type InvestmentsOverviewProps = {
   rowsFailed?: boolean;
   onRetryRows?: () => void;
   balanceStatus: "ready" | "loading" | "failed";
-  refreshFailed?: boolean;
   visibleCount: number;
   onVisibleCountChange: (count: number) => void;
   onOpenAsset: (key: AssetKey) => void;
@@ -36,22 +34,16 @@ export type InvestmentsOverviewProps = {
 };
 
 export function quantity(holding: Holding, snapshot: BalancesSnapshot, exact = false) {
-  if (holding.balance.status !== "ready") return "Balance unavailable";
   return exact
     ? formatExactPresentationTokenAmount(holding.balance.baseUnits, holding.decimals, holding.symbol, { regionId: snapshot.region })
     : formatPresentationTokenAmount(holding.balance.baseUnits, holding.decimals, holding.symbol, { category: holding.kind === "native" ? "crypto" : undefined, regionId: snapshot.region });
 }
 
 export function holdingsQuantity(entries: Holding[], holding: Holding, snapshot: BalancesSnapshot, exact = false) {
-  if (entries.some((entry) => entry.balance.status !== "ready")) return "Balance unavailable";
   const baseUnits = entries.reduce((sum, entry) => sum + BigInt(entry.balance.status === "ready" ? entry.balance.baseUnits : "0"), BigInt(0)).toString();
   return exact
     ? formatExactPresentationTokenAmount(baseUnits, holding.decimals, holding.symbol, { regionId: snapshot.region })
     : formatPresentationTokenAmount(baseUnits, holding.decimals, holding.symbol, { category: holding.kind === "native" ? "crypto" : undefined, regionId: snapshot.region });
-}
-
-export function ownedBalanceUnreadable(row: OwnedInvestment) {
-  return [...(row.wallet ? [row.wallet] : []), ...row.collateral].some((holding) => holding.balance.status !== "ready");
 }
 
 export function ownedQuantity(row: OwnedInvestment, snapshot: BalancesSnapshot, exact = false) {
@@ -60,10 +52,6 @@ export function ownedQuantity(row: OwnedInvestment, snapshot: BalancesSnapshot, 
 
 export function amountLabel(value: ExactDecimal, snapshot: BalancesSnapshot) {
   return formatFiatAmount(BigInt(value.atoms), value.scale, snapshot.quoteCurrency ?? "USD", { regionId: snapshot.region, fractionDigits: 2 });
-}
-
-export function unavailableValue() {
-  return <span role="img" aria-label="Unavailable">—</span>;
 }
 
 function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
@@ -79,8 +67,7 @@ function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
         : <CurrencyMark assetKey={holding.key} src={symbolMark?.imageUrl} symbol={symbolMark?.symbol} pending={symbolMark?.pending} size="sm" />;
 }
 
-export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed = false, onRetryRows, snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
-  const partialId = useId();
+export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed = false, onRetryRows, snapshot, balanceStatus, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
   const loading = balanceStatus === "loading";
   const listLoading = loading || rowsPending;
   const pendingFocus = useRef<ReturnType<typeof preserveRowFocus>>(null);
@@ -126,27 +113,18 @@ export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed
     return () => observer.disconnect();
   }, [visibleCount, rows.length, onVisibleCountChange]);
   return <div className="space-y-4">
-    <Card variant="flush" aria-label={failed ? "Balance unavailable" : "Investments balance"} aria-busy={loading || undefined}><CardContent inset="hero">
+    <Card variant="flush" aria-label="Investments balance" aria-busy={loading || undefined}><CardContent inset="hero">
       <div className="@container flex flex-col gap-1">
         <p className="text-sm text-muted-foreground">Investments</p>
-        {loading ? <div data-shimmer="hero"><Skeleton className="h-14 w-48" /><span className="sr-only">Updating…</span></div> : <div data-tone={summary?.status === "complete" ? "default" : "muted"} className={`text-2xl @2xs:text-3xl @xs:text-4xl font-semibold tabular-nums ${summary?.status !== "complete" ? "text-muted-foreground" : ""}`}>
-          {summary?.value ? <MoneyTicker align="start" reserveDigits={false} value={compactFinancialValue(summary.value)} aria-label={summary.value} aria-describedby={summary.status === "partial" ? partialId : undefined} /> : unavailableValue()}
-        </div>}
-        {summary?.status === "partial" ? <p id={partialId} className="text-sm text-muted-foreground">Some balances are unavailable</p> : null}
-        {failed ? <p className="text-sm text-muted-foreground">Couldn&apos;t load your balance. Check your connection.</p> : null}
-        {refreshFailed && active ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription><AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryBalances}>Try again</Button></AlertAction></Alert> : null}
+        {loading ? <div data-shimmer="hero"><Skeleton className="h-14 w-48" /><span className="sr-only">Updating…</span></div> : failed ? <BalancesCantLoad onRetry={onRetryBalances} /> : summary?.value ? <div className="text-2xl @2xs:text-3xl @xs:text-4xl font-semibold tabular-nums"><MoneyTicker align="start" reserveDigits={false} value={compactFinancialValue(summary.value)} aria-label={summary.value} /></div> : active && !active.quoteCurrency ? <p className="text-sm text-muted-foreground">Choose a country in Account to set how money is shown</p> : null}
       </div>
-      {failed || summary?.status === "unavailable" ? <Button variant="outline" size="touch" className="w-full" onClick={onRetryBalances}><RotateCw aria-hidden="true" />Try again</Button> : null}
     </CardContent></Card>
     {listLoading || rowsFailed || rows.length > 0 ? <section key={active ? `${active.owner.address}:${active.region}` : "unavailable"} aria-labelledby="investments-held-heading" aria-busy={listLoading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
       <div style={{ minHeight: rowsPending ? "var(--investment-list-height, 0px)" : undefined }}>
       {rowsFailed ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription><AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryRows ?? onRetryBalances}>Try again</Button></AlertAction></Alert> : listLoading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul ref={measureRows} className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
         const context = ownedQuantity(row, active!);
-        const complete = row.status === "complete";
-        const unreadable = ownedBalanceUnreadable(row);
         const value = row.amount ? amountLabel(row.amount, active!) : null;
-        const reason = holdingValueContext(row.holding.value);
-        return <BalanceRow key={row.key} icon={holdingMark(row.holding, presentHoldingMark(row.holding))} iconTone="mark" label={<span data-holding-key={row.key}>{row.holding.name.trim() || row.holding.symbol.trim()}</span>} context={unreadable ? undefined : context} contextTitle={unreadable ? undefined : ownedQuantity(row, active!, true)} value={value ? <MoneyTicker animated={false} value={compactFinancialValue(value)} aria-label={value} /> : unavailableValue()} valueTone={complete ? "default" : "muted"} valueContext={row.status === "partial" ? "Partial balance" : unreadable ? undefined : row.collateral.length ? row.wallet ? "Includes collateral" : "Collateral" : reason === "Value unavailable" ? undefined : reason} onActivate={() => onOpenAsset(row.key)} activateLabel={`Open ${row.holding.name.trim() || row.holding.symbol.trim()}`} chevron />;
+        return <BalanceRow key={row.key} icon={holdingMark(row.holding, presentHoldingMark(row.holding))} iconTone="mark" label={<span data-holding-key={row.key}>{row.holding.name.trim() || row.holding.symbol.trim()}</span>} context={value ? context : undefined} contextTitle={ownedQuantity(row, active!, true)} value={value ? <MoneyTicker animated={false} value={compactFinancialValue(value)} aria-label={value} /> : context} valueTone={value ? "default" : "muted"} valueContext={row.collateral.length ? row.wallet ? "Includes collateral" : "Collateral" : undefined} onActivate={() => onOpenAsset(row.key)} activateLabel={`Open ${row.holding.name.trim() || row.holding.symbol.trim()}`} chevron />;
       })}</ul>{visibleCount < rows.length ? <><span role="status" className="sr-only">Showing {visibleCount} of {rows.length} investments</span><div ref={sentinel} aria-hidden="true" /></> : null}</>}
       </div>
     </CardContent></Card></section> : null}

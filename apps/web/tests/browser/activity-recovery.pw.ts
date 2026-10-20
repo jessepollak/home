@@ -3,10 +3,11 @@ import { installApiFixtures, json, RECIPIENT, seedSignedInSession } from "./fixt
 import { requestBackgroundRevalidation } from "./fixtures/background-revalidation";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 const wallet = sessionBody.smartAccount.address;
 const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const warning = "Some activity is unavailable";
+const warning = /Some activity is unavailable|Latest activity didn't load|Your Home actions are unavailable|Add money and cash-out orders are unavailable|Card purchases may be out of date/;
 const merchant = "Fixture Coffee";
 const freshMerchant = "Fixture Bakery";
 const settledMerchant = new RegExp(`^${merchant} (?!.*Pending)`);
@@ -338,20 +339,20 @@ for (const remainingRetriesFail of [false, true]) {
   });
 }
 
-test("a newer-window partial snapshot replaces a superseded authorization with its transaction", async ({ page }) => {
+test("a newer-window partial snapshot retains a shown authorization alongside its transaction", async ({ page }) => {
   const { feed, rows } = await refreshWithNewerCards(page, { supersede: true });
-  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toBeVisible();
   await expect(feed.getByRole("button", { name: settledMerchant })).toBeVisible();
-  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(2);
   await expect(rows).toHaveCount(3);
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
 
-test("a same-window read completed during a newer-window card read cannot restore its superseded authorization", async ({ page }) => {
+test("overlapping same-window and newer-window reads retain both shown card IDs", async ({ page }) => {
   const { feed, rows } = await refreshWithNewerCards(page, { supersede: true, revalidationWhileNewerReadHeld: true });
   await expect(feed.getByRole("button", { name: settledMerchant })).toBeVisible();
-  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
-  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(2);
   await expect(rows).toHaveCount(3);
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
@@ -364,8 +365,8 @@ for (const revalidationStartsSameTick of [false, true]) {
       revalidationStartsSameTick,
     });
     await expect(feed.getByRole("button", { name: settledMerchant })).toBeVisible();
-    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
-    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
+    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toBeVisible();
+    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(2);
     await expect(rows).toHaveCount(3);
     await expect(feed.getByText(warning)).toHaveCount(0);
   });
@@ -415,25 +416,23 @@ test("healthy same-window revalidation completes a shared pending card without l
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
 
-test("healthy same-window revalidation removes a missing authorization without losing newer-only cards", async ({ page }) => {
+test("healthy same-window revalidation retains a missing authorization alongside newer-only cards", async ({ page }) => {
   const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, { revalidationRemovesAuthorization: true });
   const authorization = feed.getByRole("button", { name: /^Fixture Market.*Pending/ });
   await expect(authorization).toBeVisible();
   await page.clock.fastForward(11_000);
   const readsBeforeRevalidation = currentWindowReads();
   await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
-  await expect.poll(async () => {
-    await page.clock.runFor(100);
-    return feed.getByRole("button", { name: /^Fixture Market/ }).count();
-  }).toBe(0);
-  await expect(feed.getByRole("button", { name: /^Fixture Market/ })).toHaveCount(0);
+  await page.clock.runFor(100);
+  await expect(authorization).toBeVisible();
+  await expect(feed.getByRole("button", { name: /^Fixture Market/ })).toHaveCount(1);
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   await expect(rows).toHaveCount(3);
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
 
-test("partial same-window revalidation removes a missing authorization without losing newer-only cards or transfers", async ({ page }) => {
+test("partial same-window revalidation retains a missing authorization alongside newer-only cards and transfers", async ({ page }) => {
   const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, {
     revalidationRemovesAuthorization: true,
     revalidationOnchainUnavailable: true,
@@ -444,16 +443,16 @@ test("partial same-window revalidation removes a missing authorization without l
   await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
   await expect.poll(async () => {
     await page.clock.runFor(500);
-    return feed.getByRole("button", { name: /^Fixture Market/ }).count();
-  }, { timeout: 15_000 }).toBe(0);
-  expect(currentWindowReads()).toBeGreaterThanOrEqual(readsBeforeRevalidation + 3);
+    return currentWindowReads();
+  }, { timeout: 15_000 }).toBeGreaterThanOrEqual(readsBeforeRevalidation + 3);
+  await expect(feed.getByRole("button", { name: /^Fixture Market.*Pending/ })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   await expect(rows).toHaveCount(3);
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
 
-test("partial same-window revalidation removes a late-persisted authorization when cards match the old-window cache", async ({ page }) => {
+test("partial same-window revalidation retains a late-persisted authorization when cards match the old-window cache", async ({ page }) => {
   const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, {
     revalidationRemovesAuthorization: true,
     authorizationPersistedLate: true,
@@ -465,25 +464,24 @@ test("partial same-window revalidation removes a late-persisted authorization wh
   await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
   await expect.poll(async () => {
     await page.clock.runFor(500);
-    return feed.getByRole("button", { name: /^Fixture Market/ }).count();
-  }, { timeout: 15_000 }).toBe(0);
-  expect(currentWindowReads()).toBeGreaterThanOrEqual(readsBeforeRevalidation + 3);
+    return currentWindowReads();
+  }, { timeout: 15_000 }).toBeGreaterThanOrEqual(readsBeforeRevalidation + 3);
+  await expect(feed.getByRole("button", { name: /^Fixture Market.*Pending/ })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   await expect(rows).toHaveCount(3);
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
 
-test("older-window card-source failure keeps newer cards and shows its warning", async ({ page }) => {
+test("older-window card-source failure keeps newer cards without a notice or retry", async ({ page }) => {
   const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, { revalidationCardsUnavailable: true });
   await page.clock.fastForward(11_000);
   const readsBeforeRevalidation = currentWindowReads();
   await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
-  await expect.poll(async () => {
-    await page.clock.runFor(100);
-    return feed.getByText("Card purchases may be out of date").count();
-  }).toBe(1);
-  await expect(feed.getByText("Card purchases may be out of date")).toBeVisible();
+  await page.clock.runFor(100);
+  await expect(feed.getByText(warning)).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: /Try again|Retry|Reload activity/ })).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   await expect(rows).toHaveCount(3);
 });
@@ -509,25 +507,183 @@ test("a transient first read recovers automatically", async ({ page }) => {
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
 
-test("Reload retries a failed onchain read and clears the warning", async ({ page }) => {
+test("Try again recovers a failed first read with no rows", async ({ page }) => {
   const { feed, rows } = await setup(page);
   let healthy = false;
   let reads = 0;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
   await page.route("**/api/activity*", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/activity") return route.fallback();
     reads++;
-    return json(route, activityResponse(url, !healthy));
+    return healthy ? json(route, activityResponse(url, false)) : route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "ACTIVITY_UPSTREAM", message: "Recent Base activity could not be loaded." } }),
+    });
   });
   await page.goto("/home");
-  await expect.poll(() => reads).toBeGreaterThan(0);
-  await page.clock.runFor(2_500);
-  await expect(feed.getByText(warning)).toBeVisible();
-  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
-  const readsBeforeReload = reads;
+  await expect.poll(async () => {
+    await page.clock.runFor(1_000);
+    return reads;
+  }).toBeGreaterThanOrEqual(3);
+  await expect(feed.getByRole("alert")).toContainText("Activity is temporarily unavailable.");
+  await expect(rows).toHaveCount(0);
+  await expect(feed.getByRole("listitem")).toHaveCount(0);
+  const readsBeforeRetry = reads;
   healthy = true;
-  await feed.getByRole("button", { name: "Reload activity" }).click();
-  await expect.poll(() => reads).toBeGreaterThan(readsBeforeReload);
+  await feed.getByRole("button", { name: "Try again" }).click();
+  await expect.poll(() => reads).toBeGreaterThan(readsBeforeRetry);
   await expect(rows).toHaveCount(3);
+  await expect(feed.getByRole("alert")).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: "Try again" })).toHaveCount(0);
   await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+for (const outcome of ["failed", "partial", "shorter"] as const) {
+  test(`a ${outcome} refetch retains the same transfers and cards for a later Home consumer`, async ({ page }) => {
+    await setup(page);
+    let reads = 0;
+    let refreshing = false;
+    await page.route("**/api/activity*", (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname !== "/api/activity") return route.fallback();
+      reads += 1;
+      if (refreshing && outcome === "failed") return route.fulfill({
+        status: 502,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "ACTIVITY_UPSTREAM", message: "Recent Base activity could not be loaded." } }),
+      });
+      const response = activityResponse(url, refreshing && outcome === "partial");
+      if (refreshing) {
+        response.cards.rows = [];
+        if (outcome === "partial") response.cards.status = "unavailable";
+        else response.transfers = response.transfers.slice(0, 1);
+      }
+      return json(route, response);
+    });
+    const activity = page.locator("#navigation-panel [data-activity-sources]");
+    const transfers = activity.getByRole("button", { name: /^(Received|Sent) .*USDC$/ });
+    const coffee = activity.getByRole("button", { name: new RegExp(`^${merchant}`) });
+    await page.goto("/activity");
+    await expect(transfers).toHaveCount(3);
+    await expect(coffee).toBeVisible();
+    const before = await transfers.allTextContents();
+    refreshing = true;
+    await page.clock.fastForward(11_000);
+    const beforeReads = reads;
+    await requestBackgroundRevalidation(page, () => reads, beforeReads);
+    await expect.poll(async () => {
+      await page.clock.runFor(500);
+      return reads;
+    }).toBeGreaterThanOrEqual(beforeReads + (outcome === "shorter" ? 1 : 3));
+    await expect(transfers).toHaveCount(3);
+    await expect(coffee).toBeVisible();
+    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).click();
+    await expectNavigation(page, /\/home$/);
+    await expect(transfers).toHaveText(before);
+    await expect(coffee).toBeVisible();
+    await expect(activity.getByText(warning)).toHaveCount(0);
+    await expect(activity.getByRole("button", { name: /Try again|Retry|Reload activity/ })).toHaveCount(0);
+    await page.goBack();
+    await expectNavigation(page, /\/activity$/);
+    await expect(transfers).toHaveText(before);
+    await expect(coffee).toBeVisible();
+  });
+}
+
+test("failed Home refresh retains card purchases across a new Activity window", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await seedSignedInSession(page);
+  await installApiFixtures(page, { clock: "system" });
+  const panel = page.locator("#navigation-panel");
+  const activity = panel.locator("[data-activity-sources]");
+  const cards = activity.getByRole("button", { name: /^(Blue Bottle Coffee|Lyft|Whole Foods Market|Grand Hotel|Apple) / });
+  const home = async () => {
+    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).click();
+    await expectNavigation(page, "/home");
+  };
+  const cash = async () => {
+    await panel.getByRole("region", { name: "Your money", exact: true }).getByRole("button", { name: /^Cash / }).click();
+    await expectNavigation(page, "/cash");
+    await expect(page.getByRole("region", { name: "Cash", exact: true })).toBeVisible();
+  };
+  const investments = async () => {
+    await home();
+    await panel.getByRole("region", { name: "Your money", exact: true }).getByRole("button", { name: /^Investments / }).click();
+    await expectNavigation(page, "/investments");
+    await expect(page.getByRole("heading", { name: "Investments", exact: true })).toBeVisible();
+  };
+  const openActivity = async () => {
+    await home();
+    await page.evaluate(() => history.pushState(null, "", "/activity"));
+    await expectNavigation(page, "/activity");
+  };
+  await page.goto("/home");
+  await expect(cards).toHaveCount(6);
+  await cash();
+  await investments();
+  await openActivity();
+  await expect(cards).toHaveCount(6);
+  const before = await cards.allTextContents();
+  let failedReads = 0;
+  await page.route("**/api/balances**", (route) => route.abort());
+  await page.route("**/api/activity**", (route) => {
+    failedReads++;
+    return route.abort();
+  });
+  await home();
+  await page.getByRole("button", { name: "Refresh Home", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => {
+    await page.clock.runFor(1_000);
+    return page.getByText("Some of Home didn't refresh.", { exact: true }).isVisible();
+  }, { timeout: 15_000 }).toBe(true);
+  await expect(page.getByText("Some of Home didn't refresh.", { exact: true })).toBeVisible();
+  await cash();
+  await investments();
+  const readsBeforeReturn = failedReads;
+  await openActivity();
+  await expect.poll(async () => {
+    await page.clock.runFor(500);
+    return failedReads;
+  }).toBeGreaterThanOrEqual(readsBeforeReturn + 3);
+  await expect(cards).toHaveText(before);
+  await expect(activity.getByText(warning)).toHaveCount(0);
+  await expect(activity.getByRole("button", { name: /Try again|Retry|Reload activity/ })).toHaveCount(0);
+});
+
+test("an owner switch drops retained transfers and card purchases", async ({ page }) => {
+  const { feed, rows } = await setup(page);
+  let switched = false;
+  let reads = 0;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    reads += 1;
+    const response = activityResponse(url, false);
+    if (switched) response.walletAddress = "0x3333333333333333333333333333333333333333";
+    if (switched || reads > 1) {
+      response.transfers = [];
+      response.cards.rows = [];
+    }
+    return json(route, response);
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  await page.clock.fastForward(11_000);
+  await requestBackgroundRevalidation(page, () => reads, 1);
+  await expect(rows).toHaveCount(3);
+  switched = true;
+  await page.route("**/api/activity/orders", (route) => json(route, {
+    version: 1, owner: { subject: "playwright-smoke-second-subject", accountProvider: sessionBody.accountProvider }, orders: [],
+  }));
+  await page.route("**/api/session", (route) => json(route, { ...sessionBody, user: { subject: "playwright-smoke-second-subject" },
+    smartAccount: { ...sessionBody.smartAccount, address: "0x3333333333333333333333333333333333333333" } }));
+  await page.evaluate(() => window.dispatchEvent(new Event("home:playwright-smoke:owner-switch")));
+  await expect(feed.getByText("No activity yet", { exact: true })).toBeVisible();
+  await expect(rows).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(0);
 });

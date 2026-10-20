@@ -6,7 +6,7 @@ import type { HomeAssetBalancesPresentation } from "@/client/home/home-types";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityPage, ActivityTransfer } from "@/shared/activity/types";
 import { computeActivityValuationAmount, type ActivityValuationFx } from "@/shared/activity/valuation";
-import { borrowPosition, buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
+import { borrowPosition, buildBalancesSnapshotFixture, priced, pricedCash, ready } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
 import { presentationRegions, type FiatCurrencyCode } from "@/config/regions";
 import { RegionalHomeProposal } from "./regional-home";
@@ -74,9 +74,9 @@ function balances(regionId: "US" | "BR" | "NG" | "ID", kind: "funded" | "empty" 
   const snapshot = buildBalancesSnapshotFixture({
     region: regionId,
     registry: kind === "empty" ? undefined : kind === "partial"
-      ? { usdc: cash, eth: { balance: unavailableBalance, value: { status: "unavailable" } } }
+      ? { usdc: cash, eth: { balance: ready("1000000000000000000"), value: { status: "unpriced", reason: "price-unavailable" } } }
       : { usdc: cash },
-    borrow: kind === "empty" ? undefined : { coverage: kind === "partial" ? "partial" : "complete", positions: kind === "partial" ? [] : [borrowPosition({
+    borrow: kind === "empty" ? undefined : { positions: kind === "partial" ? [] : [borrowPosition({
       collateralBaseUnits: "100000", collateralValue: priced(currency, amounts.investments),
       debtBaseUnits: "30010000", debtValue: priced(currency, amounts.borrow),
     })] },
@@ -152,24 +152,11 @@ export const Empty: Story = { args: { assetBalances: balances("US", "empty"), ac
   await expect(within(canvasElement).getByText("No activity yet")).toBeVisible();
   await checkActions(canvasElement);
 } };
-export const PartialBalances: Story = { args: { assetBalances: balances("US", "partial") }, play: async ({ canvasElement }) => {
-  const partial = balances("US", "partial");
-  await expect(partial.summary?.investments.assetCount).toBe(0);
-  await expect(partial.summary?.investments.status).toBe("unavailable");
-  await expect(partial.summary?.borrow.kind).toBe("unavailable");
-  await expect(canvasElement.querySelector("[data-total-status='partial']")).not.toBeNull();
-  const money = within(within(canvasElement).getByRole("region", { name: "Your money" }));
-  await expect(money.queryByText("Start investing")).toBeNull();
-  await expect(money.queryByText(/Borrow at/)).toBeNull();
-  for (const label of ["Investments", "Borrow Cash"]) {
-    const row = money.getByText(label).closest("li")!;
-    await expect(within(row).getByText("Unavailable")).toBeInTheDocument();
-    await expect(within(row).getByText("—")).toBeVisible();
-  }
-} };
 export const ActivityError: Story = { args: { activity: failedActivity }, play: async ({ canvasElement }) => {
   retry.mockClear();
-  await userEvent.click(within(canvasElement).getByRole("button", { name: "Reload activity" }));
+  const activity = within(within(canvasElement).getByRole("region", { name: "Activity" }));
+  await expect(activity.getByRole("alert")).toHaveTextContent("Activity is temporarily unavailable.");
+  await userEvent.click(activity.getByRole("button", { name: "Try again" }));
   await expect(retry).toHaveBeenCalledTimes(1);
 } };
 export const CashOutPending: Story = { args: { operations: [pendingOperation] }, play: async ({ canvasElement }) => {

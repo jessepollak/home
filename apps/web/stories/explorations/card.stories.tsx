@@ -645,7 +645,7 @@ function CardProposal({ variant = "active", outage = false }: { variant?: Varian
   const loading = variant === "loading";
   const spendableCents = low ? 1490 : 150000;
   const pendingCents = 650;
-  const status = headerStatus({ interruption: outage ? { kind: "interrupted" } : null, coverage: null });
+  const status = headerStatus({ interruption: outage ? { kind: "interrupted" } : null, country: null });
   return (
     <Toaster>
       <div className="flex h-svh flex-col bg-muted/20">

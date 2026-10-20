@@ -5,19 +5,17 @@ import {
   multiplyFractions,
   roundFractionPreservingPositive,
 } from "./math";
-import { computeBalancesTotals } from "./totals";
-import type {
-  AssetKey,
-  BalancesBorrow,
-  BalancesNetTotal,
-  BalancesTotal,
-  BalancesTotals,
-  BorrowMarketKey,
-  Erc20AssetKey,
-  ExactDecimal,
-  Holding,
-  HoldingValue,
-} from "./types";
+import {
+  computeHistoryTotals,
+  type HistoryBorrow,
+  type HistoryHolding,
+  type HistoryHoldingBalance,
+  type HistoryHoldingValue,
+  type HistoryNetTotal,
+  type HistoryTotal,
+  type HistoryTotals,
+} from "./history-totals";
+import type { AssetKey, BorrowMarketKey, Erc20AssetKey, ExactDecimal } from "./types";
 
 type Quantity =
   | { status: "ready"; baseUnits: bigint }
@@ -75,7 +73,7 @@ type MissingReason =
   | "fx-unavailable"
   | "below-market-gate";
 
-type HistoryPointValue = BalancesTotals & {
+type HistoryPointValue = HistoryTotals & {
   coverage: "complete" | "partial" | "unavailable";
   missing: { assetKey: string; reason: MissingReason }[];
 };
@@ -98,7 +96,7 @@ function pricedValue(
   assetKey: string,
   missing: HistoryPointValue["missing"],
   admission: AssetInput["admission"] = "admitted",
-): HoldingValue {
+): HistoryHoldingValue {
   if (baseUnits === BigInt(0)) {
     return { status: "priced", currency: pricing.quoteCurrency ?? "USD", amount: { atoms: "0", scale: 0 }, asOf: "" };
   }
@@ -132,29 +130,25 @@ function baseUnitsFromSeries(baseUnits: bigint, series: SeriesValue, rounding: "
   return rounding === "ceil" ? (product + divisor - BigInt(1)) / divisor : product / divisor;
 }
 
-function holdingBalance(quantity: Quantity): Holding["balance"] {
+function holdingBalance(quantity: Quantity): HistoryHoldingBalance {
   return quantity.status === "ready"
     ? { status: "ready", baseUnits: quantity.baseUnits.toString() }
     : { status: "unavailable", baseUnits: null };
 }
 
-function incomplete(total: BalancesTotal): BalancesTotal {
+function incomplete(total: HistoryTotal): HistoryTotal {
   if (total.status !== "complete") return total;
   return total.value === null || total.value.atoms === "0"
     ? { ...total, status: "unavailable", value: null }
     : { ...total, status: "partial" };
 }
 
-function assetContract(key: AssetKey): `0x${string}` {
-  return key.slice(key.lastIndexOf(":") + 1) as `0x${string}`;
-}
-
 export function valueHistoryPoint(input: HistoryPointInput): HistoryPointValue {
   const missing: HistoryPointValue["missing"] = [];
   const pricing: Pricing = { quoteCurrency: input.quoteCurrency, fx: input.fx };
-  const holdings: Holding[] = input.assets.map((asset): Holding => {
+  const holdings: HistoryHolding[] = input.assets.map((asset): HistoryHolding => {
     const balance = holdingBalance(asset.quantity);
-    let value: HoldingValue;
+    let value: HistoryHoldingValue;
     if (asset.quantity.status === "unavailable") {
       missing.push({ assetKey: asset.key, reason: asset.quantity.reason });
       value = { status: "unavailable" };
@@ -173,23 +167,16 @@ export function valueHistoryPoint(input: HistoryPointInput): HistoryPointValue {
       value = pricedValue(asset.quantity.baseUnits, asset.decimals, asset.price, pricing, asset.key, missing, asset.admission);
     }
     return {
-      key: asset.key,
-      id: asset.key,
       kind: asset.kind,
-      source: asset.admission === "admitted" ? "registry" : "catalog",
-      name: asset.name,
-      symbol: asset.symbol,
-      decimals: asset.decimals,
-      contractAddress: asset.kind === "native" ? null : assetContract(asset.key),
       cashCurrency: asset.cashCurrency,
       balance,
       value,
     };
   });
 
-  const borrow: BalancesBorrow = { coverage: "complete", positions: [] };
+  const borrow: HistoryBorrow = { coverage: "complete", positions: [] };
   for (const position of input.morphoPositions) {
-    const { collateral, loan, marketId } = position;
+    const { collateral, loan } = position;
     if (collateral.quantity.status === "unavailable" || loan.borrowShares.status === "unavailable" || (loan.borrowShares.status === "ready" && loan.borrowShares.baseUnits > BigInt(0) && loan.borrowIndex === null)) {
       borrow.coverage = "partial";
       if (collateral.quantity.status === "unavailable") missing.push({ assetKey: collateral.assetKey, reason: collateral.quantity.reason });
@@ -201,38 +188,18 @@ export function valueHistoryPoint(input: HistoryPointInput): HistoryPointValue {
     const debt = loan.borrowIndex === null ? BigInt(0) : baseUnitsFromSeries(loan.borrowShares.baseUnits, loan.borrowIndex, "ceil");
     const debtValue = pricedValue(debt, loan.asset.decimals, loan.price, pricing, loan.assetKey, missing);
     borrow.positions.push({
-      marketId,
       collateral: {
-        key: collateral.asset.key,
-        id: collateral.assetKey,
-        kind: "erc20",
-        source: "borrow",
-        name: collateral.asset.name,
-        symbol: collateral.asset.symbol,
-        decimals: collateral.asset.decimals,
-        contractAddress: assetContract(collateral.asset.key),
-        cashCurrency: collateral.asset.cashCurrency,
-        collateral: { marketId },
         balance: { status: "ready", baseUnits: collateral.quantity.baseUnits.toString() },
         value: collateralValue,
       },
       debt: {
-        sign: -1,
-        marketId,
-        asset: {
-          key: loan.asset.key,
-          name: loan.asset.name,
-          symbol: loan.asset.symbol,
-          decimals: loan.asset.decimals,
-        },
         balance: { status: "ready", baseUnits: debt.toString() },
         value: debtValue,
       },
-      borrowAprWad: "0",
     });
   }
 
-  const computed = computeBalancesTotals({
+  const computed = computeHistoryTotals({
     quoteCurrency: input.quoteCurrency,
     holdings,
     coverage: {
@@ -250,7 +217,7 @@ export function valueHistoryPoint(input: HistoryPointInput): HistoryPointValue {
     cash: components.has("cash") ? incomplete(computed.cash) : computed.cash,
     investments: components.has("investments") ? incomplete(computed.investments) : computed.investments,
     borrow: components.has("borrow") ? incomplete(computed.borrow) : computed.borrow,
-    net: unpriced.length ? incomplete(computed.net) as BalancesNetTotal : computed.net,
+    net: unpriced.length ? incomplete(computed.net) as HistoryNetTotal : computed.net,
   };
   return {
     ...totals,

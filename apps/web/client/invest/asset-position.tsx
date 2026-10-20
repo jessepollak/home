@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-
 import { isServerVerified, useOptionalAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
 import { useBalancesData } from "@/client/balances";
 import { presentInvestAssetMark, type AssetMarkResolution } from "@/client/asset-mark/presentation";
@@ -9,11 +8,11 @@ import { BalanceRow } from "@/components/finance-rows";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InvestAsset } from "@/config/invest-assets";
 import { investAssets } from "@/config/invest-assets";
-import { formatExactPresentationTokenAmount, formatFiatAmount, formatPresentationDate } from "@/shared/formatting";
+import { formatExactPresentationTokenAmount, formatFiatAmount } from "@/shared/formatting";
 import type { Holding } from "@/shared/balances/types";
-import { holdingValueContext } from "@/shared/balances/value-label";
 import { AssetIcon } from "./asset-icon";
 import { usePresentationRegionId } from "./presentation-quote";
+import { BalancesCantLoad } from "@/client/balances/balances-cant-load";
 
 const unavailableBalances: AccountWalletClient["fetchBalances"] = async () => { throw new Error("Account unavailable"); };
 
@@ -23,17 +22,9 @@ export function findAssetHolding(holdings: readonly Holding[], asset: Pick<Inves
       ? holdings.find((holding) => holding.id === asset.id) : undefined);
 }
 
-export function valuationTimesDiffer(holdingAsOf: string, headerAsOf: string | undefined) {
-  if (!headerAsOf) return false;
-  const holding = Date.parse(holdingAsOf);
-  const header = Date.parse(headerAsOf);
-  return Number.isFinite(holding) && Number.isFinite(header) && Math.abs(holding - header) > 300_000;
-}
-
-export function AssetPosition({ asset, assetMarkResolution, headerAsOf }: {
+export function AssetPosition({ asset, assetMarkResolution }: {
   asset: InvestAsset;
   assetMarkResolution: AssetMarkResolution;
-  headerAsOf?: string;
 }) {
   const account = useOptionalAccountWallet();
   const session = account && isServerVerified(account) ? account.session : null;
@@ -44,35 +35,18 @@ export function AssetPosition({ asset, assetMarkResolution, headerAsOf }: {
     chainId: session.smartAccount.chainId,
     accountProvider: session.accountProvider,
   } : null, regionId, account?.fetchBalances ?? unavailableBalances);
-  const holdings = balances.status === "ready" && session?.smartAccount && !balances.snapshot.stale && !balances.refreshError
+  const holdings = balances.status === "ready" && session?.smartAccount
     ? balances.snapshot.holdings : null;
   const holding = useMemo(() => holdings ? findAssetHolding(holdings, { id: asset.id, contractAddress: asset.contractAddress }) : undefined,
     [holdings, asset.id, asset.contractAddress]);
   if (!session?.smartAccount) return null;
   if (balances.status === "loading") return <ul aria-label="Your balance"><li className="py-2"><Skeleton className="h-16 w-full" /></li></ul>;
-  const unavailable = balances.status === "error" || balances.status === "ready" && (balances.snapshot.stale || balances.refreshError);
+  if (balances.status === "error") return <BalancesCantLoad onRetry={() => void balances.retry()} />;
   const mark = <AssetIcon mark={presentInvestAssetMark(asset, assetMarkResolution)} />;
-  if (unavailable) return <ul><BalanceRow icon={mark} iconTone="mark" label="Your balance"
-    context="Balance unavailable" value="—" chevron={false} /></ul>;
-  if (balances.status !== "ready") return null;
-  const configured = investAssets.some((item) => item.id === asset.id);
-  const covered = configured ? balances.snapshot.coverage.registry === "complete" : balances.snapshot.coverage.catalog === "complete";
-  if (!holding && !covered) return <ul><BalanceRow icon={mark} iconTone="mark" label="Your balance"
-    context="Balance unavailable" value="—" chevron={false} /></ul>;
-  if (!holding || holding.balance.status === "ready" && holding.balance.baseUnits === "0") return null;
-  if (holding.balance.status !== "ready") return <ul><BalanceRow icon={mark} iconTone="mark"
-    label="Your balance" context="Balance unavailable" value="—" chevron={false} /></ul>;
+  if (balances.status !== "ready" || !holding || holding.balance.baseUnits === "0") return null;
+  const quantity = formatExactPresentationTokenAmount(holding.balance.baseUnits, holding.decimals, holding.symbol);
   const value = holding.value.status === "priced"
     ? formatFiatAmount(BigInt(holding.value.amount.atoms), holding.value.amount.scale, holding.value.currency, { regionId })
-    : "—";
-  const valuedAt = holding.value.status === "priced" && valuationTimesDiffer(holding.value.asOf, headerAsOf)
-    ? `Balance valued ${formatPresentationDate(Date.parse(holding.value.asOf), { regionId, style: "date-time-zone" })}` : null;
-  const valueContext = holding.value.status === "unpriced" && holding.value.reason === "fx-unavailable"
-    ? "Exchange rate unavailable" : holdingValueContext(holding.value);
-  return <div>
-    <ul><BalanceRow icon={mark} iconTone="mark" label="Your balance"
-      context={formatExactPresentationTokenAmount(holding.balance.baseUnits, holding.decimals, holding.symbol)}
-      value={value} valueContext={valueContext} chevron={false} /></ul>
-    {valuedAt ? <p className="text-xs text-muted-foreground">{valuedAt}</p> : null}
-  </div>;
+    : quantity;
+  return <ul><BalanceRow icon={mark} iconTone="mark" label="Your balance" context={holding.value.status === "priced" ? quantity : undefined} value={value} valueTone={holding.value.status === "priced" ? "default" : "muted"} chevron={false} /></ul>;
 }

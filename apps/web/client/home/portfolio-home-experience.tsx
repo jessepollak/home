@@ -22,9 +22,9 @@ import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { PricedAssetSearch } from "@/client/invest/asset-search";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { getVisibleShelves } from "@/client/invest/discover";
-import { INVEST_SETTINGS_DEFAULTS } from "@/shared/operator-settings/invest";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
+import { INVEST_SETTINGS_DEFAULTS } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
 import type { InvestmentsContentProps, ShellSearchContentProps } from "./home-types";
 import { ProductOfferingProvider } from "./product-offering";
@@ -202,8 +202,7 @@ export function PortfolioHomeExperience({
     presentation: homeBalances, updatedAt: balances.observation.dataUpdatedAt, pending: pendingCashout?.state === "loading" });
   const assetBalances = useMemo(() => ({ ...cachedHomeBalances,
     ...(revalidating ? { revalidating } : {}),
-    ...(balances.refreshError && balanceStatus === "ready" ? { refreshFailed: true as const } : {}),
-  }), [cachedHomeBalances, revalidating, balances.refreshError, balanceStatus]);
+  }), [cachedHomeBalances, revalidating]);
   const sendAvailability = useMemo(
     () => balances.snapshot ? deriveSendAvailability(balances.snapshot) : [],
     [balances.snapshot],

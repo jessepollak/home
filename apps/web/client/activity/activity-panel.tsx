@@ -1,9 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
-import { RotateCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { LoadErrorCard, LoadRetryButton } from "@/components/load-error";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { LoadErrorCard } from "@/components/load-error";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/empty-state";
 import { ActivityLoader } from "@/components/activity-loader";
@@ -19,6 +17,7 @@ import type { CashOutWithdrawJourney } from "./cash-out-withdraw-journey";
 import type { RegionId } from "@/config/regions";
 import { mergeActivityFeed, type ActivityFeedItem } from "./activity-feed";
 import { activitySourcesAttribute, sourceReadiness, transfersReadiness } from "./activity-sources";
+import { retainActivityRows } from "./retained-activity";
 import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
@@ -32,13 +31,11 @@ const EMPTY_ORDERS: readonly ActivityOrder[] = [];
 export function ActivityPanelView({
   quietLoading = false,
   activity,
-  operations = EMPTY_OPERATIONS,
-  orders = EMPTY_ORDERS,
+  operations: nextOperations = EMPTY_OPERATIONS,
+  orders: nextOrders = EMPTY_ORDERS,
   actionsStatus = "ready",
-  actionsRefreshing = false,
   actionsFailed = false,
   ordersStatus = "ready",
-  ordersRefreshing = false,
   ordersFailed = false,
   regionId = "GLOBAL",
   density = "page",
@@ -70,10 +67,8 @@ export function ActivityPanelView({
   operations?: readonly RecentMoneyActionOperation[];
   orders?: readonly ActivityOrder[];
   actionsStatus?: "loading" | "ready" | "error";
-  actionsRefreshing?: boolean;
   actionsFailed?: boolean;
   ordersStatus?: "loading" | "ready" | "error";
-  ordersRefreshing?: boolean;
   ordersFailed?: boolean;
   regionId?: RegionId;
   density?: ActivityPanelDensity;
@@ -100,10 +95,19 @@ export function ActivityPanelView({
   restoreDetailsRequest?: number;
   suspendDetailsRequest?: number;
 }) {
-  const transfersNoticeId = useId();
-  const latestNoticeId = useId();
-  const actionsNoticeId = useId();
-  const ordersNoticeId = useId();
+  const retentionOwner = activity.ownerKey ?? (activity.status === "ready" ? activity.page.walletAddress : null);
+  const [retainedSources, setRetainedSources] = useState({ owner: retentionOwner, regionId, operations: nextOperations, orders: nextOrders });
+  const sameScope = retainedSources.owner === retentionOwner && retainedSources.regionId === regionId;
+  const operations = useMemo(() => sameScope
+    ? retainActivityRows(retainedSources.operations, nextOperations, (row) => row.action.id, actionsStatus === "ready" && !actionsFailed)
+    : nextOperations, [sameScope, retainedSources.operations, nextOperations, actionsStatus, actionsFailed]);
+  const orders = useMemo(() => sameScope
+    ? retainActivityRows(retainedSources.orders, nextOrders, (row) => row.id, ordersStatus === "ready" && !ordersFailed)
+    : nextOrders, [sameScope, retainedSources.orders, nextOrders, ordersStatus, ordersFailed]);
+  if (!sameScope || operations.length !== retainedSources.operations.length || operations.some((row, index) => row !== retainedSources.operations[index]) ||
+    orders.length !== retainedSources.orders.length || orders.some((row, index) => row !== retainedSources.orders[index])) {
+    setRetainedSources({ owner: retentionOwner, regionId, operations, orders });
+  }
   const [revealed, setRevealed] = useState(false);
   const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem; opener: HTMLElement | null } | null>(() => initialDetailItem
     ? { key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem, opener: null } : null);
@@ -184,7 +188,12 @@ export function ActivityPanelView({
       : pendingWindowEnd
     : null, [transfers, pendingWindowEnd]);
   const cards = activity.status === "ready" ? activity.page.cards?.rows : undefined;
-  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, cards, loadedThrough }), [transfers, operations, orders, cards, loadedThrough]);
+  const [eligibility, setEligibility] = useState({ owner: retentionOwner, regionId, ids: new Set<string>() });
+  const presentedIds = eligibility.owner === retentionOwner && eligibility.regionId === regionId ? eligibility.ids : undefined;
+  const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, cards, loadedThrough, presentedIds }), [transfers, operations, orders, cards, loadedThrough, presentedIds]);
+  if (!presentedIds || feed.some((row) => !presentedIds.has(`${row.kind}:${row.id}`))) {
+    setEligibility({ owner: retentionOwner, regionId, ids: new Set([...(presentedIds ?? []), ...feed.map((row) => `${row.kind}:${row.id}`)]) });
+  }
   const [clock, setClock] = useState(0);
   useEffect(() => {
     const now = Date.now();
@@ -241,15 +250,16 @@ export function ActivityPanelView({
   const sourcesPending = activity.status === "loading" || actionsStatus === "loading" || ordersStatus === "loading";
   if (!revealed && !sourcesPending) setRevealed(true);
   const retryFailedSources = () => {
-    if (activity.status === "error" || onchainUnavailable || latestUnavailable) activity.retry();
+    if (activity.status === "error" || activity.failed || onchainUnavailable || latestUnavailable ||
+      activity.status === "ready" && activity.page.cards?.status === "unavailable") activity.retry();
     if (actionsStatus === "error") retryActions?.();
     if (ordersStatus === "error") retryOrders?.();
     if (activity.status === "ready" && activity.loadMoreError) activity.retryLoadMore();
   };
-  const inlineStatus = !plain;
 
-  const historyUnknown = activity.status === "error" || onchainUnavailable || latestUnavailable || actionsStatus === "error" || ordersStatus === "error";
-  const sources = activitySourcesAttribute({ transfers: transfersReadiness(activity), actions: sourceReadiness(actionsStatus, actionsRefreshing, actionsFailed), orders: sourceReadiness(ordersStatus, ordersRefreshing, ordersFailed) });
+  const historyUnknown = activity.status === "error" || activity.failed || onchainUnavailable || latestUnavailable ||
+    activity.status === "ready" && activity.page.cards?.status === "unavailable" || actionsStatus === "error" || ordersStatus === "error";
+  const sources = activitySourcesAttribute({ transfers: hasRows ? "ready" : transfersReadiness(activity), actions: sourceReadiness(actionsStatus, hasRows), orders: sourceReadiness(ordersStatus, hasRows) });
 
   if (activity.status === "unavailable" && !hasRows && actionsStatus !== "error" && ordersStatus !== "error") {
     return (
@@ -268,73 +278,26 @@ export function ActivityPanelView({
     );
   }
 
-  if (historyUnknown && !hasRows && plain) {
+  if (historyUnknown && !hasRows) {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sources={sources} sectionRef={sectionRef}>
-        <ActivityUnavailable message="Activity unavailable" onReload={retryFailedSources} />
+        <LoadErrorCard texture="cant-load" role="alert" title="Activity is temporarily unavailable."
+          description={activity.status === "error" ? activity.error.message || activity.error.code || undefined : undefined}
+          onRetry={retryFailedSources} />
       </ActivitySurface>
     );
   }
 
-  if (activity.status === "error" && !hasRows) {
-    return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sources={sources} sectionRef={sectionRef}>
-        <LoadErrorCard
-          texture="cant-load"
-          role="alert"
-          title="Activity is temporarily unavailable."
-          description={activity.error.message || activity.error.code || undefined}
-          onRetry={activity.retry}
-        />
-      </ActivitySurface>
-    );
-  }
-
-  const cardUnavailable = activity.status === "ready" && activity.page.cards?.status === "unavailable";
   const footer = activity.status === "ready" && !onchainUnavailable ? (
     activity.page.nextCursor === null ? hasRows && !historyUnknown ? (
       <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
     ) : null : (
-      <ActivityContinuation activity={activity} inlineStatus={inlineStatus} feedStatus={plain && !historyUnknown} />
+      <ActivityContinuation activity={activity} />
     )
   ) : null;
   return (
     <>
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy={sourcesPending} rows={hasRows} sources={sources} sectionRef={sectionRef}>
-        {cardUnavailable ? <p role="status" className="text-sm text-muted-foreground">Card purchases may be out of date{plain ? "." : ""}</p> : null}
-        {inlineStatus && (activity.status === "error" || onchainUnavailable) ? (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p id={transfersNoticeId} role="status" className="text-sm text-muted-foreground">
-              Some activity is unavailable
-            </p>
-            <LoadRetryButton onRetry={activity.retry} describedBy={transfersNoticeId}>Try again</LoadRetryButton>
-          </div>
-        ) : null}
-        {inlineStatus && activity.status !== "error" && latestUnavailable && !onchainUnavailable ? (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p id={latestNoticeId} role="status" className="text-sm text-muted-foreground">
-              Latest activity didn&apos;t load
-            </p>
-            <LoadRetryButton onRetry={activity.retry} describedBy={latestNoticeId}>Retry latest activity</LoadRetryButton>
-          </div>
-        ) : null}
-        {inlineStatus && actionsStatus === "error" ? (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p id={actionsNoticeId} role="status" className="text-sm text-muted-foreground">
-              Your Home actions are unavailable
-            </p>
-            {retryActions ? <LoadRetryButton onRetry={retryActions} describedBy={actionsNoticeId}>Retry Home actions</LoadRetryButton> : null}
-          </div>
-        ) : null}
-        {inlineStatus && ordersStatus === "error" ? (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p id={ordersNoticeId} role="status" className="text-sm text-muted-foreground">Add money and cash-out orders are unavailable</p>
-            {retryOrders ? <LoadRetryButton onRetry={retryOrders} describedBy={ordersNoticeId}>Retry orders</LoadRetryButton> : null}
-          </div>
-        ) : null}
-        {plain && historyUnknown ? (
-          <ActivityUnavailable message="Some activity is unavailable" onReload={retryFailedSources} />
-        ) : null}
         {!hasRows ? (exhausted && !historyUnknown ? <ActivityEmpty plain={plain} action={emptyAction} /> : null) : (
           <div onPointerDown={() => void ActivityLedgerSheet.preload()}>
             <ActivityLedger
@@ -471,12 +434,8 @@ export function ActivitySurface({
 
 function ActivityContinuation({
   activity,
-  inlineStatus,
-  feedStatus,
 }: {
   activity: UseActivityResult;
-  inlineStatus: boolean;
-  feedStatus: boolean;
 }) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const setSentinelVisible = activity.setSentinelVisible;
@@ -522,44 +481,8 @@ function ActivityContinuation({
       <p className="sr-only" role="status">
         {activity.continuing ? "Loading older activity" : ""}
       </p>
-      <ActivityLoader loading={!activity.loadMoreError && (activity.continuing || activity.loadingMore)}>
-        {activity.loadMoreError ? inlineStatus ? (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-destructive" role="alert">
-              More activity could not be loaded. Your current results are unchanged.
-            </p>
-            <LoadRetryButton onRetry={activity.retryLoadMore} />
-          </div>
-        ) : feedStatus ? (
-          <ActivityUnavailable message="More activity unavailable" onReload={activity.retryLoadMore} />
-        ) : null : null}
-      </ActivityLoader>
+      <ActivityLoader loading={!activity.loadMoreError && (activity.continuing || activity.loadingMore)} />
       <div ref={sentinelRef} className="h-px w-full" data-activity-sentinel="" aria-hidden="true" />
-    </div>
-  );
-}
-
-function ActivityUnavailable({
-  message,
-  onReload,
-  reloadLabel = "Reload activity",
-}: {
-  message: string;
-  onReload: () => void;
-  reloadLabel?: string;
-}) {
-  return (
-    <div className="flex items-center justify-center gap-1" data-activity-unavailable="">
-      <p role="status" className="text-sm text-muted-foreground">{message}</p>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-11 md:pointer-fine:size-8"
-        aria-label={reloadLabel}
-        onClick={onReload}
-      >
-        <RotateCw aria-hidden="true" />
-      </Button>
     </div>
   );
 }

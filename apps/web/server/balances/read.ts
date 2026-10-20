@@ -15,7 +15,6 @@ import {
 import { observeSafely, writeObservabilityEvent } from "@/server/observability/log";
 import { composeDeadline } from "@/server/http/deadline";
 import type { ObservabilityEvent } from "@/server/observability/schema";
-import type { HoldingBalance } from "@/shared/balances/types";
 import {
   decodeAggregate3,
   decodeBalance,
@@ -28,6 +27,7 @@ import type {
   BalancesRead,
   BalancesUniverse,
   ReadHolding,
+  ReadBalance,
   UniverseEntry,
 } from "./types";
 
@@ -171,7 +171,7 @@ async function readOnce(
           signal,
         ),
   ]);
-  const balances = new Map<string, HoldingBalance>();
+  const balances = new Map<string, ReadBalance>();
 
   if (native) {
     balances.set(
@@ -254,8 +254,8 @@ async function readOnce(
     return { changed: true, reason: "block-changed" };
   }
 
-  const underlying = new Map<string, HoldingBalance>();
-  const withdrawable = new Map<string, HoldingBalance>();
+  const underlying = new Map<string, ReadBalance>();
+  const withdrawable = new Map<string, ReadBalance>();
   vaults.forEach((entry) => {
     const balance = balances.get(entry.id);
     if (balance?.status !== "ready") {
@@ -415,11 +415,11 @@ function parseBlock(value: unknown) {
   };
 }
 
-function ready(value: bigint): HoldingBalance {
+function ready(value: bigint): ReadBalance {
   return { status: "ready", baseUnits: value.toString(10) };
 }
 
-function unavailable(): HoldingBalance {
+function unavailable(): ReadBalance {
   return { status: "unavailable", baseUnits: null };
 }
 

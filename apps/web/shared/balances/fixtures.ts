@@ -71,7 +71,6 @@ export type BalancesFixtureOptions = {
   owner?: `0x${string}`;
   registry?: Record<string, HoldingOverride>;
   catalog?: Holding[];
-  coverage?: Partial<BalancesSnapshot["coverage"]>;
   total?: Partial<BalancesSnapshot["total"]>;
   borrow?: BalancesBorrow;
   totals?: Partial<BalancesTotals>;
@@ -91,8 +90,6 @@ export function decimal(atoms: string, scale: number): ExactDecimal {
 export function ready(baseUnits: string): HoldingBalance {
   return { status: "ready", baseUnits };
 }
-
-export const unavailableBalance: HoldingBalance = { status: "unavailable", baseUnits: null };
 
 export function priced(currency: FiatCurrencyCode, atoms: string, scale = 2): HoldingValue {
   return { status: "priced", currency, amount: decimal(atoms, scale), asOf: FIXTURE_PRICE_AS_OF };
@@ -158,11 +155,9 @@ export function buildBalancesSnapshotFixture(options: BalancesFixtureOptions = {
     const balance = override.balance ?? ready("0");
     const value: HoldingValue =
       override.value ??
-      (balance.status === "unavailable"
-        ? { status: "unavailable" }
-        : quoteCurrency === null
-          ? { status: "unpriced", reason: "no-quote-currency" }
-          : priced(quoteCurrency, "0"));
+      (quoteCurrency === null
+        ? { status: "unpriced", reason: "no-quote-currency" }
+        : priced(quoteCurrency, "0"));
     const holding: Holding = {
       key: expected.key as Holding["key"],
       id: expected.id,
@@ -178,41 +173,29 @@ export function buildBalancesSnapshotFixture(options: BalancesFixtureOptions = {
     };
     if (expected.kind === "vault-share") {
       holding.underlying = { key: PORTFOLIO_USDC_ASSET_KEY, symbol: "USDC", decimals: 6 };
-      holding.underlyingBalance =
-        override.underlyingBalance ??
-        (balance.status === "unavailable" ? unavailableBalance : ready("0"));
+      holding.underlyingBalance = override.underlyingBalance ?? ready("0");
       holding.withdrawableBalance = override.withdrawableBalance ?? holding.underlyingBalance;
     }
     if (expected.cashCurrency) {
-      holding.cashValue =
-        override.cashValue ??
-        (balance.status === "unavailable"
-          ? { status: "unavailable" }
-          : pricedCash(expected.cashCurrency, "0"));
+      holding.cashValue = override.cashValue ?? pricedCash(expected.cashCurrency, "0");
     }
     return holding;
   });
 
   const holdings = [...registryHoldings, ...(options.catalog ?? [])];
-  const registryUnavailable = registryHoldings.some((holding) => holding.balance.status === "unavailable");
-  const coverage: BalancesSnapshot["coverage"] = {
-    registry: registryUnavailable ? "partial" : "complete",
-    catalog: "complete",
-    ...options.coverage,
-  };
   const total: BalancesSnapshot["total"] =
     quoteCurrency === null
       ? { status: "no-quote-currency", value: null, currency: null, ...options.total }
       : {
-          status: registryUnavailable ? "partial" : "complete",
+          status: "complete",
           value: decimal("0", 2),
           currency: quoteCurrency,
           ...options.total,
         };
 
-  const borrow = options.borrow ?? { coverage: "complete", positions: [] };
+  const borrow = options.borrow ?? { positions: [] };
   const totals = {
-    ...computeBalancesTotals({ quoteCurrency, holdings, coverage, borrow }),
+    ...computeBalancesTotals({ quoteCurrency, holdings, borrow }),
     ...options.totals,
   };
 
@@ -224,7 +207,6 @@ export function buildBalancesSnapshotFixture(options: BalancesFixtureOptions = {
     block: { ...FIXTURE_BLOCK },
     fetchedAt: options.fetchedAt ?? FIXTURE_FETCHED_AT,
     holdings,
-    coverage,
     total,
     borrow,
     totals,
@@ -294,8 +276,8 @@ export const balancesSnapshotFixture: BalancesSnapshot = buildBalancesSnapshotFi
       value: { status: "unpriced", reason: "price-unavailable" },
     },
     toshi: {
-      balance: unavailableBalance,
-      value: { status: "unavailable" },
+      balance: ready("1000000000000000000"),
+      value: { status: "unpriced", reason: "price-unavailable" },
     },
     "morpho-steakhouse-usdc": {
       balance: ready("1000000000000000000"),
@@ -314,6 +296,5 @@ export const balancesSnapshotFixture: BalancesSnapshot = buildBalancesSnapshotFi
       reason: "price-unavailable",
     }),
   ],
-  coverage: { registry: "partial", catalog: "complete" },
-  total: { status: "partial", value: decimal("385288", 2), currency: "USD" },
+  total: { status: "complete", value: decimal("385288", 2), currency: "USD" },
 });

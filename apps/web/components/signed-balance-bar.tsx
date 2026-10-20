@@ -69,17 +69,9 @@ export function MoneyBreakdownLegend({ items, selectedId, onSelect }: BreakdownP
                     {item.id === "pending-cash-out" ? <>Pending <span className="whitespace-nowrap">cash-out</span></> : item.label}
                   </span>
                 </span>
-                {item.status === "unavailable" ? (
-                  <>
-                    <span className="text-[0.8125rem]" aria-hidden="true">—</span>
-                    <span className="sr-only">Unavailable</span>
-                  </>
-                ) : (
-                  <span className="text-foreground">
-                    <MoneyTicker className="text-[0.8125rem]" value={item.value} align="start" reserveDigits={false} animated={item.status === "complete"} />
-                  </span>
-                )}
-                {item.status === "partial" ? <span className="sr-only">Partial</span> : null}
+                <span className="text-foreground">
+                  <MoneyTicker className="text-[0.8125rem]" value={item.value} align="start" reserveDigits={false} />
+                </span>
               </Button>
             </li>
           );

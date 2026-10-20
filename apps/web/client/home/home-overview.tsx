@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Banknote, ChartLine, HandCoins } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BalanceRow } from "@/components/finance-rows";
 import { GlyphMark } from "@/components/currency-mark";
@@ -22,6 +20,7 @@ import type { HomeAssetBalancesPresentation } from "./home-types";
 import { ShimmerRows } from "./panel-shared";
 import { useProductOffering } from "./product-offering";
 import { borrowEntryOffered } from "@/client/borrowing/borrow-offering";
+import { BalancesCantLoad } from "@/client/balances/balances-cant-load";
 
 export type HomeOverviewDestinations = {
   onOpenCash: () => void;
@@ -114,19 +113,11 @@ function HomeTotalBalance({
   accountKey: string | null;
   onRetryBalances?: () => void;
 }) {
-  const statusId = useId();
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
-  const heroLabel = isLoading
-    ? "Updating…"
-    : assetBalances?.status === "unavailable"
-      ? "Balance unavailable"
-      : "Total balance";
+  const heroLabel = isLoading ? "Updating…" : "Total balance";
   const breakdown = assetBalances?.breakdown ?? [];
-  const totalStatus = isLoading ? undefined : assetBalances?.totalStatus ?? "unavailable";
-  const displayTotal = assetBalances?.displayTotal ?? "—";
-  const showStatus = !isLoading && !assetBalances?.needsCountry && (totalStatus === "partial" || totalStatus === "unavailable");
-  const statusLabel = assetBalances?.statusLabel ?? (totalStatus === "partial" ? "Partial balance" : "Balance unavailable");
+  const displayTotal = assetBalances?.displayTotal;
   return (
     <Card
       variant="flush"
@@ -136,32 +127,14 @@ function HomeTotalBalance({
     >
       <CardContent inset="hero">
         <p className="text-sm text-muted-foreground">Total balance</p>
-        {showStatus ? <span id={statusId} className="sr-only">{statusLabel}</span> : null}
         {assetBalances?.cachedAt !== undefined ? <span className="sr-only">Updating balance saved {formatPresentationDate(assetBalances.cachedAt, { style: "date-time-zone" })}.</span> : null}
         <div className="@container flex min-h-10 items-center" data-shimmer={isLoading ? "hero" : undefined}>
-        {isLoading ? <><Skeleton className="h-10 w-48" /><span className="sr-only">Updating…</span></> : (
-          <div
-            className="text-4xl font-semibold tabular-nums"
-            style={{ fontSize: `max(0.75rem, min(2.25rem, calc(100cqi / (${Array.from(displayTotal).length} * 0.65))))` }}
-            data-total-status={totalStatus === "complete" ? undefined : totalStatus}
-          >
-            {displayTotal === "—" ? (
-              <span role="img" aria-label="Unavailable" aria-describedby={showStatus ? statusId : undefined}>
-                —
-              </span>
-            ) : (
-              <MoneyTicker
-                value={displayTotal}
-                align="start"
-                reserveDigits={false}
-                animated={false}
-                aria-describedby={showStatus ? statusId : undefined}
-              />
-            )}
+        {isLoading ? <><Skeleton className="h-10 w-48" /><span className="sr-only">Updating…</span></> : assetBalances?.status !== "ready" ? <BalancesCantLoad onRetry={onRetryBalances ?? (() => undefined)} /> : displayTotal ? (
+          <div className="text-4xl font-semibold tabular-nums" style={{ fontSize: `max(0.75rem, min(2.25rem, calc(100cqi / (${Array.from(displayTotal).length} * 0.65))))` }}>
+            <MoneyTicker value={displayTotal} align="start" reserveDigits={false} animated={false} />
           </div>
-        )}
+        ) : assetBalances.needsCountry ? <p className="text-sm text-muted-foreground">Choose a country in Account to set how money is shown</p> : null}
         </div>
-        {assetBalances?.refreshFailed && assetBalances.status === "ready" ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription>{onRetryBalances ? <AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryBalances}>Try again</Button></AlertAction> : null}</Alert> : null}
         {isLoading ? (
           <div className="space-y-2" aria-hidden="true">
             <Skeleton className="h-2 w-full" />
@@ -193,19 +166,12 @@ export function HomeBalanceBreakdown({ items }: { items: readonly MoneyBreakdown
   );
 }
 
-const unavailableSummary: HomeMoneySummaryModel = {
-  cash: { status: "unavailable", value: null },
-  investments: { status: "unavailable", value: null, assetCount: 0, assetCountStatus: "partial", ownedCount: 0 },
-  borrow: { kind: "unavailable" },
-};
-
 export function HomeMoneySummary({
   summary,
   isLoading,
   cashRate,
   borrowOfferRate,
   destinations,
-  onRetryBalances,
 }: {
   summary: HomeMoneySummaryModel | null;
   isLoading: boolean;
@@ -215,7 +181,7 @@ export function HomeMoneySummary({
   onRetryBalances?: () => void;
 }) {
   const offering = useProductOffering();
-  const borrowSummary = (summary ?? unavailableSummary).borrow;
+  if (!isLoading && !summary) return null;
   return (
     <section aria-labelledby="your-money-heading" aria-busy={isLoading || undefined}>
       <Card className="gap-3">
@@ -223,30 +189,27 @@ export function HomeMoneySummary({
           <HomeSectionHeading id="your-money-heading">Your money</HomeSectionHeading>
         </CardHeader>
         <CardContent inset="list">
-          {isLoading && !summary ? (
+          {!summary ? (
             <ShimmerRows count={3} />
           ) : (
             <ul className="list-none p-0" data-money-summary="">
               <CashRow
-                summary={(summary ?? unavailableSummary).cash}
+                summary={summary.cash}
                 rate={cashRate}
                 onOpen={destinations.onOpenCash}
-                onRetryBalances={onRetryBalances}
               />
-              {(offering.products.invest === "on" || (summary ?? unavailableSummary).investments.ownedCount > 0 || (summary ?? unavailableSummary).investments.status !== "complete") ? (
+              {(offering.products.invest === "on" || summary.investments.ownedCount > 0) ? (
                 <InvestmentsRow
-                  summary={(summary ?? unavailableSummary).investments}
+                  summary={summary.investments}
                   onOpen={destinations.onOpenInvestments}
-                  onRetryBalances={onRetryBalances}
-                />
+                  />
               ) : null}
-              {(borrowEntryOffered(offering) || borrowSummary.kind !== "none" || borrowSummary.hasCollateral) ? (
+              {(borrowEntryOffered(offering) || summary.borrow.kind !== "none" || summary.borrow.hasCollateral) ? (
                 <BorrowRow
-                  summary={borrowSummary}
+                  summary={summary.borrow}
                   offerRate={borrowOfferRate}
                   onOpen={destinations.onOpenBorrow}
-                  onRetryBalances={onRetryBalances}
-                />
+                  />
               ) : null}
             </ul>
           )}
@@ -260,7 +223,6 @@ function CashRow({
   summary,
   rate,
   onOpen,
-  onRetryBalances,
 }: {
   summary: HomeMoneySummaryModel["cash"];
   rate: string | null;
@@ -276,10 +238,8 @@ function CashRow({
       reserveContext
       value={summaryValue(summary.value)}
       valueTone={summaryTone(summary.value)}
-      valueContext={summary.status === "partial" ? "Partial balance" : undefined}
       onActivate={onOpen}
       activateLabel="Open Cash"
-      readRetry={summary.value === null && onRetryBalances ? { label: "Retry Cash balance", onRetry: onRetryBalances } : undefined}
       chevron={summary.value !== null}
     />
   );
@@ -288,14 +248,12 @@ function CashRow({
 function InvestmentsRow({
   summary,
   onOpen,
-  onRetryBalances,
 }: {
   summary: HomeMoneySummaryModel["investments"];
   onOpen: () => void;
   onRetryBalances?: () => void;
 }) {
-  const countStatus = summary.assetCountStatus ?? summary.status;
-  const empty = summary.ownedCount === 0 && summary.status === "complete" && countStatus === "complete";
+  const empty = summary.ownedCount === 0;
   return (
     <BalanceRow
       icon={<GlyphMark size="sm"><ChartLine /></GlyphMark>}
@@ -304,13 +262,11 @@ function InvestmentsRow({
       reserveContext
       context={summary.assetCount === 0
         ? empty ? "Start investing" : undefined
-        : `Across ${countStatus === "partial" ? "at least " : ""}${summary.assetCount} ${summary.assetCount === 1 ? "asset" : "assets"}`}
+        : `Across ${summary.assetCount} ${summary.assetCount === 1 ? "asset" : "assets"}`}
       value={empty ? undefined : summaryValue(summary.value)}
       valueTone={summaryTone(summary.value)}
-      valueContext={summary.status === "partial" ? "Partial balance" : undefined}
       onActivate={onOpen}
       activateLabel={empty ? "Open Invest" : "Open Investments"}
-      readRetry={!empty && summary.value === null && onRetryBalances ? { label: "Retry Investments balance", onRetry: onRetryBalances } : undefined}
       chevron={empty || summary.value !== null}
     />
   );
@@ -320,7 +276,6 @@ function BorrowRow({
   summary,
   offerRate,
   onOpen,
-  onRetryBalances,
 }: {
   summary: HomeMoneySummaryModel["borrow"];
   offerRate: string | null;
@@ -338,12 +293,9 @@ function BorrowRow({
         context="Against your investments"
         value={summaryValue(summary.value)}
         valueTone={summaryTone(summary.value)}
-        valueContext={summary.status === "partial"
-          ? summary.rate ? `Partial · ${summary.rate}` : "Partial balance"
-          : summary.rate ?? undefined}
+        valueContext={summary.rate ?? undefined}
         onActivate={onOpen}
         activateLabel="Open Borrow"
-        readRetry={summary.value === null && onRetryBalances ? { label: "Retry Borrow balance", onRetry: onRetryBalances } : undefined}
         chevron={summary.value !== null}
       />
     );
@@ -368,13 +320,11 @@ function BorrowRow({
       label="Borrow Cash"
       context={summary.kind === "none" && offerRate
         ? `Borrow at ${offerRate}`
-        : summary.kind === "unavailable" ? "Against your investments" : undefined}
+        : undefined}
       reserveContext
-      value={summary.kind === "unavailable" ? summaryValue(null) : undefined}
       valueTone="muted"
       onActivate={onOpen}
       activateLabel="Open Borrow"
-      readRetry={summary.kind === "unavailable" && onRetryBalances ? { label: "Retry Borrow balance", onRetry: onRetryBalances } : undefined}
       chevron={summary.kind === "none"}
     />
   );
@@ -385,12 +335,5 @@ function summaryTone(value: string | null): "default" | "muted" {
 }
 
 function summaryValue(value: string | null): ReactNode {
-  return value === null
-    ? (
-        <>
-          <span aria-hidden="true">—</span>
-          <span className="sr-only">Unavailable</span>
-        </>
-      )
-    : <MoneyTicker value={value} reserveDigits={false} animated={false} />;
+  return value ? <MoneyTicker value={value} reserveDigits={false} animated={false} /> : null;
 }

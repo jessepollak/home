@@ -101,7 +101,7 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
   const usdcBaseUnits = !balanceStale && usdcBalance?.status === "ready" ? usdcBalance.baseUnits : null;
   const canSave = source.code === "USD" && best !== null && usdcBaseUnits !== null && BigInt(usdcBaseUnits) > BigInt(0);
   const fundingNux = source.code === "USD" && usdcBaseUnits === "0" && snapshot.stale !== true &&
-    snapshot.coverage.registry === "complete" && snapshot.totals.cash.status === "complete" && sourceHolding?.cashValue?.status === "priced";
+    snapshot.totals.cash.status === "complete" && sourceHolding?.cashValue?.status === "priced";
   const row = cashHoldings(snapshot).find((item) => item.currency === source.code && item.holding);
   const depth = entry.kind === "currency" ? 1 : 0;
 
@@ -164,8 +164,7 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
         </Empty> : <div className="flex flex-col items-center gap-2 py-2 text-center">
           <CurrencyMark currency={source.code} symbol={source.symbol} />
           <p className="text-4xl font-semibold tabular-nums"><MoneyTicker animated={false} align="start" reserveDigits={false} value={row?.value ?? "Unavailable"} /></p>
-          <p className="text-sm text-muted-foreground">{source.symbol}{row?.usdValue ? ` · ≈ ${row.usdValue}` : row?.usdUnavailable ? " · USD value unavailable" : ""}</p>
-          {balanceStale ? <p className="text-sm text-muted-foreground">Balance may be out of date.</p> : null}
+          <p className="text-sm text-muted-foreground">{source.symbol}{row?.usdValue ? ` · ≈ ${row.usdValue}` : ""}</p>
         </div>}
       </MoneyModalBody>
       <MoneyModalActions>{fundingNux ? <Button className="min-h-11 w-full" onClick={() => { addMoneyAfterClose.current = true; onCancel(); }}>Add money</Button> : <div className={canSave ? "grid grid-cols-2 gap-2" : ""}>
@@ -204,9 +203,8 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
           })}
         </ul></CardContent></Card>}
         </>}
-        {balanceStale ? <p className="text-sm text-muted-foreground">Balance may be out of date.</p> : null}
+
         {destinations.some((currency, index) => currency.convertOffered && queries[index]?.isError) ? <Button variant="secondary" className="min-h-11" onClick={() => { for (const [index, currency] of destinations.entries()) if (currency.convertOffered && queries[index]?.isError) void queries[index].refetch(); }}>Try again</Button> : null}
-        {sourceBalance === null ? <p className="text-sm text-muted-foreground">Balance unavailable. Try again shortly.</p> : null}
       </MoneyModalBody>
       {sourceBalance === "0" && !balanceStale ? <MoneyModalActions><Button className="min-h-11 w-full" onClick={() => { addMoneyAfterClose.current = true; onCancel(); }}>Add money</Button></MoneyModalActions> : null}
     </MoneyModalStep> : null}

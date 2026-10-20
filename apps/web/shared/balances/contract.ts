@@ -56,24 +56,18 @@ const nullableCurrencySchema = z.nullable(currencySchema);
 const cashCurrencySchema = z.prefault(nullableCurrencySchema, null);
 
 const decimalSchema = z.object({ atoms: integerSchema, scale: scaleSchema });
-const balanceSchema = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("ready"), baseUnits: integerSchema }),
-  z.object({ status: z.literal("unavailable"), baseUnits: z.null() }),
-]);
-const readyBalanceSchema = z.object({ status: z.literal("ready"), baseUnits: integerSchema });
+const balanceSchema = z.object({ status: z.literal("ready"), baseUnits: integerSchema });
 const referenceSchema = z.object({ kind: z.literal("tokenized-equity"), session: z.enum(["open", "closed"]) });
 const valueSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("priced"), currency: currencySchema, amount: decimalSchema, asOf: isoSchema, reference: z.optional(referenceSchema) }),
   z.object({ status: z.literal("unpriced"), reason: z.enum([
-    "price-unavailable", "price-stale", "fx-unavailable", "below-market-gate",
+    "price-unavailable", "fx-unavailable", "below-market-gate",
     "no-quote-currency", "price-paused", "asset-removed",
   ]) }),
-  z.object({ status: z.literal("unavailable") }),
 ]);
 const cashValueSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("priced"), currency: currencySchema, amount: decimalSchema }),
-  z.object({ status: z.literal("unpriced"), reason: z.enum(["price-unavailable", "price-stale", "fx-unavailable"]) }),
-  z.object({ status: z.literal("unavailable") }),
+  z.object({ status: z.literal("unpriced"), reason: z.enum(["price-unavailable", "fx-unavailable"]) }),
 ]);
 const unitValueSchema = z.object({ currency: currencySchema, amount: decimalSchema });
 
@@ -95,21 +89,18 @@ const holdingSchema = z.object({
   unitValue: z.optional(unitValueSchema), cashValue: z.optional(cashValueSchema),
   collateral: z.optional(z.object({ marketId: marketKeySchema })),
 }).check(z.refine((h) => {
-  if (!validValue(h.value, h.balance) || !validUnitValue(h.unitValue, h.value, h.kind)) return false;
+  if (!validUnitValue(h.unitValue, h.value, h.kind)) return false;
   if (h.source === "registry") {
     const expected = expectedRegistryHoldings().get(h.id);
     if (!expected || registryExpectationMismatch(h, expected) ||
       (h.imageUrl !== undefined && (expected.kind !== "erc20" || expected.cashCurrency !== null))) return false;
     if (expected.kind === "vault-share") {
-      if (h.underlying?.key !== PORTFOLIO_USDC_ASSET_KEY || !h.underlyingBalance ||
-        (h.balance.status === "unavailable" && h.underlyingBalance.status !== "unavailable")) return false;
+      if (h.underlying?.key !== PORTFOLIO_USDC_ASSET_KEY || !h.underlyingBalance) return false;
       if (h.withdrawableBalance !== undefined &&
-        ((h.balance.status === "unavailable" && h.withdrawableBalance.status !== "unavailable") ||
-          (h.withdrawableBalance.status === "ready" && h.underlyingBalance.status === "ready" &&
-            BigInt(h.withdrawableBalance.baseUnits) > BigInt(h.underlyingBalance.baseUnits)))) return false;
+        BigInt(h.withdrawableBalance.baseUnits) > BigInt(h.underlyingBalance.baseUnits)) return false;
     } else if (h.underlying !== undefined || h.underlyingBalance !== undefined || h.withdrawableBalance !== undefined) return false;
     if (expected.cashCurrency) {
-      if (!h.cashValue || !validCashValue(h.cashValue, h.balance, expected.cashCurrency)) return false;
+      if (!h.cashValue || (h.cashValue.status === "priced" && h.cashValue.currency !== expected.cashCurrency)) return false;
     } else if (h.cashValue !== undefined) return false;
     return true;
   }
@@ -118,24 +109,24 @@ const holdingSchema = z.object({
     h.key === erc20AssetKey(h.contractAddress) &&
     !registryAssetKeys().has(h.key) &&
     h.cashCurrency === null && h.underlying === undefined && h.underlyingBalance === undefined && h.withdrawableBalance === undefined &&
-    h.cashValue === undefined && h.balance.status === "ready" && h.balance.baseUnits !== "0";
+    h.cashValue === undefined && h.balance.baseUnits !== "0";
 }));
 const collateralSchema = z.object({
   key: assetKeySchema, id: z.string(), kind: z.literal("erc20"), source: z.literal("borrow"),
   name: boundedTextSchema, symbol: boundedTextSchema, decimals: decimalsSchema,
   contractAddress: z.nullable(addressSchema), cashCurrency: cashCurrencySchema,
-  balance: readyBalanceSchema, value: valueSchema, unitValue: z.optional(unitValueSchema),
+  balance: balanceSchema, value: valueSchema, unitValue: z.optional(unitValueSchema),
   collateral: z.object({ marketId: marketKeySchema }),
   underlying: z.optional(z.object({ key: erc20KeySchema, symbol: z.literal("USDC"), decimals: z.literal(6) })),
   underlyingBalance: z.optional(balanceSchema), cashValue: z.optional(cashValueSchema), imageUrl: z.optional(imageSchema),
 }).check(z.refine((h) => h.cashCurrency === null && h.underlying === undefined &&
   h.underlyingBalance === undefined && h.cashValue === undefined && h.imageUrl === undefined &&
-  validValue(h.value, h.balance) && validUnitValue(h.unitValue, h.value, h.kind)));
+  validUnitValue(h.unitValue, h.value, h.kind)));
 const debtSchema = z.object({
   sign: z.literal(-1), marketId: marketKeySchema,
   asset: z.object({ key: erc20KeySchema, name: boundedTextSchema, symbol: boundedTextSchema, decimals: decimalsSchema }),
-  balance: readyBalanceSchema, value: valueSchema,
-}).check(z.refine((d) => validValue(d.value, d.balance)));
+  balance: balanceSchema, value: valueSchema,
+});
 const positionSchema = z.object({
   marketId: marketKeySchema, collateral: collateralSchema, debt: debtSchema, borrowAprWad: integerSchema,
 }).check(z.refine((p) => {
@@ -152,32 +143,31 @@ const positionSchema = z.object({
     p.debt.asset.key === erc20AssetKey(debt.address) && p.debt.asset.decimals === debt.decimals &&
     (p.collateral.balance.baseUnits !== "0" || p.debt.balance.baseUnits !== "0");
 }));
-const borrowSchema = z.object({ coverage: z.enum(["complete", "partial"]), positions: z.array(positionSchema) })
+const borrowSchema = z.object({ positions: z.array(positionSchema) })
   .check(z.refine((borrow) => new Set(borrow.positions.map((p) => p.marketId)).size === borrow.positions.length));
 const totalSchema = z.object({
-  status: z.enum(["complete", "partial", "unavailable", "no-quote-currency"]),
+  status: z.enum(["complete", "no-quote-currency"]),
   value: z.nullable(decimalSchema), currency: nullableCurrencySchema,
 }).check(z.refine((total) =>
-  total.status === "complete" || total.status === "partial"
+  total.status === "complete"
     ? total.value !== null && total.currency !== null
-    : total.value === null && (total.status !== "no-quote-currency" || total.currency === null)));
+    : total.value === null && total.currency === null));
 const netSchema = z.object({
   status: totalSchema.shape.status, value: totalSchema.shape.value, currency: totalSchema.shape.currency,
   negative: z.boolean(),
 }).check(z.refine((net) =>
-  (net.status === "complete" || net.status === "partial"
+  (net.status === "complete"
     ? net.value !== null && net.currency !== null
-    : net.value === null && (net.status !== "no-quote-currency" || net.currency === null)) &&
+    : net.value === null && net.currency === null) &&
   (net.value !== null || !net.negative)));
 const totalsSchema = z.object({ cash: totalSchema, investments: totalSchema, borrow: totalSchema, net: netSchema });
-const coverageSchema = z.object({ registry: z.enum(["complete", "partial"]), catalog: z.enum(["complete", "incomplete", "unavailable"]) });
 
 const balancesSnapshotSchema = z.object({
   version: z.literal(BALANCES_VERSION),
   owner: z.object({ address: addressSchema, chainId: z.literal(BALANCES_CHAIN_ID) }),
   region: regionSchema, quoteCurrency: nullableCurrencySchema,
   block: z.object({ number: integerSchema, hash: blockHashSchema, timestamp: integerSchema }),
-  fetchedAt: isoSchema, holdings: z.array(z.pipe(z.transform(withoutInapplicableCollateral), holdingSchema)), coverage: coverageSchema,
+  fetchedAt: isoSchema, holdings: z.array(z.pipe(z.transform(withoutInapplicableCollateral), holdingSchema)),
   total: totalSchema, borrow: borrowSchema, totals: totalsSchema, stale: z.optional(z.literal(true)),
 }).check(z.refine((snapshot) => {
   const keys = new Set<string>();
@@ -187,15 +177,8 @@ const balancesSnapshotSchema = z.object({
     keys.add(holding.key);
     ids.add(holding.id);
   }
-  if (!registryHoldingsMatchExpectations(snapshot.holdings)) return false;
-  if ((snapshot.coverage.registry === "partial") !== snapshot.holdings.some((h) =>
-    h.source === "registry" && h.balance.status === "unavailable")) return false;
-  if (snapshot.borrow.coverage === "partial" &&
-    (snapshot.totals.borrow.status === "complete" || snapshot.totals.net.status === "complete")) return false;
-  if (snapshot.totals.net.status === "complete" &&
-    [snapshot.totals.cash, snapshot.totals.investments, snapshot.totals.borrow].some((t) => t.status !== "complete")) return false;
-  return true;
-}, "coverage or totals"));
+  return registryHoldingsMatchExpectations(snapshot.holdings);
+}, "holdings"));
 
 export type ExactDecimal = z.output<typeof decimalSchema>;
 export type HoldingBalance = z.output<typeof balanceSchema>;
@@ -207,9 +190,7 @@ export type BorrowCollateralHolding = z.output<typeof collateralSchema>;
 export type BorrowDebtLine = z.output<typeof debtSchema>;
 export type BorrowPosition = z.output<typeof positionSchema>;
 export type BalancesBorrow = z.output<typeof borrowSchema>;
-export type BalancesCoverage = z.output<typeof coverageSchema>;
 export type BalancesTotal = z.output<typeof totalSchema>;
-export type BalancesNetTotal = z.output<typeof netSchema>;
 export type BalancesTotals = z.output<typeof totalsSchema>;
 export type BalancesSnapshot = z.output<typeof balancesSnapshotSchema>;
 export type BalancesErrorResponse = AuthBoundaryErrorResponse;
@@ -226,13 +207,6 @@ export class BalancesResponseError extends Error {
   }
 }
 
-function validValue(value: HoldingValue, balance: HoldingBalance): boolean {
-  return balance.status === "unavailable" ? value.status === "unavailable" : value.status !== "unavailable";
-}
-function validCashValue(value: HoldingCashValue, balance: HoldingBalance, currency: FiatCurrencyCode): boolean {
-  return balance.status === "unavailable" ? value.status === "unavailable" :
-    value.status === "priced" ? value.currency === currency : value.status === "unpriced";
-}
 function validUnitValue(unit: z.output<typeof unitValueSchema> | undefined, value: HoldingValue, kind: string): boolean {
   return unit === undefined || (kind !== "vault-share" && value.status === "priced" &&
     unit.currency === value.currency && unit.amount.atoms !== "0");
@@ -255,9 +229,7 @@ export function parseBalancesSnapshot(
       ].every(validTotal)) return false;
       const validPriced = (value: HoldingValue) => value.status === "priced"
         ? expectedCurrency !== null && value.currency === expectedCurrency
-        : value.status === "unpriced"
-          ? (expectedCurrency === null) === (value.reason === "no-quote-currency")
-          : true;
+        : (expectedCurrency === null) === (value.reason === "no-quote-currency");
       return snapshot.holdings.every((h) => validPriced(h.value) &&
         (h.unitValue === undefined || (h.value.status === "priced" && h.unitValue.currency === h.value.currency))) &&
         snapshot.borrow.positions.every((p) => validPriced(p.collateral.value) && validPriced(p.debt.value));

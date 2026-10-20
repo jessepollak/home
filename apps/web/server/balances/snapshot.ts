@@ -33,46 +33,15 @@ export function assembleBalancesSnapshot({
   stale?: boolean;
 }): BalancesSnapshot {
   const quoteCurrency = presentationRegions[region].currency.code;
-  let total: BalancesSnapshot["total"];
-
-  if (quoteCurrency === null) {
-    total = {
-      status: "no-quote-currency",
-      value: null,
-      currency: null,
-    };
-  } else {
-    const knownPositive = holdings.filter(
-      (holding) => holding.balance.status === "ready" &&
-        BigInt(holding.balance.baseUnits) > BigInt(0),
-    );
-    const incomplete = read.coverage.registry !== "complete" ||
-      read.coverage.catalog !== "complete" ||
-      knownPositive.some((holding) => holding.value.status !== "priced");
-    const hasPositivePricedContribution = knownPositive.some(
-      (holding) => holding.value.status === "priced" &&
-        exactDecimalToFraction(holding.value.amount).numerator > BigInt(0),
-    );
-
-    if (incomplete && !hasPositivePricedContribution) {
-      total = {
-        status: "unavailable",
-        value: null,
+  const total: BalancesSnapshot["total"] = quoteCurrency === null
+    ? { status: "no-quote-currency", value: null, currency: null }
+    : {
+        status: "complete",
+        value: roundFractionPreservingPositive(addFractions(holdings.flatMap((holding) =>
+          holding.value.status === "priced" ? [exactDecimalToFraction(holding.value.amount)] : [],
+        ))),
         currency: quoteCurrency,
       };
-    } else {
-      const fractions = holdings.flatMap((holding) =>
-        holding.value.status === "priced"
-          ? [exactDecimalToFraction(holding.value.amount)]
-          : [],
-      );
-      total = {
-        status: incomplete ? "partial" : "complete",
-        value: roundFractionPreservingPositive(addFractions(fractions)),
-        currency: quoteCurrency,
-      };
-    }
-  }
 
   return {
     version: BALANCES_VERSION,
@@ -85,15 +54,9 @@ export function assembleBalancesSnapshot({
     block: read.block,
     fetchedAt: read.observedAt,
     holdings,
-    coverage: read.coverage,
     total,
     borrow,
-    totals: computeBalancesTotals({
-      quoteCurrency,
-      holdings,
-      coverage: read.coverage,
-      borrow,
-    }),
+    totals: computeBalancesTotals({ quoteCurrency, holdings, borrow }),
     ...(stale ? { stale: true as const } : {}),
   };
 }

@@ -2,7 +2,7 @@
 import type { RegionId } from "@/config/regions";
 import type { BalancesSnapshot } from "./contract";
 
-export const BALANCES_VERSION = 5 as const;
+export const BALANCES_VERSION = 6 as const;
 export const BALANCES_CHAIN_ID = 8453 as const;
 export const BALANCES_PRICE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -12,8 +12,8 @@ export type Erc20AssetKey = `eip155:${typeof BALANCES_CHAIN_ID}/erc20:${string}`
 export type AssetKey = NativeAssetKey | Erc20AssetKey;
 
 export type { ExactDecimal, HoldingBalance, HoldingValue, HoldingCashValue, Holding,
-  BorrowCollateralHolding, BorrowPosition, BalancesBorrow, BalancesCoverage,
-  BalancesTotal, BalancesNetTotal, BalancesTotals, BalancesSnapshot } from "./contract";
+  BorrowCollateralHolding, BorrowPosition, BalancesBorrow,
+  BalancesTotal, BalancesTotals, BalancesSnapshot } from "./contract";
 /** @public keeps the response type import path that existed before the schema migration */
 export type { BorrowDebtLine } from "./contract";
 
@@ -23,7 +23,6 @@ export type BorrowMarketKey = `0x${string}`;
 
 export type HoldingValueUnpricedReason =
   | "price-unavailable"
-  | "price-stale"
   | "fx-unavailable"
   | "below-market-gate"
   | "no-quote-currency"

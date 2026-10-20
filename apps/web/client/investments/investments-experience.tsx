@@ -82,7 +82,7 @@ export function InvestmentsExperience({ holding, onOpenHolding, onCloseHolding, 
   const quote = useMemo(() => presentationQuoteForRegion(regionId, fx), [regionId, fx]);
   const status = balances.status === "error" ? "failed" : balances.status === "ready" ? "ready" : "loading";
   return <PresentationQuoteProvider value={quote}>
-    {holding ? <OwnedAssetDetail snapshot={balances.snapshot} balanceStatus={status} refreshFailed={balances.refreshError} onRetryBalances={() => void balances.retry()} assetKey={holding} catalog={discover.memeAssets} markets={{ ...markets, memeMarket: discover.memeMarket }} assetMarkResolution={discover.assetMarkResolution} onBack={onCloseHolding} />
-      : <InvestmentsOverview ownedRows={rows} rowsPending={selection.pending} rowsFailed={selection.failed} onRetryRows={selection.retry} snapshot={balances.snapshot} balanceStatus={status} refreshFailed={balances.refreshError} visibleCount={Math.max(visibleCount, returnKey ? rows.findIndex((row) => row.key === returnKey) + 1 : 0)} onVisibleCountChange={growVisibleCount} onOpenAsset={onOpenHolding} onRetryBalances={() => void balances.retry()} />}
+    {holding ? <OwnedAssetDetail snapshot={balances.snapshot} balanceStatus={status} onRetryBalances={() => void balances.retry()} assetKey={holding} catalog={discover.memeAssets} markets={{ ...markets, memeMarket: discover.memeMarket }} assetMarkResolution={discover.assetMarkResolution} onBack={onCloseHolding} />
+      : <InvestmentsOverview ownedRows={rows} rowsPending={selection.pending} rowsFailed={selection.failed} onRetryRows={selection.retry} snapshot={balances.snapshot} balanceStatus={status} visibleCount={Math.max(visibleCount, returnKey ? rows.findIndex((row) => row.key === returnKey) + 1 : 0)} onVisibleCountChange={growVisibleCount} onOpenAsset={onOpenHolding} onRetryBalances={() => void balances.retry()} />}
   </PresentationQuoteProvider>;
 }

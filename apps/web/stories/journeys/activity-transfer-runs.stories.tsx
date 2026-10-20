@@ -3,12 +3,9 @@ import { useState, type ComponentProps } from "react";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { waitForReady } from "@/tests/helpers/story-readiness";
 import { ActivityPanelView } from "@/client/activity";
+import { Button } from "@/components/ui/button";
+import type { ActivityOrder } from "@/shared/activity/contract-orders";
 import { activity, transfers, pendingSend, longTransfers, errorActivity } from "./explorations/activity-transfer-runs.fixtures";
-
-const transfersUnavailable = {
-  ...activity(transfers),
-  page: { ...activity(transfers).page, onchainStatus: "unavailable" as const },
-};
 
 const meta = {
   id: "journeys-activity-transfer-runs",
@@ -19,15 +16,6 @@ const meta = {
 } satisfies Meta<typeof ActivityPanelView>;
 export default meta;
 type Story = StoryObj<typeof meta>;
-
-async function expectConciseNotices(canvasElement: HTMLElement) {
-  const canvas = within(canvasElement);
-  await expect(canvas.queryByText(/onchain/i)).toBeNull();
-  await expect(canvas.queryByText(/Recorded Home actions/)).toBeNull();
-  for (const notice of canvas.getAllByRole("status")) {
-    await expect(notice).not.toHaveTextContent(/\.\s*$/);
-  }
-}
 
 export const HomeFeedMobile: Story = {
   args: {
@@ -82,201 +70,77 @@ export const ActivityPageDesktop: Story = {
 
 export const ActivityPageMobile: Story = {
   args: { activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "page", header: null },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.queryByText("Some activity is unavailable")).toBeNull();
-    await expect(canvas.queryByRole("button", { name: "Try again" })).toBeNull();
-  },
 };
 
-export const ActivityPageTransfersUnavailable: Story = {
-  args: { activity: transfersUnavailable, operations: [pendingSend], regionId: "US", density: "page", header: null },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
-    await expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(canvas.getByRole("list", { name: "Pending" })).toBeVisible();
-    await expect(canvas.queryByRole("button", { name: "Retry onchain transfers" })).toBeNull();
-  },
+const pendingOrder: ActivityOrder = {
+  kind: "funding", id: "fixture-pending-funding", region: "US", providerId: "coinbase", providerName: "Coinbase",
+  paymentMethodLabel: "Debit card", status: "waiting-customer", stage: "awaiting-payment", instruction: null, resumable: true,
+  fiatAmount: "50", fiatCurrency: "USD", asset: { id: "usdc", symbol: "USDC", decimals: 6 }, tokenAmountAtomic: "50000000",
+  sandbox: false, expiresAt: null, clearableAt: null, transactionHash: null, logIndex: null,
+  createdAt: "2026-09-26T11:00:00.000Z", updatedAt: "2026-09-26T11:00:00.000Z",
 };
 
-export const ActivityPageActionsUnavailable: Story = {
-  args: {
-    activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "page", header: null,
-    actionsStatus: "error", retryActions: fn(),
-  },
-  play: async ({ args, canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText("Your Home actions are unavailable")).toBeVisible();
-    await expect(canvas.queryByText("End of activity")).toBeNull();
-    const retry = canvas.getByRole("button", { name: "Retry Home actions" });
-    await expect(retry).toBeVisible();
-    await expect(retry).toHaveAccessibleDescription("Your Home actions are unavailable");
-    await userEvent.click(retry);
-    await expect(args.retryActions).toHaveBeenCalledTimes(1);
-    await expectConciseNotices(canvasElement);
-  },
-};
-
-function RecoveringSources(args: ComponentProps<typeof ActivityPanelView>) {
-  const [actionsStatus, setActionsStatus] = useState<"ready" | "error">("error");
-  const [ordersStatus, setOrdersStatus] = useState<"ready" | "error">("error");
-  return (
-    <ActivityPanelView
-      {...args}
-      actionsStatus={actionsStatus}
-      retryActions={() => setActionsStatus("ready")}
-      ordersStatus={ordersStatus}
-      retryOrders={() => setOrdersStatus("ready")}
-    />
-  );
+function FailingSources(args: ComponentProps<typeof ActivityPanelView>) {
+  const [failed, setFailed] = useState(false);
+  return <>
+    <Button onClick={() => setFailed(true)}>Fail source reads</Button>
+    <ActivityPanelView {...args}
+      activity={failed && args.activity.status === "ready" ? { ...args.activity, failed: true, latestUnavailable: true } : args.activity}
+      operations={failed ? [] : [pendingSend]} orders={failed ? [] : [pendingOrder]}
+      actionsStatus={failed ? "error" : "ready"} ordersStatus={failed ? "error" : "ready"} />
+  </>;
 }
 
-export const ActivityPageEndMarkerFollowsSources: Story = {
-  args: { activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "page", header: null },
-  render: (args) => <RecoveringSources {...args} />,
+export const ActivityPageRetainsRowsOnSourceFailure: Story = {
+  args: { activity: activity(transfers), regionId: "US", density: "page", header: null },
+  render: (args) => <FailingSources {...args} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByText("Your Home actions are unavailable")).toBeVisible();
-    await expect(canvas.getByText("Add money and cash-out orders are unavailable")).toBeVisible();
-    await expect(canvas.queryByText("End of activity")).toBeNull();
-    await userEvent.click(canvas.getByRole("button", { name: "Retry Home actions" }));
-    await expect(canvas.queryByText("Your Home actions are unavailable")).toBeNull();
-    await expect(canvas.queryByText("End of activity")).toBeNull();
-    await userEvent.click(canvas.getByRole("button", { name: "Retry orders" }));
-    await expect(canvas.queryByText("Add money and cash-out orders are unavailable")).toBeNull();
-    await expect(canvas.getByText("End of activity")).toBeVisible();
+    const send = canvas.getByRole("button", { description: "View Sent USDC transaction details" });
+    const order = canvas.getByRole("button", { name: /Add money.*50/ });
+    const received = canvas.getByRole("button", { description: "4 Received USDC transfers" });
+    await expect(send).toBeVisible();
+    await expect(order).toBeVisible();
+    await expect(received).toBeVisible();
+    const rows = canvas.getAllByRole("listitem");
+    await userEvent.click(canvas.getByRole("button", { name: "Fail source reads" }));
+    await expect(send).toBeVisible();
+    await expect(order).toBeVisible();
+    await expect(received).toBeVisible();
+    await expect(canvas.getAllByRole("listitem")).toHaveLength(rows.length);
+    await expect(canvas.queryByText(/Some activity is unavailable|Latest activity didn't load|Your Home actions are unavailable|Add money and cash-out orders are unavailable/)).toBeNull();
+    await expect(canvas.queryByRole("button", { name: /Try again|Retry|Reload activity/ })).toBeNull();
+    await expect(canvas.queryByRole("alert")).toBeNull();
   },
 };
 
-export const ActivityPageTransfersAndActionsUnavailable: Story = {
-  args: {
-    activity: { ...transfersUnavailable, retry: fn() },
-    operations: [pendingSend], regionId: "US", density: "page", header: null,
-    actionsStatus: "error", retryActions: fn(),
-  },
-  play: async ({ args, canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
-    await expect(canvas.getByText("Your Home actions are unavailable")).toBeVisible();
-    const retryTransfers = canvas.getByRole("button", { name: "Try again" });
-    const retryActions = canvas.getByRole("button", { name: "Retry Home actions" });
-    await expect(retryTransfers).toBeVisible();
-    await expect(retryActions).toBeVisible();
-    await expect(retryTransfers).toHaveAccessibleDescription("Some activity is unavailable");
-    await expect(retryActions).toHaveAccessibleDescription("Your Home actions are unavailable");
-    await userEvent.click(retryTransfers);
-    await expect(args.activity.retry).toHaveBeenCalledTimes(1);
-    await expect(args.retryActions).not.toHaveBeenCalled();
-    await userEvent.click(retryActions);
-    await expect(args.retryActions).toHaveBeenCalledTimes(1);
-    await expect(args.activity.retry).toHaveBeenCalledTimes(1);
-    await expectConciseNotices(canvasElement);
-  },
-};
-
-export const ActivityPageAllSourcesUnavailable: Story = {
+export const HomeFeedKeepsRowsOnPartialRead: Story = {
   args: {
     activity: {
-      ...transfersUnavailable,
-      page: { ...transfersUnavailable.page, cards: { version: 1, status: "unavailable", rows: [] } },
-      retry: fn(),
+      ...activity(transfers), latestUnavailable: true,
+      page: { ...activity(transfers).page, onchainStatus: "unavailable", cards: { version: 1, status: "unavailable", rows: [] } },
     },
-    operations: [pendingSend], regionId: "US", density: "page", header: null,
-    actionsStatus: "error", retryActions: fn(), ordersStatus: "error", retryOrders: fn(),
-  },
-  play: async ({ args, canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
-    await expect(canvas.getByText("Your Home actions are unavailable")).toBeVisible();
-    await expect(canvas.getByText("Add money and cash-out orders are unavailable")).toBeVisible();
-    await expect(canvas.getByText("Card purchases may be out of date")).toBeVisible();
-    const retryTransfers = canvas.getByRole("button", { name: "Try again" });
-    const retryActions = canvas.getByRole("button", { name: "Retry Home actions" });
-    const retryOrders = canvas.getByRole("button", { name: "Retry orders" });
-    await expect(retryTransfers).toBeVisible();
-    await expect(retryActions).toBeVisible();
-    await expect(retryOrders).toBeVisible();
-    await expect(retryOrders).toHaveAccessibleDescription("Add money and cash-out orders are unavailable");
-    await userEvent.click(retryOrders);
-    await expect(args.retryOrders).toHaveBeenCalledTimes(1);
-    await expect(args.activity.retry).not.toHaveBeenCalled();
-    await expect(args.retryActions).not.toHaveBeenCalled();
-    await expectConciseNotices(canvasElement);
-  },
-};
-
-export const ActivityPageOrdersUnavailable: Story = {
-  args: {
-    activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "page", header: null,
-    ordersStatus: "error", retryOrders: fn(),
-  },
-  play: async ({ args, canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText("Add money and cash-out orders are unavailable")).toBeVisible();
-    const retry = canvas.getByRole("button", { name: "Retry orders" });
-    await expect(retry).toBeVisible();
-    await expect(retry).toHaveAccessibleDescription("Add money and cash-out orders are unavailable");
-    await userEvent.click(retry);
-    await expect(args.retryOrders).toHaveBeenCalledTimes(1);
-    await expectConciseNotices(canvasElement);
-  },
-};
-
-export const ActivityPageTransfersError: Story = {
-  args: { activity: errorActivity, operations: [pendingSend], regionId: "US", density: "page", header: null },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
-    await expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible();
-    const pending = canvas.getByRole("list", { name: "Pending" });
-    await expect(within(pending).getByRole("button", { description: "View Sent USDC transaction details" })).toBeVisible();
-    await expect(canvas.queryByText("Activity is temporarily unavailable.")).toBeNull();
-  },
-};
-
-export const ActivityPageTransfersRetry: Story = {
-  args: {
-    activity: { ...transfersUnavailable, retry: fn() },
-    operations: [pendingSend], regionId: "US", density: "page", header: null,
-  },
-  play: async ({ args, canvasElement }) => {
-    await userEvent.click(within(canvasElement).getByRole("button", { name: "Try again" }));
-    await expect(args.activity.retry).toHaveBeenCalledTimes(1);
-  },
-};
-
-export const ActivityPageLatestUnavailable: Story = {
-  args: {
-    activity: { ...activity(transfers), latestUnavailable: true },
-    operations: [pendingSend], regionId: "US", density: "page", header: null,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText("Latest activity didn't load")).toBeVisible();
-    const retry = canvas.getByRole("button", { name: "Retry latest activity" });
-    await expect(retry).toBeVisible();
-    await expect(retry).toHaveAccessibleDescription("Latest activity didn't load");
-    await expectConciseNotices(canvasElement);
-    const recent = canvas.getByRole("list", { name: "Recent" });
-    await expect(recent).toBeVisible();
-    await expect(within(recent).getByRole("button", { description: "4 Received USDC transfers" })).toBeVisible();
-  },
-};
-
-export const HomeFeedLatestUnavailable: Story = {
-  args: {
-    activity: { ...activity(transfers), latestUnavailable: true },
-    operations: [pendingSend], regionId: "US", density: "feed",
+    operations: [pendingSend], actionsStatus: "error", ordersStatus: "error", regionId: "US", density: "feed",
     header: <h2 id="activity-title" className="text-lg font-semibold">Activity</h2>,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
-    await expect(canvas.getByRole("button", { name: "Reload activity" })).toBeVisible();
-    const recent = canvas.getByRole("list", { name: "Recent" });
-    await expect(recent).toBeVisible();
-    await expect(within(recent).getByRole("button", { description: "4 Received USDC transfers" })).toBeVisible();
+    await expect(canvas.getByRole("button", { description: "4 Received USDC transfers" })).toBeVisible();
+    await expect(canvas.getByRole("button", { description: "View Sent USDC transaction details" })).toBeVisible();
+    await expect(canvas.queryByText(/Some activity is unavailable|Latest activity didn't load|Your Home actions are unavailable|Add money and cash-out orders are unavailable|Card purchases may be out of date/)).toBeNull();
+    await expect(canvas.queryByRole("button", { name: /Try again|Retry|Reload activity/ })).toBeNull();
+    await expect(canvas.queryByRole("alert")).toBeNull();
+  },
+};
+
+export const ActivityPageFirstLoadFailure: Story = {
+  args: { activity: { ...errorActivity, retry: fn() }, operations: [], regionId: "US", density: "page", header: null },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("alert")).toHaveTextContent("Activity is temporarily unavailable.");
+    await expect(canvas.queryByRole("list")).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
+    await expect(args.activity.retry).toHaveBeenCalledTimes(1);
   },
 };
 

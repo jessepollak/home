@@ -312,10 +312,8 @@ export function ConnectedActivityPanel({
       operations={operations}
       orders={orders}
       actionsStatus={actionStatus}
-      actionsRefreshing={actions.isFetching || actions.isPaused}
       actionsFailed={actions.isError}
       ordersStatus={ordersStatus}
-      ordersRefreshing={ordersQuery.isFetching || ordersQuery.isPaused}
       ordersFailed={ordersQuery.isError}
       regionId={regionId}
       density={density}

@@ -14,7 +14,7 @@ import {
   type PriceBalancesResult,
   type ValuationMode,
 } from "./price";
-import { borrowReadCurrent, carryForwardBorrow, readBorrowPositions as defaultReadBorrow } from "./borrow";
+import { borrowReadComplete, borrowReadCurrent, carryForwardBorrow, readBorrowPositions as defaultReadBorrow } from "./borrow";
 import { readBalances as defaultReadBalances } from "./read";
 import { resolveBalances as defaultResolveBalances } from "./resolve";
 import { assembleBalancesSnapshot } from "./snapshot";
@@ -27,6 +27,7 @@ import type {
 } from "@/server/observability/schema";
 import {
   getBalanceSnapshotStore,
+  type BalanceSnapshotRevision,
   type BalanceSnapshotRow,
   type BalanceSnapshotStore,
 } from "./snapshot-store";
@@ -35,6 +36,7 @@ import type {
   BalancesRead,
   BalancesUniverse,
   BorrowRead,
+  ReadHolding,
 } from "./types";
 import { getBalancesUniverse } from "./universe";
 
@@ -136,32 +138,32 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       current.getTime() - Date.parse(row.observedAt) > backstopMs;
     const degraded = row !== null && needsFullObservation(readFromRow(row), current, borrowRetryMs);
     const required = signaled || expired || degraded;
-    const registryChanged = row !== null && !hot && !registryHoldingsMatch(row.holdings);
+    const registryChanged = row !== null && (hasUnavailableRegistry(row.holdings) || (!hot && !registryHoldingsMatch(row.holdings)));
 
     if (row && !hot && !registryChanged) {
       if (required) scheduleRevalidation(owner, row, "background-full");
       else if (row.enumerationCursor) scheduleRevalidation(owner, row, "background-resume");
       return {
         read: readFromRow(row),
-        stale: required,
+        stale: required || !borrowReadCurrent(readFromRow(row)),
         outcome: required ? "revalidating" : "served-row",
         durationMs,
       };
     }
 
     try {
-      const registryOnly = Boolean(hot && row);
+      const registryOnly = Boolean(hot && row && !registryChanged);
       const observed = registryOnly
         ? await observeRegistryOnly(owner, row!, durationMs)
         : await observeFull(owner, row, durationMs);
-      const winner = await persistObserved(owner, observed, durationMs);
-      const currentWinner = winner && registryHoldingsMatch(winner.holdings) ? winner : null;
+      const winner = await persistObserved(owner, observed.read, observed.basis, durationMs);
+      const currentWinner = winner && registryHoldingsMatch(winner.holdings) && !hasUnavailableRegistry(winner.holdings) ? winner : null;
       const refresh = registryOnly &&
-        (signaled || expired || needsFullObservation(observed, current, borrowRetryMs));
+        (signaled || expired || needsFullObservation(observed.read, current, borrowRetryMs));
       if (refresh) scheduleRevalidation(owner, row!, "background-full");
       return {
-        read: currentWinner ?? observed,
-        stale: refresh,
+        read: currentWinner ?? observed.read,
+        stale: refresh || observed.read.coverage.registry === "partial" || !borrowReadCurrent(observed.read),
         outcome: registryOnly ? "registry-only" : "full",
         durationMs,
       };
@@ -177,14 +179,24 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     }
   }
 
+  async function latestRow(owner: PortfolioAddress, fallback: BalanceSnapshotRow | null): Promise<BalanceSnapshotRow | null> {
+    try {
+      return (await store.get(BALANCES_CHAIN_ID, owner)) ?? fallback;
+    } catch {
+      observeStoreFailure("BALANCE_STORE_READ_FAILED");
+      return fallback;
+    }
+  }
+
   async function persistObserved(
     owner: PortfolioAddress,
     observed: BalancesRead,
+    basis: BalanceSnapshotRevision | null,
     durationMs: ObservationDurations,
   ): Promise<BalancesRead | null> {
     try {
       const wrote = await timeStage(nowMs, durationMs, "store-write", () =>
-        store.putObservation(observationFromRead(owner, observed)));
+        store.putObservation(observationFromRead(owner, observed), basis));
       if (!wrote) {
         const winner = await timeStage(nowMs, durationMs, "store-read", () =>
           store.get(BALANCES_CHAIN_ID, owner));
@@ -209,7 +221,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       const durationMs = emptyObservationDurations();
       try {
         const observed = await observeFull(address, row, durationMs);
-        await persistObserved(address, observed, durationMs);
+        await persistObserved(address, observed.read, observed.basis, durationMs);
         emitBalancesRead(log, outcome, {
           ...durationMs,
           price: 0,
@@ -217,7 +229,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
           codex: 0,
           coinbase: 0,
           total: Math.max(0, nowMs() - startedAt),
-        }, observed.coverage);
+        }, observed.read.coverage);
       } catch {
         emitBalancesRead(log, "background-error", {
           ...durationMs,
@@ -242,12 +254,13 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     owner: PortfolioAddress,
     row: BalanceSnapshotRow | null,
     durationMs: ObservationDurations,
-  ): Promise<BalancesRead> {
+  ): Promise<{ read: BalancesRead; basis: BalanceSnapshotRevision | null }> {
+    const consumedCursor = row?.enumerationCursor ?? null;
     const universeRequest = readUniverse();
     const registryRequest = timeStage(nowMs, durationMs, "registry-read", async () =>
       readBalances(await universeRequest, owner));
     const enumerationRequest = timeStage(nowMs, durationMs, "enumerate", () =>
-      enumerateBalances(owner, undefined, row?.enumerationCursor));
+      enumerateBalances(owner, undefined, consumedCursor));
     const borrowRequest = registryRequest.then((registryRead) => readBorrow(owner, registryRead.block));
     const [registryRead, enumeration, borrow] = await Promise.all([
       registryRequest,
@@ -256,20 +269,24 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     ]);
     const resolved = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, enumeration));
-    const resumed = row && (row.enumerationCursor || enumeration.status !== "complete")
-      ? mergeResumedHoldings(resolved, row, enumeration)
+    const latest = await latestRow(owner, row);
+    const resumed = latest && (consumedCursor !== null || enumeration.status !== "complete" || resolved.coverage.catalog !== "complete" || losesEnrichment(resolved, latest))
+      ? mergeResumedHoldings(resolved, latest, enumeration, consumedCursor)
       : resolved;
     return {
-      ...resumed,
-      borrow: carryForwardBorrow(borrow, row?.borrow, registryRead.block.number),
-      observedAt: row && enumeration.status === "unavailable"
-        ? row.observedAt
-        : resumed.observedAt,
-      enumerationCursor: enumeration.status === "unavailable"
-        ? row?.enumerationCursor ?? null
-        : enumeration.status === "complete"
-          ? null
-          : enumeration.nextCursor,
+      read: {
+        ...carryForwardRegistry(resumed, latest),
+        borrow: carryForwardBorrow(borrow, latest?.borrow),
+        observedAt: latest && enumeration.status === "unavailable"
+          ? latest.observedAt
+          : resumed.observedAt,
+        enumerationCursor: enumeration.status === "unavailable"
+          ? latest?.enumerationCursor ?? null
+          : enumeration.status === "complete"
+            ? null
+            : enumeration.nextCursor,
+      },
+      basis: latest ? { blockNumber: latest.blockNumber, observedAt: latest.observedAt } : null,
     };
   }
 
@@ -277,28 +294,33 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     owner: PortfolioAddress,
     row: BalanceSnapshotRow,
     durationMs: ObservationDurations,
-  ): Promise<BalancesRead> {
+  ): Promise<{ read: BalancesRead; basis: BalanceSnapshotRevision | null }> {
     const registryRead = await timeStage(nowMs, durationMs, "registry-read", async () => {
       const universe = await readUniverse();
       return readBalances(universe, owner);
     });
     const borrow = await readBorrow(owner, registryRead.block);
-    const withEnrichment = await timeStage(nowMs, durationMs, "resolve", () =>
+    const resolvedRegistry = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, unavailableEnumeration()));
+    const latest = (await latestRow(owner, row)) ?? row;
+    const withEnrichment = carryForwardRegistry(resolvedRegistry, latest);
     const registryKeys = new Set(withEnrichment.holdings.filter((holding) => holding.source === "registry").map((holding) => holding.key));
     return {
-      ...withEnrichment,
-      borrow: carryForwardBorrow(borrow, row.borrow, registryRead.block.number),
-      observedAt: row.observedAt,
-      holdings: [
-        ...withEnrichment.holdings.filter((holding) => holding.source === "registry"),
-        ...row.holdings.filter((holding) => holding.source !== "registry" && !registryKeys.has(holding.key)),
-      ],
-      coverage: {
-        registry: withEnrichment.coverage.registry,
-        catalog: row.coverage.catalog,
+      read: {
+        ...withEnrichment,
+        borrow: carryForwardBorrow(borrow, latest.borrow),
+        observedAt: latest.observedAt,
+        holdings: [
+          ...withEnrichment.holdings.filter((holding) => holding.source === "registry"),
+          ...latest.holdings.filter((holding) => holding.source !== "registry" && !registryKeys.has(holding.key)),
+        ],
+        coverage: {
+          registry: withEnrichment.coverage.registry,
+          catalog: latest.coverage.catalog,
+        },
+        enumerationCursor: latest.enumerationCursor,
       },
-      enumerationCursor: row.enumerationCursor,
+      basis: { blockNumber: latest.blockNumber, observedAt: latest.observedAt },
     };
   }
 
@@ -345,7 +367,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         codex: priced.durationMs.codex,
         coinbase: priced.durationMs.coinbase,
         total: Math.max(0, nowMs() - startedAt),
-      }, coverage, snapshot);
+      }, coverage, snapshot, observed.read);
       return snapshot;
     } catch (error) {
       emitBalancesRead(log, "error", {
@@ -359,6 +381,34 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       throw error;
     }
   };
+}
+
+function hasUnavailableRegistry(holdings: readonly ReadHolding[]): boolean {
+  return holdings.some((holding) => holding.source === "registry" &&
+    [holding.balance, holding.underlyingBalance, holding.withdrawableBalance].some((balance) => balance?.status === "unavailable"));
+}
+
+function carryForwardRegistry(read: BalancesRead, row: BalanceSnapshotRow | null): BalancesRead {
+  const prior = new Map(row?.holdings.filter((holding) => holding.source === "registry").map((holding) => [holding.key, holding]));
+  let carried = false;
+  const holdings = read.holdings.map((holding): ReadHolding => {
+    if (holding.source !== "registry") return holding;
+    const previous = prior.get(holding.key);
+    const next = { ...holding };
+    for (const field of ["balance", "underlyingBalance", "withdrawableBalance"] as const) {
+      if (holding[field]?.status !== "unavailable") continue;
+      const balance = previous?.[field];
+      if (balance?.status !== "ready") throw new Error("balances-registry-unavailable");
+      next[field] = balance;
+      carried = true;
+    }
+    if (next.withdrawableBalance?.status === "ready" && next.underlyingBalance?.status === "ready" &&
+      BigInt(next.withdrawableBalance.baseUnits) > BigInt(next.underlyingBalance.baseUnits)) {
+      next.withdrawableBalance = next.underlyingBalance;
+    }
+    return next;
+  });
+  return { ...read, holdings, coverage: { ...read.coverage, registry: carried ? "partial" : read.coverage.registry } };
 }
 
 function needsFullObservation(
@@ -389,19 +439,43 @@ function observationFromRead(
   };
 }
 
+function isEnriched(holding: ReadHolding): boolean {
+  return holding.source === "catalog" || holding.marketDataResolved === true;
+}
+
+function losesEnrichment(resolved: BalancesRead, row: BalanceSnapshotRow): boolean {
+  const prior = new Map(row.holdings.filter((holding) => holding.source !== "registry").map((holding) => [holding.key, holding]));
+  return resolved.holdings.some((holding) => {
+    const previous = prior.get(holding.key);
+    return holding.source === "wallet" && !holding.marketDataResolved && previous !== undefined && isEnriched(previous);
+  });
+}
+
 function mergeResumedHoldings(
   resolved: BalancesRead,
   row: BalanceSnapshotRow,
   enumeration: BalancesEnumeration,
+  consumedCursor: string | null,
 ): BalancesRead {
+  const positiveContracts = consumedCursor === null && enumeration.status === "complete"
+    ? new Set(enumeration.rows.filter((holding) => BigInt(holding.amountBaseUnits) > BigInt(0)).map((holding) => holding.contractAddress.toLowerCase()))
+    : null;
   const holdings = new Map(
     row.holdings
-      .filter((holding) => holding.source !== "registry")
+      .filter((holding) => holding.source !== "registry" &&
+        (positiveContracts === null || (holding.contractAddress !== null && positiveContracts.has(holding.contractAddress.toLowerCase()))))
       .map((holding) => [holding.key, holding]),
   );
+  let preserved = false;
   for (const holding of resolved.holdings) {
     if (holding.source === "registry") holdings.delete(holding.key);
-    else holdings.set(holding.key, holding);
+    else {
+      const previous = holdings.get(holding.key);
+      if (holding.source === "wallet" && !holding.marketDataResolved && previous && isEnriched(previous)) {
+        holdings.set(holding.key, { ...previous, balance: holding.balance });
+        preserved = true;
+      } else holdings.set(holding.key, holding);
+    }
   }
   return {
     ...resolved,
@@ -412,9 +486,11 @@ function mergeResumedHoldings(
     coverage: {
       registry: resolved.coverage.registry,
       catalog: enumeration.status === "unavailable" ||
-          (row.enumerationCursor !== null && row.coverage.catalog === "incomplete")
+          (consumedCursor !== null && row.coverage.catalog === "incomplete")
         ? row.coverage.catalog
-        : resolved.coverage.catalog,
+        : preserved && resolved.coverage.catalog === "complete"
+          ? "incomplete"
+          : resolved.coverage.catalog,
     },
   };
 }
@@ -459,6 +535,7 @@ function emitBalancesRead(
   durationMs: BalancesReadDurations,
   coverage: Extract<ObservabilityEvent, { kind: "balances-read" }>["coverage"],
   snapshot?: BalancesSnapshot,
+  read?: BalancesRead,
 ): void {
   observeSafely(() => log({
     kind: "balances-read",
@@ -466,7 +543,7 @@ function emitBalancesRead(
     outcome,
     durationMs,
     coverage,
-    incomplete: snapshot ? countIncomplete(snapshot) : emptyIncomplete(),
+    incomplete: snapshot && read ? countIncomplete(snapshot, read) : emptyIncomplete(),
   }));
 }
 
@@ -485,20 +562,16 @@ function emptyIncomplete(): BalancesReadIncomplete {
   };
 }
 
-function countIncomplete(snapshot: BalancesSnapshot): BalancesReadIncomplete {
+function countIncomplete(snapshot: BalancesSnapshot, read: BalancesRead): BalancesReadIncomplete {
   const incomplete = emptyIncomplete();
-  incomplete.registry = Number(snapshot.coverage.registry !== "complete");
-  incomplete.catalog = Number(snapshot.coverage.catalog !== "complete");
-  incomplete.borrow = Number(snapshot.borrow.coverage !== "complete");
+  incomplete.registry = Number(read.coverage.registry !== "complete");
+  incomplete.catalog = Number(read.coverage.catalog !== "complete");
+  incomplete.borrow = Number(!borrowReadComplete(read.borrow));
   const lines = [
     ...snapshot.holdings,
     ...snapshot.borrow.positions.flatMap((position) => [position.collateral, position.debt]),
   ];
   for (const line of lines) {
-    if (line.balance.status === "unavailable") {
-      incomplete.balanceUnavailable = Math.min(10_000, incomplete.balanceUnavailable + 1);
-      continue;
-    }
     if (BigInt(line.balance.baseUnits) <= BigInt(0)) continue;
     const key = incompleteValueKey(line.value);
     if (key) incomplete[key] = Math.min(10_000, incomplete[key] + 1);
@@ -507,13 +580,11 @@ function countIncomplete(snapshot: BalancesSnapshot): BalancesReadIncomplete {
 }
 
 function incompleteValueKey(value: HoldingValue): keyof Omit<BalancesReadIncomplete, "registry" | "catalog" | "borrow" | "balanceUnavailable"> | null {
-  if (value.status === "unavailable") return "valueUnavailable";
   if (value.status === "priced") return null;
   switch (value.reason) {
     case "price-unavailable":
     case "price-paused":
     case "asset-removed": return "priceUnavailable";
-    case "price-stale": return "priceStale";
     case "fx-unavailable": return "fxUnavailable";
     case "below-market-gate": return "belowMarketGate";
     case "no-quote-currency": return "noQuoteCurrency";

@@ -57,7 +57,6 @@ function AssetSheetContent({ asset, market, open, opener, details = "body", onCl
   }, []);
   const change = resting.pending ? null : resting.change
     ? quote.valueCurrency === "USD" ? resting.change : resting.change.replace(" · ", " in USD · ") : null;
-  const snapshot = market.status === "ready" ? market.snapshots.find((entry) => entry.assetId === asset.id) : undefined;
   return <AppDrawer open={open} opener={opener} labelledBy={titleId} variant="money" onCancel={onClose}>
     <div className="relative shrink-0">
       <MoneyModalHeader title={asset.displayName} titleId={titleId} closeLabel="Close"
@@ -92,7 +91,7 @@ function AssetSheetContent({ asset, market, open, opener, details = "body", onCl
       <AssetSparkline key={asset.id} assetId={asset.id}
         clock={clock} onReadout={setScrub} onResting={onResting}
         fallback={sparklineFallback} />
-      <AssetPosition asset={asset} assetMarkResolution={{}} headerAsOf={snapshot?.asOf} />
+      <AssetPosition asset={asset} assetMarkResolution={{}} />
       {details === "body" ? <Button variant="outline" size="touch" className="w-full"
         aria-label={`View ${asset.displayName} details`} onClick={onViewDetails}>View details<ChevronRight aria-hidden="true" /></Button> : null}
     </MoneyModalBody>

@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { useState } from "react";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, within } from "storybook/test";
 import { ActivityPanelView } from "@/client/activity";
 import type { UseActivityResult } from "@/client/activity/use-activity";
 import type { ActivityTransfer } from "@/shared/activity/types";
@@ -28,8 +27,7 @@ const transfers: ActivityTransfer[] = Array.from({ length: 12 }, (_, index) => (
 
 type PagingState = "idle" | "loading" | "error" | "end";
 function PagingJourney({ state = "idle", density = "page" }: { state?: PagingState; density?: "page" | "feed" }) {
-  const [retried, setRetried] = useState(false);
-  const current = retried ? "end" : state;
+  const current = state;
   const activity: UseActivityResult = {
     status: "ready",
     page: {
@@ -39,7 +37,7 @@ function PagingJourney({ state = "idle", density = "page" }: { state?: PagingSta
       source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: timestamp, executionTimeMs: 1, fetchedAt: timestamp },
     },
     loadingMore: current === "loading", continuing: current === "loading", loadMoreError: current === "error",
-    retry: noop, refresh: noop, setSentinelVisible: noop, retryLoadMore: () => setRetried(true),
+    retry: noop, refresh: noop, setSentinelVisible: noop, retryLoadMore: noop,
   };
   return <main className="mx-auto max-w-2xl p-4"><ActivityPanelView activity={activity} density={density} /></main>;
 }
@@ -59,13 +57,13 @@ export const LoadingOlder: Story = {
     await expect(screen.queryByText("End of activity")).toBeNull();
   },
 };
-export const LaterPageRetry: Story = {
+export const LaterPageFailureKeepsRows: Story = {
   args: { state: "error" },
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement);
-    await expect(screen.getByRole("alert")).toHaveTextContent("More activity could not be loaded");
-    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await expect(screen.getByRole("status")).toHaveTextContent("End of activity");
+    await expect(screen.getAllByRole("listitem")).toHaveLength(12);
+    await expect(screen.queryByRole("button", { name: /Try again|Retry|Reload activity/ })).toBeNull();
+    await expect(screen.queryByText("End of activity")).toBeNull();
     await expect(screen.queryByRole("alert")).toBeNull();
   },
 };

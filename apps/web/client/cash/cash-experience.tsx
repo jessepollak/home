@@ -8,17 +8,15 @@ import {
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
 import { OwnerBoundary } from "@/client/account/owner-boundary";
-import { savingsGrowthOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import { useBalancesData } from "@/client/balances";
-import { dataOwnerKey } from "@/client/account/owner-keys";
+import { dataOwnerKey, savingsGrowthOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { recentActionsPath, recentActionsQuery, refetchFailedRecentActions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
 import type { RecentMoneyActionOperation, UnparsedSavingsDeposit } from "@/shared/actions/contracts/list";
 import { readSavingsPreparedReview } from "@/shared/savings/review";
-import { useHomeQuery } from "@/client/query/query-client";
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
 import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
-import { browserHomeQueryClient, getHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { browserHomeQueryClient, getHomeQueryClient, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { queryViewState } from "@/client/query/query-view-state";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
@@ -26,7 +24,6 @@ import { preloadSavingsJourneyStep, SavingsJourney, type SavingsActionMode, type
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
 import { invalidateAfterAction } from "@/client/query/after-action";
-import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import {
   nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
@@ -40,6 +37,7 @@ import { useVaultPositions } from "@/client/balances/vault-positions";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import type { CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
+import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   DerivedActionStatus,
@@ -147,7 +145,7 @@ function savingsDepositVaultAddress(deposit: ScopedSavingsDeposit): string | nul
 }
 
 function balancePostdatesReceipt(settledAt: string | undefined, vaultAddress: string | null, snapshot: BalancesSnapshot | null): boolean {
-  if (!snapshot || snapshot.coverage.registry !== "complete") return false;
+  if (!snapshot || snapshot.stale) return false;
   const blockTimestampMs = Number(snapshot.block.timestamp) * 1000;
   const settledAtMs = typeof settledAt === "string" ? Date.parse(settledAt) : NaN;
   if (!Number.isFinite(blockTimestampMs) || !Number.isFinite(settledAtMs) || blockTimestampMs <= settledAtMs) return false;
@@ -277,7 +275,6 @@ export type CashExperienceProps = {
   balanceStatus: "ready" | "loading" | "failed";
   balanceStale?: boolean;
   balanceActionStale?: boolean;
-  refreshFailed?: boolean;
   pendingCashout?: PendingCashoutEstimate;
   onRetryBalances?: () => void;
   onAddMoney: (options?: { replaceFlow?: boolean; opener?: HTMLElement | null }) => void;
@@ -301,7 +298,6 @@ export function CashExperience({
   balanceStatus,
   balanceStale = false,
   balanceActionStale = false,
-  refreshFailed = false,
   pendingCashout = null,
   onRetryBalances,
   onAddMoney,
@@ -365,7 +361,7 @@ export function CashExperience({
           blockTimestamp: liveSnapshot.block.timestamp,
           snapshotStale: liveSnapshot.stale === true || balanceStale,
           registryCoverageComplete:
-            liveSnapshot.coverage.registry === "complete",
+            true,
         }
       : null, [liveSnapshot, growthOwner, balanceStale]);
 
@@ -850,7 +846,6 @@ export function CashExperience({
           summary={summary}
           balanceStale={balanceStale}
           balanceActionStale={balanceActionStale}
-          refreshFailed={refreshFailed && liveSnapshot !== null}
           pendingCashout={pendingCashout}
           pendingDeposits={pendingDeposits}
           balanceStatus={balanceStatus}
@@ -1045,7 +1040,6 @@ export function AuthenticatedCashExperience(props: {
         }
         balanceStale={snapshot?.stale === true || balances.refreshError === true || balances.actionStale === true}
         balanceActionStale={balances.actionStale === true}
-        refreshFailed={balances.refreshError === true && snapshot !== null}
         onRetryBalances={balancesSession ? () => void balances.retry() : undefined}
         onAddMoneyIntent={moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(account, region, regionReady, queryClient)).onFocus}
         onAddMoney={(options) => {

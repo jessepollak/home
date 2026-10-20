@@ -55,7 +55,7 @@ test("cached valuation serves stored prices and truthful missing values across a
   const result = await price({
     block: fixture.block,
     observedAt: fixture.fetchedAt,
-    coverage: fixture.coverage,
+    coverage: { registry: "complete", catalog: "complete" },
     holdings: [...registry, ...wallets],
   }, "US", "cached");
 

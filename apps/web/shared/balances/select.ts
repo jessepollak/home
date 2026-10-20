@@ -39,7 +39,7 @@ export function selectHolding(snapshot: BalancesSnapshot, id: string): Holding |
 
 export function selectBalanceBaseUnits(snapshot: BalancesSnapshot, id: string): string | null {
   const holding = selectHolding(snapshot, id);
-  return holding?.balance.status === "ready" ? holding.balance.baseUnits : null;
+  return holding?.balance.baseUnits ?? null;
 }
 
 export function selectVaultPositions(snapshot: Pick<BalancesSnapshot, "holdings" | "owner" | "fetchedAt" | "block">): Array<{
@@ -48,7 +48,7 @@ export function selectVaultPositions(snapshot: Pick<BalancesSnapshot, "holdings"
 }> {
   return snapshot.holdings.flatMap((holding) => {
     if (holding.kind !== "vault-share" || !holding.contractAddress) return [];
-    const position = holding.balance.status === "ready" && holding.underlyingBalance?.status === "ready"
+    const position = holding.underlyingBalance
       ? parseVaultPosition({
           version: MORPHO_API_VERSION,
           accountAddress: snapshot.owner.address,
@@ -75,7 +75,6 @@ export function selectSendable(snapshot: BalancesSnapshot): SendableBalance[] {
     if (
       holding.source !== "registry" ||
       holding.kind === "vault-share" ||
-      holding.balance.status !== "ready" ||
       holding.balance.baseUnits === "0"
     ) return [];
     const asset = getTransferAsset(holding.id);
@@ -129,8 +128,7 @@ export function selectCash(
   for (const holding of cashHoldings) {
     if (
       used.has(holding.id) ||
-      (holding.balance.status === "ready" && holding.balance.baseUnits === "0") ||
-      (holding.balance.status === "unavailable" && !holding.name.trim() && !holding.symbol.trim())
+      holding.balance.baseUnits === "0"
     ) continue;
     selected.push({ kind: "holding", holding });
     used.add(holding.id);
@@ -157,8 +155,7 @@ function investmentHoldings(snapshot: BalancesSnapshot, cash: CashSelection[]): 
 export function isInvestmentHolding(holding: Holding): boolean {
   return holding.kind !== "vault-share" &&
     holding.cashCurrency === null &&
-    (holding.balance.status !== "ready" || holding.balance.baseUnits !== "0") &&
-    (holding.balance.status === "ready" || !!holding.name.trim() || !!holding.symbol.trim());
+    holding.balance.baseUnits !== "0";
 }
 
 export function selectBalanceTotals(snapshot: BalancesSnapshot): BalancesTotals {

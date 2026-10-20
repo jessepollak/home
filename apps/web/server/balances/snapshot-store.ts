@@ -3,7 +3,7 @@ import "server-only";
 import { serverEnvironment } from "@/server/config/env";
 
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import type { BalancesCoverage } from "@/shared/balances/types";
+import type { ObservationCoverage } from "./types";
 import type { BorrowRead, ReadHolding } from "./types";
 import { emitServerEvent } from "@/server/observability/log";
 import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
@@ -19,7 +19,7 @@ export type BalanceSnapshotRow = {
   hotUntil: string | null;
   enumerationCursor: string | null;
   holdings: ReadHolding[];
-  coverage: BalancesCoverage;
+  coverage: ObservationCoverage;
   borrow: BorrowRead | null;
 };
 
@@ -28,9 +28,11 @@ export type BalanceObservation = Omit<
   "staleAt" | "hotUntil" | "enumerationCursor" | "borrow"
 > & { enumerationCursor?: string | null; borrow?: BorrowRead | null };
 
+export type BalanceSnapshotRevision = { blockNumber: string; observedAt: string };
+
 export interface BalanceSnapshotStore {
   get(chainId: number, address: `0x${string}`): Promise<BalanceSnapshotRow | null>;
-  putObservation(row: BalanceObservation): Promise<boolean>;
+  putObservation(row: BalanceObservation, expected?: BalanceSnapshotRevision | null): Promise<boolean>;
   markStale(chainId: number, address: `0x${string}`, at: Date): Promise<void>;
   markStaleMany(chainId: number, addresses: readonly `0x${string}`[], at: Date): Promise<void>;
   markHot(chainId: number, address: `0x${string}`, until: Date): Promise<void>;
@@ -49,13 +51,25 @@ export class PostgresBalanceSnapshotStore implements BalanceSnapshotStore {
     return result.rows[0] ? fromDatabaseRow(result.rows[0] as DatabaseRow) : null;
   }
 
-  async putObservation(row: BalanceObservation): Promise<boolean> {
+  async putObservation(row: BalanceObservation, expected?: BalanceSnapshotRevision | null): Promise<boolean> {
     return this.sql.transaction(async (tx) => {
       const live = await tx.query(
         `SELECT w.id FROM customer_wallets w JOIN customers c ON c.id=w.customer_id
          WHERE w.chain_id=$1 AND w.address=$2 AND c.retained_until IS NULL AND w.created_at<=$3
          FOR SHARE OF c,w`, [row.chainId, row.address.toLowerCase(), row.observedAt]);
       if (!live.rowCount) return false;
+      if (expected !== undefined) {
+        const current = await tx.query(
+          "SELECT block_number, observed_at FROM balance_snapshots WHERE chain_id=$1 AND address=$2 FOR UPDATE",
+          [row.chainId, row.address.toLowerCase()],
+        );
+        const revision = current.rows[0];
+        if (expected === null
+          ? revision !== undefined
+          : !revision || String(revision.block_number) !== expected.blockNumber || timestamp(revision.observed_at) !== expected.observedAt) {
+          return false;
+        }
+      }
       const result = await tx.query(
         `INSERT INTO balance_snapshots
          (chain_id,address,block_number,block_hash,block_timestamp,observed_at,enumeration_cursor,holdings,coverage,borrow)
@@ -135,7 +149,7 @@ function fromDatabaseRow(row: DatabaseRow): BalanceSnapshotRow {
       ? null
       : String(row.enumeration_cursor),
     holdings: parseJson<ReadHolding[]>(row.holdings),
-    coverage: parseJson<BalancesCoverage>(row.coverage),
+    coverage: parseJson<ObservationCoverage>(row.coverage),
     borrow: row.borrow === null || row.borrow === undefined ? null : parseJson<BorrowRead>(row.borrow),
   };
 }

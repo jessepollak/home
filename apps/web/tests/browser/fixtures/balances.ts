@@ -62,7 +62,7 @@ function stockRegistry(currency: FiatCurrencyCode | null): Record<string, Holdin
   return {
     nvdac: { balance: ready("50000000"), value: lastClose },
     metac: { balance: ready("20000000"), value: { status: "unpriced", reason: "price-paused" } },
-    aaplc: { balance: ready("30000000"), value: { status: "unpriced", reason: "price-stale" } },
+    aaplc: { balance: ready("30000000"), value: { status: "unpriced", reason: "price-unavailable" } },
     tslac: { balance: ready("10000000"), value: { status: "unpriced", reason: "price-unavailable" } },
   };
 }
@@ -91,7 +91,7 @@ export function balancesSnapshot(region: RegionId = "US", options: { stocks?: bo
     },
     catalog: [recognizedCatalogHolding(region), dustCatalogHolding(region)],
     total: currency
-      ? { status: options.stocks ? "partial" : "complete", value: decimal(options.stocks ? "18066" : "9054", 2), currency }
+      ? { status: "complete", value: decimal(options.stocks ? "18066" : "9054", 2), currency }
       : { status: "no-quote-currency", value: null, currency: null },
   });
   return {

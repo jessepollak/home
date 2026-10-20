@@ -184,14 +184,14 @@ const assertSurface: NonNullable<Story["play"]> = async ({ args, canvasElement }
     await expect(content.getByText(args.assetId === "nvdac" ? "1.25 NVDAc" : "0.01234 cbBTC")).toBeVisible();
     await expect(content.getByText(args.assetId === "nvdac" ? "$224.50" : "$1,510.30")).toBeVisible();
   } else if (args.position === "error") {
-    await expect(await content.findByText("Balance unavailable", undefined, chartWait)).toBeVisible();
+    await expect(await content.findByText("Can’t load balances", undefined, chartWait)).toBeVisible();
   } else {
     await waitForReady(() => expect(content.queryByRole("list", { name: "Your balance" })).not.toBeInTheDocument());
     await expect(content.queryByText("Your balance")).not.toBeInTheDocument();
   }
   if (args.assetId === "nvdac") {
     await expect(content.getByRole("status", { name: "NVIDIA trading" })).toBeVisible();
-    await expect(content.getAllByText(/^Last close/)).toHaveLength(2);
+    await expect(content.getAllByText(/^Last close/)).toHaveLength(1);
   } else {
     const buy = content.getByRole("button", { name: "Buy" });
     const sell = content.getByRole("button", { name: "Sell" });

@@ -98,7 +98,9 @@ export function useHomeRefresh(input: {
     const sources: readonly HomeRefreshSource[] = ["balances", "activity", "actions", "rates"];
     let ownedPrefetchKey: QueryKey | null = null;
     const promise = Promise.allSettled([
-      refetch(balancesKey),
+      Promise.allSettled([refetch(balancesKey)]).then(([result]) => {
+        if (result?.status === "rejected" && !queryClient.getQueryCache().findAll({ queryKey: balancesKey, type: "active" }).every((query) => query.state.data !== undefined)) throw result.reason;
+      }),
       refreshActivityThroughController({
         queryClient, ownerKey, session, regionId: input.regionId, fetchActivity: input.fetchActivity,
         isCurrent,
