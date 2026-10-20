@@ -55,7 +55,7 @@ export function createCardWriteHandlers(deps: {
     }
   }
   return {
-    enrollment: (request: Request) => respond(request, async (id, _session, origin) => ({ next: await deps.service().enroll(id, `${origin}/card?return=verification`) }), true),
+    enrollment: (request: Request) => respond(request, async (id, session, origin) => ({ next: await deps.service().enroll(id, session, `${origin}/card?return=verification`) }), true),
     issue: (request: Request) => respond(request, async (id, session) => ({ card: await deps.service().issue(id, session) })),
     freeze: (request: Request, id: string, freeze: boolean) => respond(request, async (customerId) => {
       if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) throw new CardWriteFailure("CARD_NOT_FOUND", 404);

@@ -154,6 +154,25 @@ function observeTransaction(before: (text: string) => Promise<void>, after: (tex
     expect(response.providers.map((entry)=>entry.provider)).toEqual(["Base Account","Coinbase","Coinbase","Bridge","Stripe"]);
   });
 
+  test("Immersve card accounts disclose only their actual card provider", async () => {
+    const a = await seed();
+    await sql.query("INSERT INTO card_accounts(customer_id,mode,provider) VALUES ($1,'sandbox','immersve')", [a.id]);
+    const receipt = await store.read(a.session, true);
+    expect(receipt.status).toBe("completed");
+    expect(receipt.providers.filter((entry) => ["Immersve", "Bridge", "Stripe"].includes(entry.provider)).map((entry) => entry.provider)).toEqual(["Immersve"]);
+  });
+
+  test("a card provider without a disclosure fails closed without deleting the customer", async () => {
+    const a = await seed();
+    await sql.query("INSERT INTO card_accounts(customer_id,mode,provider) VALUES ($1,'sandbox','rain')", [a.id]);
+    await expect(store.read(a.session, true)).rejects.toMatchObject({ code: "ACCOUNT_DELETION_UNAVAILABLE" });
+    expect((await sql.query("SELECT 1 FROM customers WHERE id=$1", [a.id])).rowCount).toBe(1);
+    expect((await sql.query("SELECT 1 FROM customer_credentials WHERE customer_id=$1", [a.id])).rowCount).toBe(1);
+    expect((await sql.query("SELECT provider FROM card_accounts WHERE customer_id=$1", [a.id])).rows).toEqual([{ provider: "rain" }]);
+    expect((await sql.query("SELECT status,last_attempt_outcome FROM account_deletion_requests WHERE customer_id=$1", [a.id])).rows).toEqual([{ status: "queued", last_attempt_outcome: "failed" }]);
+    expect((await sql.query("SELECT 1 FROM account_deletion_audit_expiry WHERE target_id=$1", [a.id])).rowCount).toBe(0);
+  });
+
   test.each(["actions","funding_orders","cashout_orders","card_transactions"] as const)("none → queued and GET/POST refresh while %s blocks; reconciled → completed", async (blocker) => {
     const a = await seed(true);
     if (blocker === "actions") await sql.query("UPDATE actions SET outcome=NULL,outcome_source=NULL,outcome_recorded_at=NULL WHERE id=$1",[a.action]);
@@ -1219,6 +1238,61 @@ function observeTransaction(before: (text: string) => Promise<void>, after: (tex
     expect((await sql.query("SELECT first_seen_source FROM customers WHERE id=$1", [fresh.customerId])).rows[0].first_seen_source).toBe("activity");
     await store.read(a.session, true);
     await expect(sql.transaction((tx) => recordCustomerIds(tx, owner, at))).rejects.toBeInstanceOf(AccountDeletedError);
+  });
+
+  test.each(["enrollment", "deletion"] as const)("card enrollment racing completion with %s first leaves no original owner link", async (first) => {
+    const a = await seed();
+    const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), waiting = Promise.withResolvers<void>();
+    let providerCalls = 0;
+    const fake = fakeProgram({ enroll: async () => {
+      providerCalls++;
+      if (first === "enrollment") { reached.resolve(); await release.promise; }
+      return { link: { accountId: `enroll-${a.number}`, cardholderId: `enroll-holder-${a.number}` } };
+    } });
+    const deletionSql = observeTransaction(async (text) => {
+      if (first === "enrollment" && text === "SELECT pg_advisory_xact_lock(hashtextextended($1,0))") waiting.resolve();
+    }, async (text) => {
+      if (first === "deletion" && text === "DELETE FROM customers WHERE id=$1") { reached.resolve(); await release.promise; }
+    });
+    const enrollmentSql = observeTransaction(async (text) => {
+      if (first === "deletion" && text.startsWith("SELECT pg_advisory_xact_lock(hashtextextended")) waiting.resolve();
+    }, async () => {});
+    const service = createCardWriteService({ sql: enrollmentSql, programs: createCardPrograms([fake.program], "bridge", sql) });
+    const deletion = new AccountDeletionStore(deletionSql, () => at);
+    if (first === "deletion") {
+      const deleting = deletion.read(a.session, true);
+      await reached.promise;
+      const enrolling = service.enroll(a.id, a.session, "https://home.example/card").then(() => null, (error: unknown) => error);
+      try { await waiting.promise; } finally { release.resolve(); }
+      expect((await deleting).status).toBe("completed");
+      expect(await enrolling).toBeInstanceOf(AccountDeletedError);
+      expect(providerCalls).toBe(0);
+    } else {
+      const enrolling = service.enroll(a.id, a.session, "https://home.example/card");
+      await reached.promise;
+      const deleting = deletion.read(a.session, true);
+      try {
+        await waiting.promise;
+        await expect(sql.transaction(async (tx) => {
+          await tx.query("SET LOCAL lock_timeout='100ms'");
+          await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [credentialDigest(requireTombstoneKey(), a.session.accountProvider, a.session.user.subject)]);
+        })).rejects.toMatchObject({ code: "55P03" });
+      } finally { release.resolve(); }
+      expect(await enrolling).toEqual({ kind: "redirect", url: "https://bridge.withpersona.com/inquiry" });
+      expect((await deleting).status).toBe("completed");
+      expect(providerCalls).toBe(1);
+    }
+    expect((await sql.query("SELECT 1 FROM card_accounts WHERE customer_id=$1", [a.id])).rowCount).toBe(0);
+  });
+
+  test.each(["retained", "unlinked"] as const)("card enrollment rejects a %s owner before contacting the provider", async (state) => {
+    const a = await seed(), fake = fakeProgram();
+    if (state === "retained") await sql.query("UPDATE customers SET retained_until=$2 WHERE id=$1", [a.id, financialEvidenceExpiresAt(at)]);
+    else await sql.query("DELETE FROM customer_credentials WHERE customer_id=$1", [a.id]);
+    const service = createCardWriteService({ sql, programs: createCardPrograms([fake.program], "bridge", sql) });
+    await expect(service.enroll(a.id, a.session, "https://home.example/card")).rejects.toMatchObject({ code: "CARD_NOT_READY", status: 409 });
+    expect(fake.calls).toEqual([]);
+    expect((await sql.query("SELECT 1 FROM card_accounts WHERE customer_id=$1", [a.id])).rowCount).toBe(0);
   });
 
   test("card issuance fences deletion before any provider call and rejects a retained owner", async () => {

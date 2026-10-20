@@ -48,7 +48,12 @@ test("raw Stripe purchase lists reject malformed pages and another card's purcha
   }
 });
 
-test.each(["closed", "expired"])("approved %s authorization records terminal closure", async (status) => {
-  const client = createStripeTransactionClient(config, Object.assign(async () => Response.json({ ...authorization, status }), { preconnect: fetch.preconnect }));
+test("approved closed authorization records closure without asserting settlement", async () => {
+  const client = createStripeTransactionClient(config, Object.assign(async () => Response.json({ ...authorization, status: "closed" }), { preconnect: fetch.preconnect }));
   expect(await client.read("authorization", "iauth_synthetic")).toMatchObject({ status: "pending", authorizationClosed: true });
+});
+
+test("approved expired authorization is reversed with terminal closure", async () => {
+  const client = createStripeTransactionClient(config, Object.assign(async () => Response.json({ ...authorization, status: "expired" }), { preconnect: fetch.preconnect }));
+  expect(await client.read("authorization", "iauth_synthetic")).toMatchObject({ status: "reversed", authorizationClosed: true });
 });

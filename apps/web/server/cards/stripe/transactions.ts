@@ -70,7 +70,7 @@ function parseStripePurchase(value: unknown, kind: "authorization" | "transactio
   let authorizationId: string | null = null;
   if (kind === "authorization") {
     if (typeof value.approved !== "boolean" || !isStringEnum(value.status, ["pending", "closed", "expired", "reversed"])) throw new Error("Invalid Stripe authorization status");
-    status = !value.approved ? "declined" : value.status === "reversed" ? "reversed" : "pending";
+    status = !value.approved ? "declined" : value.status === "reversed" || value.status === "expired" ? "reversed" : "pending";
     const history = value.request_history;
     const entry: unknown = Array.isArray(history) ? history.at(-1) : null;
     reason = !value.approved && record(entry) && typeof entry.reason === "string" && /^[a-z_]{1,64}$/.test(entry.reason) ? entry.reason : null;

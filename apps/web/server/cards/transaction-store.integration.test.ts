@@ -3,6 +3,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
 import { createCardTransactionStore } from "./transaction-store";
+import { refreshCardPurchases } from "./transaction-refresh";
+import { createStripeTransactionClient } from "./stripe/transactions";
+import { fakeProgram } from "@/tests/cards/fake-program";
 const url = process.env.FUNDING_PG_TEST_URL?.trim(); const schema = `card_transactions_${randomBytes(4).toString("hex")}`;
 const owner = "11111111-1111-4111-8111-111111111111", other = "22222222-2222-4222-8222-222222222222";
 const card = "33333333-3333-4333-8333-333333333333", otherCard = "44444444-4444-4444-8444-444444444444";
@@ -72,6 +75,32 @@ const base = { cardId: "provider-card", authorizationId: "auth-fixture", amountM
       expect(captured.some((node) => node["Index Name"] === "card_events_provider_card_idx")).toBe(true);
       expect(captured.filter((node) => node["Index Name"] === "card_events_provider_card_idx").every((node) => (node["Actual Rows"] ?? 0) <= 12)).toBe(true);
     }
+  });
+  test("refresh replaces a stale pending authorization with an expired no-capture reversal", async () => {
+    const customerId = crypto.randomUUID(), cardId = crypto.randomUUID();
+    await sql.query("INSERT INTO customers(id,first_seen_at,last_seen_at,first_seen_source) VALUES ($1,now(),now(),'sign_in')", [customerId]);
+    await sql.query("INSERT INTO card_accounts(customer_id,mode,provider) VALUES ($1,'sandbox','bridge')", [customerId]);
+    await sql.query("INSERT INTO cards(id,customer_id,mode,provider,provider_card_id) VALUES ($1,$2,'sandbox','bridge','ic_expired')", [cardId, customerId]);
+    let status = "pending";
+    const authorization = () => ({ object: "issuing.authorization", id: "iauth_expired", card: "ic_expired", amount: 100, currency: "usd", created: 1791158400, merchant_data: { name: "Synthetic Market" }, approved: true, status });
+    const client = createStripeTransactionClient({ stripeSecretKey: "sk_test_synthetic", stripeApiVersion: "2026-08-26.dahlia" }, Object.assign(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      return Response.json(path.endsWith("/iauth_expired") ? authorization() : { object: "list", data: [authorization()], has_more: false });
+    }, { preconnect: fetch.preconnect }));
+    const store = createCardTransactionStore(sql);
+    await store.upsert(cardId, "sandbox", "bridge", await client.read("authorization", "iauth_expired"));
+    expect((await store.rows(customerId, "sandbox")).map((row) => row.status)).toEqual(["pending"]);
+    status = "expired";
+    const fake = fakeProgram({ purchases: {
+      refFor: () => null,
+      read: (ref) => client.read(ref.kind, ref.id),
+      list: (id, since) => client.list("authorization", id, Math.floor(since.getTime() / 1000)),
+    } });
+    const refreshed = await refreshCardPurchases(customerId, "sandbox", store, fake.program, { from: "2026-10-01T00:00:00Z", to: "2026-11-01T00:00:00Z" });
+    expect(refreshed.status).toBe("ready");
+    expect(refreshed.rows.map((row) => [row.kind, row.status])).toEqual([["authorization", "reversed"]]);
+    expect((await store.rows(customerId, "sandbox")).map((row) => row.status)).toEqual(["reversed"]);
+    expect((await sql.query("SELECT status,authorization_closed FROM card_transactions WHERE card_id=$1", [cardId])).rows).toEqual([{ status: "reversed", authorization_closed: true }]);
   });
   test("partial refund retains capture amount and voided transaction supersedes authorization", async () => {
     const store = createCardTransactionStore(sql);

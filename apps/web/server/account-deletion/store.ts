@@ -16,6 +16,8 @@ import { mapJsonFields } from "@/server/account-export/safe-fields";
 import { deriveActionStatus } from "@/server/actions/status";
 import { ACTION_DRAFT_RETENTION_MS, actionOwnerKey, actionReviewExpired, NON_DECLINED_ACTION_SQL, type ActionOutcome } from "@/server/actions/store";
 import { UNRECONCILED_CARD_EVENT_SQL } from "@/server/cards/transaction-store";
+import type { CardProviderName } from "@/server/cards/provider";
+import { getCardProviderDisclosures } from "@/server/cards/provider-disclosures";
 import { getFundingProvider } from "@/server/funding/providers";
 import { OPEN_FUNDING_ORDER_SQL } from "@/server/funding/core/postgres-store";
 import { AccountDeletionError } from "./errors";
@@ -240,9 +242,11 @@ export class AccountDeletionStore {
       if (!label) throw new AccountDeletionError("ACCOUNT_DELETION_UNAVAILABLE");
       providers.set(`funding:${label}`, heldByProvider(label, "Funding and verification records"));
     }
-    if ((await tx.query("SELECT 1 FROM card_accounts WHERE customer_id=$1 LIMIT 1", [scope.customerId])).rowCount) {
-      providers.set("card:Bridge", heldByProvider("Bridge", "Card account, verification and active provider cards"));
-      providers.set("card:Stripe", heldByProvider("Stripe", "Card and purchase records"));
+    const cards = (await tx.query<{ provider: CardProviderName }>("SELECT DISTINCT provider FROM card_accounts WHERE customer_id=$1", [scope.customerId])).rows;
+    for (const row of cards) {
+      const disclosures = getCardProviderDisclosures(row.provider);
+      if (!disclosures) throw new AccountDeletionError("ACCOUNT_DELETION_UNAVAILABLE");
+      for (const { provider, records } of disclosures) providers.set(`card:${provider}`, heldByProvider(provider, records));
     }
     return [...providers.values()];
   }

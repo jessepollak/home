@@ -29,6 +29,11 @@ export function createCardWriteService({ sql, programs = readCardPrograms(sql), 
     if (!program) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
     return program;
   }
+  async function assertLiveOwner(tx: SqlExecutor, customerId: string, session: VerifiedAccountSession) {
+    await assertCredentialLive(tx, session, new Date(), true);
+    const liveOwner = await tx.query("SELECT c.id FROM customers c JOIN customer_credentials cr ON cr.customer_id=c.id WHERE c.id=$1 AND c.retained_until IS NULL AND cr.account_provider=$2 AND cr.subject=$3 FOR SHARE OF c", [customerId, session.accountProvider, session.user.subject]);
+    if (!liveOwner.rowCount) throw new CardWriteFailure("CARD_NOT_READY", 409);
+  }
   async function owned(tx: SqlExecutor, customerId: string, id: string) {
     const selectedMode = availableMode();
     const store = createCardAccountStore(tx);
@@ -43,9 +48,10 @@ export function createCardWriteService({ sql, programs = readCardPrograms(sql), 
     return { link, card, program, state, fresh };
   }
   return {
-    async enroll(customerId: string, redirectUri: string) {
+    async enroll(customerId: string, session: VerifiedAccountSession, redirectUri: string) {
       const selectedMode = availableMode();
       const enrollment = await sql.transaction(async (tx) => {
+        await assertLiveOwner(tx, customerId, session);
         const store = createCardAccountStore(tx);
         const initial = await store.read(customerId, selectedMode);
         const first = await selected(initial, customerId, selectedMode);
@@ -71,9 +77,7 @@ export function createCardWriteService({ sql, programs = readCardPrograms(sql), 
       const wallet = session.smartAccount.address.toLowerCase();
       if (!isAddress(wallet)) throw new CardWriteFailure("CARD_NOT_READY", 409);
       return sql.transaction(async (tx) => {
-        await assertCredentialLive(tx, session, new Date(), true);
-        const liveOwner = await tx.query("SELECT c.id FROM customers c JOIN customer_credentials cr ON cr.customer_id=c.id WHERE c.id=$1 AND c.retained_until IS NULL AND cr.account_provider=$2 AND cr.subject=$3 FOR SHARE OF c", [customerId, session.accountProvider, session.user.subject]);
-        if (!liveOwner.rowCount) throw new CardWriteFailure("CARD_NOT_READY", 409);
+        await assertLiveOwner(tx, customerId, session);
         await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`cards:${selectedMode}:${wallet}`]);
         const store = createCardAccountStore(tx);
         const link = await store.read(customerId, selectedMode, undefined, true);

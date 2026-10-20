@@ -45,7 +45,7 @@ let cardId: string;
     const handlers = createCardWriteHandlers({ authorize: async () => session, customer: async () => ({ id: owner }), service: () => service });
     const response = await handlers.enrollment(request());
     expect(parseCardEnrollmentResponse(await response.json())?.next.kind).toBe("redirect");
-    await service.enroll(owner, "https://home.example/card");
+    await service.enroll(owner, session, "https://home.example/card");
     expect(fake.calls[0]?.key).toBe(fake.calls[1]?.key);
     expect((await createCardAccountStore(sql).read(owner, "sandbox"))?.accountId).toBe("account-fixture");
   });
@@ -58,7 +58,7 @@ let cardId: string;
         return fake.program.enroll(...args);
       }, enrollmentNext: async () => ({ kind: "redirect" as const, url: "https://untrusted.example/" }) };
       const failed = createCardWriteService({ sql, programs: createCardPrograms([program], "bridge", sql) });
-      await expect(failed.enroll(owner, "https://home.example/card")).rejects.toThrow();
+      await expect(failed.enroll(owner, session, "https://home.example/card")).rejects.toThrow();
       expect(await createCardAccountStore(sql).read(owner, "sandbox")).toEqual(before);
     }
   });
@@ -66,6 +66,8 @@ let cardId: string;
     const customerId = randomUUID();
     const providerCustomer = { ...fixtureCustomer, id: randomUUID(), stripe_cardholder_id: `ich_${randomBytes(8).toString("hex")}` };
     await sql.query("INSERT INTO customers(id,first_seen_at,last_seen_at,first_seen_source) VALUES ($1,now(),now(),'sign_in')", [customerId]);
+    const enrollmentSession: VerifiedAccountSession = { ...session, user: { subject: customerId } };
+    await sql.query("INSERT INTO customer_credentials(id,customer_id,account_provider,subject,first_seen_at,last_seen_at) VALUES (gen_random_uuid(),$1,'base-account',$2,now(),now())", [customerId, enrollmentSession.user.subject]);
     let creates = 0, reads = 0, links = 0;
     const program = createBridgeProgram({ mode: "sandbox", bridgeOrigin: "https://api.sandbox.bridge.xyz",
       bridgeApiKey: "synthetic", stripeSecretKey: "sk_test_synthetic", stripeApiVersion: "2025-09-30.clover",
@@ -88,9 +90,9 @@ let cardId: string;
         throw new Error("Unexpected provider request");
       }) as typeof fetch);
     const enrollment = createCardWriteService({ sql, programs: createCardPrograms([program], "bridge", sql) });
-    await expect(enrollment.enroll(customerId, "https://home.example/card")).rejects.toThrow();
+    await expect(enrollment.enroll(customerId, enrollmentSession, "https://home.example/card")).rejects.toThrow();
     expect((await createCardAccountStore(sql).read(customerId, "sandbox"))?.accountId).toBe(providerCustomer.id);
-    expect(await enrollment.enroll(customerId, "https://home.example/card")).toEqual({ kind: "redirect", url: "https://bridge.withpersona.com/inquiry" });
+    expect(await enrollment.enroll(customerId, enrollmentSession, "https://home.example/card")).toEqual({ kind: "redirect", url: "https://bridge.withpersona.com/inquiry" });
     expect(creates).toBe(1); expect(reads).toBe(1); expect(links).toBe(2);
   });
   test("failed issue calls and malformed cards never create a local success", async () => {
