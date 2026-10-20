@@ -104,8 +104,10 @@ async function heights(canvasElement: HTMLElement) {
 }
 async function revealNextPage(region: HTMLElement, visible: number, total: number) {
   const items = () => within(region).getAllByRole("listitem");
-  await expect(items()).toHaveLength(visible);
-  await expect(within(region).getByRole("status")).toHaveTextContent(`Showing ${visible} of ${total} investments`);
+  await waitForReady(async () => {
+    await expect(items()).toHaveLength(visible);
+    await expect(within(region).getByRole("status")).toHaveTextContent(`Showing ${visible} of ${total} investments`);
+  });
   const last = items()[visible - 1];
   if (!last) throw new Error(`Missing investment row ${visible} of ${total}`);
   await waitForReady(async () => {
@@ -254,13 +256,17 @@ export const ManyHoldingsFocusReturn: Story = { args: { snapshot: manyHoldingsSn
   const target = within(items()[44]!).getByRole("button");
   const key = rows[44]!.key;
   await userEvent.click(target);
-  await expect(canvas.getByText("Your balance")).toBeVisible();
+  await waitForReady(() => expect(canvas.getByText("Your balance")).toBeVisible());
   await userEvent.click(within(canvasElement).getByRole("button", { name: "Back" }));
   const list = () => within(canvas.getByRole("region", { name: "Your investments" })).getAllByRole("listitem");
   await waitForReady(() => expect(list().length).toBeGreaterThanOrEqual(45));
-  const returned = list()[44]!;
-  await waitForReady(() => expect(returned.querySelector("button")).toHaveFocus());
-  await expect(returned.querySelector(`[data-holding-key="${CSS.escape(key)}"]`)).toBeInTheDocument();
+  const returnedRow = () => {
+    const row = list()[44];
+    if (!row) throw new Error("Missing returned holding row");
+    return row;
+  };
+  await waitForReady(() => expect(returnedRow().querySelector("button")).toHaveFocus());
+  await expect(returnedRow().querySelector(`[data-holding-key="${CSS.escape(key)}"]`)).toBeInTheDocument();
 } };
 export const DuplicateNamesFocusReturn: Story = { args: { snapshot: duplicateNamesSnapshot }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, duplicateNamesSnapshot); const canvas = screen(canvasElement); const second = canvas.getAllByRole("button", { description: "Open Twin token" })[1]!; await userEvent.click(second); await expect(canvas.getByText("Your balance")).toBeVisible(); await userEvent.click(within(canvasElement).getByRole("button", { name: "Back" })); await waitForReady(() => expect(canvasElement.ownerDocument.activeElement).toBe(canvas.getAllByRole("button", { description: "Open Twin token" })[1])); } };
 export const RefreshFailed: Story = { args: { refreshFailed: true }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, fundedSnapshot); await expect(screen(canvasElement).getByText("Couldn't refresh")).toBeVisible(); await userEvent.click(screen(canvasElement).getByRole("button", { name: "Try again" })); await expect(onRetry).toHaveBeenCalledOnce(); } };

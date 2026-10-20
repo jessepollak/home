@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
+import { waitForReady } from "@/tests/helpers/story-readiness";
 import { BorrowMoneyDialog } from "./borrow-money-dialog";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -21,18 +22,19 @@ const action: PreparedMoneyAction = {
 
 type StoryState = "pending" | "confirmed" | "failed" | "submitting";
 
-function BorrowDialogStory({ state }: { state: StoryState }) {
+function BorrowDialogStory({ state, reviewExpired = false }: { state: StoryState; reviewExpired?: boolean }) {
   const [open, setOpen] = useState(true);
+  const preparedAction = reviewExpired ? { ...action, expiresAt: "2026-09-23T10:37:00.000Z" } : action;
   return <BorrowMoneyDialog
     session={session} snapshot={snapshot} operation="borrow" regionId="US" open={open} onClose={() => setOpen(false)}
-    prepareMoneyAction={async () => action}
-    executeMoneyAction={async () => state === "submitting" ? new Promise(() => {}) : { id: action.id, status: "submitted" }}
+    prepareMoneyAction={async () => preparedAction}
+    executeMoneyAction={async () => state === "submitting" ? new Promise(() => {}) : { id: preparedAction.id, status: "submitted" }}
     fetchAccountResource={async (path) => path === "/api/actions"
       ? { actions: state === "pending" ? [] : [{
-          id: action.id, owner: action.owner, provider: "cdp-embedded",
-          kind: action.kind, status: state,
-          createdAt: action.createdAt, confirmedAt: action.createdAt,
-          summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata },
+          id: preparedAction.id, owner: preparedAction.owner, provider: "cdp-embedded",
+          kind: preparedAction.kind, status: state,
+          createdAt: preparedAction.createdAt, confirmedAt: preparedAction.createdAt,
+          summary: { title: preparedAction.title, amounts: preparedAction.amounts, warnings: preparedAction.warnings, expiresAt: preparedAction.expiresAt, metadata: preparedAction.metadata },
         }] }
       : { version: 1, usdcReserveBaseUnits: null }}
   />;
@@ -54,6 +56,24 @@ async function submit(canvasElement: HTMLElement) {
   await userEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
   return dialog;
 }
+
+export const ExpiredReview: Story = {
+  args: { state: "pending", reviewExpired: true },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    const dialog = within(await screen.findByRole("dialog", { name: "Borrow" }));
+    await userEvent.type(dialog.getByRole("textbox", { name: "Amount" }), "1");
+    await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await waitForReady(() => expect(dialog.getByRole("alert")).toHaveTextContent("Borrow review expired"));
+    await expect(dialog.getByRole("button", { name: "Confirm action" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Confirm action" })).not.toHaveAttribute("data-money-action-id");
+    const back = dialog.getAllByRole("button", { name: "Back" })[0];
+    if (!back) throw new Error("Missing Back control");
+    await userEvent.click(back);
+    await waitForReady(() => expect(dialog.getByRole("button", { name: "Continue" })).toBeVisible());
+    await expect(dialog.getByRole("textbox", { name: "Amount" })).toHaveValue("1");
+  },
+};
 
 export const Pending: Story = {
   args: { state: "pending" },

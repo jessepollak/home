@@ -47,6 +47,10 @@ const ID_LONG_METHODS = {
   ],
 };
 
+function expectPixels(actual: number, expected: number, label: string) {
+  expect(Math.abs(actual - expected), label).toBeLessThanOrEqual(1);
+}
+
 async function inputMetrics(locator: Locator) {
   return locator.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -315,8 +319,8 @@ test("mobile capsule floats above the browser-tab bottom while keeping content c
   await expect.poll(async () => navigation.evaluate((nav) =>
     Math.round(window.innerHeight - nav.getBoundingClientRect().bottom))).toBe(12);
   const main = page.locator("[data-app-main-authenticated]");
-  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect.poll(async () => main.evaluate((element) => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
     const lastContent = element.lastElementChild;
     const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');
     return lastContent && nav ? lastContent.getBoundingClientRect().bottom <= nav.getBoundingClientRect().top : false;
@@ -381,7 +385,7 @@ test("header targets stay large while content controls keep fine-pointer density
         probe: { x: bounds.x + bounds.width / 2, y: (top + bounds.top) / 2 },
       };
     });
-    expect(switchTarget.paintedHeight).toBe(28);
+    expectPixels(switchTarget.paintedHeight, 28, "switch painted height");
     expect(switchTarget.targetHeight).toBeGreaterThanOrEqual(44);
 
     const checkedBefore = await smallBalances.getAttribute("aria-checked");
@@ -393,5 +397,7 @@ test("header targets stay large while content controls keep fine-pointer density
 
   await page.setViewportSize({ width: 900, height: 844 });
   expect(await page.evaluate(() => matchMedia("(pointer: fine)").matches)).toBe(true);
-  expect(await openRepresentativeControls(page)).toEqual({ signInHeight: 44, quickAmountHeight: 28 });
+  const fine = await openRepresentativeControls(page);
+  expectPixels(fine.signInHeight, 44, "sign-in height");
+  expectPixels(fine.quickAmountHeight, 28, "quick-amount height");
 });

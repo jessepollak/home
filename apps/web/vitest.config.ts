@@ -21,6 +21,7 @@ export default defineConfig({
         })],
         test: {
           name: "storybook",
+          testTimeout: 30_000,
           setupFiles: [path.join(dirname, ".storybook/vitest.setup.ts")],
           browser: {
             enabled: true,

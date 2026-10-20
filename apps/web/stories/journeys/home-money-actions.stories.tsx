@@ -66,10 +66,11 @@ const meta = {
     await expect(cashOut).toHaveFocus();
     await userEvent.keyboard("[Space]");
     await waitForReady(() => expect(body.getByRole("dialog", { name: "Cash out" })).toBeVisible());
-    await waitForReady(() => expect(body.getByRole("dialog", { name: "Cash out" }).querySelector('[data-money-step="loading"]')).toBeNull());
+    const cashOutDialog = () => within(body.getByRole("dialog", { name: "Cash out" }));
+    await waitForReady(() => expect(cashOutDialog().getByText("Cash out to US dollar isn't available yet")).toBeVisible());
     await expect(new URL(window.location.href).searchParams.get("flow")).toBe("cash-out");
-    await expect(within(body.getByRole("dialog", { name: "Cash out" })).queryByRole("textbox", { name: "To" })).toBeNull();
-    await userEvent.click(await body.findByRole("button", { name: "Close cash-out dialog" }));
+    await expect(cashOutDialog().queryByRole("textbox", { name: "To" })).toBeNull();
+    await userEvent.click(cashOutDialog().getByRole("button", { name: "Close cash-out dialog" }));
     await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
     if (!args.sendOff) {
       actions.getByRole("button", { name: "Cash out" }).focus();
@@ -77,9 +78,10 @@ const meta = {
       await expect(actions.getByRole("button", { name: "Send" })).toHaveFocus();
       await userEvent.keyboard("{Enter}");
       await waitForReady(() => expect(body.getByRole("dialog", { name: "Send" })).toBeVisible());
-      await waitForReady(() => expect(body.getByRole("dialog", { name: "Send" }).querySelector('[data-money-step="loading"]')).toBeNull());
+      const sendDialog = () => within(body.getByRole("dialog", { name: "Send" }));
+      await waitForReady(() => expect(sendDialog().getByRole("textbox", { name: "Amount" })).toBeVisible());
       await expect(new URL(window.location.href).searchParams.get("flow")).toBe("send");
-      await userEvent.click(await body.findByRole("button", { name: "Close send dialog" }));
+      await userEvent.click(sendDialog().getByRole("button", { name: "Close send dialog" }));
       await waitForReady(() => expect(body.queryByRole("dialog")).toBeNull());
     }
   },

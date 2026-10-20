@@ -111,8 +111,9 @@ function storyScreen(canvasElement: HTMLElement) {
 async function openAmount(screen: Screen) {
   const trigger = screen.getByRole("button", { name: "Send" });
   await userEvent.click(trigger);
-  const dialog = await screen.findByRole("dialog", { name: "Send" });
-  const amount = within(dialog).getByRole("textbox", { name: "Amount" });
+  await screen.findByRole("dialog", { name: "Send" });
+  const amount = await waitForReady(() => within(screen.getByRole("dialog", { name: "Send" })).getByRole("textbox", { name: "Amount" }));
+  const dialog = screen.getByRole("dialog", { name: "Send" });
   await waitForReady(() => expect(amount).toHaveFocus());
   const popup = dialog.closest("[data-money-sheet]");
   if (!(popup instanceof HTMLElement)) throw new Error("Money sheet popup missing");

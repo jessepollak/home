@@ -618,11 +618,13 @@ export const Loading: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByLabelText("Updating…").getAttribute("aria-busy")).toBe("true");
     await expect(canvas.getByRole("region", { name: "Your money" }).getAttribute("aria-busy")).toBe("true");
-    await expect(canvasElement.querySelectorAll("[data-shimmer='row']").length).toBeGreaterThanOrEqual(6);
-    await expect(canvasElement.querySelectorAll("[data-shimmer='row'] [data-shimmer='mark']").length)
-      .toBeGreaterThanOrEqual(6);
-    await expect(canvasElement.querySelectorAll("[data-slot='item-actions']")).toHaveLength(0);
-    await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
+    await waitForReady(async () => {
+      await expect(canvasElement.querySelectorAll("[data-shimmer='row']").length).toBeGreaterThanOrEqual(6);
+      await expect(canvasElement.querySelectorAll("[data-shimmer='row'] [data-shimmer='mark']").length)
+        .toBeGreaterThanOrEqual(6);
+      await expect(canvasElement.querySelectorAll("[data-slot='item-actions']")).toHaveLength(0);
+      await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
+    });
   },
 };
 

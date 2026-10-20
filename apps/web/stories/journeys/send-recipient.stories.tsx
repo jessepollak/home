@@ -52,8 +52,10 @@ type Story = StoryObj<typeof meta>;
 type Screen = ReturnType<typeof within<typeof queries>>;
 
 async function enterAmount(screen: Screen, amount: string) {
-  const dialog = await screen.findByRole("dialog", { name: "Send" });
-  await userEvent.type(within(dialog).getByRole("textbox", { name: "Amount" }), amount);
+  await screen.findByRole("dialog", { name: "Send" });
+  const input = await waitForReady(() => within(screen.getByRole("dialog", { name: "Send" })).getByRole("textbox", { name: "Amount" }));
+  const dialog = screen.getByRole("dialog", { name: "Send" });
+  await userEvent.type(input, amount);
   await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
   await screen.findByRole("textbox", { name: "To" });
 }

@@ -607,7 +607,7 @@ export const ReducingOnly: Story = {
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
     const dialog = within(await screen.findByRole("dialog", { name: "Bitcoin" }));
-    await expect(dialog.getByRole("button", { name: "Add collateral" })).toBeEnabled();
+    await waitForReady(() => expect(dialog.getByRole("button", { name: "Add collateral" })).toBeEnabled());
     await expect(within(canvasElement).getByText("Healthy · Paused")).toBeVisible();
   },
 };
@@ -669,7 +669,7 @@ export const NoDebtHeldPickerOpen: Story = {
     const picker = within(await openAssetPicker(canvasElement, "Choose an asset"));
     await userEvent.click(picker.getByRole("button", { description: "Borrow against Cardano" }));
     const management = within(await body.findByRole("dialog", { name: "Cardano" }));
-    await expect(management.getByText("Borrow up to")).toBeVisible();
+    await waitForReady(() => expect(management.getByText("Borrow up to")).toBeVisible());
     await waitForReady(() => expect(body.queryByRole("dialog", { name: "Choose an asset" })).toBeNull());
     await userEvent.click(management.getByRole("button", { name: "Close Cardano details" }));
     await waitForReady(() => expect(cta).toHaveFocus());
