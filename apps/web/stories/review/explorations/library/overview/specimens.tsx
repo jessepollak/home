@@ -12,7 +12,6 @@ import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, 
 import { CoverageStatusPreview } from "@/components/ui/coverage-status-preview";
 import { CoverageTable, type CoverageTableRow } from "@/components/ui/coverage-table";
 import { DataTable } from "@/components/ui/data-table";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { FeatureIntro } from "@/components/ui/feature-intro";
@@ -99,18 +98,6 @@ function ButtonGroupSpecimen() {
     <Button variant="outline" size="touch" aria-label="Next" disabled={page === 12}
       onClick={() => setPage((current) => current + 1)}><ChevronRightIcon /></Button>
   </ButtonGroup>;
-}
-
-function DialogSpecimen() {
-  return <Dialog>
-    <DialogTrigger render={<Button variant="outline" />}>Keyboard shortcuts</DialogTrigger>
-    <DialogContent showCloseButton>
-      <DialogHeader>
-        <DialogTitle>Keyboard shortcuts</DialogTitle>
-        <DialogDescription>Press ? anywhere to open this list.</DialogDescription>
-      </DialogHeader>
-    </DialogContent>
-  </Dialog>;
 }
 
 function DrawerSpecimen() {
@@ -348,7 +335,6 @@ export const specimens: Record<string, Specimen> = {
       <DataTable columns={coverageColumns} data={coverage} caption="Funding coverage" density="compact" />
     </div>,
   },
-  "ui-dialog": { Render: DialogSpecimen },
   "ui-drawer": { Render: DrawerSpecimen },
   "ui-empty": {
     Render: () => <Empty className="w-72 p-0">

@@ -39,7 +39,6 @@ Columns:
 | CoverageTable, CoverageStatusPreview | yes | no | no (internal coverage tooling) | none | `components/ui/coverage-*.tsx` | P2 |
 | PayoutMark | yes | no (payout brand colours are variables) | no | none | `components/ui/payout-mark.tsx` | P2 |
 | Tabs | no | no | no (primary navigation is `Button variant="navigation"`; ToggleGroup covers segments) | Tabs | unassigned | P2 |
-| Dialog | yes | no; current `rounded-2xl`, Overlay (`shadow-overlay`) and Heading title | no (Drawer covers mobile overlays) | Dialog | `components/ui/dialog.tsx` | P2 |
 | Tooltip | no | no | no (touch first; facts go inline) | Tooltip | unassigned | P2 |
 | Menu | no | no | no | Menu | unassigned | P2 |
 | Accordion | no | no | no | Accordion | unassigned | P2 |

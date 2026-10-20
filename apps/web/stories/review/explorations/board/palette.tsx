@@ -1,11 +1,14 @@
 import { useMemo, useState } from "react";
 import { Combobox, ComboboxCollection, ComboboxGroup, ComboboxGroupLabel, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Popover, PopoverContent } from "@/components/ui/popover";
 import { Kbd } from "@/components/ui/kbd";
 import { paletteGroups, rankPaletteItems, type PaletteItem } from "./palette-items";
 import styles from "./board.module.css";
 
 const focusOnMount = (input: HTMLInputElement | null) => input?.focus({ preventScroll: true });
+const paletteAnchor = () => ({
+  getBoundingClientRect: () => new DOMRect(window.innerWidth / 2, window.innerHeight * 0.14, 0, 0),
+});
 
 export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
   open: boolean;
@@ -22,9 +25,21 @@ export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
     if (!next) setQuery("");
     onOpenChange(next);
   };
-  return <Dialog open={open} onOpenChange={change}>
-    <DialogContent variant="command" finalFocus={() => returnFocus() ?? true} aria-label="Command palette"
+  return <Popover open={open} onOpenChange={change}>
+    <PopoverContent
+      aria-label="Command palette"
+      anchor={paletteAnchor}
+      align="center"
+      side="bottom"
+      sideOffset={0}
+      finalFocus={() => returnFocus() ?? true}
+      className="w-[min(36rem,calc(100vw-2rem))] gap-0 p-0 flex flex-col max-h-[min(72vh,42rem)] *:data-[slot=combobox-list]:min-h-0 *:data-[slot=combobox-list]:flex-1 *:data-[slot=combobox-list]:scroll-pt-2 *:data-[slot=combobox-list]:scroll-pb-1.5 *:data-[slot=combobox-list]:px-1.5 *:data-[slot=combobox-list]:pt-2 *:data-[slot=combobox-list]:pb-1.5"
       onKeyDownCapture={(event) => {
+        if (event.key === "Tab") {
+          event.preventDefault();
+          change(false);
+          return;
+        }
         if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
         const highlighted = event.currentTarget.querySelector<HTMLElement>("[role='option'][data-highlighted]");
         const item = ranked.find((candidate) => candidate.id === highlighted?.dataset.paletteId);
@@ -58,8 +73,8 @@ export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
               </ComboboxCollection>
             </ComboboxGroup>}
         </ComboboxList>
-        {ranked.length === 0 && <p className={styles.paletteEmpty} role="status">No matches</p>}
       </Combobox>
-    </DialogContent>
-  </Dialog>;
+      {ranked.length === 0 && <p className={styles.paletteEmpty} role="status">No matches</p>}
+    </PopoverContent>
+  </Popover>;
 }

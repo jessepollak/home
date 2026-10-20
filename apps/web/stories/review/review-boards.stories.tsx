@@ -341,8 +341,8 @@ export const BoardChrome: Story = {
     await userEvent.keyboard("?");
     const help = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
     for (const group of ["Canvas", "Selection", "Panels", "General"])
-      await expect(within(help).getByRole("heading", { name: group })).toBeVisible();
-    await expect(within(help).getByText("Toggle outline")).toBeVisible();
+      await waitForReady(() => expect(within(help).getByRole("heading", { name: group })).toBeVisible());
+    await waitForReady(() => expect(within(help).getByText("Toggle outline")).toBeVisible());
     await userEvent.keyboard("{Escape}");
     await waitForReady(() => expect(screen.queryByRole("dialog", { name: "Keyboard shortcuts" })).not.toBeInTheDocument());
     await userEvent.keyboard("]");
@@ -608,9 +608,9 @@ export const BoardNavigation: Story = {
       const search = within(palette).getByRole("combobox", { name: "Search board navigation" });
       await waitForReady(() => expect(search).toHaveFocus());
       for (const name of ["Commands", "Frames", "Sections", "Boards"])
-        await expect(within(palette).getByRole("group", { name })).toBeVisible();
+        await waitForReady(() => expect(within(palette).getByRole("group", { name })).toBeVisible());
       await userEvent.keyboard("Account Settings");
-      await expect(within(palette).getByRole("group", { name: "Stories" })).toBeVisible();
+      await waitForReady(() => expect(within(palette).getByRole("group", { name: "Stories" })).toBeVisible());
       await waitForReady(() => expect(within(palette).getAllByRole("option")[0]).toHaveTextContent("Account Settings"));
       await userEvent.keyboard("{Enter}");
       await waitForReady(() => expect(new URL(doc.location.href).searchParams.get("path"))

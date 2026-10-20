@@ -31,7 +31,7 @@ Continue with [rules](rules.md), [styling guards](styling-guards.md), [component
 | Role | Utility or token spellings | Where it applies |
 | --- | --- | --- |
 | Amount | `text-4xl font-semibold leading-none tabular-nums` | Balances and confirm summaries |
-| Heading | `text-base font-semibold` | Card, Dialog, Drawer, Popover, Result and Feature intro titles |
+| Heading | `text-base font-semibold` | Card, Drawer, Popover, Result and Feature intro titles |
 | Body | `text-sm` | Descriptions and message text; fields use `text-base` below `md` |
 | Label | `text-sm font-medium` | Buttons, toggles, row titles and field labels |
 | Metadata | `text-xs text-muted-foreground` | Captions and compact descriptions; badges add `font-medium` |
@@ -47,7 +47,7 @@ Continue with [rules](rules.md), [styling guards](styling-guards.md), [component
 | Controls | `rounded-lg` | Buttons, fields, picker triggers/items, Toggle, OTP, Input Group and Skeleton |
 | Rows / cards | `rounded-xl` | Card, standalone Item, Alert, Empty and support messages |
 | Popups | `rounded-xl` | Popover, picker lists, coverage preview and Toast |
-| Sheets | `rounded-2xl` | Drawer, Dialog and desktop money sheet |
+| Sheets | `rounded-2xl` | Drawer and desktop money sheet |
 | Pills / avatars | `rounded-full` | Badge, Switch, Progress, rail/tab buttons, search, avatars and status marks |
 | Nested marks | `rounded-sm` | Input Group buttons, Kbd, Item images, segmented choices and inline/balance buttons |
 
@@ -59,7 +59,7 @@ Continue with [rules](rules.md), [styling guards](styling-guards.md), [component
 | --- | --- | --- |
 | Raised | `shadow-raised` / `--elevation-raised` | Card, refresh indicator, Switch thumb and conversation scroll button |
 | Floating | `shadow-floating` / `--elevation-floating` | Popover, picker lists and coverage preview |
-| Overlay | `shadow-overlay` / `--elevation-overlay` | Dialog and Drawer |
+| Overlay | `shadow-overlay` / `--elevation-overlay` | Drawer |
 | Toast | `shadow-toast` / `--elevation-toast` | Toast |
 
 ### Motion
@@ -139,7 +139,7 @@ From [Radius](theme.md#radius), [Elevation](theme.md#elevation) and [Type roles]
 | Rows / cards: standalone Item, Alert, Empty, support messages | `rounded-xl` | — | Label for row titles; Body for messages/descriptions; Metadata for captions |
 | Popups: Popover, Select/Combobox lists, coverage preview | `rounded-xl` | Floating | Heading for Popover title; Label for items; Body for descriptions |
 | Popups: Toast | `rounded-xl` | Toast | Body for message text |
-| Sheets: Dialog, Drawer, desktop money sheet | `rounded-2xl` | Overlay for Dialog/Drawer | Heading, Body; Amount for confirm summaries |
+| Sheets: Drawer, desktop money sheet | `rounded-2xl` | Overlay for Drawer | Heading, Body; Amount for confirm summaries |
 | Pills / avatars: Badge, Switch, Progress, rail/tab buttons, search, avatars, status marks | `rounded-full` | Raised for Switch thumb | Metadata for badges; Label for buttons; Body for field text |
 | Marks: Input Group buttons, Kbd, Item images, segmented choices, inline/balance buttons | `rounded-sm` | — | Label for buttons/choices; Mono for code |
 

@@ -1,4 +1,6 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { XIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { commandGroups, type BoardCommand } from "./commands";
 import styles from "./board.module.css";
@@ -25,19 +27,21 @@ export function ShortcutsHelp({ open, onOpenChange, returnFocus, commands }: {
   returnFocus: () => HTMLElement | null;
   commands: BoardCommand[];
 }) {
-  return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent showCloseButton finalFocus={() => returnFocus() ?? true}
-      className="max-h-[80vh] max-w-2xl overflow-y-auto">
-      <DialogHeader>
-        <DialogTitle>Keyboard shortcuts</DialogTitle>
-      </DialogHeader>
-      <div className={styles.helpGroups}>
+  return <Drawer open={open} onOpenChange={onOpenChange}>
+    <DrawerContent finalFocus={() => returnFocus() ?? true} className="sm:mx-auto sm:w-full sm:max-w-2xl">
+      <DrawerHeader className="flex flex-row items-center justify-between gap-4">
+        <DrawerTitle>Keyboard shortcuts</DrawerTitle>
+        <DrawerClose render={<Button variant="ghost" size="icon-sm" />} aria-label="Close keyboard shortcuts">
+          <XIcon aria-hidden="true" />
+        </DrawerClose>
+      </DrawerHeader>
+      <div className={`${styles.helpGroups} min-h-0`}>
         {commandGroups.map((group) => <section key={group} aria-labelledby={`shortcuts-${group}`}>
           <h3 id={`shortcuts-${group}`}>{group}</h3>
           <ShortcutList label={`${group} shortcuts`}
             commands={commands.filter((command) => command.group === group)} />
         </section>)}
       </div>
-    </DialogContent>
-  </Dialog>;
+    </DrawerContent>
+  </Drawer>;
 }

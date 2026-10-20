@@ -39,4 +39,4 @@ While a prepare or quote is in flight, lock the step’s value inputs and picker
 - Confirm with `MoneyConfirmFooter` and its prepared action.
 - X exits through the host's `onCancel`; Back moves within the journey through `onBack`.
 - Register in-flight work with `pending` or `useMoneyModalPending`.
-- Never import Drawer, Dialog, or `createPortal` into a money flow; lint enforces this boundary (see [repository gates](../../gates.md)).
+- Never import Drawer, a dialog primitive, or `createPortal` into a money flow; lint enforces this boundary (see [repository gates](../../gates.md)).

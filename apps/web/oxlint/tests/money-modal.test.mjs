@@ -41,11 +41,11 @@ describe("no-sheet-primitives", () => {
     const results = await lint({
       fixture1: { path: "client/transfers/sheet.tsx", code: `
       import { Drawer } from "@/components/ui/drawer";
-      import { Dialog } from "../../components/ui/dialog.tsx";
+      import { Drawer as RelativeDrawer } from "../../components/ui/drawer.tsx";
       export { DrawerTitle } from "@/components/ui/drawer/index";
-      export * from "../../components/ui/dialog/index.tsx";
+      export * from "../../components/ui/drawer/index.tsx";
       void import("@/components/ui/drawer.tsx");
-      require("../../components/ui/dialog");
+      require("../../components/ui/drawer");
     ` },
     }, { rule: sheet });
     expect(results.fixture1).toHaveLength(6);
@@ -194,7 +194,7 @@ describe("no-sheet-primitive-reexports", () => {
       export default LocalDrawer;
     ` },
       fixture2: { path: "client/account/explorations/wrapper.tsx", code: `
-      import { Dialog as Local } from "../../../components/ui/dialog";
+      import { Drawer as Local } from "../../../components/ui/drawer";
       export { Local };
     ` },
     }, { rule: reexports });

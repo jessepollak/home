@@ -50,7 +50,7 @@ Four levels, each a `--elevation-*` value in `:root` and `.dark` exposed as a `s
 | --- | --- | --- | --- | --- |
 | Raised | `shadow-raised` | Card, pull-to-refresh indicator, Switch thumb, conversation scroll button | ring foreground/10 + `0 1px 2px` black/5% | ring foreground/10, no shadow |
 | Floating | `shadow-floating` | Popover, Select and Combobox lists, coverage status preview | ring foreground/10 + `shadow-md` | ring foreground/15 + `0 4px 12px` black/40% |
-| Overlay | `shadow-overlay` | Dialog, Drawer | ring foreground/10 + `shadow-lg` | ring foreground/10, no shadow (the scrim separates it) |
+| Overlay | `shadow-overlay` | Drawer | ring foreground/10 + `shadow-lg` | ring foreground/10, no shadow (the scrim separates it) |
 | Toast | `shadow-toast` | Toast | ring foreground/10 + `shadow-lg` | ring foreground/15 + `0 8px 24px` black/50% |
 
 Dark drops or deepens shadows because a black shadow on the darker page reads as a smudge; the ring carries the edge.
@@ -78,7 +78,7 @@ Fields (Input, Textarea, Input Group, Select and Combobox triggers, native selec
 | Controls: Button, Input, Textarea, Select and Combobox triggers and items, Toggle, Input OTP, Input Group, Skeleton | `rounded-lg` |
 | Row / card: Card, standalone Item, Alert, Empty, support messages | `rounded-xl` |
 | Popup: Popover, Select and Combobox lists, coverage status preview, Toast | `rounded-xl` |
-| Sheet: Drawer, Dialog, the desktop money sheet | `rounded-2xl` |
+| Sheet: Drawer, the desktop money sheet | `rounded-2xl` |
 | Pill / avatar: Badge, Switch, Progress, rail and tab buttons, search field, avatars, status marks | `rounded-full` |
 | Marks nested in a control: Input Group buttons, Kbd, Item images, segmented choices, inline and balance buttons | `rounded-sm` |
 
@@ -91,7 +91,7 @@ Roles use the stock scale and three weights (normal, medium, semibold).
 | Role | Classes | Where |
 | --- | --- | --- |
 | Amount | `text-4xl font-semibold leading-none tabular-nums` | Balances and confirm summaries; the amount field keeps `text-5xl` as its fit ceiling |
-| Heading | `text-base font-semibold` | One per surface: Card, Dialog, Drawer, Popover, Result and Feature intro titles |
+| Heading | `text-base font-semibold` | One per surface: Card, Drawer, Popover, Result and Feature intro titles |
 | Body | `text-sm` | Descriptions and message text; fields render `text-base` below `md` so iOS does not zoom on focus |
 | Label | `text-sm font-medium` | Buttons, toggles, row titles, field labels |
 | Metadata | `text-xs text-muted-foreground` | Captions and compact descriptions; badges keep `font-medium` |

@@ -38,7 +38,7 @@ function primitive(value, filename) {
   if (typeof value !== "string") return null;
   if (packages.some((pkg) => value === pkg || value.startsWith(`${pkg}/`))) return value;
   const target = withoutExtension(resolvedSource(value, filename) ?? "").replace(/\/index$/u, "");
-  return ["components/ui/drawer", "components/ui/dialog"].includes(target) ? target : null;
+  return target === "components/ui/drawer" ? target : null;
 }
 
 function internalMoneyModal(value, filename) {

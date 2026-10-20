@@ -285,8 +285,7 @@ export const CompositionCoverage: Story = {
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
     const productUsage = await within(surface).findByText(/^Unused in product:/, {}, { timeout: INITIAL_MODULE_TIMEOUT });
     await expect(within(productUsage).getByRole("link", { name: "Button Group" })).toBeVisible();
-    await expect(within(productUsage).getByRole("link", { name: "Dialog" })).toBeVisible();
-    await expect(productUsage).toHaveTextContent("Unused in product: Button Group, Dialog, Kbd, Progress");
+    await expect(productUsage).toHaveTextContent("Unused in product: Button Group, Kbd, Progress");
   },
 };
 
