@@ -399,3 +399,39 @@ test("CLI prints its markdown summary and exits non-zero for findings or extra a
   assert.notEqual(usage.status, 0);
   assert.match(usage.stderr, /Usage:/);
 });
+
+test("accepts a factory body with failure-mode analysis as a subsection", () => {
+  const factoryBody = `${body}
+## Preview
+N/A: CI-only
+<details><summary>Evidence</summary>
+
+## Verification
+| surface | rung reached | evidence pointer | incidents |
+| --- | --- | --- | --- |
+| N/A | 0 | N/A | none |
+
+## Test plan
+- [x] \`node --test scripts/gates/tests/pr-body-shape.test.mjs\`
+Failure-cases: 0/0
+
+### Failure modes
+
+| Changed state | Outcome |
+| --- | --- |
+| Unknown or loading | Not presented as zero |
+
+## Review
+Review: 0 findings fixed, none open
+
+## Real money
+N/A
+
+## Operator action required
+N/A
+
+</details>
+
+Closes #2217`;
+  assert.deepEqual(prBodyShapeFindings("dx(factory): align failure-mode analysis", factoryBody), []);
+});
