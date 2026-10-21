@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
+import { brandedPageTitle } from "@/server/operator-settings/brand";
 import { readOperatorPageDecision } from "@/server/operator/page";
 import { OperatorShell } from "./operator-shell";
 import { authorizedOperatorAddress } from "./section-content";
 
-export const metadata: Metadata = { title: "Admin · Home", robots: { index: false, follow: false } };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: await brandedPageTitle("Admin"), robots: { index: false, follow: false } };
+}
 
 export const instant = false;
 
