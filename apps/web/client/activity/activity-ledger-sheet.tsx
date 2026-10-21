@@ -2,7 +2,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { ArrowDownLeft, CircleAlert, CircleCheck, CircleQuestionMark, CircleX, Clock } from "lucide-react";
-import { MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, MoneyModalStep, MoneyResult, MoneyResultFooter, moneyConfirmFromRow, useAutoFitAmountText } from "@/client/money-modal";
+import { MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, MoneyModalStep, MoneyResult, MoneyResultFooter, moneyConfirmFacts, useAutoFitAmountText } from "@/client/money-modal";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { useReactiveExpiry } from "@/client/actions/expiry";
 import { formatExactPresentationTokenAmount, formatUsdStablecoinAmount } from "@/shared/formatting";
@@ -116,6 +116,7 @@ export function ActivityLedgerDetailSheet({
   const titleId = useId();
   const step = withdrawJourney?.step ?? "details";
   const prepared = withdrawJourney?.preparedAction;
+  const confirmFacts = prepared ? moneyConfirmFacts(prepared) : null;
   const { expired: reviewExpired } = useReactiveExpiry(prepared?.expiresAt ?? null);
   const received = prepared?.amounts.find((amount) => amount.direction === "receive");
   const amount = received ? received.symbol === "USDC"
@@ -323,14 +324,12 @@ export function ActivityLedgerDetailSheet({
           <MoneyModalHeader title="Confirm withdrawal" titleId={titleId}
             {...(step === "confirm" ? { onBack: withdrawJourney.back } : {})} closeLabel="Close withdrawal review" />
           <MoneyModalBody hasFooter className="gap-4 pt-4">
-            <MoneyConfirmSummary action={prepared} amount={amount}
+            {confirmFacts ? <MoneyConfirmSummary facts={confirmFacts} amount={amount}
               lead={`You're withdrawing from ${prepared.metadata?.product === "cashout" ? prepared.metadata.providerName : "your cash-out"}`}
               rows={[
-                moneyConfirmFromRow(prepared.owner),
                 { label: "Provider", value: prepared.metadata?.product === "cashout" ? prepared.metadata.providerName : "" },
                 { label: "Payout app", value: prepared.metadata?.product === "cashout" ? prepared.metadata.platformLabel : "" },
-                { label: "Network", value: "Base" },
-              ]} />
+              ]} /> : null}
             {withdrawJourney.error ? <p role="alert" className="text-sm text-destructive">{withdrawJourney.error}</p> : null}
             {reviewExpired && step === "confirm" && !withdrawJourney.error ? (
               <p role="alert" className="text-sm text-destructive">This review expired. Go back and continue again.</p>

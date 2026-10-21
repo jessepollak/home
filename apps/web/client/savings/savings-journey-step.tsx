@@ -16,7 +16,8 @@ import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
   MoneyConfirmSummary,
-  moneyConfirmFromRow,
+  MoneyAmountSummary,
+  moneyConfirmFacts,
   MoneyConfirmFooter,
   MoneyModalBody,
   MoneyModalFooter,
@@ -31,7 +32,7 @@ import {
   maxAmountAfterNetworkFee,
   useNetworkFeeReserve,
 } from "@/client/money-modal";
-import type { MoneyActionOwner, OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { parseUsdcAmount } from "@/client/savings/format";
 import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
 import { reportClientError } from "@/client/observability/client-reporter";
@@ -129,6 +130,7 @@ export function SavingsJourneyStep({
   } = useReactiveExpiry(preparedAction?.expiresAt ?? null);
   const actionExpired = expiredPrepared || serverExpiredActionId === preparedAction?.id;
   const confirmAmount = amountBaseUnits ? formatUsdStablecoinAmount(amountBaseUnits) : "";
+  const confirmFacts = preparedAction ? moneyConfirmFacts(preparedAction) : null;
   const activeCandidate = candidate ?? management?.depositCandidate ?? management?.withdrawCandidate;
   const configuredAssetId = activeCandidate?.asset.symbol.toLocaleLowerCase() ?? "usdc";
   const assetId = selectedAssetId ?? configuredAssetId;
@@ -393,13 +395,17 @@ export function SavingsJourneyStep({
       ) : null}
 
       {amountBaseUnits && step !== "amount" && step !== "result" ? (
-        <MoneyConfirmSummary action={preparedAction}
+        confirmFacts ? <MoneyConfirmSummary facts={confirmFacts}
           amount={confirmAmount}
           lead={mode === "deposit" ? "Deposit to Save" : "Withdraw from Save"}
-          rows={preparedReview && preparedAction ? savingsReviewRows(preparedReview, preparedAction.owner, regionId) : [
+          rows={preparedReview ? savingsReviewRows(preparedReview, regionId) : [
             { label: "Review", value: "Prepared facts unavailable" },
           ]}
-        />
+        /> : !preparedAction ? <MoneyAmountSummary
+          amount={confirmAmount}
+          lead={mode === "deposit" ? "Deposit to Save" : "Withdraw from Save"}
+          rows={[{ label: "Review", value: "Prepared facts unavailable" }]}
+        /> : null
       ) : null}
 
       {step === "result" && preparedAction && submission ? (
@@ -480,15 +486,13 @@ function amountExceedsKnownAvailable(amount: string, available: bigint | null): 
   return BigInt(parsedAmount) > available;
 }
 
-function savingsReviewRows(review: SavingsPreparedReview, owner: MoneyActionOwner, regionId: RegionId) {
+function savingsReviewRows(review: SavingsPreparedReview, regionId: RegionId) {
   const apy = review.discoveryRate.status === "unavailable"
     ? "Unavailable"
     : `${formatPresentationPercentage(Number(review.discoveryRate.netApy), regionId)} APY${review.discoveryRate.status === "stale" ? " at last update" : ""}`;
   const fee = formatWadFeePercent(review.feeWad, regionId);
   return [
-    moneyConfirmFromRow(owner),
     { label: "Vault", value: review.vaultName },
-    { label: "Network", value: `${review.network.name} (${review.network.chainId})` },
     { label: "Rate", value: apy },
     { label: "Vault fee", value: fee },
     { label: "Amount", value: formatUsdStablecoinAmount(review.exactUsdcBaseUnits) },

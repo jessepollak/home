@@ -24,6 +24,7 @@
     { "pattern": "client/account/*.test.*", "category": "auth" },
     { "pattern": "client/actions/money-action-outcome.test.tsx", "category": "action-lifecycle" },
     { "pattern": "client/money-modal/amount-*.test.ts", "category": "money-math" },
+    { "pattern": "client/money-modal/confirm-facts.test.ts", "category": "money-math" },
     { "pattern": "client/money-modal/network-fee-policy.test.ts", "category": "money-math" },
     { "pattern": "client/savings/estimated-growth.test.ts", "category": "money-math" },
     { "pattern": "client/savings/format.test.ts", "category": "money-math" },

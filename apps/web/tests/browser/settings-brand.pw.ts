@@ -39,6 +39,18 @@ async function fill(page: Page, values: { name?: string; description?: string; p
   if (values.background !== undefined) await page.getByLabel("Background color", { exact: true }).fill(values.background);
 }
 
+async function fillAndExpectPreview(page: Page, values: Parameters<typeof fill>[1], expected: string) {
+  await expect(async () => {
+    for (const [field, label] of [
+      ["name", "Display name"], ["description", "Description"], ["primary", "Primary color"], ["background", "Background color"],
+    ] as const) {
+      if (values[field] !== undefined) await page.getByLabel(label, { exact: true }).fill("");
+    }
+    await fill(page, values);
+    await expect(page.getByRole("group", { name: "Customer preview" })).toContainText(expected);
+  }).toPass({ timeout: 15_000 });
+}
+
 async function save(page: Page, operator: string, revision: number) {
   const pending = page.waitForResponse((response) => new URL(response.url()).pathname === settingsPath && response.request().method() === "PUT");
   await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -117,8 +129,8 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     const concurrent = await context.newPage();
     try {
       await concurrent.goto("/admin/settings/brand");
-      await fill(page, { name: "Draft Name" });
-      await fill(concurrent, { description: "Won the race." });
+      await fillAndExpectPreview(page, { name: "Draft Name" }, "Draft Name");
+      await fillAndExpectPreview(concurrent, { description: "Won the race." }, "Won the race.");
       expect((await save(concurrent, admin, 1)).status()).toBe(200);
       const winner = await readBrand(context);
       const auditBefore = await brandAudit(context);

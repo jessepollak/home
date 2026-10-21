@@ -5,9 +5,12 @@ import { splitMoneyTickerValue } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { MoneyActionOwner } from "@/shared/money-actions/types";
 import { useId, useState, type ReactNode } from "react";
+import { usePresentationRegionId } from "@/client/invest/presentation-quote";
+import type { RegionId } from "@/config/regions";
 import { useAutoFitAmountText } from "./amount";
+import type { MoneyConfirmFacts } from "./confirm-facts";
 import { NetworkFeeReview } from "./network-fee-review";
 
 export type MoneyConfirmRow = { label: string; value: ReactNode; fullValue?: boolean };
@@ -16,14 +19,33 @@ export function moneyConfirmFromRow(owner: MoneyActionOwner): MoneyConfirmRow {
   return { label: "From", value: <AddressText address={owner.address} className="justify-end" /> };
 }
 
-export function MoneyConfirmSummary({ amount, lead, rows, details, action, destination }: { amount: string; lead: string; rows: readonly MoneyConfirmRow[]; details?: readonly MoneyConfirmRow[]; action?: PreparedMoneyAction | null; destination?: ReactNode }) {
+function confirmFactRows(facts: MoneyConfirmFacts, regionId: RegionId): { leading: MoneyConfirmRow[]; trailing: MoneyConfirmRow[] } {
+  return {
+    leading: [moneyConfirmFromRow(facts.owner)],
+    trailing: [
+      { label: "Network", value: facts.network.name },
+      { label: "Network fee", value: facts.fee.payment === "usdc" ? <NetworkFeeReview fee={facts.fee} tokenRegionId={regionId} /> : "Paid in ETH" },
+      ...(facts.kind === "trade" ? [{ label: "Max slippage", value: `${facts.slippage.maxBps / 100}%` }] : []),
+    ],
+  };
+}
+
+type SummaryProps = { amount: string; lead: string; rows: readonly MoneyConfirmRow[]; details?: readonly MoneyConfirmRow[]; destination?: ReactNode };
+
+export function MoneyConfirmSummary({ facts, rows, ...props }: SummaryProps & { facts: MoneyConfirmFacts }) {
+  const { leading, trailing } = confirmFactRows(facts, usePresentationRegionId());
+  return <ConfirmSummaryLayout {...props} rows={[...leading, ...rows, ...trailing]} />;
+}
+
+export function MoneyAmountSummary(props: SummaryProps) {
+  return <ConfirmSummaryLayout {...props} />;
+}
+
+function ConfirmSummaryLayout({ amount, lead, rows: reviewRows, details, destination }: SummaryProps) {
   const { containerRef, sizerRef, fontSize, overflows } = useAutoFitAmountText<HTMLDivElement>(amount, { minRem: 1.5 });
   const { prefix, numeric, suffix } = splitMoneyTickerValue(amount);
   const detailsId = useId();
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const reviewRows: readonly MoneyConfirmRow[] = action?.networkFee?.payment === "usdc"
-    ? [...rows, { label: "Network fee", value: <NetworkFeeReview fee={action.networkFee} /> }]
-    : rows;
   return (
     <div className="space-y-6">
       <div className="space-y-1 text-center">

@@ -26,10 +26,15 @@ export {
 export type { MoneyAssetPrice } from "./amount-units";
 
 export {
+  MoneyAmountSummary,
   MoneyConfirmSummary,
-  moneyConfirmFromRow,
 } from "./confirm-summary";
+/** @public Used by trade exploration review rows. */
+export { moneyConfirmFromRow } from "./confirm-summary";
 export type { MoneyConfirmRow } from "./confirm-summary";
+export { moneyConfirmFacts } from "./confirm-facts";
+/** @public Prepared-action confirmation facts contract. */
+export type { MoneyConfirmFacts } from "./confirm-facts";
 export { CashOutReview } from "./cash-out-review";
 
 export {
