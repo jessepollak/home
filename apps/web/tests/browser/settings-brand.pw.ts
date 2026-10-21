@@ -48,13 +48,14 @@ async function save(page: Page, operator: string, revision: number) {
 }
 
 test("Brand edits persist, apply to a fresh customer page and never overwrite silently", { tag: "@smoke" }, async ({ page, context }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(120_000);
   await setSession(context, admin);
   const puts: string[] = [];
   page.on("request", (request) => { if (new URL(request.url()).pathname === settingsPath && request.method() === "PUT") puts.push(request.url()); });
 
   await test.step("Settings links to Brand, which names its deployment-default source", async () => {
     await page.goto("/admin/settings");
+    await expect(page.locator("[data-operator-ready=true]")).toBeVisible({ timeout: 15_000 });
     await page.getByRole("link", { name: /^Brand/ }).click();
     await expectNavigation(page, /\/admin\/settings\/brand$/);
     await expect(page.getByRole("heading", { name: "Brand", exact: true, level: 1 })).toBeVisible();
@@ -114,9 +115,11 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
 
   await test.step("a real revision race keeps the rejected draft until the operator chooses", async () => {
     await page.goto("/admin/settings/brand");
+    await expect(page.locator("[data-operator-ready=true]")).toBeVisible({ timeout: 15_000 });
     const concurrent = await context.newPage();
     try {
       await concurrent.goto("/admin/settings/brand");
+      await expect(concurrent.locator("[data-operator-ready=true]")).toBeVisible({ timeout: 15_000 });
       await fill(page, { name: "Draft Name" });
       await fill(concurrent, { description: "Won the race." });
       expect((await save(concurrent, admin, 1)).status()).toBe(200);
