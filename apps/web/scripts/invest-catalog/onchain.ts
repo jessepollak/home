@@ -2,6 +2,7 @@ import { createPublicClient, http, type Abi } from "viem";
 import { base } from "viem/chains";
 import stocks from "../../config/invest-sources/base-stocks.json";
 import wrapped from "../../config/invest-sources/coinbase-wrapped.json";
+import curated from "../../config/invest-sources/curated-catalog.json";
 import type { CatalogReport, Change } from "./catalog";
 
 type Address = `0x${string}`;
@@ -30,7 +31,7 @@ export async function compareOnchain(reads: OnchainReads): Promise<Change[]> {
     if (String(expected).toLowerCase() !== String(actual).toLowerCase()) changes.push({ key, field, expected, actual });
   };
   await Promise.all([
-    ...[...stocks.stocks, ...wrapped.assets].map(async (asset) => {
+    ...[...stocks.stocks, ...wrapped.assets, ...curated.memes].map(async (asset) => {
       const contract = asset.contract as Address;
       const token = await reads.token(contract);
       compare(asset.tokenSymbol, "symbol", asset.tokenSymbol, token.symbol);
