@@ -18,6 +18,7 @@ const repositoryImage = "docs/qa/checking-97/home-shell-shimmer.png";
 const previewBody = (content) => `${body}\n## Preview\n${content}`;
 const previewRow = (value, label = "Changed state") => `| **${label}** | ${value} |`;
 const missingMedia = (label = "Changed state") => `## Preview row "${label}" needs media or the exact phrase \`Preview unchanged\` with a reason.`;
+const undefinedReference = (label, row) => `## Preview image reference [${label}] has no definition${row === undefined ? "" : ` in row "${row}"`}.`;
 const unresolvedImage = (reference, label) => `## Preview image ${reference || "(empty reference)"}${label === undefined ? "" : ` in row "${label}"`} does not resolve to a GitHub attachment or an existing repository file.`;
 
 for (const type of ["product", "design", "feat", "fix", "test", "ops", "dx", "docs", "chore"]) {
@@ -279,6 +280,32 @@ test("resolves nested alt text and reference-style Preview images", () => {
   assert.deepEqual(prBodyShapeFindings(title, previewBody(`| State | Evidence |\n| --- | --- |\n| Changed | ![capture] |\n\n[capture]: ${attachment}`)), []);
 });
 
+test("rejects undefined full, collapsed and shortcut reference-style Preview images", () => {
+  const row = (value) => `| State | Evidence |\n| --- | --- |\n| Changed | ![ok](${attachment}) ${value} |`;
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("![After][capture]"))), [undefinedReference("capture", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("![After][]"))), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("![After]"))), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("![After][Capture] ![again][capture]"))), [undefinedReference("Capture", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(`${row("![After][capture]")}\n\n[CAPTURE]: ${repositoryImage}`)), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(`![After][capture]\n\n![ok](${attachment})`)), [undefinedReference("capture")]);
+});
+
+test("does not read reference syntax inside inline images, escapes or code spans", () => {
+  const row = (value) => `| State | Evidence |\n| --- | --- |\n| Changed | ![ok](${attachment}) ${value} |`;
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![Home [x][y]](${attachment})`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("\\![x]"))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("`![x][y]`"))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![Home [nested [alt]]](${attachment})`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("\\\\![x]"))), [undefinedReference("x", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("`` ![x] ` `` ![y]"))), [undefinedReference("y", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(`| State | Evidence |\n| --- | --- |\n| Changed | ![After \`]\` state](${attachment}) |`)), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("![Beta] ![bad](missing.png)"))), [undefinedReference("Beta", "Changed"), unresolvedImage("missing.png", "Changed")]);
+});
+
+test("treats a long line of unclosed image openers as no media", () => {
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(`| State | Evidence |\n| --- | --- |\n| Changed | ${"![".repeat(30000)} |`)), [missingMedia("Changed")]);
+});
+
 test("reads img sources past quoted angle brackets and strips markup from an unchanged reason", () => {
   assert.deepEqual(prBodyShapeFindings(title, previewBody('| State | Evidence |\n| --- | --- |\n| Changed | <img alt="After > Before" src="docs/qa/checking-97/home-shell-shimmer.png"> |')), []);
   assert.deepEqual(prBodyShapeFindings(title, previewBody('| State | Evidence |\n| --- | --- |\n| Changed | <img alt="After > Before" src="missing.png"> |')), [unresolvedImage("missing.png", "Changed"), missingMedia("Changed")]);
@@ -294,7 +321,7 @@ test("resolves continuation, collapsed and first-wins reference definitions", ()
   const table = "| State | Evidence |\n| --- | --- |\n| Changed | ![After][capture] |";
   assert.deepEqual(prBodyShapeFindings(title, previewBody(`${table}\n\n[capture]:\n  ${repositoryImage}`)), []);
   assert.deepEqual(prBodyShapeFindings(title, previewBody(`${table}\n\n[capture]:\n${repositoryImage}`)), []);
-  assert.deepEqual(prBodyShapeFindings(title, previewBody(`${table}\n\n[capture]:\nhello world`)), [missingMedia("Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(`${table}\n\n[capture]:\nhello world`)), [undefinedReference("capture", "Changed"), missingMedia("Changed")]);
   assert.deepEqual(prBodyShapeFindings(title, previewBody(`${table}\n\n[capture]: missing.png\n[capture]: ${repositoryImage}`)), [unresolvedImage("missing.png", "Changed"), missingMedia("Changed")]);
   assert.deepEqual(prBodyShapeFindings(title, previewBody(`${table}\n\n[capture]: ${repositoryImage}\n[capture]: missing.png`)), []);
   assert.deepEqual(prBodyShapeFindings(title, previewBody(`| State | Evidence |\n| --- | --- |\n| Changed | ![capture][] |\n\n[capture]: ${repositoryImage}`)), []);
