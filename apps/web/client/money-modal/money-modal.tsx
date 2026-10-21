@@ -403,31 +403,39 @@ export function MoneyModalStepLoading({ step, depth, title, titleId, onBack, clo
   </MoneyModalStep>;
 }
 
-type MoneyModalFooterProps = {
+type MoneyModalFooterLabelProps = {
   primaryLabel: ReactNode; onPrimary?: () => void; primaryDisabled?: boolean; primaryLoading?: boolean; primaryType?: "button" | "submit"; primaryAutoFocus?: boolean; primaryVariant?: "default" | "destructive";
   secondaryLabel?: ReactNode; onSecondary?: () => void; secondaryDisabled?: boolean; secondaryLoading?: boolean; secondaryRef?: RefObject<HTMLButtonElement | null>;
 };
 
+type MoneyModalFooterSlots = {
+  primary: ReactNode; secondary?: ReactNode; note?: ReactNode; layout?: "stack" | "split";
+};
+
+type MoneyModalFooterProps =
+  | (MoneyModalFooterLabelProps & { [K in keyof MoneyModalFooterSlots]?: never })
+  | (MoneyModalFooterSlots & { [K in keyof MoneyModalFooterLabelProps]?: never });
+
 export function MoneyModalFooter(props: MoneyModalFooterProps) {
-  return <FooterButtons {...props} />;
+  return props.primaryLabel !== undefined ? <FooterButtons {...props} primaryLabel={props.primaryLabel} /> : <MoneyModalActions primary={props.primary} secondary={props.secondary} note={props.note} layout={props.layout} />;
 }
 
-export function MoneyConfirmFooter({ action, actionExpired = false, submitting = false, ...props }: MoneyModalFooterProps & { action: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
+export function MoneyConfirmFooter({ action, actionExpired = false, submitting = false, ...props }: MoneyModalFooterLabelProps & { action: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
   return <FooterButtons {...props} action={action} actionExpired={actionExpired} submitting={submitting} />;
 }
 
-export function MoneyModalActions({ children }: { children: ReactNode }) {
-  return <DrawerFooter>{children}</DrawerFooter>;
+function MoneyModalActions({ primary, secondary, note, layout = "stack" }: MoneyModalFooterSlots) {
+  return <DrawerFooter>{note}{layout === "split" ? <div className="grid grid-cols-2 gap-2">{primary}{secondary}</div> : <>{primary}{secondary}</>}</DrawerFooter>;
 }
 
-function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, primaryLoading = false, primaryType = "button", primaryAutoFocus = false, primaryVariant = "default", secondaryLabel, onSecondary, secondaryDisabled = false, secondaryLoading = false, secondaryRef, action, actionExpired = false, submitting = false }: MoneyModalFooterProps & { action?: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
+function FooterButtons({ primaryLabel, onPrimary, primaryDisabled = false, primaryLoading = false, primaryType = "button", primaryAutoFocus = false, primaryVariant = "default", secondaryLabel, onSecondary, secondaryDisabled = false, secondaryLoading = false, secondaryRef, action, actionExpired = false, submitting = false }: MoneyModalFooterLabelProps & { action?: PreparedMoneyAction; actionExpired?: boolean; submitting?: boolean }) {
   const { expired } = useReactiveExpiry(action?.expiresAt ?? null);
   const active = action && !actionExpired && !expired && Number.isFinite(Date.parse(action.expiresAt));
   return (
-    <MoneyModalActions>
-      <Button size="touch" variant={primaryVariant} type={primaryType} data-money-step-focus={primaryAutoFocus ? "" : undefined} disabled={primaryDisabled} loading={primaryLoading || submitting} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>
-      {secondaryLabel && onSecondary ? <Button ref={secondaryRef} size="touch" variant="ghost" disabled={secondaryDisabled || submitting} loading={secondaryLoading} onClick={onSecondary}>{secondaryLabel}</Button> : null}
-    </MoneyModalActions>
+    <MoneyModalActions
+      primary={<Button size="touch" variant={primaryVariant} type={primaryType} data-money-step-focus={primaryAutoFocus ? "" : undefined} disabled={primaryDisabled} loading={primaryLoading || submitting} onClick={onPrimary} {...(active ? { [MONEY_ACTION_ID_ATTRIBUTE]: action.id } : {})}>{primaryLabel}</Button>}
+      secondary={secondaryLabel && onSecondary ? <Button ref={secondaryRef} size="touch" variant="ghost" disabled={secondaryDisabled || submitting} loading={secondaryLoading} onClick={onSecondary}>{secondaryLabel}</Button> : null}
+    />
   );
 }
 
