@@ -1,6 +1,6 @@
 # Cards
 
-Status: design of record for [#2079](https://github.com/jessepollak/home/issues/2079), October 6, 2026. Bridge + Stripe and Rain sit behind one card-program interface; Immersve remains for regions neither serves. Only the Bridge adapter and existing Immersve event ingress are implemented. Cards are not live. This page authorizes synthetic public-sandbox probes and Stripe test mode only, not production funding or live card spend.
+Status: design of record for [#2079](https://github.com/jessepollak/home/issues/2079), October 6, 2026. Bridge + Stripe and Rain sit behind one card-program interface; Immersve remains for regions neither serves. Only the Bridge adapter and existing Immersve event ingress are implemented. The card journey — enrollment, issuance, freeze, reveal, purchases in Activity, and the allowance Action — is implemented and reachable when the deployment's card program configuration is valid. The Card tab appears when `BRIDGE_CARDS_ENABLED=1`; invalid program settings leave cards unavailable rather than hiding the tab. No production Bridge program or spender is assigned, so this page authorizes synthetic public-sandbox probes and Stripe test mode only, not production funding or live card spend.
 
 ## Customer model
 
