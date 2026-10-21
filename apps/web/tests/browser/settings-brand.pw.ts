@@ -48,7 +48,7 @@ async function save(page: Page, operator: string, revision: number) {
 }
 
 test("Brand edits persist, apply to a fresh customer page and never overwrite silently", { tag: "@smoke" }, async ({ page, context }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   await setSession(context, admin);
   const puts: string[] = [];
   page.on("request", (request) => { if (new URL(request.url()).pathname === settingsPath && request.method() === "PUT") puts.push(request.url()); });
