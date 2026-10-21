@@ -19,7 +19,11 @@
     "nursery": "off"
   },
   "jsPlugins": [
-    "./oxlint/home-plugin.mjs"
+    "./oxlint/home-plugin.mjs",
+    {
+      "name": "gdp-ts",
+      "specifier": "@gdp-ts/core/lint/plugin"
+    }
   ],
   "options": {
     "typeAware": true,
@@ -788,6 +792,23 @@
       ],
       "rules": {
         "home/no-address-literal-regex": "error"
+      }
+    },
+    {
+      // Authorization proofs are minted only by trusted modules under server/proofs/.
+      "files": [
+        "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": ["server/proofs/**"],
+      "rules": {
+        "gdp-ts/no-define-proof": "error",
+        "gdp-ts/no-proof-assertion": "error"
+      }
+    },
+    {
+      "files": ["server/proofs/**"],
+      "rules": {
+        "gdp-ts/no-exported-prover": "error"
       }
     }
   ]
