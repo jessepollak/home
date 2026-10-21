@@ -57,6 +57,7 @@ describe("deployment access policy", () => {
       "/api/session",
       "/api/support/chat",
       "/api/support/handoff",
+      "/api/admin/growth/rewards/11111111-1111-4111-8111-111111111111",
       "/api/admin/support/assistant/credential",
       "/api/admin/support/conversations/11111111-1111-4111-8111-111111111111/handler",
       "/api/funding/orders/11111111-1111-4111-8111-111111111111/resolve",

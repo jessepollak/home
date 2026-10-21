@@ -6,8 +6,8 @@ import { validCursor, type AuditEntry } from "@/shared/operator-settings/contrac
 import { OperatorSettingsValidationError } from "./store";
 
 type AuditRow = {
-  id: string; occurred_at: Date; actor: `0x${string}`; action: "settings.update" | "support.credential.update" | "support.credential.delete" | "customer.read";
-  target_kind: "settings" | "customer"; target_id: string; purpose: string | null; before: unknown; after: unknown;
+  id: string; occurred_at: Date; actor: `0x${string}`; action: "settings.update" | "support.credential.update" | "support.credential.delete" | "customer.read" | "growth.reward.approve" | "growth.reward.reject";
+  target_kind: "settings" | "customer" | "reward"; target_id: string; purpose: string | null; before: unknown; after: unknown;
 };
 
 export class AdminAuditLog {
@@ -53,6 +53,10 @@ export class AdminAuditLog {
       if (row.action === "customer.read") {
         if (row.target_kind !== "customer" || row.purpose === null) throw new Error("Stored customer read audit row is malformed");
         return { ...common, action: "customer.read", target: { kind: "customer", id: row.target_id }, purpose: row.purpose };
+      }
+      if (row.action === "growth.reward.approve" || row.action === "growth.reward.reject") {
+        if (row.target_kind !== "reward" || row.before === null || row.after === null) throw new Error("Stored reward audit row is malformed");
+        return { ...common, action: row.action, target: { kind: "reward", id: row.target_id }, before: row.before, after: row.after };
       }
       if (row.target_kind !== "settings") throw new Error("Stored settings audit row is malformed");
       const target = { kind: "settings" as const, id: row.target_id };
