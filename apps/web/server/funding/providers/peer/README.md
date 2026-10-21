@@ -2,6 +2,10 @@
 
 Peer is registered once with an offramp port. No Peer onramp is implemented: the published integration still does not provide the hosted recipient/asset/amount/country/recovery contract required by issue #436.
 
+## Connection check
+
+Test connection sends one `eth_getCode` request for the selected deployment's pinned escrow address through the configured Base RPC, using the shared Base RPC client: a four-second deadline composed with the request deadline, a bounded response and no retries. Non-empty code is connected, empty or malformed code is inconclusive, and an RPC failure is unreachable.
+
 ## Acceptance
 
 | Offramp rail | CI synthetic | Local staging | Production / hosted funded |

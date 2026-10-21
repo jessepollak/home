@@ -61,6 +61,7 @@ At Admin → Settings → Products and markets, a saved settings row wins over d
 
 **Admin → Settings → Money in and out** (`/admin/settings/funding`) chooses which funding corridors are offered, per provider, region, and direction. Credentials stay in the environment and only make a corridor *connected*; the page shows each credential as set or unset, never its value. A corridor is offered only when it is connected and switched on.
 
+- **Credentials set** means the required variables are present, not that a live check passed. **Test connection** runs an on-demand, read-only check; its timestamped result is shown, never enforced, saved, or written to the audit log.
 - **Until the first save**, Home uses deployment values: every connected corridor is offered, and Peer follows `PEER_OFFRAMP_ENABLED=1`. Nothing is written until you save.
 - **After the first save**, the saved settings win. `PEER_OFFRAMP_ENABLED` is ignored, and a corridor added by a later upstream update starts off.
 - **Pausing** stops new entries within seconds: listing for new customers, quotes, order creation, starting provider verification, and new cash-outs. A cash-out prepared before the pause is refused when the customer confirms it. A paused corridor stays visible to a customer who already has an open or ambiguous order there, so that order can still be finished and followed. Status refresh, webhooks, ambiguous-order resolution, withdrawal, and recovery never read the setting, so open orders keep reconciling.
