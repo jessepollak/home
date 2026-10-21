@@ -117,7 +117,22 @@ When enabling this gate, configure `HOME_ACCESS_SIGNING_SECRET` before or with t
 
 Keep Vercel Authentication enabled while deploying and verifying the gate. After authorized verification, change **Project Settings → Deployment Protection** to exactly **Only Preview Deployments**. This keeps previews behind Vercel Authentication and removes it only from production so the public Apple association file, signed webhook endpoints, and the action-bound wallet paymaster callback can reach Home. Roll back by restoring Vercel Authentication for production; do not widen the application's public-route allowlist.
 
-Before that setting change, an operator must configure cross-instance Vercel Firewall rate-limit rules for failed access submissions and unauthenticated cost-bearing endpoints, including `POST /api/access`, `POST /api/auth/base/nonce`, `POST /api/auth/base/verify`, `POST /api/actions/*/paymaster` (the unauthenticated wallet callback that forwards to a credential-bearing upstream), and `/api/market-prices/history`. Home intentionally has no in-memory or database rate limiter for this deployment boundary. Firewall configuration, protected-deployment checks, and WAF inspection are privileged operator actions, not CI proof.
+Before that setting change, an operator must configure cross-instance Vercel Firewall rate-limit rules for access submissions and unauthenticated cost-bearing endpoints. The counters live in the firewall rather than in a function instance, so Home still intentionally has no in-memory or database rate limiter for this deployment boundary. Firewall configuration, protected-deployment checks, and WAF inspection are privileged operator actions, not CI proof, and the counts below are operator-owned starting points rather than values any check verifies.
+
+| Route | Starting limit, per client IP | When the limit is reached | Other protection |
+| --- | --- | --- | --- |
+| `POST /api/access` | 10 requests / 60 s | `429` with `ACCESS_UNAVAILABLE` and no access cookie | Rule condition `@vercel/firewall` with rate limit ID `home-access-login`; the handler looks that ID up before comparing the credential |
+| `POST /api/auth/base/nonce` | 30 / 60 s | Firewall rejection | None |
+| `POST /api/auth/base/verify` | 30 / 60 s | Firewall rejection | None |
+| `POST /api/actions/*/paymaster` | 60 / 60 s | Firewall rejection | Action-scoped wallet callback that forwards to a credential-bearing upstream |
+| `GET /api/market-prices/history` | 120 / 60 s | Firewall rejection | Provider-backed read |
+| `POST /api/client-errors` | 60 / 60 s | Firewall rejection | 2048-byte body cap and 30 reports / 60 s per instance |
+| `POST /api/client-performance` | 60 / 60 s | Firewall rejection | 2048-byte body cap and per-instance timing and interaction windows |
+| `POST /api/webhooks/cdp` | Not rate-limited | n/a | `X-Hook0-Signature` verification over a bounded body, with the 120-second balance read backstop |
+
+Create the access rule as an `@vercel/firewall` condition with rate limit ID `home-access-login`, because the handler looks the rule up by ID; a plain path rule leaves the in-code check unconfigured. See [Rate limiting with the SDK](https://vercel.com/docs/vercel-waf/rate-limiting-sdk).
+
+The handler consults its rule only on a Vercel deployment, where those counters exist; anywhere else the submission proceeds without the check. A failed, timed-out, or unconfigured firewall check allows the submission and emits an `access-login` server event, so a firewall outage cannot lock out sign-in. While Vercel Authentication still protects a deployment, the check cannot reach its rule and the submission likewise proceeds with an `access-login` event; the limit applies once the deployment is public. Keep each limit above your own retry count: a rule that is too tight, or one that denies rather than rate-limits, blocks every customer at the gate, and recovery is an operator edit in Vercel, not a deploy.
 
 After the setting change, the operator runs unauthenticated live probes for the exact Apple file, protected pages and APIs, and rejected CDP, funding, and card webhook deliveries, then separately verifies deployment access, Home sign-in, Home sign-out, and access logout. These live probes must record the deployment and commit without recording the shared credential. Local tests and preview evidence do not establish that production, Deployment Protection, Firewall, or webhook delivery was verified.
 
