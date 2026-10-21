@@ -178,11 +178,11 @@ Each pass ran the repository's targeted suites in its area (unit tests, plus Pos
 
 | Findings | Follow-up | Area |
 | --- | --- | --- |
-| F1, F2, F3 | Recorded as `fix(actions): correct action status, stock retry and savings error text` | money-actions |
-| F4, F5, F6 | Recorded as `fix(auth): revoke signed-out sessions and make deployment access fail closed` | session, access |
-| F7, F8, F9 | Recorded as `fix(webhooks): retry transient funding failures and verify before parsing` | funding, balances |
-| F10 | Recorded as `fix(cards): record card-detail reveal access` | cards |
-| F11 | Recorded as `fix(ops): include support credentials in documented key rotation` | operator settings |
+| F1, F2, F3 | Filed in [#2108](https://github.com/jessepollak/home/issues/2108): correct action status, stock retry and savings error text | money-actions |
+| F4, F5, F6 | Filed in [#2235](https://github.com/jessepollak/home/issues/2235): revoke signed-out sessions and make deployment access fail closed | session, access |
+| F7, F8, F9 | Filed in [#2265](https://github.com/jessepollak/home/issues/2265): retry transient funding failures and verify before parsing | funding, balances |
+| F10 | Filed in [#2263](https://github.com/jessepollak/home/issues/2263): record card-detail reveal access | cards |
+| F11 | Filed in [#2264](https://github.com/jessepollak/home/issues/2264): include support credentials in documented key rotation | operator settings |
 | F12, F13 | Already owned by [#2132](https://github.com/jessepollak/home/issues/2132); export handlers also in [#2227](https://github.com/jessepollak/home/pull/2227) | account privacy |
 
 No finding in this review changes wallet-signing authority, moves funds without the owner's signature, discloses another customer's data, or exposes a server credential. The record should be re-run after any change to the action state machine, session issuance or revocation, the deployment access gate, a public webhook, or a credential store.
