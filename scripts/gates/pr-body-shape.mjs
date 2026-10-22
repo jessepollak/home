@@ -82,6 +82,20 @@ function imageSource(tag) {
 
 const inlineDestination = /[ \t]*(?:<([^<>\r\n]*)>|((?:\\.|[^\\\s()]|\([^()\r\n]*\))*?))(?:[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*'|\([^()\r\n]*\)))?[ \t]*\)/y;
 
+const htmlTag = /^(?:<[A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*\s*\/?>|<\/[A-Za-z][A-Za-z0-9-]*\s*>|<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*>)/;
+const htmlTagWindow = 8192;
+
+function htmlTagEnd(line, index) {
+  const match = htmlTag.exec(line.slice(index, index + htmlTagWindow));
+  return match ? index + match[0].length : index + 1;
+}
+
+function linkDestinationEnd(line, index) {
+  while (line[index] === " " || line[index] === "\t") index++;
+  inlineDestination.lastIndex = index;
+  return inlineDestination.test(line) ? inlineDestination.lastIndex : -1;
+}
+
 function skipCodeSpan(line, index) {
   let end = index;
   while (line[end] === "`") end++;
@@ -98,6 +112,7 @@ function bracketPairs(line) {
     const char = line[index];
     if (char === "\\") index += 2;
     else if (char === "`") index = skipCodeSpan(line, index);
+    else if (char === "<") index = htmlTagEnd(line, index);
     else {
       if (char === "[") open.push(index);
       else if (char === "]" && open.length) pairs.set(open.pop(), index);
@@ -110,16 +125,34 @@ function bracketPairs(line) {
 function markdownImages(line, definitions) {
   const images = [];
   const pairs = bracketPairs(line);
+  const openers = new Map([...pairs].map(([open, close]) => [close, open]));
+  const isReferenceLabel = (open, close) => {
+    const previous = line[open - 1] === "]" ? openers.get(open - 1) : undefined;
+    if (previous === undefined) return false;
+    return definitions.has(referenceId(close === open + 1 ? line.slice(previous + 1, open - 1) : line.slice(open + 1, close)));
+  };
   const undefinedReference = (label, index) => {
     const reference = definitions.get(referenceId(label));
     images.push(reference ? { reference, index } : { undefinedLabel: label.trim(), index });
   };
+  const linkDestinations = new Map();
   for (let index = 0; index < line.length;) {
     const char = line[index];
-    if (char === "\\") {
+    if (linkDestinations.has(index)) {
+      index = linkDestinations.get(index);
+    } else if (char === "\\") {
       index += 2;
     } else if (char === "`") {
       index = skipCodeSpan(line, index);
+    } else if (char === "<") {
+      index = htmlTagEnd(line, index);
+    } else if (char === "[") {
+      const close = pairs.get(index) ?? -1;
+      if (close !== -1 && line[close + 1] === "(" && !isReferenceLabel(index, close)) {
+        const end = linkDestinationEnd(line, close + 2);
+        if (end !== -1) linkDestinations.set(close + 1, end);
+      }
+      index++;
     } else if (char === "!" && line[index + 1] === "[") {
       const close = pairs.get(index + 1) ?? -1;
       if (close === -1) {
@@ -129,7 +162,9 @@ function markdownImages(line, definitions) {
       const text = line.slice(index + 2, close);
       const next = line[close + 1];
       if (next === "(") {
-        inlineDestination.lastIndex = close + 2;
+        let start = close + 2;
+        while (line[start] === " " || line[start] === "\t") start++;
+        inlineDestination.lastIndex = start;
         const match = inlineDestination.exec(line);
         if (match) {
           images.push({ reference: match[1] ?? match[2], index });
