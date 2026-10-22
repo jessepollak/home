@@ -37,7 +37,7 @@ export function HomePageContent() {
     returnedFromProvider={page.returnedFromProvider}
     initialTransferFlow={page.initialTransferFlow}
     initialSendActionId={page.initialSendActionId}
-    regionId={page.regionId}
+    regionId={page.regionId} currency={page.displayCurrency}
     initialRateLabels={page.initialRateLabels}
     regionReady={page.regionReady}
     onDetailsOpenChange={page.onHomeDetailsOpenChange}
@@ -50,7 +50,7 @@ export function ActivityPageContent() {
     activitySession={page.activitySession}
     fetchActivity={page.fetchActivity}
     fetchOperations={page.fetchOperations}
-    regionId={page.regionId}
+    regionId={page.regionId} currency={page.displayCurrency}
     showSessionShimmer={page.activitySession ? !page.regionReady : page.sessionSettling ||
       page.paintedAssetBalances.status === "loading" || page.paintedAssetBalances.revalidating === true}
   /></div>;
@@ -60,7 +60,7 @@ export function CashPageContent() {
   const page = useShellPage();
   const location = useRouteShellLocation();
   const view = location.cashView === "savings" ? "savings" : "cash";
-  return <div className={shellDesktopContentClassName} data-shell-panel-id="cash"><CashPanel regionId={page.regionId} isVerified={page.isVerified}
+  return <div className={shellDesktopContentClassName} data-shell-panel-id="cash"><CashPanel regionId={page.regionId} currency={page.displayCurrency} isVerified={page.isVerified}
     isChecking={page.isChecking} content={page.cashContent?.({ view, onOpenSavings: page.openCashSavings })} /></div>;
 }
 
@@ -95,7 +95,7 @@ export function InvestmentsPageContent() {
   const changeChrome = page.onInvestmentsChromeChange;
   return <div className={shellDesktopContentClassName} data-shell-panel-id="investments"><AppChromeProvider>
     <ChromeSync onChange={changeChrome} />
-    <InvestmentsPanel regionId={page.regionId} content={page.investmentsContent?.({
+    <InvestmentsPanel regionId={page.regionId} currency={page.displayCurrency} content={page.investmentsContent?.({
       holding: location.holding ?? null,
       onOpenHolding: page.openInvestmentHolding,
       onCloseHolding: page.closeInvestmentHolding,
@@ -108,7 +108,7 @@ export function InvestPageContent() {
   const page = useShellPage();
   const investOffered = useProductOffering().products.invest === "on";
   if (!investOffered) return <HomeRedirect />;
-  return <div className={shellDesktopContentClassName} data-shell-panel-id="invest"><InvestPanel regionId={page.regionId} content={page.investContent} /></div>;
+  return <div className={shellDesktopContentClassName} data-shell-panel-id="invest"><InvestPanel regionId={page.regionId} currency={page.displayCurrency} content={page.investContent} /></div>;
 }
 
 function HomeRedirect() {

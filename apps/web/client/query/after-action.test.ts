@@ -52,7 +52,7 @@ describe("post-action balance qualification", () => {
   ])("a matching handle's identical settlement replay preserves consumed proof %s and another boundary %s", async (consumed, outstanding) => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
-    const balancesKey = ownerQueryKey(ownerKey, "balances", "US");
+    const balancesKey = ownerQueryKey(ownerKey, "balances", "US", "USD");
     queryClient.setQueryData(balancesKey, balancesSnapshotFixture);
     if (outstanding) await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", now });
     await applyActionHandleEffects({
@@ -74,8 +74,8 @@ describe("post-action balance qualification", () => {
     const provingSnapshot = { ...snapshotAt("35123457"), fetchedAt: new Date(settled.at + 1).toISOString() };
     queryClient.setQueryData(balancesKey, provingSnapshot);
     if (consumed) {
-      const fresh = freshRegionMarker(settled, settled, "US", provingSnapshot);
-      expect(fresh?.fresh.US).toBe(true);
+      const fresh = freshRegionMarker(settled, settled, { region: "US", currency: "USD" }, provingSnapshot);
+      expect(fresh?.fresh["US|USD"]).toBe(true);
       queryClient.setQueryData(markerKey, fresh);
     }
     const beforeReplay = queryClient.getQueryData<BalanceActionMarker>(markerKey);
@@ -85,7 +85,7 @@ describe("post-action balance qualification", () => {
       serverAt: "2026-09-13T12:00:20.000Z",
     });
     expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toBe(beforeReplay);
-    expect(beforeReplay.fresh).toEqual(consumed ? { US: true } : {});
+    expect(beforeReplay.fresh).toEqual(consumed ? { "US|USD": true } : {});
     expect(beforeReplay.dispatchedActionIds).toEqual(outstanding ? ["action-b"] : undefined);
     expect(snapshotProvesFreshness(snapshotAt("35123457"), beforeReplay)).toBe(!outstanding);
     expect(snapshotProvesFreshness({ ...provingSnapshot, block: { ...provingSnapshot.block, number: "35123456" } }, beforeReplay)).toBe(false);
@@ -101,7 +101,7 @@ describe("post-action balance qualification", () => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
     queryClient.setQueryData(markerKey, {
-      at: now, fresh: { US: true }, settledActionIds: ["action-a"], settledBlock: retainedBlock,
+      at: now, fresh: { "US|USD": true }, settledActionIds: ["action-a"], settledBlock: retainedBlock,
       ...(boundaries ? { dispatchedActionIds: [...boundaries] } : {}),
     });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId, settledBlock });
@@ -118,7 +118,7 @@ describe("post-action balance qualification", () => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
     const marker: BalanceActionMarker = {
-      at: now, fresh: { US: true }, settledActionIds: ["action-a"], settledBlock: "105",
+      at: now, fresh: { "US|USD": true }, settledActionIds: ["action-a"], settledBlock: "105",
       dispatchedActionIds: ["action-b"], dispatchedOverflow: true, dispatchedOverflowAt: now,
     };
     queryClient.setQueryData(markerKey, marker);
@@ -132,7 +132,7 @@ describe("post-action balance qualification", () => {
     const queryClient = client();
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "105" });
     const newOwnerKey = ownerKey.replace("user-1", "user-2");
-    queryClient.setQueryData(ownerQueryKey(newOwnerKey, "balances", "US"), snapshotAt("104"));
+    queryClient.setQueryData(ownerQueryKey(newOwnerKey, "balances", "US", "USD"), snapshotAt("104"));
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: newOwnerKey, actionId: "action-a", settledBlock: "105" });
     const marker = queryClient.getQueryData<BalanceActionMarker>(ownerQueryKey(newOwnerKey, "balances-action"));
     if (!marker) throw new Error("Expected the new owner's settlement marker");
@@ -143,7 +143,7 @@ describe("post-action balance qualification", () => {
   test("a block-less replay still advances its timestamp boundary and clears consumed freshness", () => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
-    queryClient.setQueryData(markerKey, { at: now, fresh: { US: true }, settledBlock: "105", settledActionIds: ["action-a"], dispatchedActionIds: ["action-a"] });
+    queryClient.setQueryData(markerKey, { at: now, fresh: { "US|USD": true }, settledBlock: "105", settledActionIds: ["action-a"], dispatchedActionIds: ["action-a"] });
     const serverAt = "2026-09-13T12:00:20.000Z";
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverAt });
     const marker = queryClient.getQueryData<BalanceActionMarker>(markerKey);
@@ -155,7 +155,7 @@ describe("post-action balance qualification", () => {
 
   test.each(["35123457", "35123458"])("a replayed dispatch cannot replace another action's boundary before its settlement at %s", async (settledBlock) => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", now });
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", now });
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", now });
@@ -185,7 +185,7 @@ describe("post-action balance qualification", () => {
 
   test("a delayed lower-block settlement removes only its boundary and keeps the higher block proof", async () => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", now });
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", now });
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
@@ -205,7 +205,7 @@ describe("post-action balance qualification", () => {
 
   test("a hot registry-only refresh proves freshness after the dispatch boundary's own action settles", async () => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", now });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "35123457" });
     const marker = readMarker(queryClient, ownerQueryKey(ownerKey, "balances-action"));
@@ -260,10 +260,10 @@ describe("post-action balance qualification", () => {
   test.each(["104", undefined, "0106"])("requalification with %s retains the higher settled block", (settledBlock) => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
-    queryClient.setQueryData(markerKey, { at: now, fresh: { US: true }, settledBlock: "105", settledActionIds: ["action-a"] });
+    queryClient.setQueryData(markerKey, { at: now, fresh: { "US|USD": true }, settledBlock: "105", settledActionIds: ["action-a"] });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock });
     expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toEqual({
-      at: now, fresh: settledBlock === "104" ? { US: true } : {}, settledBlock: "105", settledActionIds: ["action-a"],
+      at: now, fresh: settledBlock === "104" ? { "US|USD": true } : {}, settledBlock: "105", settledActionIds: ["action-a"],
       ...(settledBlock === "104" ? {} : { dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": now } }),
     });
     expect(snapshotProvesFreshness(snapshotAt("104"), readMarker(queryClient, markerKey))).toBe(false);
@@ -272,13 +272,13 @@ describe("post-action balance qualification", () => {
   test("a dispatched action settling without a block keeps its timestamp requirement and the prior settlement proof", async () => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), snapshotAt("105"));
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), snapshotAt("105"));
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", now });
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", now });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "105" });
     const previous = readMarker(queryClient, markerKey);
     expect(snapshotProvesFreshness(snapshotAt("105"), previous)).toBe(false);
-    queryClient.setQueryData(markerKey, { ...previous, fresh: { US: true } });
+    queryClient.setQueryData(markerKey, { ...previous, fresh: { "US|USD": true } });
 
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b" });
     const marker = readMarker(queryClient, markerKey);
@@ -295,11 +295,11 @@ describe("post-action balance qualification", () => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
     const preDispatchSnapshot = snapshotAt("105");
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), preDispatchSnapshot);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), preDispatchSnapshot);
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "105" });
     const settledMarker = readMarker(queryClient, markerKey);
     expect(snapshotProvesFreshness(preDispatchSnapshot, settledMarker)).toBe(true);
-    queryClient.setQueryData(markerKey, { ...settledMarker, fresh: { US: true } });
+    queryClient.setQueryData(markerKey, { ...settledMarker, fresh: { "US|USD": true } });
 
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", now });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b" });
@@ -314,17 +314,17 @@ describe("post-action balance qualification", () => {
     expect(marker.dispatchedActionIds).toEqual(["action-b"]);
     expect(marker.settledBlock).toBe("105");
     expect(snapshotProvesFreshness(preDispatchSnapshot, marker)).toBe(false);
-    expect(freshRegionMarker(marker, marker, "US", preDispatchSnapshot)).toBeUndefined();
+    expect(freshRegionMarker(marker, marker, { region: "US", currency: "USD" }, preDispatchSnapshot)).toBeUndefined();
     const newerSnapshot = { ...preDispatchSnapshot, fetchedAt: "2026-09-13T12:00:00.002Z" };
     expect(snapshotProvesFreshness(newerSnapshot, marker)).toBe(true);
-    expect(freshRegionMarker(marker, marker, "US", newerSnapshot)).toEqual({ ...marker, fresh: { US: true } });
+    expect(freshRegionMarker(marker, marker, { region: "US", currency: "USD" }, newerSnapshot)).toEqual({ ...marker, fresh: { "US|USD": true } });
   });
 
   test("a replayed handle retains its settled block proof after another action settles", async () => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
     const snapshot = snapshotAt("35123457");
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), snapshot);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), snapshot);
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", settledBlock: "35123457" });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "35123456" });
 
@@ -355,7 +355,7 @@ describe("post-action balance qualification", () => {
   ] as const)("a handle response for %s cannot settle this action's boundary", async (_label, responseId, subject) => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), snapshotAt("35123457"));
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), snapshotAt("35123457"));
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", settledBlock: "35123457" });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "35123456" });
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", reopen: true, now });
@@ -383,11 +383,11 @@ describe("post-action balance qualification", () => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
     const preSettlementSnapshot = snapshotAt("105");
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), preSettlementSnapshot);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), preSettlementSnapshot);
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "105" });
     const settledMarker = readMarker(queryClient, markerKey);
     expect(snapshotProvesFreshness(preSettlementSnapshot, settledMarker)).toBe(true);
-    queryClient.setQueryData(markerKey, { ...settledMarker, fresh: { US: true } });
+    queryClient.setQueryData(markerKey, { ...settledMarker, fresh: { "US|USD": true } });
 
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", settledBlock });
     const marker = readMarker(queryClient, markerKey);
@@ -396,10 +396,10 @@ describe("post-action balance qualification", () => {
       settledBlock: "105", settledActionIds: ["action-a", "action-b"], dispatchedAt: { "action-b": now },
     });
     expect(snapshotProvesFreshness(preSettlementSnapshot, marker)).toBe(false);
-    expect(freshRegionMarker(marker, marker, "US", preSettlementSnapshot)).toBeUndefined();
+    expect(freshRegionMarker(marker, marker, { region: "US", currency: "USD" }, preSettlementSnapshot)).toBeUndefined();
     const newerSnapshot = { ...preSettlementSnapshot, fetchedAt: "2026-09-13T12:00:00.002Z" };
     expect(snapshotProvesFreshness(newerSnapshot, marker)).toBe(true);
-    expect(freshRegionMarker(marker, marker, "US", newerSnapshot)).toEqual({ ...marker, fresh: { US: true } });
+    expect(freshRegionMarker(marker, marker, { region: "US", currency: "USD" }, newerSnapshot)).toEqual({ ...marker, fresh: { "US|USD": true } });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", settledBlock });
     expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toEqual(marker);
   });
@@ -432,7 +432,7 @@ describe("post-action balance qualification", () => {
     const observed = { at: now, fresh: {}, settledBlock: "100" };
     const current = { ...observed, settledBlock: "105" };
     expect(snapshotProvesFreshness(snapshotAt("100"), observed)).toBe(true);
-    expect(freshRegionMarker(current, observed, "US", snapshotAt("100"))).toBeUndefined();
+    expect(freshRegionMarker(current, observed, { region: "US", currency: "USD" }, snapshotAt("100"))).toBeUndefined();
     expect(current.fresh).toEqual({});
   });
 
@@ -440,13 +440,13 @@ describe("post-action balance qualification", () => {
     ["missing current marker", undefined, snapshotAt("105")],
     ["changed timestamp", { at: now + 1, fresh: {}, settledBlock: "105" }, snapshotAt("105")],
     ["changed settled block", { at: now, fresh: {}, settledBlock: "106" }, snapshotAt("106")],
-    ["already fresh region", { at: now, fresh: { US: true }, settledBlock: "105" }, snapshotAt("105")],
+    ["already fresh region", { at: now, fresh: { "US|USD": true }, settledBlock: "105" }, snapshotAt("105")],
     ["earlier snapshot", { at: now, fresh: {}, settledBlock: "105" }, snapshotAt("104")],
     ["stale snapshot", { at: now, fresh: {}, settledBlock: "105" }, { ...snapshotAt("105"), stale: true }],
     ["missing snapshot", { at: now, fresh: {}, settledBlock: "105" }, undefined],
     ["null snapshot", { at: now, fresh: {}, settledBlock: "105" }, null],
   ] as const)("a %s cannot mark the region fresh", (_label, current, snapshot) => {
-    expect(freshRegionMarker(current, { at: now, fresh: {}, settledBlock: "105" }, "US", snapshot)).toBeUndefined();
+    expect(freshRegionMarker(current, { at: now, fresh: {}, settledBlock: "105" }, { region: "US", currency: "USD" }, snapshot)).toBeUndefined();
   });
 
   test.each([
@@ -461,35 +461,35 @@ describe("post-action balance qualification", () => {
     const current = { ...observed, ...change };
     const snapshot = { ...snapshotAt("105"), fetchedAt: "2026-09-13T12:00:10.002Z" };
     expect(snapshotProvesFreshness(snapshot, current)).toBe(true);
-    expect(freshRegionMarker(current, observed, "US", snapshot)).toBeUndefined();
+    expect(freshRegionMarker(current, observed, { region: "US", currency: "USD" }, snapshot)).toBeUndefined();
   });
 
   test("reordered outstanding boundaries do not fence a proving snapshot", () => {
     const observed = { at: now, fresh: {}, dispatchedActionIds: ["action-a", "action-b"], settledBlock: "105" };
     const current = { ...observed, dispatchedActionIds: ["action-b", "action-a"] };
     const snapshot = { ...snapshotAt("105"), fetchedAt: "2026-09-13T12:00:10.002Z" };
-    expect(freshRegionMarker(current, observed, "US", snapshot)).toEqual({ ...current, fresh: { US: true } });
+    expect(freshRegionMarker(current, observed, { region: "US", currency: "USD" }, snapshot)).toEqual({ ...current, fresh: { "US|USD": true } });
   });
 
   test("empty and absent outstanding boundaries allow the same block-only proof", () => {
     const observed = { at: now, fresh: {}, settledBlock: "105" };
     const current = { ...observed, dispatchedActionIds: [] };
     expect(snapshotProvesFreshness(snapshotAt("105"), current)).toBe(true);
-    expect(freshRegionMarker(current, observed, "US", snapshotAt("105"))).toEqual({ ...current, fresh: { US: true } });
-    expect(freshRegionMarker(observed, current, "US", snapshotAt("105"))).toEqual({ ...observed, fresh: { US: true } });
+    expect(freshRegionMarker(current, observed, { region: "US", currency: "USD" }, snapshotAt("105"))).toEqual({ ...current, fresh: { "US|USD": true } });
+    expect(freshRegionMarker(observed, current, { region: "US", currency: "USD" }, snapshotAt("105"))).toEqual({ ...observed, fresh: { "US|USD": true } });
   });
 
   test.each(["105", "106"])("a snapshot at block %s marks only its region fresh", (block) => {
-    const current: BalanceActionMarker = { at: now, fresh: { GLOBAL: true }, settledBlock: "105" };
-    expect(freshRegionMarker(current, { ...current, fresh: {} }, "US", snapshotAt(block))).toEqual({
-      at: now, fresh: { GLOBAL: true, US: true }, settledBlock: "105",
+    const current: BalanceActionMarker = { at: now, fresh: { "GLOBAL|none": true }, settledBlock: "105" };
+    expect(freshRegionMarker(current, { ...current, fresh: {} }, { region: "US", currency: "USD" }, snapshotAt(block))).toEqual({
+      at: now, fresh: { "GLOBAL|none": true, "US|USD": true }, settledBlock: "105",
     });
-    expect(current.fresh).toEqual({ GLOBAL: true });
+    expect(current.fresh).toEqual({ "GLOBAL|none": true });
   });
 
   test("a block-less settlement raises the boundary to its server-issued instant", () => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     requalifyBalancesAfterSettlement({
       queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverAt: "2026-09-13T12:00:05.000Z",
     });
@@ -504,8 +504,8 @@ describe("post-action balance qualification", () => {
   test.each([undefined, "invalid", "2026-09-13T12:00:01.000Z"])("settlement instant %s cannot lower an existing boundary", (serverAt) => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
-    queryClient.setQueryData(markerKey, { at: now, fresh: { US: true } });
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
+    queryClient.setQueryData(markerKey, { at: now, fresh: { "US|USD": true } });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverAt });
     const marker = queryClient.getQueryData<BalanceActionMarker>(markerKey);
     if (!marker) throw new Error("Expected the settlement marker");
@@ -515,7 +515,7 @@ describe("post-action balance qualification", () => {
 
   test("a server-issued dispatch instant rejects observations newer than the cache but older than the dispatch", async () => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverAt: "2026-09-13T12:00:05.000Z", now });
     const marker = readMarker(queryClient, ownerQueryKey(ownerKey, "balances-action"));
     expect(marker.at).toBe(Date.parse("2026-09-13T12:00:05.000Z"));
@@ -526,14 +526,14 @@ describe("post-action balance qualification", () => {
 
   test.each([undefined, "invalid", "2026-09-13T11:59:59.000Z"])("dispatch instant %s falls back to the newest cached source boundary", async (serverAt) => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverAt, now });
     expect(queryClient.getQueryData<BalanceActionMarker>(ownerQueryKey(ownerKey, "balances-action"))?.at).toBe(Date.parse("2026-09-13T12:00:00.000Z") + 1);
   });
 
   test.each(["2026-09-13T12:00:01.000Z", undefined, "invalid"])("a late callback with dispatch instant %s cannot lower the boundary", async (serverAt) => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", serverAt: "2026-09-13T12:00:05.000Z", now });
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverAt, now });
     const marker = readMarker(queryClient, ownerQueryKey(ownerKey, "balances-action"));
@@ -544,17 +544,17 @@ describe("post-action balance qualification", () => {
   test.each([false, true])("a replayed dispatch retains settlement proof with another outstanding action: %s", async (outstanding) => {
     const queryClient = client();
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", now });
     if (outstanding) await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", now });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "35123457" });
-    queryClient.setQueryData(markerKey, { ...readMarker(queryClient, markerKey), fresh: { US: true } });
+    queryClient.setQueryData(markerKey, { ...readMarker(queryClient, markerKey), fresh: { "US|USD": true } });
     const before = readMarker(queryClient, markerKey);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverAt: "2026-09-13T12:00:05.000Z", now });
     const marker = readMarker(queryClient, markerKey);
     expect(marker).toBe(before);
     expect(marker).toEqual({
-      at: Date.parse(balancesSnapshotFixture.fetchedAt) + 1, fresh: { US: true }, settledBlock: "35123457", settledActionIds: ["action-a"],
+      at: Date.parse(balancesSnapshotFixture.fetchedAt) + 1, fresh: { "US|USD": true }, settledBlock: "35123457", settledActionIds: ["action-a"],
       ...(outstanding ? { dispatchedActionIds: ["action-b"], dispatchedAt: { "action-b": now } } : {}),
     });
     expect(snapshotProvesFreshness({ ...snapshotAt("35123456"), fetchedAt: "2026-09-13T12:00:06.000Z" }, marker)).toBe(false);
@@ -589,7 +589,7 @@ describe("post-action balance qualification", () => {
 
   test.each(handleResponseCases)("handle effects bind the response instant to the dispatch: %s", async (_label, response, at) => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     const starts: string[] = [];
     await applyActionHandleEffects({
       path: "/api/actions/action-a/handle", body: { transactionHash: "0x123", submittedAt: "2026-09-13T12:00:09.000Z" }, response,
@@ -601,7 +601,7 @@ describe("post-action balance qualification", () => {
 
   test("invalidateAfterAction records a different dispatch action and retains the settled block and action identity", async () => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "35123457" });
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", now });
     expect(queryClient.getQueryData<BalanceActionMarker>(ownerQueryKey(ownerKey, "balances-action"))).toEqual({
@@ -651,7 +651,7 @@ describe("post-action balance qualification", () => {
 
   test("an overflowed dispatch boundary survives every retained settlement and requires a newer observation", async () => {
     const queryClient = client();
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), balancesSnapshotFixture);
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
     for (let index = 0; index < 17; index += 1) {
       await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: `action-${index}`, serverAt: "2026-09-13T12:00:05.000Z", now });
@@ -669,7 +669,7 @@ describe("post-action balance qualification", () => {
     expect(snapshotProvesFreshness({ ...snapshotAt("35123457"), fetchedAt: "2026-09-13T12:00:05.000Z" }, marker)).toBe(false);
     const fresh = { ...snapshotAt("35123457"), fetchedAt: "2026-09-13T12:00:05.001Z" };
     expect(snapshotProvesFreshness(fresh, marker)).toBe(true);
-    expect(freshRegionMarker(marker, marker, "US", fresh)).toEqual({ ...marker, fresh: { US: true } });
+    expect(freshRegionMarker(marker, marker, { region: "US", currency: "USD" }, fresh)).toEqual({ ...marker, fresh: { "US|USD": true } });
     expect(snapshotProvesFreshness({ ...fresh, block: { ...fresh.block, number: "35123456" } }, marker)).toBe(false);
 
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-17", now });
@@ -733,7 +733,7 @@ describe("balance boundary maintenance", () => {
 
   test.each([false, true])("absent aged boundaries and overflow expire without resetting freshness, legacy times: %s", (legacy) => {
     const queryClient = client();
-    const marker: BalanceActionMarker = { at: now - day - 1, fresh: { US: true }, settledBlock: "105", dispatchedActionIds: ["action-a"], dispatchedOverflow: true,
+    const marker: BalanceActionMarker = { at: now - day - 1, fresh: { "US|USD": true }, settledBlock: "105", dispatchedActionIds: ["action-a"], dispatchedOverflow: true,
       ...(legacy ? {} : { dispatchedAt: { "action-a": now - day - 1 }, dispatchedOverflowAt: now - day - 1 }) };
     queryClient.setQueryData(markerKey, marker);
     const invalidate = spyOn(queryClient, "invalidateQueries");
@@ -747,7 +747,7 @@ describe("balance boundary maintenance", () => {
 
   test.each(["pending", "unknown", "failed", "block-less", "invalid-block", "absent"] as const)("a %s boundary remains and refuses block-only proof", (state) => {
     const queryClient = client();
-    const marker: BalanceActionMarker = { at: now, fresh: { US: true }, settledBlock: "105", dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": now } };
+    const marker: BalanceActionMarker = { at: now, fresh: { "US|USD": true }, settledBlock: "105", dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": now } };
     queryClient.setQueryData(markerKey, marker);
     const rows = state === "absent" ? [] : [operation("action-a", state === "block-less" || state === "invalid-block" ? "confirmed" : state, state === "block-less" ? undefined : state === "invalid-block" ? "0105" : "105")];
     if (state === "block-less") rows[0]!.settledBlockNumber = undefined;
@@ -763,9 +763,9 @@ describe("balance boundary maintenance", () => {
 
   test.each([false, true])("confirmed tracked row consumes only its boundary and raises the source/server fence, retained: %s", (retained) => {
     const queryClient = client();
-    const marker: BalanceActionMarker = { at: now, fresh: { US: true }, settledBlock: "104", dispatchedActionIds: ["action-a", "action-b"], dispatchedAt: { "action-a": now, "action-b": now } };
+    const marker: BalanceActionMarker = { at: now, fresh: { "US|USD": true }, settledBlock: "104", dispatchedActionIds: ["action-a", "action-b"], dispatchedAt: { "action-a": now, "action-b": now } };
     queryClient.setQueryData(markerKey, marker);
-    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), { ...snapshotAt("104"), fetchedAt: new Date(now + 10).toISOString() });
+    queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", "US", "USD"), { ...snapshotAt("104"), fetchedAt: new Date(now + 10).toISOString() });
     const row = { ...operation("action-a"), settledAt: undefined, submittedAt: new Date(now + 5).toISOString() };
     reconcile(queryClient, payload(retained ? [] : [row], retained ? { retainedSavingsDeposits: [row] } : {}));
     expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: now + 11, fresh: {}, settledBlock: "105", settledActionIds: ["action-a"], dispatchedActionIds: ["action-b"], dispatchedAt: { "action-b": now } });
@@ -778,7 +778,7 @@ describe("balance boundary maintenance", () => {
     ["block-less", {}, "confirmed", undefined], ["invalid-block", {}, "confirmed", "0105"],
   ] as const)("overflow remains on a %s read", (_label, change, status, block) => {
     const queryClient = client();
-    const marker: BalanceActionMarker = { at: now, fresh: { US: true }, settledBlock: "104", dispatchedOverflow: true, dispatchedOverflowAt: now };
+    const marker: BalanceActionMarker = { at: now, fresh: { "US|USD": true }, settledBlock: "104", dispatchedOverflow: true, dispatchedOverflowAt: now };
     queryClient.setQueryData(markerKey, marker);
     const row = operation("untracked", status, block);
     row.settledBlockNumber = block;
@@ -809,7 +809,7 @@ describe("balance boundary maintenance", () => {
     const queryClient = client();
     const otherOwner = ownerKey.replace("user-1", "user-2");
     const otherKey = ownerQueryKey(otherOwner, "balances-action");
-    const marker = { at: now, fresh: { US: true as const }, settledBlock: "106" };
+    const marker = { at: now, fresh: { "US|USD": true as const }, settledBlock: "106" };
     queryClient.setQueryData(otherKey, marker);
     const write = spyOn(queryClient, "setQueryData");
     reconcile(queryClient, payload([operation("action-a")]));
@@ -829,7 +829,7 @@ describe("balance boundary maintenance", () => {
     const queryClient = client();
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", settledBlock: "105" });
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", settledBlock: "106" });
-    queryClient.setQueryData(markerKey, { ...readMarker(queryClient, markerKey), fresh: { US: true } });
+    queryClient.setQueryData(markerKey, { ...readMarker(queryClient, markerKey), fresh: { "US|USD": true } });
     for (const scope of afterAction.afterActionScopes) queryClient.setQueryData(ownerQueryKey(ownerKey, scope), {});
     const before = queryClient.getQueryData<BalanceActionMarker>(markerKey);
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", serverAt: new Date(now + 100).toISOString(), now });
@@ -842,7 +842,7 @@ describe("balance boundary maintenance", () => {
 
   test("dispatch refreshes its time, reopens only its settled identity, and retains higher block and at", async () => {
     const queryClient = client();
-    queryClient.setQueryData(markerKey, { at: now + 10, fresh: { US: true }, settledActionIds: ["action-a", "action-b"], settledBlock: "106" });
+    queryClient.setQueryData(markerKey, { at: now + 10, fresh: { "US|USD": true }, settledActionIds: ["action-a", "action-b"], settledBlock: "106" });
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", reopen: true, now });
     expect(queryClient.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: now + 10, fresh: {}, settledActionIds: ["action-b"], settledBlock: "106", dispatchedActionIds: ["action-a"], dispatchedAt: { "action-a": now } });
     await invalidateAfterAction({ queryClient, dataOwnerKey: ownerKey, actionId: "action-a", now: now + 1 });
@@ -851,7 +851,7 @@ describe("balance boundary maintenance", () => {
 
   test.each(["104", "105"])("different-action covered replay at %s appends identity without resetting proof", (block) => {
     const queryClient = client();
-    const marker = { at: now, fresh: { US: true as const }, settledBlock: "105", settledActionIds: ["action-a"], dispatchedActionIds: ["action-c"], dispatchedAt: { "action-c": now } };
+    const marker = { at: now, fresh: { "US|USD": true as const }, settledBlock: "105", settledActionIds: ["action-a"], dispatchedActionIds: ["action-c"], dispatchedAt: { "action-c": now } };
     queryClient.setQueryData(markerKey, marker);
     requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey, actionId: "action-b", settledBlock: block, serverAt: new Date(now + 10).toISOString() });
     const next = queryClient.getQueryData<BalanceActionMarker>(markerKey);
@@ -866,7 +866,7 @@ describe("balance boundary maintenance", () => {
     const marker = readMarker(queryClient, markerKey);
     expect(marker.settledActionIds).toEqual(Array.from({ length: 16 }, (_, index) => `action-${index + 1}`));
     const reversed = { ...marker, settledActionIds: [...marker.settledActionIds!].reverse() };
-    expect(freshRegionMarker(reversed, marker, "US", snapshotAt("116"))).toBeUndefined();
+    expect(freshRegionMarker(reversed, marker, { region: "US", currency: "USD" }, snapshotAt("116"))).toBeUndefined();
   });
 
   test.each(["success", "throw", "invalid", "abort"] as const)("recent-actions %s read reconciles only a parsed non-aborted read for its own owner", async (mode) => {
@@ -911,8 +911,8 @@ describe("restored balance action marker contract", () => {
   });
 
   test("normalizes valid markers with optional settlement proof", () => {
-    expect(trustRestoredBalanceActionMarker({ at: 0, fresh: { US: true, GLOBAL: true }, extra: "discard" }, entry)).toEqual({
-      data: { at: 0, fresh: { US: true, GLOBAL: true } },
+    expect(trustRestoredBalanceActionMarker({ at: 0, fresh: { "US|USD": true, "GLOBAL|none": true }, extra: "discard" }, entry)).toEqual({
+      data: { at: 0, fresh: { "US|USD": true, "GLOBAL|none": true } },
     });
     expect(trustRestoredBalanceActionMarker({ at: now, fresh: {}, settledBlock: "0" }, entry)).toEqual({
       data: { at: now, fresh: {}, settledBlock: "0" },
@@ -975,7 +975,7 @@ describe("restored balance action marker contract", () => {
     ["string timestamp", { at: "1", fresh: {} }],
     ["non-record freshness", { at: 0, fresh: [] }],
     ["unknown region", { at: 0, fresh: { UNKNOWN: true } }],
-    ["false freshness", { at: 0, fresh: { US: false } }],
+    ["false freshness", { at: 0, fresh: { "US|USD": false } }],
     ["malformed block", { at: 0, fresh: {}, settledBlock: "01" }],
     ["numeric block", { at: 0, fresh: {}, settledBlock: 1 }],
     ["empty action identity", { at: 0, fresh: {}, settledActionId: "" }],

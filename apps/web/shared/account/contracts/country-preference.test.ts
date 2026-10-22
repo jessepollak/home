@@ -5,33 +5,41 @@ import {
   parseCountryPreferenceReadResponse,
 } from "./country-preference";
 
-const body = { version: 1 as const, regionId: "US" as const };
+const version = 2 as const;
 
-test("country preference contracts normalize countries and strip unrelated fields", () => {
-  for (const parser of [parseCountryPreferenceRequest, parseCountryPreferenceResponse, parseCountryPreferenceReadResponse]) {
-    expect(parser({ ...body, regionId: " us ", extra: true })).toEqual(body);
-    for (const value of [null, [], {}, { regionId: "US" }, { ...body, version: 2 },
-      { ...body, regionId: "GLOBAL" }, { ...body, regionId: "XX" }, { ...body, regionId: 1 },
-      { ...body, regionId: undefined }, { ...body, regionId: "" }]) {
-      expect(parser(value)).toBeNull();
+test("preference requests accept independent or combined choices and strip unrelated owner fields", () => {
+  for (const fields of [{ regionId: "US" }, { displayCurrency: "USD" }, { displayCurrency: "country-default" }, { regionId: "BR", displayCurrency: "EUR" }] as const) {
+    for (const adopt of [true, false, undefined]) {
+      const body = { version, ...fields, ...(adopt === undefined ? {} : { adopt }) };
+      expect(parseCountryPreferenceRequest({ ...body, customerId: "another-owner", subject: "another-session" })).toEqual(body);
     }
+  }
+  expect(parseCountryPreferenceRequest({ version, regionId: " us " })).toEqual({ version, regionId: "US" });
+});
+
+test("preference requests reject missing choices, unsupported currencies, malformed countries and versions", () => {
+  for (const value of [null, [], {}, { version }, { version, adopt: true }, { regionId: "US" },
+    { version: 1, regionId: "US" }, ...[null, "GLOBAL", "XX", 1, ""].map((regionId) => ({ version, regionId })),
+    ...[null, "ZZZ", "usd", "US", "USDC", 1].map((displayCurrency) => ({ version, displayCurrency })),
+    ...[null, 1, "true"].map((adopt) => ({ version, displayCurrency: "USD", adopt })),
+    { version, regionId: "US", displayCurrency: "ZZZ" }]) {
+    expect(parseCountryPreferenceRequest(value)).toBeNull();
   }
 });
 
-test("only country preference reads accept null, and only requests validate optional adopt", () => {
-  const empty = { ...body, regionId: null };
-  expect(parseCountryPreferenceReadResponse(empty)).toEqual(empty);
-  expect(parseCountryPreferenceRequest(empty)).toBeNull();
-  expect(parseCountryPreferenceResponse(empty)).toBeNull();
-  for (const adopt of [true, false]) {
-    expect(parseCountryPreferenceRequest({ ...body, adopt })).toEqual({ ...body, adopt });
-    expect(parseCountryPreferenceResponse({ ...body, adopt })).toEqual(body);
-    expect(parseCountryPreferenceReadResponse({ ...body, adopt })).toEqual(body);
-  }
-  expect(parseCountryPreferenceRequest({ ...body, adopt: undefined })).toEqual(body);
-  for (const adopt of [null, 1, "true"]) {
-    expect(parseCountryPreferenceRequest({ ...body, adopt })).toBeNull();
-    expect(parseCountryPreferenceResponse({ ...body, adopt })).toEqual(body);
-    expect(parseCountryPreferenceReadResponse({ ...body, regionId: null, adopt })).toEqual(empty);
+test("read and write responses retain unset, explicit default and withdrawn stored choices", () => {
+  for (const parse of [parseCountryPreferenceReadResponse, parseCountryPreferenceResponse]) {
+    for (const regionId of [null, "US"] as const) {
+      for (const displayCurrency of [null, "country-default", "USD", "ZZZ"]) {
+        const body = { version, regionId, displayCurrency };
+        expect(parse({ ...body, extra: true })).toEqual(body);
+      }
+    }
+    expect(parse({ version, regionId: " us ", displayCurrency: "EUR" })).toEqual({ version, regionId: "US", displayCurrency: "EUR" });
+    for (const value of [null, [], {}, { version, regionId: null }, { version, displayCurrency: null },
+      { version: 1, regionId: null, displayCurrency: null }, { version, regionId: "GLOBAL", displayCurrency: null },
+      ...["usd", "US", "USDC", 1, ""].map((displayCurrency) => ({ version, regionId: null, displayCurrency }))]) {
+      expect(parse(value)).toBeNull();
+    }
   }
 });

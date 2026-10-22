@@ -1,16 +1,30 @@
+import { present } from "@/tests/helpers/async";
 import "@/client/account/dom-test-harness";
 import { afterEach, expect, test } from "bun:test";
 import { presentHomeBalances } from "@/shared/balances/present";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
-import { homeSummaryCookieName, parseHomeSummaryRecord } from "@/shared/balances/home-summary";
+import { homeSummaryCookieName, parseHomeSummaryCookie, parseHomeSummaryRecord, encodeHomeSummaryCookie } from "@/shared/balances/home-summary";
 import { clearOwnerQueryBoundary, getHomeQueryClient } from "./query-client";
 import { clearHomeSummaryCookie, writeHomeSummaryCookie } from "./home-summary-cookie";
 
 const now = Date.parse("2026-10-02T05:00:00.000Z");
-const record = parseHomeSummaryRecord(JSON.stringify({ version: 3, owner: "a", region: "US", updatedAt: now,
-  presentation: presentHomeBalances({ status: "ready", snapshot: balancesSnapshotFixture, error: null }) }), "a", "US", now);
+const record = parseHomeSummaryRecord(JSON.stringify({ version: 5, currency: "USD", owner: "a", region: "US", updatedAt: now,
+  presentation: presentHomeBalances({ status: "ready", snapshot: balancesSnapshotFixture, error: null }) }), "a", "US", "USD", now);
 if (!record) throw new Error("Summary fixture invalid");
 afterEach(() => { clearHomeSummaryCookie(); window.history.replaceState(null, "", "/"); });
+
+test("the summary cookie rejects another currency and old payload versions", () => {
+  const value = encodeHomeSummaryCookie(record);
+  expect(value).not.toBeNull();
+  expect(parseHomeSummaryCookie(present(value), "a", "US", "USD", now)?.currency).toBe("USD");
+  expect(parseHomeSummaryCookie(present(value), "a", "US", "EUR", now)).toBeNull();
+  const previous = JSON.stringify({ ...record, version: 4 });
+  expect(parseHomeSummaryRecord(previous, "a", "US", "USD", now)).toBeNull();
+  expect(parseHomeSummaryCookie(encodeURIComponent(previous), "a", "US", "USD", now)).toBeNull();
+  const { currency: _currency, ...legacy } = record;
+  expect(parseHomeSummaryCookie(encodeURIComponent(JSON.stringify({ ...legacy, version: 3 })), "a", "US", "USD", now)).toBeNull();
+  expect(parseHomeSummaryCookie(encodeURIComponent(JSON.stringify(legacy)), "a", "US", "USD", now)).toBeNull();
+});
 
 test("the first-paint cookie is confined to Home and sign-out clears it from another route", () => {
   window.history.replaceState(null, "", "/home");

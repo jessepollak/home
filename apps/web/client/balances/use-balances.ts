@@ -8,7 +8,7 @@ import { isInterruptionEligible } from "@/client/account/resource-failure";
 import { freshRegionMarker, snapshotProvesFreshness, type BalanceActionMarker } from "@/client/query/after-action";
 import { browserHomeQueryClient, ownerQueryKey, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { ownerQuery } from "@/client/query/query-options";
-import type { RegionId } from "@/config/regions";
+import { presentationScopeKey, type PresentationScope } from "@/shared/account/display-currency";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import type {
   BalancesSession,
@@ -85,29 +85,31 @@ export type BalancesDataState = BalancesState & {
 
 export function useBalancesData(
   session: BalancesQuerySession | null,
-  region: RegionId,
+  scope: PresentationScope,
   fetchBalances: FetchBalances,
   options: Pick<BalancesOptions, "enabled" | "held"> = {},
 ): BalancesDataState {
-  return useBalancesObserver(session, region, fetchBalances, options, true);
+  return useBalancesObserver(session, scope, fetchBalances, options, true);
 }
 
 export function useBalances(
   session: BalancesQuerySession | null,
-  region: RegionId,
+  scope: PresentationScope,
   fetchBalances: FetchBalances,
   options: BalancesOptions = {},
 ): RecoverableBalancesState {
-  return useBalancesObserver(session, region, fetchBalances, options, false);
+  return useBalancesObserver(session, scope, fetchBalances, options, false);
 }
 
 function useBalancesObserver(
   session: BalancesQuerySession | null,
-  region: RegionId,
+  scope: PresentationScope,
   fetchBalances: FetchBalances,
   options: BalancesOptions,
   dataOnly: boolean,
 ): RecoverableBalancesState {
+  const { region, currency } = scope;
+  const scopeKey = presentationScopeKey(scope);
   const validSession = isBalancesSession(session) ? session : null;
   const ownerKey = validSession ? dataOwnerKey(validSession) : null;
   const stalePolling = useRef({ identity: "", dataUpdatedAt: 0, completedRefetches: 0 });
@@ -120,7 +122,7 @@ function useBalancesObserver(
   const queryOptions = ownerQuery<BalancesSnapshot>({
     owner: ownerKey,
     scope: "balances",
-    key: [region],
+    key: [region, currency ?? "none"],
     enabled: (queryState) => options.enabled !== false && options.held !== true &&
       (!options.provisional || !(queryState.state.error instanceof ProvisionalBalancesFailure)),
     retry: false,
@@ -130,13 +132,14 @@ function useBalancesObserver(
       try {
         const timing = createBalanceReadTiming();
         const snapshot = parseBalancesSnapshot(
-          await fetchBalances(region, signal, timing.mark),
+          await fetchBalances(scope, signal, timing.mark),
           {
             subject: validSession.subject,
             smartAccountAddress: validSession.smartAccountAddress,
             chainId: 8453,
           },
           region,
+          currency,
         );
         timing.parsed(snapshot);
         return snapshot;
@@ -156,29 +159,30 @@ function useBalancesObserver(
       : nextStaleRefetchDelay(
         stalePolling.current,
         queryState.state.data,
-        `${ownerKey ?? "unauthenticated"}\u0000${region}`,
+        `${ownerKey ?? "unauthenticated"}\u0000${scopeKey}`,
         queryState.state.dataUpdatedAt,
       ),
     placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[0] === ownerKey &&
-      (heldRegion.current !== `${ownerKey}\u0000${previousQuery.queryKey[2]}` || previousQuery.queryKey[2] === region)
+      previousQuery?.queryKey[0] === ownerKey && previousQuery.queryKey[3] === (currency ?? "none") &&
+      (heldRegion.current !== `${ownerKey}\u0000${previousQuery.queryKey[2]}|${previousQuery.queryKey[3]}` ||
+        `${previousQuery.queryKey[2]}|${previousQuery.queryKey[3]}` === scopeKey)
         ? keepPreviousData(previousData) : undefined,
   });
 
-  const identity = ownerKey ? `${ownerKey}\u0000${region}` : null;
+  const identity = ownerKey ? `${ownerKey}\u0000${scopeKey}` : null;
   const suppressedFailure = query.isError && query.error instanceof ProvisionalBalancesFailure;
   const refreshError = query.isError && !suppressedFailure;
   const presentedSnapshot = useMemo(() => query.data && refreshError
     ? { ...query.data, stale: true as const } : query.data, [query.data, refreshError]);
   const held = options.held === true;
-  const actionStale = presentedSnapshot !== undefined && marker !== undefined && marker.fresh[region] !== true &&
+  const actionStale = presentedSnapshot !== undefined && marker !== undefined && marker.fresh[scopeKey] !== true &&
     !snapshotProvesFreshness(presentedSnapshot, marker);
 
   useEffect(() => {
-    if (!ownerKey || marker === undefined || !query.isSuccess || query.isPlaceholderData || marker.fresh[region] === true) return;
+    if (!ownerKey || marker === undefined || !query.isSuccess || query.isPlaceholderData || marker.fresh[scopeKey] === true) return;
     const markerKey = ownerQueryKey(ownerKey, "balances-action");
-    queryClient.setQueryData<BalanceActionMarker>(markerKey, (current) => freshRegionMarker(current, marker, region, query.data));
-  }, [ownerKey, region, marker, query.isSuccess, query.isPlaceholderData, query.data, query.dataUpdatedAt, queryClient]);
+    queryClient.setQueryData<BalanceActionMarker>(markerKey, (current) => freshRegionMarker(current, marker, { region, currency }, query.data));
+  }, [ownerKey, region, currency, scopeKey, marker, query.isSuccess, query.isPlaceholderData, query.data, query.dataUpdatedAt, queryClient]);
 
   useEffect(() => {
     if (held && identity) {
