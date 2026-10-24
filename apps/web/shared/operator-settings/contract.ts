@@ -3,6 +3,7 @@ import { parseAddress, type Address } from "@/shared/chain/hex";
 import { OPERATOR_FEE_SETTINGS_DEFAULTS, parseOperatorFeeSettings } from "@/shared/fees/contract";
 import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION, parseBrandSettings } from "@/shared/operator-branding/contract";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse, settingsEntrySchema } from "./envelope";
+import { GROWTH_SETTINGS_DEFAULTS, GROWTH_SETTINGS_DOMAIN, parseGrowthSettings, parseGrowthSettingsWrite } from "./growth";
 import { INVEST_SETTINGS_DEFAULTS, parseInvestSettings, parseInvestSettingsWrite } from "./invest";
 import { parseRegionSettings, parseRegionSettingsWrite, REGION_SETTINGS_DEFAULTS } from "./regions";
 import { deploymentProductSettings, parseProductSettings, productSettingsMatchCatalog, type ProductSettings } from "./products";
@@ -74,6 +75,7 @@ export function parseFundingSettings(value: unknown): FundingSettings | null {
 }
 
 export const OPERATOR_SETTINGS_DOMAINS = {
+  [GROWTH_SETTINGS_DOMAIN]: { schemaVersion: 1, defaults: GROWTH_SETTINGS_DEFAULTS, parse: parseGrowthSettings, parseWrite: parseGrowthSettingsWrite },
   funding: { schemaVersion: 1, defaults: { corridors: [] }, parse: parseFundingSettings },
   support: { schemaVersion: 1, defaults: { email: null, url: null }, parse: parseSupportSettings },
   "support-assistant": { schemaVersion: 1, defaults: SUPPORT_ASSISTANT_DEFAULTS, parse: parseSupportAssistantSettings },
@@ -112,7 +114,16 @@ const settingsAuditEntrySchema = <Action extends "settings.update" | "support.cr
   before: z.unknown(),
   after: z.unknown(),
 }).check(z.refine((entry) => "before" in entry && "after" in entry));
+const rewardAuditEntrySchema = <Action extends "growth.reward.approve" | "growth.reward.reject">(action: Action) => z.looseObject({
+  ...auditFields,
+  action: z.literal(action),
+  target: z.looseObject({ kind: z.literal("reward"), id: z.string() }),
+  before: z.unknown(),
+  after: z.unknown(),
+}).check(z.refine((entry) => "before" in entry && "after" in entry));
 const auditEntrySchema = z.union([
+  rewardAuditEntrySchema("growth.reward.approve"),
+  rewardAuditEntrySchema("growth.reward.reject"),
   settingsAuditEntrySchema("settings.update"),
   settingsAuditEntrySchema("support.credential.update"),
   settingsAuditEntrySchema("support.credential.delete"),

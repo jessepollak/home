@@ -3,6 +3,7 @@ import "server-only";
 import { AccountDeletedError, AccountDeletionAuthUnavailable } from "@/server/account-deletion/errors";
 import { assertCredentialLive } from "@/server/account-deletion/tombstone";
 import { lockWalletAddress } from "./wallet-lock";
+import { snapshotInviteReward } from "@/server/growth/snapshot";
 import { readDatabaseUrl } from "@/server/config/env";
 
 import { after } from "next/server";
@@ -68,8 +69,9 @@ export class CustomerResolver {
     let credential = inserted.rows[0];
     let customer: CustomerRow;
     if (created) {
+      const validatedInviteCode = isInviteCode(inviteCode) ? inviteCode : null;
       let attribution: { customer_id: string } | undefined;
-      if (source === "sign_in" && isInviteCode(inviteCode)) {
+      if (source === "sign_in" && validatedInviteCode !== null) {
         attribution = (await tx.query<{ customer_id: string }>(
           `SELECT i.customer_id FROM invite_codes i JOIN customers c ON c.id=i.customer_id
            WHERE i.code=$1 AND c.status='active'
@@ -78,21 +80,25 @@ export class CustomerResolver {
              AND NOT EXISTS (SELECT 1 FROM customer_credentials cr WHERE cr.customer_id=i.customer_id
                AND cr.email=$4::text)
            FOR SHARE OF c`,
-          [inviteCode, session.smartAccount?.chainId ?? null, session.smartAccount?.address.toLowerCase() ?? null, normalizedEmail],
+          [validatedInviteCode, session.smartAccount?.chainId ?? null, session.smartAccount?.address.toLowerCase() ?? null, normalizedEmail],
         )).rows[0];
       }
       customer = (await tx.query<CustomerRow>(
         `INSERT INTO customers (id,country,first_seen_at,last_seen_at,first_seen_source,invite_code)
          VALUES ($1,$2,$3,$3,$4,$5) RETURNING id,status,first_seen_at,invite_code`,
-        [candidateId, country ?? null, at, source, attribution ? inviteCode : null],
+        [candidateId, country ?? null, at, source, attribution ? validatedInviteCode : null],
       )).rows[0];
-      if (attribution) {
+      if (attribution && validatedInviteCode !== null) {
         await tx.query(
           `INSERT INTO operator_events (id,customer_id,name,occurred_at,source,props,idempotency_key)
            VALUES (gen_random_uuid(),$1,'invite.attributed',$2,'live',$3::jsonb,$4)
            ON CONFLICT (idempotency_key) DO NOTHING`,
-          [candidateId, at, JSON.stringify({ inviteCode, inviterCustomerId: attribution.customer_id }), `invite:${candidateId}`],
+          [candidateId, at, JSON.stringify({ inviteCode: validatedInviteCode, inviterCustomerId: attribution.customer_id }), `invite:${candidateId}`],
         );
+        await snapshotInviteReward(tx, {
+          inviteeCustomerId: candidateId, inviterCustomerId: attribution.customer_id,
+          inviteCode: validatedInviteCode, country: country ?? null, at,
+        });
       }
     } else {
       credential = (await tx.query<CredentialRow>(
