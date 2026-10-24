@@ -13,6 +13,7 @@ import {
   PresentationQuoteProvider,
   presentationQuoteForRegion,
   usePresentationRegionId,
+  usePresentationCurrency,
 } from "./presentation-quote";
 import {
 
@@ -29,10 +30,11 @@ export function PricedInvestExperienceWithDiscover({
 }) {
   const persistedRegion = usePersistedPresentationRegion();
   const regionId = usePresentationRegionId(persistedRegion);
+  const currency = usePresentationCurrency(regionId);
   const { fx, ...marketProps } = useMarketPrices();
   const quote = useMemo(
-    () => presentationQuoteForRegion(regionId, fx),
-    [fx, regionId],
+    () => presentationQuoteForRegion(regionId, fx, currency),
+    [fx, regionId, currency],
   );
 
   return (

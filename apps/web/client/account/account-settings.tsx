@@ -9,7 +9,6 @@ import { useAccountDeletion } from "./use-account-deletion";
 import { useAccountDeletionCompletion } from "./account-deletion-recovery";
 import { useAccountExport } from "@/client/account/use-account-export";
 import { useInviteLink } from "@/client/account/use-invite-link";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useBrandName } from "@/client/brand/brand-name";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +25,8 @@ import { RadioGroup, RadioGroupSegment } from "@/components/ui/radio-group";
 import { supportUnreadLabel } from "@/components/profile-mark";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountrySelect } from "@/components/country-select";
+import { DisplayCurrencyRow } from "./display-currency-select";
+import type { DisplayCurrencyChoice, ResolvedDisplayCurrency } from "@/shared/account/display-currency";
 import { CurrencyMark } from "@/components/currency-mark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -109,6 +110,11 @@ export function AccountSettings({
   resolutionSource,
   preferenceMessage,
   isPreferenceReady,
+  displayCurrency,
+  onDisplayCurrencyChange,
+  displayCurrencyMessage,
+  displayCurrencyWriteFailed,
+  onRetryDisplayCurrencyWrite,
   accountAddress,
   accountOwnerKey = null,
   accountSessionOwnerKey,
@@ -125,6 +131,11 @@ export function AccountSettings({
   resolutionSource: ResolutionSource;
   preferenceMessage: string;
   isPreferenceReady: boolean;
+  displayCurrency: ResolvedDisplayCurrency;
+  onDisplayCurrencyChange: (choice: DisplayCurrencyChoice) => void;
+  displayCurrencyMessage: string;
+  displayCurrencyWriteFailed: boolean;
+  onRetryDisplayCurrencyWrite: () => void;
   accountAddress: string | null;
   accountOwnerKey?: string | null;
   accountSessionOwnerKey: string | null;
@@ -201,6 +212,16 @@ export function AccountSettings({
               </ItemActions>
             </Item>
             <ItemSeparator className="my-0" />
+            <DisplayCurrencyRow
+              regionId={regionId}
+              displayCurrency={displayCurrency}
+              onDisplayCurrencyChange={onDisplayCurrencyChange}
+              message={displayCurrencyMessage}
+              writeFailed={displayCurrencyWriteFailed}
+              onRetryWrite={onRetryDisplayCurrencyWrite}
+              isPreferenceReady={isPreferenceReady}
+            />
+            <ItemSeparator className="my-0" />
             <Item className="min-w-0 flex-wrap items-center">
               <ItemContent className="min-w-0 flex-1">
                 <ItemTitle id="appearance-title">Appearance</ItemTitle>
@@ -238,17 +259,15 @@ export function AccountSettings({
             </Item>
           </CardContent>
         </Card>
-        <Alert id="appearance-status" aria-live="polite" role="status" className="sr-only">
-          <AlertDescription>{appearanceMessage}</AlertDescription>
-        </Alert>
-        <Alert id="preference-status" aria-live="polite" role="status" className="sr-only">
-          <AlertDescription>
-            {preferenceMessage ||
-              (isPreferenceReady
-                ? `${sourceLabels[resolutionSource]}.`
-                : "Checking saved country preference.")}
-          </AlertDescription>
-        </Alert>
+        <div id="appearance-status" aria-live="polite" role="status" className="sr-only">
+          {appearanceMessage}
+        </div>
+        <div id="preference-status" aria-live="polite" role="status" className="sr-only">
+          {preferenceMessage ||
+            (isPreferenceReady
+              ? `${sourceLabels[resolutionSource]}.`
+              : "Checking saved country preference.")}
+        </div>
       </section>
 
       {support ? (

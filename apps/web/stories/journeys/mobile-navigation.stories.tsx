@@ -1,4 +1,5 @@
 import { useState, type ComponentProps } from "react";
+import { resolveDisplayCurrency } from "@/shared/account/display-currency";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fireEvent, userEvent, within } from "storybook/test";
 import { waitForReady } from "@/tests/helpers/story-readiness";
@@ -124,7 +125,8 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
         onOpenSettings={() => setAccountOpen(true)} onCloseSettings={() => setAccountOpen(false)} />
       <main id="navigation-panel" data-app-main-authenticated="" tabIndex={-1} className={`min-w-0 flex-1 outline-none ${shellNavigationClearanceClassName}`}>
         <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
-          {accountOpen ? <AccountSettings regionId={country} onRegionChange={(value) => setCountry(value === "FR" ? "FR" : "US")}
+          {accountOpen ? <AccountSettings displayCurrency={resolveDisplayCurrency(country, null)}
+            onDisplayCurrencyChange={noop} displayCurrencyMessage="" displayCurrencyWriteFailed={false} onRetryDisplayCurrencyWrite={noop} regionId={country} onRegionChange={(value) => setCountry(value === "FR" ? "FR" : "US")}
             resolutionSource="explicit" preferenceMessage="" isPreferenceReady accountAddress={WALLET} accountOwnerKey="jesse.base.eth" accountSessionOwnerKey={"cdp-embedded\u0000jesse.base.eth"}
             showSmallBalances={false} onShowSmallBalancesChange={noop} appearancePreference="system" onAppearancePreferenceChange={() => true} onSignOut={noop}
             fetchAccountResource={async () => ({ version: 1, code: "abcdefghjk" })} />

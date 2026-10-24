@@ -14,7 +14,7 @@ import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { AssetSearchResults } from "./asset-search-results";
 import { useInvestSearch } from "./use-invest-search";
 import { useMarketPrices } from "./use-market-prices";
-import { PresentationQuoteProvider, presentationQuoteForRegion, usePresentationRegionId } from "./presentation-quote";
+import { PresentationQuoteProvider, presentationQuoteForRegion, usePresentationCurrency, usePresentationRegionId } from "./presentation-quote";
 import type { UseInvestDiscoverResult } from "./use-invest-discover";
 import styles from "@/components/primary-navigation.module.css";
 
@@ -24,7 +24,8 @@ export function PricedAssetSearch({ discover, investVisibility, ...props }: Shel
 }) {
   const { fx, stockMarket, cryptoMarket = unavailableMarketData } = useMarketPrices();
   const regionId = usePresentationRegionId("US");
-  const quote = useMemo(() => presentationQuoteForRegion(regionId, fx), [regionId, fx]);
+  const currency = usePresentationCurrency(regionId);
+  const quote = useMemo(() => presentationQuoteForRegion(regionId, fx, currency), [regionId, fx, currency]);
   return <PresentationQuoteProvider value={quote}><AssetSearch {...props} investVisibility={investVisibility}
     markets={{ stockMarket, cryptoMarket, memeMarket: discover.memeMarket }} assetMarkResolution={discover.assetMarkResolution} /></PresentationQuoteProvider>;
 }

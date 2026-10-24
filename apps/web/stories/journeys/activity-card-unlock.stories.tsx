@@ -92,7 +92,7 @@ function ActivityCardUnlock({ session, cards, ownerKey, failRefetch = false }: {
         <ShellPageProvider value={{
           paintedAssetBalances: { status: "loading", displayTotal: null, breakdown: [], summary: null },
           activitySession: session, fetchActivity, fetchOperations,
-          regionId: "US", regionReady: true, sessionSettling: false, isChecking: false, isVerified: true,
+          displayCurrency: "USD", regionId: "US", regionReady: true, sessionSettling: false, isChecking: false, isVerified: true,
           sendAvailability: [], showSmallBalances: false, cardsEnabled: true,
           onHomeDetailsOpenChange: noop, openInvestmentHolding: noop, closeInvestmentHolding: noop,
           investmentsReturnHolding: null, openCashSavings: noop, onInvestmentsChromeChange: noop,

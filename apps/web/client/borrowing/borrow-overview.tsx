@@ -5,6 +5,7 @@ import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import { ChevronDown, CircleAlertIcon, CircleDollarSign, Coins, ShieldCheck } from "lucide-react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
+import { usePresentationCurrency } from "@/client/invest/presentation-quote";
 import { borrowOperationLabels, borrowRiskCopy, borrowRiskState } from "./borrow-ui";
 import { collateralDisplayName, formatCash, formatToken, LiquidationBufferMeter, presentBorrowAssetMark } from "./borrowing-experience";
 import { HomeSectionHeading } from "@/client/home/home-overview";
@@ -22,7 +23,7 @@ import { Alert, AlertIcon, AlertTitle, AlertDescription } from "@/components/ui/
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { presentationRegions, type RegionId } from "@/config/regions";
+import type { RegionId } from "@/config/regions";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { HomeMoneySummary } from "@/shared/balances/present";
 import type { BorrowAssetRef, BorrowMarketId } from "@/shared/borrowing/config";
@@ -55,6 +56,7 @@ function RowMark({ asset, resolution }: { asset: BorrowAssetRef; resolution?: As
 }
 
 function Summary({ overview, borrowSummary, status, onRetry, regionId, summaryRef }: Pick<Props, "overview" | "borrowSummary" | "status" | "onRetry"> & { regionId: RegionId; summaryRef: React.RefObject<HTMLParagraphElement | null> }) {
+  const currency = usePresentationCurrency(regionId);
   if (status === "loading") return (
     <div aria-busy="true" className="space-y-4">
       <Card variant="flush"><CardContent inset="hero"><Skeleton className="h-5 w-24" /><Skeleton className="h-10 w-48" /><Skeleton className="h-5 w-32" /></CardContent></Card>
@@ -66,7 +68,7 @@ function Summary({ overview, borrowSummary, status, onRetry, regionId, summaryRe
   const unavailable = !verified || verified.completeness === "unavailable";
   const summary = unavailable ? null : verified;
   const total = summary?.totalDebtRaw === "0" && summary.completeness === "complete"
-    ? formatPresentationFiat({ atoms: "0", scale: 2 }, presentationRegions[regionId].currency.code ?? "USD", 2, regionId)
+    ? formatPresentationFiat({ atoms: "0", scale: 2 }, currency ?? "USD", 2, regionId)
     : summary?.completeness === "complete" && borrowSummary?.kind === "position" && borrowSummary.value && overview && borrowDebtsMatchOverview(overview, borrowSummary.debts)
       ? borrowSummary.value
       : summary?.loanToken ? formatCash(summary.totalDebtRaw, summary.loanToken, regionId) : "—";

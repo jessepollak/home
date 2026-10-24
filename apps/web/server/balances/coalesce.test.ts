@@ -1,3 +1,5 @@
+import { present } from "@/tests/helpers/async";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { expect, test } from "bun:test";
 import { encodeFunctionResult } from "viem";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
@@ -85,13 +87,13 @@ async function fixture(vault = false, contractValid = false, store = new MemoryB
     schedule: (task) => tasks.push(typeof task === "function" ? task : () => task),
   });
   const advance = () => { state.time += 3_600_000; state.block += 1_800; };
-  const get = () => service(OWNER, "US");
+  const get = (currency: FiatCurrencyCode | null = "USD", region: RegionId = "US") => service(OWNER, region, currency);
   const runNextTask = async () => {
     const task = tasks.shift();
     if (!task) throw new Error("Expected a scheduled balances task");
     await task();
   };
-  return { state, store, tasks, advance, get, runNextTask, holdingId: activeEntry.id };
+  return { state, store, prices, tasks, advance, get, runNextTask, holdingId: activeEntry.id };
 }
 
 test("registry chunk failure carries previous balances through a background full observation", async () => {
@@ -332,7 +334,7 @@ test.each([false, true])("a lower vault conversion clamps carried withdrawals an
   await f.get();
   if (!hot) await f.runNextTask();
   const snapshot = await f.get();
-  const parsed = parseBalancesSnapshot(snapshot, { subject: "fixture", smartAccountAddress: OWNER, chainId: 8453 }, "US");
+  const parsed = parseBalancesSnapshot(snapshot, { subject: "fixture", smartAccountAddress: OWNER, chainId: 8453 }, "US", "USD");
   const holding = parsed.holdings.find(({ id }) => id === f.holdingId);
   expect(holding?.underlyingBalance).toEqual({ status: "ready", baseUnits: "1000000" });
   expect(holding?.withdrawableBalance).toEqual({ status: "ready", baseUnits: "1000000" });
@@ -391,4 +393,30 @@ test("market failures with no prior observation omit borrow positions", async ()
   const snapshot = await f.get();
   expect(snapshot.borrow.positions).toEqual([]);
   expect(snapshot.totals.borrow.value?.atoms).toBe("0");
+});
+
+
+test("country-independent snapshots reprice the same observation without changing held units or borrow balances", async () => {
+  const f = await fixture();
+  await f.prices.putMany([
+    { assetKey: "fx:USD:BRL", unitPrice: { atoms: "5", scale: 0 }, asOf: AT, fetchedAt: AT },
+    { assetKey: "fx:USD:EUR", unitPrice: { atoms: "9", scale: 1 }, asOf: AT, fetchedAt: AT },
+  ]);
+  const snapshots = await Promise.all([f.get("USD", "BR"), f.get("BRL", "BR"), f.get("EUR", "BR")]);
+  const baseline = present(snapshots[0]);
+  const baselinePosition = present(baseline.borrow.positions[0]);
+  for (const [index, currency] of (["USD", "BRL", "EUR"] as const).entries()) {
+    const snapshot = present(snapshots[index]);
+    expect(snapshot.region).toBe("BR");
+    expect(snapshot.quoteCurrency).toBe(currency);
+    expect(snapshot.holdings.find(({ id }) => id === "token")?.value).toMatchObject({
+      status: "priced", currency, amount: { atoms: ["2000000000000000000", "10000000000000000000", "1800000000000000000"][index], scale: 18 },
+    });
+    expect(snapshot.holdings.map(({ key, balance }) => ({ key, balance }))).toEqual(baseline.holdings.map(({ key, balance }) => ({ key, balance })));
+    const position = present(snapshot.borrow.positions[0]);
+    expect(position.collateral.balance).toEqual(baselinePosition.collateral.balance);
+    expect(position.debt.balance).toEqual(baselinePosition.debt.balance);
+    expect(position.collateral.value).toMatchObject({ status: "priced", currency });
+    expect(position.debt.value).toMatchObject({ status: "priced", currency });
+  }
 });

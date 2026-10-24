@@ -1,3 +1,4 @@
+import { present } from "@/tests/helpers/async";
 import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import { BalancesResponseError, parseBalancesSnapshot } from "./contract";
@@ -52,19 +53,19 @@ test("registry matcher detects missing identities and changed metadata", () => {
 test("registry matcher and parser agree on a catalog claim to a registry key", () => {
   const snapshot = clone(balancesSnapshotFixture);
   expect(registryHoldingsMatchExpectations(snapshot.holdings)).toBe(true);
-  expect(parseBalancesSnapshot(snapshot, session, "US")).toEqual(snapshot);
+  expect(parseBalancesSnapshot(snapshot, session, "US", "USD")).toEqual(snapshot);
   const usdc = snapshot.holdings.find((holding) => holding.id === "usdc")!;
   snapshot.holdings.push(catalogHolding({
     address: usdc.contractAddress!, name: "Catalog USDC", symbol: "USDC", decimals: 6,
   }, "1", { status: "unpriced", reason: "price-unavailable" }));
   expect(registryHoldingsMatchExpectations(snapshot.holdings)).toBe(false);
-  expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+  expect(() => parseBalancesSnapshot(snapshot, session, "US", "USD")).toThrow(BalancesResponseError);
 });
 
 
 describe("parseBalancesSnapshot", () => {
   test("accepts the reference fixture and returns an equal snapshot", () => {
-    const parsed = parseBalancesSnapshot(clone(balancesSnapshotFixture), session, "US");
+    const parsed = parseBalancesSnapshot(clone(balancesSnapshotFixture), session, "US", "USD");
     expect(JSON.parse(JSON.stringify(parsed))).toEqual(balancesSnapshotFixture);
   });
 
@@ -72,7 +73,7 @@ describe("parseBalancesSnapshot", () => {
     const snapshot = buildBalancesSnapshotFixture({ region: "GLOBAL" });
     expect(snapshot.quoteCurrency).toBeNull();
     expect(snapshot.total.status).toBe("no-quote-currency");
-    expect(JSON.parse(JSON.stringify(parseBalancesSnapshot(clone(snapshot), session, "GLOBAL")))).toEqual(snapshot);
+    expect(JSON.parse(JSON.stringify(parseBalancesSnapshot(clone(snapshot), session, "GLOBAL", null)))).toEqual(snapshot);
   });
 
   test("accepts a non-USD region where USDC carries its own USD cash value", () => {
@@ -87,7 +88,7 @@ describe("parseBalancesSnapshot", () => {
       },
       total: { status: "complete", value: { atoms: "92", scale: 2 }, currency: "EUR" },
     });
-    const parsed = parseBalancesSnapshot(clone(snapshot), session, "DE");
+    const parsed = parseBalancesSnapshot(clone(snapshot), session, "DE", "EUR");
     const usdc = parsed.holdings.find((holding) => holding.id === "usdc");
     expect(usdc?.cashValue).toEqual({ status: "priced", currency: "USD", amount: { atoms: "100", scale: 2 } });
   });
@@ -98,7 +99,7 @@ describe("parseBalancesSnapshot", () => {
     if (!usdc) throw new Error("Missing USDC holding.");
     expect(usdc.balance).toEqual({ status: "ready", baseUnits: "0" });
     usdc.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
-    expect(parseBalancesSnapshot(clone(snapshot), session, "US").holdings.find((holding) => holding.id === "usdc")?.unitValue)
+    expect(parseBalancesSnapshot(clone(snapshot), session, "US", "USD").holdings.find((holding) => holding.id === "usdc")?.unitValue)
       .toEqual(usdc.unitValue);
   });
 
@@ -112,7 +113,7 @@ describe("parseBalancesSnapshot", () => {
         }),
       ],
     });
-    const parsed = parseBalancesSnapshot(clone(snapshot), session, "US");
+    const parsed = parseBalancesSnapshot(clone(snapshot), session, "US", "USD");
     const discovered = parsed.holdings.find((holding) => holding.source === "wallet");
     expect(discovered?.id).toBe(`wallet:${FIXTURE_WALLET_TOKEN.address}`);
     expect(discovered?.imageUrl).toBe(FIXTURE_WALLET_TOKEN.imageUrl);
@@ -124,14 +125,14 @@ describe("parseBalancesSnapshot", () => {
       h.id === "cbbtc" ? { ...h, imageUrl: "https://icons.example.invalid/cbbtc.png" } : h,
     );
     snapshot.stale = true;
-    const parsed = parseBalancesSnapshot(clone(snapshot), session, "US");
+    const parsed = parseBalancesSnapshot(clone(snapshot), session, "US", "USD");
     expect(parsed.holdings.find((h) => h.id === "cbbtc")?.imageUrl).toBe("https://icons.example.invalid/cbbtc.png");
     expect(parsed.stale).toBe(true);
   });
 
   test("carries every registry asset plus the catalog rows", () => {
     const registryIds = [...expectedRegistryHoldings().keys()];
-    const parsed = parseBalancesSnapshot(clone(balancesSnapshotFixture), session, "US");
+    const parsed = parseBalancesSnapshot(clone(balancesSnapshotFixture), session, "US", "USD");
     const ids = new Set(parsed.holdings.map((holding) => holding.id));
     for (const id of registryIds) expect(ids.has(id)).toBe(true);
     expect(parsed.holdings.filter((holding) => holding.source === "catalog")).toHaveLength(3);
@@ -145,7 +146,7 @@ describe("parseBalancesSnapshot", () => {
     const holding = snapshot.holdings.find((entry) => entry.id === id);
     if (!holding) throw new Error(`Missing holding: ${id}`);
     holding.unitValue = { currency: "USD", amount: { atoms: "1234567890123456789", scale: 15 } };
-    const parsed = parseBalancesSnapshot(snapshot, session, "US");
+    const parsed = parseBalancesSnapshot(snapshot, session, "US", "USD");
     expect(parsed.holdings.find((entry) => entry.id === id)?.unitValue).toEqual(holding.unitValue);
   });
 
@@ -166,7 +167,7 @@ describe("parseBalancesSnapshot", () => {
     const holding = snapshot.holdings.find((entry) => entry.id === id);
     if (!holding) throw new Error(`Missing holding: ${id}`);
     Object.assign(holding, { unitValue });
-    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(snapshot, session, "US", "USD")).toThrow(BalancesResponseError);
   });
 
   test("rejects a unit value when the holding is unpriced despite a ready balance", () => {
@@ -174,33 +175,33 @@ describe("parseBalancesSnapshot", () => {
     const holding = snapshot.holdings.find((entry) => entry.id === "eth")!;
     holding.value = { status: "unpriced", reason: "price-unavailable" };
     holding.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
-    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(snapshot, session, "US", "USD")).toThrow(BalancesResponseError);
   });
 
   test.each(["eth", "usdc", `catalog:${FIXTURE_CATALOG.priced.address}`])("rejects a withdrawal limit on non-vault %s", (id) => {
     const snapshot = clone(balancesSnapshotFixture);
     holdingById(snapshot.holdings, id).withdrawableBalance = ready("0");
-    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(snapshot, session, "US", "USD")).toThrow(BalancesResponseError);
   });
 
   test("rejects a withdrawal limit on a wallet holding", () => {
     const holding = walletHolding(FIXTURE_WALLET_TOKEN, "1", priced("USD", "1"));
     holding.withdrawableBalance = ready("0");
     const snapshot = buildBalancesSnapshotFixture({ catalog: [holding] });
-    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(snapshot, session, "US", "USD")).toThrow(BalancesResponseError);
   });
 
   test("accepts a vault without a withdrawal limit from an older server", () => {
     const snapshot = clone(balancesSnapshotFixture);
     delete holdingById(snapshot.holdings, "morpho-steakhouse-usdc").withdrawableBalance;
-    const parsed = parseBalancesSnapshot(snapshot, session, "US");
+    const parsed = parseBalancesSnapshot(snapshot, session, "US", "USD");
     expect(holdingById(parsed.holdings, "morpho-steakhouse-usdc").withdrawableBalance).toBeUndefined();
   });
 
   test("rejects a vault withdrawal limit above its underlying balance", () => {
     const snapshot = clone(balancesSnapshotFixture);
     holdingById(snapshot.holdings, "morpho-steakhouse-usdc").withdrawableBalance = ready("1000124");
-    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(snapshot, session, "US", "USD")).toThrow(BalancesResponseError);
   });
 
   type Rejection = {
@@ -363,21 +364,21 @@ describe("parseBalancesSnapshot", () => {
   test.each(rejections)("rejects $label", (rejection: Rejection) => {
     const tampered = rejection.mutate(clone(balancesSnapshotFixture));
     expect(() =>
-      parseBalancesSnapshot(tampered, rejection.session ?? session, rejection.region ?? "US"),
+      parseBalancesSnapshot(tampered, rejection.session ?? session, rejection.region ?? "US", rejection.region === "DE" ? "EUR" : "USD"),
     ).toThrow(BalancesResponseError);
   });
 
   test("rejects a no-quote-currency total when the region has a currency", () => {
     const snapshot = clone(balancesSnapshotFixture);
     snapshot.total = { status: "no-quote-currency", value: null, currency: null };
-    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(snapshot, session, "US", "USD")).toThrow(BalancesResponseError);
   });
 
   test("rejects a priced value when the region has no quote currency", () => {
     const snapshot = buildBalancesSnapshotFixture({ region: "GLOBAL" });
     const tampered = clone(snapshot);
     tampered.holdings = tampered.holdings.map((h) => (h.id === "eth" ? { ...h, value: priced("USD", "1") } : h));
-    expect(() => parseBalancesSnapshot(tampered, session, "GLOBAL")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(tampered, session, "GLOBAL", null)).toThrow(BalancesResponseError);
   });
 });
 
@@ -401,7 +402,7 @@ describe("parseBalancesSnapshot borrow and net totals", () => {
 
   test("accepts a snapshot with a collateral holding, a signed debt line, and net totals", () => {
     const snapshot = withBorrow();
-    const parsed = parseBalancesSnapshot(clone(snapshot), session, "US");
+    const parsed = parseBalancesSnapshot(clone(snapshot), session, "US", "USD");
     expect(JSON.parse(JSON.stringify(parsed))).toEqual(snapshot);
     expect(parsed.borrow.positions[0]).toMatchObject({
       marketId: FIXTURE_BORROW_MARKET_ID,
@@ -419,20 +420,20 @@ describe("parseBalancesSnapshot borrow and net totals", () => {
     position.marketId = upper as typeof position.marketId;
     position.collateral.collateral.marketId = upper as typeof position.marketId;
     position.debt.marketId = upper as typeof position.marketId;
-    const parsed = parseBalancesSnapshot(snapshot, session, "US").borrow.positions[0]!;
+    const parsed = parseBalancesSnapshot(snapshot, session, "US", "USD").borrow.positions[0]!;
     expect([String(parsed.marketId), String(parsed.collateral.collateral.marketId), String(parsed.debt.marketId)])
       .toEqual([FIXTURE_BORROW_MARKET_ID, FIXTURE_BORROW_MARKET_ID, FIXTURE_BORROW_MARKET_ID]);
     position.debt.marketId = `0x${"00".repeat(32)}` as typeof position.marketId;
-    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(snapshot, session, "US", "USD")).toThrow(BalancesResponseError);
   });
 
   test("preserves and validates a borrow collateral unit value", () => {
     const snapshot = withBorrow();
     const collateral = snapshot.borrow.positions[0]!.collateral;
     collateral.unitValue = { currency: "USD", amount: { atoms: "100000", scale: 0 } };
-    expect(parseBalancesSnapshot(clone(snapshot), session, "US").borrow.positions[0]!.collateral.unitValue).toEqual(collateral.unitValue);
+    expect(parseBalancesSnapshot(clone(snapshot), session, "US", "USD").borrow.positions[0]!.collateral.unitValue).toEqual(collateral.unitValue);
     collateral.unitValue = { currency: "USD", amount: { atoms: "0", scale: 0 } };
-    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(snapshot, session, "US", "USD")).toThrow(BalancesResponseError);
   });
 
   test.each([
@@ -460,7 +461,7 @@ describe("parseBalancesSnapshot borrow and net totals", () => {
   ])("rejects %s", (_name, mutate) => {
     const value = clone(withBorrow());
     mutate(value);
-    expect(() => parseBalancesSnapshot(value, session, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot(value, session, "US", "USD")).toThrow(BalancesResponseError);
   });
 });
 
@@ -468,10 +469,39 @@ test("canonicalizes checksummed owner and mixed-case block hash, rejecting bad c
   const owner = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
   const base = clone(balancesSnapshotFixture);
   const changed = { ...base, owner: { ...base.owner, address: owner }, block: { ...base.block, hash: `0x${"Ab".repeat(32)}` as `0x${string}` } };
-  expect(String(parseBalancesSnapshot(changed, { ...session, smartAccountAddress: owner }, "US").owner.address)).toBe(owner.toLowerCase());
-  expect(String(parseBalancesSnapshot(changed, { ...session, smartAccountAddress: owner }, "US").block.hash)).toBe(`0x${"ab".repeat(32)}`);
+  expect(String(parseBalancesSnapshot(changed, { ...session, smartAccountAddress: owner }, "US", "USD").owner.address)).toBe(owner.toLowerCase());
+  expect(String(parseBalancesSnapshot(changed, { ...session, smartAccountAddress: owner }, "US", "USD").block.hash)).toBe(`0x${"ab".repeat(32)}`);
   for (const address of [owner.replace("A", "a"), "0x1234"]) {
-    expect(() => parseBalancesSnapshot({ ...changed, owner: { ...changed.owner, address } }, { ...session, smartAccountAddress: owner }, "US")).toThrow(BalancesResponseError);
+    expect(() => parseBalancesSnapshot({ ...changed, owner: { ...changed.owner, address } }, { ...session, smartAccountAddress: owner }, "US", "USD")).toThrow(BalancesResponseError);
   }
-  expect(() => parseBalancesSnapshot({ ...changed, block: { ...changed.block, hash: "0x0" } }, { ...session, smartAccountAddress: owner }, "US")).toThrow(BalancesResponseError);
+  expect(() => parseBalancesSnapshot({ ...changed, block: { ...changed.block, hash: "0x0" } }, { ...session, smartAccountAddress: owner }, "US", "USD")).toThrow(BalancesResponseError);
+});
+
+describe("display currency contract boundary", () => {
+  test.each(["USD", "EUR", "BRL"] as const)("accepts %s valuation independently of a Brazilian formatting country", (currency) => {
+    const snapshot = buildBalancesSnapshotFixture({ region: "BR", currency });
+    expect(parseBalancesSnapshot(snapshot, session, "BR", currency)).toEqual(snapshot);
+  });
+
+  test("rejects a previous currency snapshot rather than relabeling its values", () => {
+    const snapshot = buildBalancesSnapshotFixture({ region: "BR", currency: "BRL" });
+    expect(() => parseBalancesSnapshot(snapshot, session, "BR", "USD")).toThrow(BalancesResponseError);
+    const relabeled = { ...snapshot, quoteCurrency: "USD" };
+    expect(() => parseBalancesSnapshot(relabeled, session, "BR", "USD")).toThrow(BalancesResponseError);
+  });
+
+  test("GLOBAL accepts an explicit USD valuation but rejects it under the no-currency default", () => {
+    const snapshot = buildBalancesSnapshotFixture({ region: "GLOBAL", currency: "USD" });
+    expect(parseBalancesSnapshot(snapshot, session, "GLOBAL", "USD")).toEqual(snapshot);
+    expect(() => parseBalancesSnapshot(snapshot, session, "GLOBAL", null)).toThrow(BalancesResponseError);
+    const defaultSnapshot = buildBalancesSnapshotFixture({ region: "GLOBAL" });
+    expect(() => parseBalancesSnapshot(defaultSnapshot, session, "GLOBAL", "USD")).toThrow(BalancesResponseError);
+  });
+
+  test("rejects no-quote holdings and old contract versions under an explicit currency", () => {
+    const snapshot = buildBalancesSnapshotFixture({ region: "BR", currency: "USD" });
+    expect(() => parseBalancesSnapshot({ ...snapshot, version: 6 }, session, "BR", "USD")).toThrow(BalancesResponseError);
+    present(snapshot.holdings[0]).value = { status: "unpriced", reason: "no-quote-currency" };
+    expect(() => parseBalancesSnapshot(snapshot, session, "BR", "USD")).toThrow(BalancesResponseError);
+  });
 });

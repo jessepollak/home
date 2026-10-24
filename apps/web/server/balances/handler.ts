@@ -1,11 +1,12 @@
 import "server-only";
 
-import { isRegionId, type RegionId } from "@/config/regions";
+import { isRegionId, presentationRegions, type FiatCurrencyCode, type RegionId } from "@/config/regions";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { observeSafely, writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import { privateError, privateSerializedJson } from "@/server/http/private-response";
-import { parseBalancesSnapshot } from "@/shared/balances/contract";
+import { isOfferedDisplayCurrency } from "@/shared/account/display-currency";
+import { INVALID_BALANCES_CURRENCY, parseBalancesSnapshot } from "@/shared/balances/contract";
 import type {
   BalancesAddress,
   BalancesSnapshot,
@@ -16,6 +17,7 @@ export function createBalancesHandler(dependencies: {
   readBalances: (
     owner: BalancesAddress,
     region: RegionId,
+    currency: FiatCurrencyCode | null,
     signal?: AbortSignal,
     requestStartedAtMs?: number,
   ) => Promise<BalancesSnapshot>;
@@ -33,6 +35,14 @@ export function createBalancesHandler(dependencies: {
     if (!region) {
       return privateError("INVALID_REGION", "A supported balances region is required.", 400);
     }
+
+    const currencies = new URL(request.url).searchParams.getAll("currency");
+    if (currencies.length > 1 || (currencies.length === 1 && !isOfferedDisplayCurrency(currencies[0]))) {
+      return privateError(INVALID_BALANCES_CURRENCY, "A supported balances currency is required.", 400);
+    }
+    const currency = currencies.length === 1 && isOfferedDisplayCurrency(currencies[0])
+      ? currencies[0]
+      : presentationRegions[region].currency.code;
 
     const session = await authorizeSession(request, dependencies.authorize);
     if (session instanceof Response) {
@@ -53,6 +63,7 @@ export function createBalancesHandler(dependencies: {
       snapshot = await dependencies.readBalances(
         address,
         region,
+        currency,
         request.signal,
         startedAt,
       );
@@ -75,7 +86,7 @@ export function createBalancesHandler(dependencies: {
         subject: session.user.subject,
         smartAccountAddress: address,
         chainId: session.smartAccount.chainId,
-      }, region);
+      }, region, currency);
     } catch {
       emitFailure(log, {
         kind: "balances-contract",

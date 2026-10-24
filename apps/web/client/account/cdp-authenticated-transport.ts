@@ -464,11 +464,11 @@ export function useAuthenticatedTransport({
     [fetchVerifiedResource],
   );
   const fetchBalances = useCallback(
-    (region: import("@/config/regions").RegionId, signal?: AbortSignal, onStage?: (stage: "fetch" | "response") => void) =>
+    ({ region, currency }: import("@/shared/account/display-currency").PresentationScope, signal?: AbortSignal, onStage?: (stage: "fetch" | "response") => void) =>
       fetchVerifiedResource(
         "/api/balances",
         signal,
-        new URLSearchParams({ region }).toString(),
+        new URLSearchParams({ region, ...(currency === null ? {} : { currency }) }).toString(),
         true,
         onStage,
       ),

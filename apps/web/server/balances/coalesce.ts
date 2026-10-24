@@ -2,7 +2,7 @@ import "server-only";
 
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { registryHoldingsMatchExpectations } from "@/shared/balances/registry-expectations";
-import type { RegionId } from "@/config/regions";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import {
   BALANCES_CHAIN_ID,
   type BalancesSnapshot,
@@ -67,6 +67,7 @@ type Dependencies = {
     mode: ValuationMode,
     signal?: AbortSignal,
     requestStartedAtMs?: number,
+    requestedCurrency?: FiatCurrencyCode | null,
   ) => Promise<PriceBalancesResult>;
   now?: () => Date;
   nowMs?: () => number;
@@ -327,6 +328,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
   return async function getBalancesSnapshot(
     owner: PortfolioAddress,
     region: RegionId,
+    quoteCurrency: FiatCurrencyCode | null,
     signal?: AbortSignal,
     requestStartedAtMs?: number,
   ): Promise<BalancesSnapshot> {
@@ -345,12 +347,14 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         observed.outcome === "full" ? "bootstrap" : "cached",
         signal,
         requestStartedAtMs ?? startedAt,
+        quoteCurrency,
       );
       const priceDuration = Math.max(0, nowMs() - priceStartedAt);
       const assembleStartedAt = nowMs();
       const snapshot = assembleBalancesSnapshot({
         owner,
         region,
+        quoteCurrency,
         read: observed.read,
         holdings: priced.holdings,
         borrow: priced.borrow,

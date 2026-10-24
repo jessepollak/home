@@ -375,20 +375,21 @@ function DashboardShellBody({
     canOpenAssetDetail, openAssetDetail, setFlow, clearFlow,
   }), [activityReturn, finalizeSearchDetailOrigin, urlIntent, flowOpener, popRevision, rootRequest, navigateTo, leaveRoute, pushRoute, canOpenAssetDetail, openAssetDetail, setFlow, clearFlow]);
   useActivityReturnOwnerBoundary(activityOwner, routingValue);
+  const displayCurrency = region.displayCurrency.currency;
   const { regionId, resolutionSource, isPreferenceReady, preferenceMessage, selectRegion, offeredCountries } = region;
   const reloadBalances = useReloadHomeBalances();
   const retryHomeReads = onRetryInterruption ?? reloadBalances;
   const balanceRowRetry = headerStatus({ interruption, country: null })?.recovery === "none" ? undefined : retryHomeReads;
   const pageValue = useMemo(() => ({
     paintedAssetBalances, activitySession, fetchActivity: account.fetchActivity, fetchOperations: account.fetchOperations,
-    regionId, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution,
+    regionId, displayCurrency, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution,
     showSmallBalances,
     cardsEnabled,
     cashContent, investContent, investmentsContent, onHomeDetailsOpenChange: setHomeDetailsOpen, onInvestmentsChromeChange: setInvestmentsChrome, openInvestmentHolding, closeInvestmentHolding, investmentsReturnHolding: location.panel === "investments" ? investmentsReturnHolding : null, openCashSavings,
     onRetryBalances: balanceRowRetry, initialAddMoney: urlIntent.addMoney,
     returnedFromProvider: urlIntent.returnedFromProvider, initialTransferFlow: urlIntent.transferFlow,
     initialSendActionId: urlIntent.actionId,
-  }), [paintedAssetBalances, activitySession, account.fetchActivity, account.fetchOperations, regionId, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution, showSmallBalances, cardsEnabled, cashContent, investContent, investmentsContent, openInvestmentHolding, closeInvestmentHolding, location.panel, investmentsReturnHolding, openCashSavings, balanceRowRetry, urlIntent.addMoney, urlIntent.returnedFromProvider, urlIntent.transferFlow, urlIntent.actionId]);
+  }), [paintedAssetBalances, activitySession, account.fetchActivity, account.fetchOperations, regionId, displayCurrency, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution, showSmallBalances, cardsEnabled, cashContent, investContent, investmentsContent, openInvestmentHolding, closeInvestmentHolding, location.panel, investmentsReturnHolding, openCashSavings, balanceRowRetry, urlIntent.addMoney, urlIntent.returnedFromProvider, urlIntent.transferFlow, urlIntent.actionId]);
   const onLeaveSearch = useCallback(() => setUrlSearchOverride(null), []);
   const openAccountSettings = (opener?: HTMLButtonElement) => {
     searchDetailTargetRef.current = null;
@@ -461,7 +462,7 @@ function DashboardShellBody({
           onSignIn={(opener) => { setAccountOpener(opener); setIsAccountOpen(true); router.push("/?account=signin"); }}
           onSignOut={signOut} onOpenSettings={openAccountSettings} onCloseSettings={closeAccountSettings}
           status={homeStatus ? <HomeHeaderStatus status={homeStatus} onRetry={retryHomeReads} onOpenAccount={() => openAccountSettings()} /> : null} />
-        <ShellMain mainRef={mainRef} contentFrameRef={contentFrameRef} refreshInput={{ session: activitySession, regionId, fetchActivity: account.fetchActivity, enabled: homeRefreshEnabled }} pullEnabled={!flowOpen && !isAccountOpen && !homeDetailsOpen}>
+        <ShellMain mainRef={mainRef} contentFrameRef={contentFrameRef} refreshInput={{ session: activitySession, regionId, currency: displayCurrency, fetchActivity: account.fetchActivity, enabled: homeRefreshEnabled }} pullEnabled={!flowOpen && !isAccountOpen && !homeDetailsOpen}>
             {isUnavailable ? <div className="mb-4"><LoadErrorCard description={account.message ?? "Account check unavailable."}
               onRetry={() => void account.retrySessionValidation()} /></div> : null}
             {isSignedOut ? <section aria-busy="true" aria-label="Signed out"><span className="sr-only">Signed out</span></section> :
@@ -474,6 +475,9 @@ function DashboardShellBody({
                   regionId={regionId} onRegionChange={selectRegion} resolutionSource={resolutionSource}
                   offeredCountries={offeredCountries}
                   preferenceMessage={preferenceMessage} isPreferenceReady={isPreferenceReady}
+                  displayCurrency={region.displayCurrency} onDisplayCurrencyChange={region.selectDisplayCurrency}
+                  displayCurrencyMessage={region.displayCurrencyMessage} displayCurrencyWriteFailed={region.displayCurrencyWriteFailed}
+                  onRetryDisplayCurrencyWrite={region.retryDisplayCurrencyWrite}
                   accountAddress={isVerified ? account.session?.smartAccount?.address ?? null : null}
                   accountOwnerKey={isVerified && account.session?.smartAccount ? dataOwnerKey(account.session) : null}
                   accountSessionOwnerKey={credentialOwnerKey(account)}
@@ -486,7 +490,7 @@ function DashboardShellBody({
         {activeNavigation !== "home" ? <>
           <FundingActions showTrigger={false} initialOpen={urlIntent.addMoney} returnedFromProvider={urlIntent.returnedFromProvider}
             regionId={regionId} regionReady={regionReady} />
-          <PresentationRegionProvider regionId={regionId}><TransferActions showTrigger={false} sendOffered={sendOffered}
+          <PresentationRegionProvider regionId={regionId} currency={displayCurrency}><TransferActions showTrigger={false} sendOffered={sendOffered}
             initialFlow={urlIntent.transferFlow} initialActionId={urlIntent.actionId}
             availableAssets={sendAvailability} assetMarkResolution={assetMarkResolution ?? { images: {}, pending: false }}
             regionId={regionId} regionReady={regionReady} /></PresentationRegionProvider>

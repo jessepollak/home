@@ -1,8 +1,8 @@
 
-import type { RegionId } from "@/config/regions";
+import type { PresentationScope } from "@/shared/account/display-currency";
 import type { BalancesSnapshot } from "./contract";
 
-export const BALANCES_VERSION = 6 as const;
+export const BALANCES_VERSION = 7 as const;
 export const BALANCES_CHAIN_ID = 8453 as const;
 export const BALANCES_PRICE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -43,7 +43,7 @@ export type BalancesState =
   | { status: "ready"; snapshot: BalancesSnapshot; error: null; revalidating?: true }
   | { status: "error"; snapshot: null; error: "balances-unavailable" };
 
-export type FetchBalances = (region: RegionId, signal?: AbortSignal, onStage?: (stage: "fetch" | "response") => void) => Promise<unknown>;
+export type FetchBalances = (scope: PresentationScope, signal?: AbortSignal, onStage?: (stage: "fetch" | "response") => void) => Promise<unknown>;
 
 export function nativeAssetKey(): NativeAssetKey {
   return `eip155:${BALANCES_CHAIN_ID}/native`;

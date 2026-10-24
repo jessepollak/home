@@ -1,5 +1,6 @@
 import type { Page, Route } from "@playwright/test";
-import type { RegionId } from "../../../config/regions";
+import { normalizeCountryCode, presentationRegions, type RegionId } from "../../../config/regions";
+import { isOfferedDisplayCurrency, type DisplayCurrencyChoice } from "../../../shared/account/display-currency";
 import type { BalancesSnapshot } from "../../../shared/balances/types";
 import { FIXED_NOW, installFixedPageDate } from "./fixed-time";
 import { CARD_PURCHASES_VERSION } from "../../../shared/cards/transactions-contract";
@@ -124,10 +125,12 @@ export function seedSignedInSession(page: Page, country = "US") {
 
 export async function installApiFixtures(
   page: Page,
-  options: { balances?: BalancesSnapshot; countryPreferenceRegion?: RegionId; clock?: "date" | "playwright" | "system"; activityOrders?: boolean } = {},
+  options: { balances?: BalancesSnapshot; countryPreferenceRegion?: RegionId; displayCurrencyPreference?: DisplayCurrencyChoice | null; clock?: "date" | "playwright" | "system"; activityOrders?: boolean } = {},
 ) {
   if (options.clock === "playwright") await page.clock.install({ time: FIXED_NOW });
   else if (options.clock !== "system") await installFixedPageDate(page);
+  let countryPreference = { version: COUNTRY_PREFERENCE_VERSION, regionId: normalizeCountryCode(options.countryPreferenceRegion),
+    displayCurrency: options.displayCurrencyPreference ?? null };
   let status: ActionStatus = "unconfirmed";
   let balancesReads = 0;
   const balancesReadsByRegion = new Map<RegionId, number>();
@@ -170,7 +173,9 @@ export async function installApiFixtures(
       resolveBalancesObserved?.();
       resolveBalancesObserved = null;
       if (delayedBalances) await delayedBalances;
-      return json(route, options.balances ?? balancesSnapshot(region));
+      const requestedCurrency = url.searchParams.get("currency");
+      const currency = isOfferedDisplayCurrency(requestedCurrency) ? requestedCurrency : presentationRegions[region].currency.code;
+      return json(route, options.balances ?? balancesSnapshot(region, { currency }));
     }
     if (path === "/api/actions/network-fee") return json(route, { version: 1, usdcReserveBaseUnits: "20000" });
     if (path === "/api/actions/prepare" && request.method() === "POST") {
@@ -312,9 +317,14 @@ export async function installApiFixtures(
       if (request.method() === "PUT") {
         const body = parseCountryPreferenceRequest(request.postDataJSON());
         if (!body) return route.fulfill({ status: 400, contentType: "application/json", body: "{}" });
-        return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: body.regionId });
+        countryPreference = { version: COUNTRY_PREFERENCE_VERSION,
+          regionId: body.regionId === undefined || (body.adopt && countryPreference.regionId !== null)
+            ? countryPreference.regionId : body.regionId,
+          displayCurrency: body.displayCurrency === undefined || (body.adopt && countryPreference.displayCurrency !== null)
+            ? countryPreference.displayCurrency : body.displayCurrency };
+        return json(route, countryPreference);
       }
-      return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: options.countryPreferenceRegion ?? null });
+      return json(route, countryPreference);
     }
     if (path === "/api/invites/link") return json(route, { version: 1, code: "abcdefghjk" });
     if (path === "/api/support/chat" && request.method() === "POST") {

@@ -35,19 +35,17 @@ function quoteCurrency(region: RegionId): FiatCurrencyCode | null {
   return presentationRegions[region].currency.code as FiatCurrencyCode | null;
 }
 
-function quotedValue(region: RegionId, atoms: string): Holding["value"] {
-  const currency = quoteCurrency(region);
+function quotedValue(currency: FiatCurrencyCode | null, atoms: string): Holding["value"] {
   return currency
     ? priced(currency, atoms)
     : { status: "unpriced", reason: "no-quote-currency" };
 }
 
-export function recognizedCatalogHolding(region: RegionId): Holding {
-  return catalogHolding(recognizedEntry, "1230000000000000000", quotedValue(region, "1820"));
+export function recognizedCatalogHolding(region: RegionId, currency = quoteCurrency(region)): Holding {
+  return catalogHolding(recognizedEntry, "1230000000000000000", quotedValue(currency, "1820"));
 }
 
-export function dustCatalogHolding(region: RegionId): Holding {
-  const currency = quoteCurrency(region);
+export function dustCatalogHolding(region: RegionId, currency = quoteCurrency(region)): Holding {
   return catalogHolding(
     dustEntry,
     "1000000000000000",
@@ -61,35 +59,36 @@ function stockRegistry(currency: FiatCurrencyCode | null): Record<string, Holdin
     : { status: "unpriced", reason: "no-quote-currency" };
   return {
     nvdac: { balance: ready("50000000"), value: lastClose },
-    metac: { balance: ready("20000000"), value: { status: "unpriced", reason: "price-paused" } },
-    aaplc: { balance: ready("30000000"), value: { status: "unpriced", reason: "price-unavailable" } },
-    tslac: { balance: ready("10000000"), value: { status: "unpriced", reason: "price-unavailable" } },
+    metac: { balance: ready("20000000"), value: { status: "unpriced", reason: currency ? "price-paused" : "no-quote-currency" } },
+    aaplc: { balance: ready("30000000"), value: { status: "unpriced", reason: currency ? "price-unavailable" : "no-quote-currency" } },
+    tslac: { balance: ready("10000000"), value: { status: "unpriced", reason: currency ? "price-unavailable" : "no-quote-currency" } },
   };
 }
 
-export function balancesSnapshot(region: RegionId = "US", options: { stocks?: boolean } = {}): BalancesSnapshot {
-  const currency = quoteCurrency(region);
+export function balancesSnapshot(region: RegionId = "US", options: { stocks?: boolean; currency?: FiatCurrencyCode | null } = {}): BalancesSnapshot {
+  const currency = options.currency === undefined ? quoteCurrency(region) : options.currency;
   const snapshot = buildBalancesSnapshotFixture({
     region,
+    currency,
     owner: SMOKE_OWNER,
     registry: {
       ...(options.stocks ? stockRegistry(currency) : {}),
       usdc: {
         balance: ready("12340000"),
-        value: quotedValue(region, "1234"),
+        value: quotedValue(currency, "1234"),
         cashValue: pricedCash("USD", "1234"),
       },
       cbbtc: {
         balance: ready("100000"),
-        value: quotedValue(region, "6000"),
+        value: quotedValue(currency, "6000"),
       },
       [portfolioVaults[0].id]: {
         balance: ready("1000000000000000000"),
         underlyingBalance: ready("1000000"),
-        value: quotedValue(region, "100"),
+        value: quotedValue(currency, "100"),
       },
     },
-    catalog: [recognizedCatalogHolding(region), dustCatalogHolding(region)],
+    catalog: [recognizedCatalogHolding(region, currency), dustCatalogHolding(region, currency)],
     total: currency
       ? { status: "complete", value: decimal(options.stocks ? "18066" : "9054", 2), currency }
       : { status: "no-quote-currency", value: null, currency: null },
@@ -113,7 +112,7 @@ export function scrollableBalancesSnapshot(region: RegionId = "US"): BalancesSna
         decimals: 18,
       },
       "1",
-      { status: "unpriced", reason: "price-unavailable" },
+      { status: "unpriced", reason: base.quoteCurrency ? "price-unavailable" : "no-quote-currency" },
     ));
   return { ...base, holdings: [...base.holdings, ...extras] };
 }
