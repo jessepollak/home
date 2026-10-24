@@ -302,6 +302,25 @@ test("does not read reference syntax inside inline images, escapes or code spans
   assert.deepEqual(prBodyShapeFindings(title, previewBody(row("![Beta] ![bad](missing.png)"))), [undefinedReference("Beta", "Changed"), unresolvedImage("missing.png", "Changed")]);
 });
 
+test("ignores image-like text inside HTML attributes and link destinations or titles", () => {
+  const row = (value) => `| State | Evidence |\n| --- | --- |\n| Changed | ${value} |`;
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`<img alt="![After]" src="${attachment}">`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`<img alt='![After][capture]' src="${attachment}">`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) [notes](https://example.com "![After]")`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) [notes](<https://example.com/![After]>)`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) <a title="![After]" href="https://example.com">notes</a>`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`<img alt="![After]" src="missing.png">`))), [unresolvedImage("missing.png", "Changed"), missingMedia("Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) [notes](https://example.com) ![After]`))), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`[![After][capture]](https://example.com) ![ok](${attachment})`))), [undefinedReference("capture", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) 1 < 2 ![After]`))), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) <span ![bad](missing.png)>`))), [unresolvedImage("missing.png", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) [<span title="]">hi</span>](https://example.com "![After]")`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(`${row(`![ok](${attachment}) [notes][ref](https://example.com "![After]")`)}\n\n[ref]: https://example.com`)), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) [notes][ref](https://example.com "![After]")`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) [a](${" ".repeat(60000)}x`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`<img alt="${"a".repeat(3000)}![After]" src="${repositoryImage}">`))), []);
+});
+
 test("treats a long line of unclosed image openers as no media", () => {
   assert.deepEqual(prBodyShapeFindings(title, previewBody(`| State | Evidence |\n| --- | --- |\n| Changed | ${"![".repeat(30000)} |`)), [missingMedia("Changed")]);
 });
