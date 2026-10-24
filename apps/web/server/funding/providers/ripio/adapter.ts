@@ -26,6 +26,18 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export const ripioProvider: FundingProvider = {
   manifest: ripioManifest,
+  async checkConnection(ctx) {
+    try {
+      const catalog = await createRipioClient(countryFor(ctx), { env: ctx.env, request: ctx.request }).getDepositNetworks();
+      return Array.isArray(catalog) || (isRecord(catalog) && Array.isArray(catalog.networks)) ? "connected" : "inconclusive";
+    } catch (error) {
+      if (error instanceof RipioProviderError) {
+        if (error.code === "unauthorized") return "rejected";
+        if (error.code !== "unavailable") return "inconclusive";
+      }
+      return "unreachable";
+    }
+  },
   onramp: {
     customer: {
       async create(input, ctx) {
