@@ -1,14 +1,6 @@
 ## What changes
 
-| | Summary |
-| --- | --- |
-| **Before** | What happens today, in plain words. |
-| **After** | What happens once this merges. |
-| **Who notices** | users / developers (name the command, job, or file) / operators / nobody (refactor) |
-| **Your call** | none |
-| **Risk** | none |
-
-<!-- Write for someone who has not read the issue or the diff. Name the concrete thing that changes (screen, route, command, CI job, table) and describe behavior, not mechanics. At most 200 words; keep each cell on one line. Your call: a choice you made that Jesse might reverse, else "none"; an unmet required verification rung, a skipped Real money check, or a pending operator action always goes here as "approve without …". Risk: the one thing most likely to go wrong, else "none"; known gaps belong in the area's debt issue, not here. No edge-case catalogs, review-pass names, head/rung jargon, or history. Rewrite on every push. Use only this template's `## ` sections; add `## State transitions` only for a lifecycle change. -->
+<!-- Write for a reader who has not read the issue or the diff. Name the concrete thing that changes (screen, route, command, CI job, table) and describe behavior, not mechanics. Say who notices, any choice Jesse might reverse, and the one thing most likely to go wrong. No edge-case catalogs, review-pass names, head/rung jargon, or history. Rewrite on every push. -->
 
 ## Preview
 
