@@ -29,8 +29,8 @@ const base = { cardId: "provider-card", authorizationId: "auth-fixture", amountM
   test("upsert and supersession are scoped by provider, mode and owner", async () => {
     const store = createCardTransactionStore(sql);
     await store.upsert(card, "sandbox", "bridge", { ...base, id: "auth-fixture", kind: "authorization", status: "pending" });
-    await store.upsert(card, "sandbox", "bridge", { ...base, id: "auth-fixture", kind: "authorization", status: "declined" });
-    expect((await store.rows(owner, "sandbox"))[0]?.status).toBe("declined"); expect(await store.rows(other, "sandbox")).toEqual([]);
+    await store.upsert(card, "sandbox", "bridge", { ...base, id: "auth-fixture", kind: "authorization", status: "reversed", authorizationClosed: true });
+    expect((await store.rows(owner, "sandbox"))[0]?.status).toBe("reversed"); expect(await store.rows(other, "sandbox")).toEqual([]);
     await store.upsert(card, "sandbox", "bridge", { ...base, id: "capture-fixture", kind: "transaction", status: "completed" });
     expect((await store.rows(owner, "sandbox")).map((row) => row.kind)).toEqual(["transaction"]);
     expect((await store.rows(owner, "sandbox"))[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
@@ -101,6 +101,64 @@ const base = { cardId: "provider-card", authorizationId: "auth-fixture", amountM
     expect(refreshed.rows.map((row) => [row.kind, row.status])).toEqual([["authorization", "reversed"]]);
     expect((await store.rows(customerId, "sandbox")).map((row) => row.status)).toEqual(["reversed"]);
     expect((await sql.query("SELECT status,authorization_closed FROM card_transactions WHERE card_id=$1", [cardId])).rows).toEqual([{ status: "reversed", authorization_closed: true }]);
+  });
+  test("a late pending observation cannot reopen a settled authorization or transaction", async () => {
+    const customerId = crypto.randomUUID(), cardId = crypto.randomUUID();
+    await sql.query("INSERT INTO customers(id,first_seen_at,last_seen_at,first_seen_source) VALUES ($1,now(),now(),'sign_in')", [customerId]);
+    await sql.query("INSERT INTO card_accounts(customer_id,mode,provider) VALUES ($1,'sandbox','bridge')", [customerId]);
+    await sql.query("INSERT INTO cards(id,customer_id,mode,provider,provider_card_id) VALUES ($1,$2,'sandbox','bridge','ic_late')", [cardId, customerId]);
+    const store = createCardTransactionStore(sql);
+    const read = async (id: string) => (await sql.query("SELECT status,authorization_closed,amount_minor::text FROM card_transactions WHERE provider_transaction_id=$1", [id])).rows;
+    const upsert = (row: Parameters<typeof store.upsert>[3]) => store.upsert(cardId, "sandbox", "bridge", { ...row, cardId: "ic_late" });
+    const expired = { ...base, id: "iauth_late", authorizationId: "iauth_late", kind: "authorization", authorizationClosed: true } as const;
+    await upsert({ ...expired, status: "reversed" });
+    await upsert({ ...expired, status: "pending", authorizationClosed: false, amountMinor: "1" });
+    expect(await read("iauth_late")).toEqual([{ status: "reversed", authorization_closed: true, amount_minor: "1234" }]);
+    const captured = { ...base, id: "iauth_closed", authorizationId: "iauth_closed", kind: "authorization" } as const;
+    await upsert({ ...captured, status: "pending", authorizationClosed: true });
+    await upsert({ ...captured, status: "pending", authorizationClosed: false });
+    expect(await read("iauth_closed")).toEqual([{ status: "pending", authorization_closed: true, amount_minor: "1234" }]);
+    const posted = { ...base, id: "itx_late", authorizationId: "iauth_late", kind: "transaction" } as const;
+    await upsert({ ...posted, status: "completed" });
+    await upsert({ ...posted, status: "pending", amountMinor: "1" });
+    expect(await read("itx_late")).toEqual([{ status: "completed", authorization_closed: null, amount_minor: "1234" }]);
+    await upsert({ ...posted, status: "refunded" });
+    expect((await read("itx_late"))[0]?.status).toBe("refunded");
+  });
+  test("an approved authorization replaces its provisional decline", async () => {
+    const customerId = crypto.randomUUID(), cardId = crypto.randomUUID();
+    await sql.query("INSERT INTO customers(id,first_seen_at,last_seen_at,first_seen_source) VALUES ($1,now(),now(),'sign_in')", [customerId]);
+    await sql.query("INSERT INTO card_accounts(customer_id,mode,provider) VALUES ($1,'sandbox','bridge')", [customerId]);
+    await sql.query("INSERT INTO cards(id,customer_id,mode,provider,provider_card_id) VALUES ($1,$2,'sandbox','bridge','ic_awaiting')", [cardId, customerId]);
+    const store = createCardTransactionStore(sql);
+    const row = { ...base, id: "iauth_awaiting", authorizationId: "iauth_awaiting", kind: "authorization" } as const;
+    const upsert = (next: Parameters<typeof store.upsert>[3]) => store.upsert(cardId, "sandbox", "bridge", { ...next, cardId: "ic_awaiting" });
+    await upsert({ ...row, status: "declined", authorizationClosed: false });
+    await upsert({ ...row, status: "pending", authorizationClosed: false, declineReasonCode: null });
+    expect((await sql.query("SELECT status,decline_reason_code,authorization_closed,amount_minor::text FROM card_transactions WHERE provider_transaction_id='iauth_awaiting'")).rows).toEqual([{ status: "pending", decline_reason_code: null, authorization_closed: false, amount_minor: "1234" }]);
+  });
+  test("a stale decline cannot erase a settled or approved authorization", async () => {
+    const customerId = crypto.randomUUID(), cardId = crypto.randomUUID();
+    await sql.query("INSERT INTO customers(id,first_seen_at,last_seen_at,first_seen_source) VALUES ($1,now(),now(),'sign_in')", [customerId]);
+    await sql.query("INSERT INTO card_accounts(customer_id,mode,provider) VALUES ($1,'sandbox','bridge')", [customerId]);
+    await sql.query("INSERT INTO cards(id,customer_id,mode,provider,provider_card_id) VALUES ($1,$2,'sandbox','bridge','ic_stale_decline')", [cardId, customerId]);
+    const store = createCardTransactionStore(sql);
+    const read = async (id: string) => (await sql.query("SELECT status,decline_reason_code,authorization_closed,amount_minor::text FROM card_transactions WHERE provider_transaction_id=$1", [id])).rows;
+    const upsert = (row: Parameters<typeof store.upsert>[3]) => store.upsert(cardId, "sandbox", "bridge", { ...row, cardId: "ic_stale_decline" });
+    const reversed = { ...base, id: "iauth_stale_reversed", authorizationId: "iauth_stale_reversed", kind: "authorization" } as const;
+    await upsert({ ...reversed, status: "reversed", authorizationClosed: true });
+    await upsert({ ...reversed, status: "declined", authorizationClosed: false, amountMinor: "1" });
+    await upsert({ ...reversed, status: "pending", authorizationClosed: false, amountMinor: "1" });
+    await upsert({ ...reversed, status: "pending", authorizationClosed: true, amountMinor: "1" });
+    expect(await read("iauth_stale_reversed")).toEqual([{ status: "reversed", decline_reason_code: null, authorization_closed: true, amount_minor: "1234" }]);
+    const approved = { ...base, id: "iauth_stale_approved", authorizationId: "iauth_stale_approved", kind: "authorization" } as const;
+    await upsert({ ...approved, status: "pending" });
+    await upsert({ ...approved, status: "declined", declineReasonCode: "insufficient_funds", amountMinor: "1" });
+    expect(await read("iauth_stale_approved")).toEqual([{ status: "pending", decline_reason_code: null, authorization_closed: null, amount_minor: "1234" }]);
+    const declined = { ...base, id: "iauth_declined", authorizationId: "iauth_declined", kind: "authorization" } as const;
+    await upsert({ ...declined, status: "declined" });
+    await upsert({ ...declined, status: "declined", declineReasonCode: "insufficient_funds" });
+    expect(await read("iauth_declined")).toEqual([{ status: "declined", decline_reason_code: "insufficient_funds", authorization_closed: null, amount_minor: "1234" }]);
   });
   test("partial refund retains capture amount and voided transaction supersedes authorization", async () => {
     const store = createCardTransactionStore(sql);
