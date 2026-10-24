@@ -1,6 +1,7 @@
 import holidayCalendar from "../../config/invest-sources/us-equity-holidays.json";
 import stockSnapshot from "../../config/invest-sources/base-stocks.json";
 import wrappedSnapshot from "../../config/invest-sources/coinbase-wrapped.json";
+import curatedSnapshot from "../../config/invest-sources/curated-catalog.json";
 
 type Result<T> = { status: "ok"; value: T } | { status: "parse-failed" };
 export type Address = `0x${string}`;
@@ -9,11 +10,18 @@ export type FeedRow = { description: string; proxy: Address; decimals: number; h
 export type Integration = { feeds: { description: string; proxy: Address }[]; oracleRegistry: Address };
 export type WrappedRow = { sourceLabel: string; contract: Address };
 export type SourceName = "roster" | "integration" | "feedDirectory" | "issuer";
+type MemeMarketRow = { contract: string; marketCapUsd: number; baseLiquidityUsd: number };
+type MajorMarketRow = { id: string; marketCapUsd: number };
 export type ParsedSources = {
   roster: Result<RosterRow[]> | null;
   integration: Result<Integration> | null;
   feedDirectory: Result<FeedRow[]> | null;
   issuer: Result<WrappedRow[]> | null;
+  curated: {
+    projects: Record<string, Result<boolean> | null>;
+    memeMarket: Result<MemeMarketRow[]> | null;
+    majorMarket: Result<MajorMarketRow[]> | null;
+  };
 };
 export type Change = { key: string; field: string; expected: string | number | null; actual: string | number | null };
 export type SourceState = {
@@ -27,10 +35,15 @@ export type CatalogReport = {
   feedWithoutRosterAsset: string[];
   knownFeedWithoutRosterAsset: string[];
   calendar: CalendarState;
+  curated: SourceState & {
+    belowThreshold: { key: string; metric: string; threshold: number; actual: number }[];
+    freshness: { status: "ok" | "stale" | "invalid"; verifiedAt: string; ageDays: number | null };
+  };
   onchain?: { status: "ok" | "unavailable"; block: string | null; identityChanges: Change[] };
 };
 
 export const CALENDAR_EXPIRY_WARNING_DAYS = 120;
+const CURATED_REFRESH_GRACE_DAYS = 5;
 export type CalendarState = { status: "ok" | "expiring" | "expired"; coversThrough: string; daysRemaining: number };
 
 export function calendarState(calendar: { coversThrough: string }, onDate: string): CalendarState {
@@ -120,6 +133,105 @@ export function parseCoinbaseWrappedIssuerPage(html: string): Result<WrappedRow[
   return unique(rows, (row) => row.sourceLabel);
 }
 
+function jsonArray(json: unknown): unknown[] | null {
+  try {
+    const input: unknown = typeof json === "string" ? JSON.parse(json) : json;
+    return Array.isArray(input) ? input : null;
+  } catch { return null; }
+}
+
+const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const marketNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+export function parseMemeProjectPage(html: string, contract: string): Result<boolean> {
+  if (!/^\s*</.test(html)) return failed();
+  return ok([...html.matchAll(/(?<![0-9a-fA-F])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/gi)].some(([candidate]) => sameAddress(candidate, contract)));
+}
+
+export function parseMemeMarket(json: unknown, contracts: readonly string[]): Result<MemeMarketRow[]> {
+  const input = jsonArray(json);
+  if (!input) return failed();
+  const rows = new Map<string, MemeMarketRow>();
+  const pairs = new Map<string, { marketCapUsd: number; liquidityUsd: number }>();
+  const requested = new Set(contracts.map((contract) => contract.toLowerCase()));
+  for (const item of input) {
+    if (!record(item) || typeof item.pairAddress !== "string" || !address(item.pairAddress) || typeof item.chainId !== "string" || !record(item.baseToken) || typeof item.baseToken.address !== "string") return failed();
+    const contract = item.baseToken.address.toLowerCase();
+    if (item.chainId !== "base" || !requested.has(contract)) continue;
+    if (!marketNumber(item.marketCap) || !record(item.liquidity) || !marketNumber(item.liquidity.usd)) return failed();
+    const pairKey = `${contract}:${item.pairAddress.toLowerCase()}`;
+    const pair = pairs.get(pairKey);
+    if (pair) {
+      if (pair.marketCapUsd !== item.marketCap || pair.liquidityUsd !== item.liquidity.usd) return failed();
+      continue;
+    }
+    pairs.set(pairKey, { marketCapUsd: item.marketCap, liquidityUsd: item.liquidity.usd });
+    const previous = rows.get(contract);
+    const baseLiquidityUsd = (previous?.baseLiquidityUsd ?? 0) + item.liquidity.usd;
+    if (!Number.isFinite(baseLiquidityUsd)) return failed();
+    rows.set(contract, { contract, marketCapUsd: Math.max(previous?.marketCapUsd ?? 0, item.marketCap), baseLiquidityUsd });
+  }
+  return requested.size && rows.size === requested.size ? ok([...rows.values()]) : failed();
+}
+
+export function parseMajorMarket(json: unknown, ids: readonly string[]): Result<MajorMarketRow[]> {
+  const input = jsonArray(json);
+  if (!input) return failed();
+  const rows: MajorMarketRow[] = [];
+  for (const item of input) {
+    if (!record(item) || typeof item.id !== "string") return failed();
+    if (!ids.includes(item.id)) continue;
+    if (!marketNumber(item.market_cap)) return failed();
+    rows.push({ id: item.id, marketCapUsd: item.market_cap });
+  }
+  const distinct = unique(rows, (row) => row.id);
+  return distinct.status === "ok" && ids.every((id) => distinct.value.some((row) => row.id === id)) ? distinct : failed();
+}
+
+function calendarDate(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value ? timestamp : null;
+}
+
+function curatedState(curated: typeof curatedSnapshot, parsed: ParsedSources["curated"], onDate: string): CatalogReport["curated"] {
+  const verifiedAt = calendarDate(curated.verifiedAt);
+  const today = calendarDate(onDate);
+  const ageDays = verifiedAt === null || today === null ? null : Math.floor((today - verifiedAt) / 86_400_000);
+  const result: CatalogReport["curated"] = {
+    status: "ok", additions: [], removals: [], identityChanges: [], belowThreshold: [],
+    freshness: { status: ageDays === null || ageDays < 0 ? "invalid" : ageDays > curated.refreshEveryDays + CURATED_REFRESH_GRACE_DAYS ? "stale" : "ok", verifiedAt: curated.verifiedAt, ageDays },
+  };
+  const statuses = [parsed.memeMarket, parsed.majorMarket, ...curated.memes.map((meme) => parsed.projects[meme.id])];
+  if (statuses.some((source) => source == null)) result.status = "unavailable";
+  else if (statuses.some((source) => source?.status === "parse-failed")) result.status = "parse-failed";
+  for (const meme of curated.memes) {
+    const page = parsed.projects[meme.id];
+    if (page?.status === "ok" && !page.value) result.identityChanges.push({ key: meme.id, field: "projectSourceContract", expected: meme.contract, actual: null });
+  }
+  const threshold = (key: string, metric: string, floor: number, actual: number) => {
+    if (actual < floor) result.belowThreshold.push({ key, metric, threshold: floor, actual });
+  };
+  if (parsed.memeMarket?.status === "ok") {
+    for (const meme of curated.memes) {
+      const live = parsed.memeMarket.value.find((row) => sameAddress(row.contract, meme.contract));
+      if (!live) { result.status = result.status === "unavailable" ? "unavailable" : "parse-failed"; continue; }
+      threshold(meme.id, "marketCapUsd", curated.thresholds.memeMarketCapUsd, live.marketCapUsd);
+      threshold(meme.id, "baseLiquidityUsd", curated.thresholds.memeBaseLiquidityUsd, live.baseLiquidityUsd);
+    }
+  }
+  if (parsed.majorMarket?.status === "ok") {
+    for (const major of curated.majors) {
+      const live = parsed.majorMarket.value.find((row) => row.id === major.coingeckoId);
+      if (!live) { result.status = result.status === "unavailable" ? "unavailable" : "parse-failed"; continue; }
+      threshold(major.tokenSymbol, "underlyingMarketCapUsd", curated.thresholds.majorUnderlyingMarketCapUsd, live.marketCapUsd);
+    }
+  }
+  result.identityChanges.sort((a, b) => a.key.localeCompare(b.key));
+  result.belowThreshold.sort((a, b) => `${a.key}:${a.metric}`.localeCompare(`${b.key}:${b.metric}`));
+  return result;
+}
+
 function state<T>(source: Result<T> | null): SourceState {
   return { status: source?.status ?? "unavailable", additions: [], removals: [], identityChanges: [] };
 }
@@ -137,7 +249,7 @@ function compare<T, U>(state: SourceState, expected: readonly T[], actual: reado
   for (const key of known.keys()) if (!current.has(key)) state.removals.push(key);
 }
 
-export function diffCatalog(stocks: typeof stockSnapshot, wrapped: typeof wrappedSnapshot, parsed: ParsedSources, onDate: string): CatalogReport {
+export function diffCatalog(stocks: typeof stockSnapshot, wrapped: typeof wrappedSnapshot, curated: typeof curatedSnapshot, parsed: ParsedSources, onDate: string): CatalogReport {
   const sources = { roster: state(parsed.roster), integration: state(parsed.integration), feedDirectory: state(parsed.feedDirectory), issuer: state(parsed.issuer) };
   if (parsed.roster?.status === "ok") {
     compare(sources.roster, stocks.stocks, parsed.roster.value, (row) => row.tokenSymbol, (row) => row.tokenSymbol,
@@ -179,12 +291,13 @@ export function diffCatalog(stocks: typeof stockSnapshot, wrapped: typeof wrappe
     source.additions.sort(); source.removals.sort();
     source.identityChanges.sort((a, b) => `${a.key}:${a.field}`.localeCompare(`${b.key}:${b.field}`));
   }
-  return { sources, feedWithoutRosterAsset: feedWithoutRosterAsset.sort(), knownFeedWithoutRosterAsset: knownFeedWithoutRosterAsset.sort(), calendar: calendarState(holidayCalendar, onDate) };
+  return { sources, feedWithoutRosterAsset: feedWithoutRosterAsset.sort(), knownFeedWithoutRosterAsset: knownFeedWithoutRosterAsset.sort(), calendar: calendarState(holidayCalendar, onDate), curated: curatedState(curated, parsed.curated, onDate) };
 }
 
 export function catalogExitCode(report: CatalogReport): 0 | 1 | 2 {
-  if (Object.values(report.sources).some((source) => source.status !== "ok") || report.onchain?.status === "unavailable") return 2;
-  if (report.calendar.status !== "ok") return 1;
+  if (Object.values(report.sources).some((source) => source.status !== "ok") || report.curated.status !== "ok" || report.onchain?.status === "unavailable") return 2;
+  if (report.calendar.status !== "ok" || report.curated.freshness.status !== "ok") return 1;
+  if (report.curated.additions.length || report.curated.removals.length || report.curated.identityChanges.length || report.curated.belowThreshold.length) return 1;
   return Object.values(report.sources).some((source) => source.additions.length || source.removals.length || source.identityChanges.length)
     || report.feedWithoutRosterAsset.length || report.onchain?.identityChanges.length ? 1 : 0;
 }

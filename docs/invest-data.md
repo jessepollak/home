@@ -37,7 +37,7 @@ Primary sources:
 - Official Base stock roster: https://www.base.org/stocks
 - Base announcement and restriction summary: https://blog.base.org/tokenized-stocks
 - Canonical contract identity: the Base explorer link attached to each instrument on the official roster; those links are preserved in `apps/web/config/invest-assets.ts`.
-- Dated source snapshots: `apps/web/config/invest-sources/base-stocks.json` (roster, integration doc, Chainlink feed directory, oracle registry; verified September 28, 2026 at Base block 51886274), `coinbase-wrapped.json`, and `us-equity-holidays.json`. A deterministic test proves the runtime registry equals them. `bun run --cwd apps/web invest-catalog:refresh` compares the live sources with those snapshots (add `--onchain` for the chain reads); it never edits product config. See [gates](gates.md).
+- Dated source snapshots: `apps/web/config/invest-sources/base-stocks.json` (roster, integration doc, Chainlink feed directory, oracle registry; verified September 28, 2026 at Base block 51886274), `coinbase-wrapped.json`, `curated-catalog.json` (majors and memes; see [Curated catalog inclusion rule](#curated-catalog-inclusion-rule)), and `us-equity-holidays.json`. The existing `apps/web/config/invest-assets.test.ts` suite proves the runtime registry equals the stock and wrapped snapshots; a catalog member is added to or removed from the runtime registry in the same change that records it in `curated-catalog.json`. `bun run --cwd apps/web invest-catalog:refresh` compares the live sources with those snapshots (add `--onchain` for the chain reads); it never edits product config. See [gates](gates.md).
 
 ### Stock valuation
 
@@ -177,9 +177,35 @@ These are Base ERC-20 representations, not native BTC, XRP Ledger, Dogecoin, Lit
 
 On Investments, held Base tokens outside the catalog with no price appear by quantity in the owned holdings list. They have no displayed value and are never counted in valued totals.
 
+## Curated catalog inclusion rule
+
+Invest has a curated, dated catalog of major crypto assets and top memes. Everything else stays reachable through [Asset search](#asset-search), Codex trending, or an exact Base contract address, and trades through the same flow as a catalog asset. The rule decides only which assets are configured in the registry: the Crypto shelf shows the majors, and the configured memes carry identity, pricing and holdings display. The Memes shelf is Codex trending and is independent of the catalog. Catalog membership and the thresholds below never gate or authorize trading; an executable provider quote remains the only execution authority ([#936](https://github.com/jessepollak/home/issues/936)).
+
+The snapshot is `apps/web/config/invest-sources/curated-catalog.json` (rule version 1, verified October 21, 2026 at Base block 52915187). It lists `majors`, `memes`, the `thresholds`, the evidence recorded for each member, and `excluded` entries with a reason. `invest-catalog:refresh` checks each member's live market cap and Base liquidity against the thresholds recorded in the snapshot, and `cryptoAssets` or `memeAssets` is updated in the same change as the snapshot.
+
+**Major crypto asset.** All of these:
+
+1. The asset is a Coinbase-issued wrapped token that the issuer page lists with a Base deployment and an exact contract, snapshotted in `coinbase-wrapped.json`.
+2. The token is a fixed 1:1 representation. A variable-rate representation (cbETH) is excluded.
+3. The contract's `name()`, `symbol()` and `decimals()` read on Base match the snapshot.
+4. The underlying asset's market cap is at least $25,000,000.
+
+**Top meme.** All of these:
+
+1. A primary project source names the contract, and the Base explorer page for that contract is recorded (the evidence standard in [Base-native meme sample](#base-native-meme-sample)). A token whose project source does not name the contract stays out even when it is large.
+2. The contract's `name()`, `symbol()` and `decimals()` read on Base match the snapshot.
+3. Market cap is at least $25,000,000.
+4. Liquidity summed over its Base DEX pairs is at least $100,000.
+
+The market thresholds are the refresh criteria. Holder counts are not used because no credential-free source for them has been verified. Majors have no Base liquidity floor: issuer identity and the underlying's size qualify them, and Base pool depth is not part of membership.
+
+**Refresh and removal.** The catalog is re-verified every 30 days. `invest-catalog:refresh` compares the live project pages, Dexscreener and CoinGecko market reads, and Base contract reads with the snapshot. It reports drift (exit 1) when a member's project page no longer names its contract, when a member falls below a threshold, or when `verifiedAt` is more than 35 days old; it reports exit 2 when a source cannot be read or parsed, so an unreadable source is never treated as passing or as zero. The check only reports. A person re-reads the sources, updates the snapshot's `verifiedAt`, block and evidence, and adds or removes a member in the same change as the registry. An asset that stops qualifying is set to `listing: "removed"` so holders keep their position and exit.
+
+Excluded and why: cbETH (variable representation), cbSOL (no Coinbase Base contract), BRETT (its project site does not name the contract, so the meme evidence standard is unmet; re-checked October 21, 2026). Adding a new asset follows this rule and the same evidence; no threshold is waived for a single asset.
+
 ## Base-native meme sample
 
-This sample is intentionally small and informational. Inclusion in the registry is not an endorsement and does not imply liquidity, suitability, eligibility, or a Home trading route. Do not put that disclaimer, or any similar compliance essay, on the Invest list.
+This sample is the meme half of the [curated catalog](#curated-catalog-inclusion-rule). It is intentionally small and informational. Inclusion in the registry is not an endorsement and does not imply liquidity, suitability, eligibility, or a Home trading route. Do not put that disclaimer, or any similar compliance essay, on the Invest list.
 
 | Project | Symbol | Base contract | Primary project source | Contract source |
 | --- | --- | --- | --- | --- |

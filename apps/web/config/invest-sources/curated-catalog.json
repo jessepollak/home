@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "chainId": 8453,
+  "ruleVersion": 1,
+  "verifiedAt": "2026-10-21",
+  "verificationBlock": { "number": 52915187, "timestamp": "2026-10-21T21:55:21Z" },
+  "refreshEveryDays": 30,
+  "thresholds": {
+    "majorUnderlyingMarketCapUsd": 25000000,
+    "memeMarketCapUsd": 25000000,
+    "memeBaseLiquidityUsd": 100000
+  },
+  "sources": {
+    "issuer": "coinbase-wrapped.json",
+    "memeMarket": "https://api.dexscreener.com/tokens/v1/base/",
+    "majorMarket": "https://api.coingecko.com/api/v3/coins/markets"
+  },
+  "majors": [
+    { "tokenSymbol": "cbBTC", "coingeckoId": "bitcoin", "underlyingMarketCapUsd": 1703840700967 },
+    { "tokenSymbol": "cbXRP", "coingeckoId": "ripple", "underlyingMarketCapUsd": 87250209740 },
+    { "tokenSymbol": "cbDOGE", "coingeckoId": "dogecoin", "underlyingMarketCapUsd": 12955954373 },
+    { "tokenSymbol": "cbLTC", "coingeckoId": "litecoin", "underlyingMarketCapUsd": 4819398232 },
+    { "tokenSymbol": "cbADA", "coingeckoId": "cardano", "underlyingMarketCapUsd": 8570091875 },
+    { "tokenSymbol": "cbHYPE", "coingeckoId": "hyperliquid", "underlyingMarketCapUsd": 18205027925 },
+    { "tokenSymbol": "cbZEC", "coingeckoId": "zcash", "underlyingMarketCapUsd": 23072764455 },
+    { "tokenSymbol": "cbMEGA", "coingeckoId": "megaeth", "underlyingMarketCapUsd": 52405147 }
+  ],
+  "memes": [
+    {
+      "id": "degen",
+      "tokenSymbol": "DEGEN",
+      "onchainName": "Degen",
+      "contract": "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed",
+      "decimals": 18,
+      "projectSource": "https://www.degen.tips/",
+      "contractSource": "https://basescan.org/token/0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed",
+      "marketCapUsd": 35359208,
+      "baseLiquidityUsd": 272460
+    },
+    {
+      "id": "toshi",
+      "tokenSymbol": "TOSHI",
+      "onchainName": "Toshi",
+      "contract": "0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4",
+      "decimals": 18,
+      "projectSource": "https://www.toshithecat.com/",
+      "contractSource": "https://basescan.org/token/0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4",
+      "marketCapUsd": 50145423,
+      "baseLiquidityUsd": 1118044
+    }
+  ],
+  "excluded": [
+    { "tokenSymbol": "cbETH", "reason": "variable-representation" },
+    { "tokenSymbol": "cbSOL", "reason": "no-base-contract" },
+    { "tokenSymbol": "BRETT", "contract": "0x532f27101965dd16442E59d40670FaF5eBB142E4", "reason": "project-source-does-not-name-contract" }
+  ]
+}
