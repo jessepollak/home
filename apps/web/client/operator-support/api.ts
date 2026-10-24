@@ -5,7 +5,7 @@ import {
   parseOperatorSupportListResponse,
   parseOperatorSupportReplyResponse,
   parseOperatorSupportSummary,
-  parseSupportErrorResponse,
+  parseOperatorSupportErrorResponse,
   type OperatorSupportConversationResponse,
   type OperatorSupportListResponse,
   type OperatorSupportReplyResponse,
@@ -47,7 +47,7 @@ async function request<T>(path: string, parser: Parser<T>, body?: MutationBody, 
   if (response.status === 304) return "unchanged";
   const value: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    const error = parseSupportErrorResponse(value);
+    const error = parseOperatorSupportErrorResponse(value);
     if (error?.error.code === "AUTH_UNAVAILABLE") throw new Error("Authentication is temporarily unavailable. Try again.");
     if (error?.error.code === "SUPPORT_CONFLICT") throw new SupportConflictError(conflict);
     throw new Error(error?.error.code === "SUPPORT_UNAVAILABLE" ? "Support inbox is unavailable." : "Couldn't load support. Try again.");

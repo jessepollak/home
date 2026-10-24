@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { AccountExportReader } from "./read";
 
 const connectionString = process.env.FUNDING_PG_TEST_URL?.trim();
@@ -45,7 +45,7 @@ async function seed(owner: number) {
     await sql.query(`INSERT INTO card_events(provider,mode,event_id,kind,cardholder_account_id,customer_id,card_id,occurred_at) VALUES
       ('bridge','production','holder-wrong-mode','issuing_cardholder.created','holder-1',NULL,NULL,$1),
       ('immersve','sandbox','holder-wrong-provider','issuing_cardholder.created','holder-1',NULL,NULL,$1)`, [at]);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); });
 
   test("exports only the owner's provider-mode cardholder and card events without duplicates", async () => {

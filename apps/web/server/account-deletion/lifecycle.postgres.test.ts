@@ -7,7 +7,7 @@ import { ACCOUNT_EXPORT_HOME_CLASSES } from "@/shared/account/contracts/data-exp
 import { parseAccountDeletionReceipt } from "@/shared/account/contracts/account-deletion";
 import { financialEvidenceExpiresAt } from "@/shared/account/financial-retention";
 import { createPostgresSqlExecutor, type SqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { ACTION_DRAFT_RETENTION_MS, ActionsStore, actionOwnerKey } from "@/server/actions/store";
 import { fundingProviders } from "@/server/funding/providers";
 import { PostgresFundingOrderStore } from "@/server/funding/core/postgres-store";
@@ -108,7 +108,7 @@ function observeTransaction(before: (text: string) => Promise<void>, after: (tex
     await admin.begin(async (tx) => { await tx.unsafe(`SET LOCAL search_path TO ${schema}`); for (const migration of await readAllMigrationSql()) await tx.unsafe(migration); });
     sql = createPostgresSqlExecutor(connectionString, { poolFactory: (config) => new Pool({...config,options:`-c search_path=${schema}`}) });
     store = new AccountDeletionStore(sql, () => at);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   afterAll(async () => {
     await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close();
     if (originalSecret === undefined) delete process.env.ACCOUNT_DELETION_TOMBSTONE_SECRET; else process.env.ACCOUNT_DELETION_TOMBSTONE_SECRET = originalSecret;

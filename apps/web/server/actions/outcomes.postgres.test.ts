@@ -7,7 +7,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { createCdpWebhookHandler } from "@/server/balances/webhook";
 import { settleOpenActionsForAccounts } from "./follow-through";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { ActionsStore } from "./store";
 import type { MoneyActionOwner } from "@/shared/money-actions/types";
@@ -81,7 +81,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   beforeEach(async () => {
     const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
     setSystemTime(clock.rows[0]!.instant);
