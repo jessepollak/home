@@ -42,12 +42,12 @@ There are **six capability workstreams and two shared quality workstreams**. All
 
 | Workstream | Outcome | Required in MVP |
 | --- | --- | --- |
-| **Money in/out** | Customers can bring local money in and take it back out. | USD plus the regional portfolio in section 3, including Peer.xyz for offramp; onramps, offramps, necessary conversion, quotes/fees, status, and recovery. |
+| **Money in/out** | Customers can bring local money in and take it back out. | USD plus the regional portfolio in section 3, including Peer.xyz for offramp, delivered through onramp and offramp providers that already exist (Home's funding seam or established onramps) rather than new issuer partnerships; #2246 decides the routes. Onramps, offramps, necessary conversion, quotes/fees, status, and recovery. |
 | **Save and spend** | Customers can earn on their money and use it day to day. | Dollar yield and local-currency yield wherever an accessible product exists; deposit/withdraw, balances and variable APY; P2P send/receive; one usable card program with funding, controls, purchases, declines, refunds, and Activity. |
-| **Invest** | Customers can discover, understand, buy, hold, and sell investments. | All stocks on Base, plus memes and major crypto assets; search, good charts, basic research, buying/selling, holdings, and valuation. Stocks remain central to the experience. |
+| **Invest** | Customers can discover, understand, buy, hold, and sell investments. | All stocks on Base, plus a curated, dated catalog of major crypto assets and top memes (#2249); every other token stays reachable through search or an exact contract address. Search, good charts, basic research, buying/selling, holdings, and valuation. Stocks remain central to the experience. |
 | **Credit** | Customers can do more with their capital. | All available Base borrow markets for Coinbase assets (cb assets); market discovery, collateral, borrowing capacity, rates, loan health, borrow/repay, and collateral withdrawal. |
 | **Operator platform** | An operator can launch, configure, run, grow, and support a Home as a business. | Guided Vercel setup; protected admin dashboard; brand/colors, regions, assets, products, and provider settings; secure credential setup and connection checks; customer access controls; an update and recovery path; plus the operator business tools below: fees, growth, analytics, and support. |
-| **Identity and account** | Customers can access their account and unlock the services they need. | Sign-in/out and recovery; one identity integration with verification status, retry, and resume; verification when required by a capability; country, currency, and language preferences. Reuse verification where downstream providers accept it. |
+| **Identity and account** | Customers can access their account and unlock the services they need. | Sign-in/out and recovery; verification when a capability requires it, through that capability's provider, with its own status, retry, and resume; country, currency, and language preferences. Reuse provider verification where downstream providers accept it. One Home identity integration with shared verification status is post-MVP (Jesse, October 21). |
 
 ### Shared quality workstreams
 
@@ -73,23 +73,23 @@ There are **six capability workstreams and two shared quality workstreams**. All
 
 **Cards.** Start with one card-provider seam routed by region, Bridge + Stripe first, and a card that supports actual spending. Virtual issuance is sufficient only if it delivers the intended use; include mobile-wallet provisioning if required for everyday in-person spending. Specify the funding source, authorization/settlement behavior, freeze/unfreeze, and support/dispute handoff. Card issuance alone is not completion.
 
-**Asset and market coverage.** Define authoritative catalogs and refresh behavior for stocks, memes/majors, and cb-asset markets. Validate exact identities and per-market parameters. The meme/major catalog needs an inclusion rule; it does not mean every token on Base. Missing execution paths remain explicit gaps against the agreed coverage. New protocols may require integrations even when the UI is shared.
+**Asset and market coverage.** Define authoritative catalogs and refresh behavior for stocks, memes/majors, and cb-asset markets. Validate exact identities and per-market parameters. The majors and top-meme catalog is curated, dated, and governed by a written inclusion rule ([#2249](https://github.com/jessepollak/home/issues/2249)); it does not mean every token on Base, and every other token stays reachable through search or an exact contract address. Missing execution paths remain explicit gaps against the agreed coverage. New protocols may require integrations even when the UI is shared.
 
 **USDC-paired token execution.** Any exact Base ERC-20 outside tokenized stocks may request a quote; the provider and verified on-chain identity decide each route at each amount, not catalog inclusion or a liquidity floor. No display price or quote is proof of a completed trade. Chain reads bind decimals and sell-all spend, the review binds the exact pair and minimum receive, and only finalized chain activity establishes traded status. Operator removal may block buying without blocking an attempted sale. Token risk screening is deferred to #964; this execution path does not certify a token as safe.
 
-**Identity.** One coherent Home flow does not guarantee that every provider accepts the same verification. Preserve actual provider requirements, prefer provider-held documents, and keep only necessary references/status in Home.
+**Identity.** One coherent Home flow does not guarantee that every provider accepts the same verification, and MVP does not add a Home-run identity integration (Jesse, October 21). Each capability that requires verification uses its provider's own verification and status, as cards and funding providers do today. Preserve actual provider requirements, prefer provider-held documents, and keep only necessary references/status in Home.
 
 **Motion and feel.** Use shared defaults and approved reference journeys for navigation, sheets/dialogs, drag/release, back/close/reopen, number changes, charts, and loading transitions. Motion should respond immediately, remain interruptible, and avoid layout jumps. Desktop deserves intentional layouts and interactions, alongside mobile touch behavior.
 
 ### After MVP
 
-Keep these outside the initial release: index products and deeper investment research; recurring investing; undercollateralized credit and non-cb collateral expansion; general AI/natural-language customization; additional hosting targets; a plugin marketplace; sophisticated staff permissions; revenue-share referral rewards and LLM-assisted support; offline (email/push) support replies; additional card/identity providers; and a separate personal-edition onboarding flow.
+Keep these outside the initial release: index products and deeper investment research; recurring investing; undercollateralized credit and non-cb collateral expansion; general AI/natural-language customization; additional hosting targets; a plugin marketplace; sophisticated staff permissions; revenue-share referral rewards and LLM-assisted support; offline (email/push) support replies; additional card providers; one Home identity integration with shared verification status, retry, and resume; and a separate personal-edition onboarding flow.
 
 These preserve the longer-term vision. They do not defer the agreed regional coverage, local yield where available, stock/meme/major coverage, cb-asset markets, languages, or design quality.
 
 ## 3. Regional money portfolio
 
-Use the portfolio from [GitHub #539](https://github.com/jessepollak/home/issues/539#issuecomment-5691816368), **amended by Jesse's latest instruction to defer wMXN**. This leaves nine provider workstreams and thirteen non-USD token/provider bindings, plus the existing USD baseline. A binding is a delivery target, not a claim of live availability or a count of supported countries.
+Use the portfolio from [GitHub #539](https://github.com/jessepollak/home/issues/539#issuecomment-5691816368), **amended by Jesse's latest instruction to defer wMXN**. This leaves nine provider workstreams and thirteen non-USD token/provider bindings, plus the existing USD baseline. These bindings are served through providers that already exist on Home's funding seam or established onramps, not new issuer partnerships; [#2246](https://github.com/jessepollak/home/issues/2246) decides the routes per currency. A binding is a delivery target, not a claim of live availability or a count of supported countries.
 
 | Currency → asset | Provider | Existing workstream |
 | --- | --- | --- |
@@ -103,7 +103,7 @@ Use the portfolio from [GitHub #539](https://github.com/jessepollak/home/issues/
 | AUD → AUDD | AUDD Mint | [#556](https://github.com/jessepollak/home/issues/556) |
 | SGD → XSGD | StraitsX | [#557](https://github.com/jessepollak/home/issues/557) |
 
-**Peer.xyz is required in MVP as an offramp only** (Jesse, September 23), alongside the regional issuer routes above. Peer onramp is out of MVP. Cash-out is enabled in production for the US and GB; the 21 configured euro-area countries also have a Revolut EUR binding under the same Peer switch, with live validation and Peer's written corridor confirmation outstanding. Add regions by binding. Define each binding's payment methods, liquidity, fees, status, and recovery paths, and record missing or blocked paths explicitly. Peer does not replace any agreed regional route, and its bindings are additional to the thirteen listed above.
+**Peer.xyz is required in MVP as an offramp only** (Jesse, September 23), alongside the regional issuer routes above. Peer onramp is out of MVP; adding it would take a route decision in [#2246](https://github.com/jessepollak/home/issues/2246). Cash-out is enabled in production for the US and GB; the 21 configured euro-area countries also have a Revolut EUR binding under the same Peer switch, with live validation and Peer's written corridor confirmation outstanding. Add regions by binding. Define each binding's payment methods, liquidity, fees, status, and recovery paths, and record missing or blocked paths explicitly. Peer does not replace any agreed regional route, and its bindings are additional to the thirteen listed above.
 
 For each binding, track country/audience, local payment rail, exact Base asset, cash-in, cash-out, fees, status/recovery, provider access, and evidence. Confirm exits separately: earlier onramp research did not establish every withdrawal route.
 
@@ -133,7 +133,7 @@ These proofs establish readiness for operator pilots. External operator adoption
 
 | Step | Work | Result |
 | --- | --- | --- |
-| **1. Establish the gaps** | Audit code and issues against section 2. Inventory routes, languages, yield products, assets, and markets. Start provider access work, especially cards and identity. | An evidence-backed view of working, incomplete, missing, and externally blocked capabilities. |
+| **1. Establish the gaps** | Audit code and issues against section 2. Inventory routes, languages, yield products, assets, and markets. Start provider access work, especially cards and the regional onramp and offramp routes (#2246). | An evidence-backed view of working, incomplete, missing, and externally blocked capabilities. |
 | **2. Deliver complete journeys** | Build the shared account/data/configuration foundations and complete each workstream. Include language, design, and quality work in every delivery. | Usable capabilities across the agreed scope. |
 | **3. Prove the release** | Run the three proofs above, fix gaps, and rehearse installation and upgrading. | A complete MVP ready for external operator pilots. |
 | **4. Grow through operators** | Help operators launch, observe customer use and support needs, and improve the shared product. | Progress toward five growing neobanks. |
@@ -155,7 +155,7 @@ These questions refine delivery; they do not reopen the agreed MVP breadth.
 | Question | Next useful output |
 | --- | --- |
 | Which card provider? | Bridge + Stripe and Rain (Jesse, October 6, 2026), behind one card-program interface; Immersve remains for regions neither serves. Open question: whether the programs accept Home's KYC. Record program country eligibility and KYC acceptance for each when confirmed. |
-| Which identity provider? | **Sumsub** (Jesse, September 23), built against public docs and fixtures first; Persona is the fallback. Confirm whether Bridge and Immersve accept Sumsub-shared KYC before live verification (#640). |
+| Which identity provider for the post-MVP integration? | **Sumsub** (Jesse, September 23), built against public docs and fixtures first; Persona is the fallback. MVP keeps each capability's own provider verification, so this integration waits until it is scheduled; confirm whether Bridge and Immersve accept Sumsub-shared KYC when the integration is scheduled (#640). |
 | What needs Peer input? | Jesse is already in contact and can bring Peer in as needed. Consolidate specific unresolved integration and corridor questions before requesting an introduction. |
 | How does dashboard configuration work? | Propose a focused evolution of current typed configuration and deployment secrets, including validation, administrator authority, and upgrade behavior. |
 | What are the exact coverage inventories? | Specify language mappings, existing yield products, stock and meme/major catalog sources, cb-asset identities, market sources, and refresh rules. |
@@ -173,4 +173,4 @@ These questions refine delivery; they do not reopen the agreed MVP breadth.
 
 Use the [PRD template](prd-template.md) for delivery issues. Coordinate role documentation with [#561](https://github.com/jessepollak/home/issues/561).
 
-Source: Jesse's vision narration, subsequent scope decisions, and the linked repository records. This defines intended scope, not shipped capability.
+Source: Jesse's vision narration, subsequent scope decisions (including October 21), and the linked repository records. This defines intended scope, not shipped capability.
