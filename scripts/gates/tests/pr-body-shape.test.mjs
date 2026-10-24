@@ -302,6 +302,39 @@ test("does not read reference syntax inside inline images, escapes or code spans
   assert.deepEqual(prBodyShapeFindings(title, previewBody(row("![Beta] ![bad](missing.png)"))), [undefinedReference("Beta", "Changed"), unresolvedImage("missing.png", "Changed")]);
 });
 
+test("reads an undefined image after a backtick inside an earlier image title", () => {
+  const row = (value) => `| State | Evidence |\n| --- | --- |\n| Changed | ${value} |`;
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment} "a \` b") ![After] \`code\``))), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](x\`y.png) ![After] \`code\``))), [unresolvedImage("x`y.png", "Changed"), undefinedReference("After", "Changed"), missingMedia("Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![ok](${attachment}) \`![x]\` text`))), []);
+});
+
+test("parses nested parentheses and titles in link destinations before scanning for images", () => {
+  const row = (value) => `| State | Evidence |\n| --- | --- |\n| Changed | ![ok](${attachment}) ${value} |`;
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row('[notes](https://example.test/a((b)) "![After]")'))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("[notes](https://example.test/a(b(c(d))) '![After]')"))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row('[notes](<https://example.test/a b> (![After]))'))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row('[notes](https://example.test/a "say \\"![After]\\"")'))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("[![After]](https://example.test/a)"))), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row('[notes](https://example.test/a((b) "x") ![After]'))), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(`| State | Evidence |\n| --- | --- |\n| Changed | ![After](https://example.test/a((b)) "t") |`)), [unresolvedImage("https://example.test/a((b))", "Changed"), missingMedia("Changed")]);
+});
+
+test("keeps scanning after an outer link that contains a link, an undefined link reference, or a failed destination", () => {
+  const row = (value) => `| State | Evidence |\n| --- | --- |\n| Changed | ![ok](${attachment}) ${value} |`;
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row('[outer [inner](https://e.test)](https://e.test "![After]")'))), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("[notes][a`b] ![After] `code`"))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("[notes][a`b] ![After] `code` ![x]"))), [undefinedReference("x", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(`[a\`b]: https://e.test/x\n\n${row("[notes][a`b] ![After] `code`")}`)), [undefinedReference("After", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("[x](".repeat(20000)))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row("![x]".repeat(20000)))), [undefinedReference("x", "Changed")]);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`${"[ ".repeat(20000)}x${"] ".repeat(20000)}`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`${"[".repeat(20000)}${"[x](e)".repeat(20000)}`))), []);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(row(`![${"a".repeat(2000)}]`))), []);
+  const astral = "😀".repeat(500);
+  assert.deepEqual(prBodyShapeFindings(title, previewBody(`[${astral}]: missing.png\n\n${row(`![${astral}]`)}`)), [unresolvedImage("missing.png", "Changed")]);
+});
+
 test("treats a long line of unclosed image openers as no media", () => {
   assert.deepEqual(prBodyShapeFindings(title, previewBody(`| State | Evidence |\n| --- | --- |\n| Changed | ${"![".repeat(30000)} |`)), [missingMedia("Changed")]);
 });
