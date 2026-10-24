@@ -1,28 +1,31 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 import { waitForReady } from "@/tests/helpers/story-readiness";
-import {
-  MoneyConfirmSummary,
-  moneyConfirmFromRow,
-} from "@/client/money-modal/confirm-summary";
+import { MoneyConfirmSummary } from "@/client/money-modal/confirm-summary";
+import { moneyConfirmFacts } from "@/client/money-modal/confirm-facts";
 import { CopyableValue } from "@/components/copyable-value";
 
 const RECIPIENT = "0x2211d1d0020daea8039e46cf1367962070d77da9";
 const SHORT_RECIPIENT = "0x2211…d77da9";
 
 function SendReviewStory() {
+  const facts = moneyConfirmFacts({
+    id: "storybook-send-review", kind: "send", title: "Send USDC", calls: [], amounts: [], warnings: [],
+    createdAt: "2026-09-23T00:00:00.000Z", expiresAt: "2099-09-23T00:00:00.000Z",
+    owner: {
+      subject: "storybook-send-owner", address: "0x1111111111111111111111111111111111111111",
+      chainId: 8453, accountProvider: "cdp-embedded",
+    },
+    networkFee: { payment: "native" },
+  });
+  if (!facts) return null;
   return (
     <main className="w-full max-w-[390px] px-6 py-4">
       <MoneyConfirmSummary
+        facts={facts}
         amount="$25.00"
         lead="You're sending USDC"
         rows={[
-          moneyConfirmFromRow({
-            subject: "storybook-send-owner",
-            address: "0x1111111111111111111111111111111111111111",
-            chainId: 8453,
-            accountProvider: "cdp-embedded",
-          }),
           {
             label: "To",
             value: (
@@ -35,7 +38,6 @@ function SendReviewStory() {
             ),
           },
           { label: "Asset", value: "USDC" },
-          { label: "Network", value: "Base" },
         ]}
       />
     </main>
@@ -52,6 +54,10 @@ async function expectReviewAddress(canvasElement: HTMLElement) {
   range.selectNodeContents(text);
 
   await expect(canvas.getByText("You're sending USDC")).toBeVisible();
+  await expect(canvasElement.querySelector('[data-slot="confirm-amount"]')).toHaveTextContent("$25.00");
+  for (const [label, value] of [["From", "0x1111…111111"], ["Network", "Base"], ["Network fee", "Paid in ETH"]]) {
+    await expect(canvas.getByText(label, { selector: "dt", exact: true }).nextElementSibling).toHaveTextContent(value);
+  }
   await expect(range.getClientRects().length).toBe(1);
   await expect(toRow.scrollWidth).toBeLessThanOrEqual(toRow.clientWidth + 1);
   await expect(canvasElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);

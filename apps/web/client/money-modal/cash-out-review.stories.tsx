@@ -62,8 +62,8 @@ async function expectDetails(canvasElement: HTMLElement) {
 
 export const UsPeerCashApp: Story = {
   play: async ({ canvasElement }) => {
-    await expectFacts(canvasElement, { "You send": "50 USDC", "Peer fee": "None", Rate: null, "You receive": "≈ $50.00 to Cash App", Arrives: "Usually within 1 hour" });
-    await expect(fact(canvasElement, "Network fee")).toHaveTextContent("Up to 0.02 USDC");
+    await expect(canvasElement.querySelector('[data-slot="confirm-amount"]')).toHaveTextContent("$50.00");
+    await expectFacts(canvasElement, { From: "0x1111…111111", "You send": "50 USDC", "Peer fee": "None", Rate: null, "You receive": "≈ $50.00 to Cash App", Arrives: "Usually within 1 hour", Network: "Base", "Network fee": "Up to 0.02 USDC · ≈ $0.02" });
     await expectDetails(canvasElement);
   },
 };
@@ -106,6 +106,17 @@ export const IssuerContractFixturePix: Story = {
   play: async ({ canvasElement }) => {
     await expectFacts(canvasElement, { "Issuer fee": "R$", "Provider network fee": "R$", Rate: "1 USDC = 5.05 BRL", "You receive": "to Pix", Arrives: "1–2 business days" });
     await expect(within(canvasElement).queryByText(/estimate/)).toBeNull();
+  },
+};
+
+export const NativeFeeWithProviderFee: Story = {
+  args: {
+    action: { ...action, networkFee: { payment: "native" } },
+    quote: { ...peer, fees: { ...peer.fees, network: { amount: "0.40", currency: "USD" } } },
+  },
+  play: async ({ canvasElement }) => {
+    await expectFacts(canvasElement, { "Provider network fee": "$0.40", "Network fee": "Paid in ETH" });
+    await expect(within(canvasElement).getAllByText("Network fee", { selector: "dt", exact: true })).toHaveLength(1);
   },
 };
 

@@ -15,7 +15,8 @@ import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
   MoneyConfirmSummary,
-  moneyConfirmFromRow,
+  MoneyAmountSummary,
+  moneyConfirmFacts,
   MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
@@ -316,7 +317,7 @@ export function BorrowMoneyFlow({
         {step === "amount" ? (
           <>
             {closesWithoutDebt ? (
-              <MoneyConfirmSummary amount={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} lead="Withdraw all collateral" rows={[{ label: "Debt", value: "No debt" }]} />
+              <MoneyAmountSummary amount={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} lead="Withdraw all collateral" rows={[{ label: "Debt", value: "No debt" }]} />
             ) : (
               <MoneyAmountDisplay
                 amount={amount}
@@ -418,6 +419,7 @@ function borrowReviewAmount(action: PreparedMoneyAction, snapshot: BorrowMarketS
 function BorrowPreparedReview({ action, snapshot, regionId }: { action: PreparedMoneyAction; snapshot: BorrowMarketSnapshot; regionId: RegionId }) {
   const metadata = action.metadata?.product === "borrow" ? action.metadata : null;
   const amount = borrowReviewAmount(action, snapshot);
+  const facts = moneyConfirmFacts(action);
   const movementRows = action.amounts.map((entry) => {
     const suppliedCollateral = entry.direction === "spend" && entry.assetId === metadata?.collateralAsset.id &&
       (metadata.operation === "supply-collateral" || metadata.operation === "supply-and-borrow");
@@ -429,16 +431,14 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
   return (
     <div className="space-y-3">
       <div className="min-w-0 [&_dd]:wrap-anywhere">
-        <MoneyConfirmSummary action={action}
+        {facts ? <MoneyConfirmSummary facts={facts}
           amount={amount}
           lead={action.title}
           rows={[
-            moneyConfirmFromRow(action.owner),
             ...movementRows,
             { label: "Variable rate", value: formatWadPercent(metadata?.borrowAprWad ?? snapshot.state.borrowAprWad, regionId) },
-            { label: "Network", value: "Base" },
           ]}
-        />
+        /> : null}
       </div>
       {metadata?.projectedHealthFactorWad ? (
         <LiquidationBufferMeter

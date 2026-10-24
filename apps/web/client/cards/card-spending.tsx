@@ -7,7 +7,7 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
-import { MoneyAmountDisplay, MoneyConfirmSummary, moneyConfirmFromRow, MoneyConfirmFooter, MoneyModal, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, MoneyModalStep, MoneyResult, MoneyResultFooter, isPositiveDecimalAmount } from "@/client/money-modal";
+import { MoneyAmountDisplay, MoneyConfirmSummary, moneyConfirmFacts, MoneyConfirmFooter, MoneyModal, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, MoneyModalStep, MoneyResult, MoneyResultFooter, isPositiveDecimalAmount } from "@/client/money-modal";
 import { parseUsdcAmount } from "@/client/savings/format";
 import { reportClientError } from "@/client/observability/client-reporter";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -233,6 +233,7 @@ function CardSpendingSheet({ entry, commands, onClosed, onRefresh }: {
   }
 
   const lead = revoke ? "Turn off card spending" : "Set card spending limit";
+  const confirmFacts = action ? moneyConfirmFacts(action) : null;
   return <MoneyModal open={open} opener={entry.opener} labelledBy={titleId} pending={step === "pending"} onCancel={close} onClose={onClosed}>
     <MoneyModalStep step={step === "pending" ? "confirm" : step} depth={step === "amount" ? 0 : step === "result" ? 2 : 1}>
       <MoneyModalHeader title={step === "amount" ? lead : step === "result" ? "Card spending" : "Confirm"} titleId={titleId} closeLabel="Close spending limit" />
@@ -243,13 +244,11 @@ function CardSpendingSheet({ entry, commands, onClosed, onRefresh }: {
           {step === "amount" ? revoke ? <div aria-busy={preparing || undefined}>{preparing ? <ShimmerRows count={2} /> : null}</div> : <MoneyAmountDisplay
             amount={amount} onAmountChange={setAmount} maxDecimals={6} readOnly={preparing} chipSet="none" unit={{ kind: "fiat", currency: "USD" }} nativeSymbol="USDC" assetId="usdc" assetLabel="USDC" assetLocked
             onSubmit={validAmount ? () => void prepare({ version: 1, operation: "set", allowanceBaseUnits: parseUsdcAmount(amount) }) : undefined} /> : null}
-          {action && metadata && step !== "amount" ? <MoneyConfirmSummary action={action} lead={lead} amount={revoke ? "Removed" : formatUsdStablecoinAmount(metadata.allowanceBaseUnits)} rows={[
-            moneyConfirmFromRow(action.owner),
+          {action && confirmFacts && metadata && step !== "amount" ? <MoneyConfirmSummary facts={confirmFacts} lead={lead} amount={revoke ? "Removed" : formatUsdStablecoinAmount(metadata.allowanceBaseUnits)} rows={[
             { label: "Spender", value: metadata.spender, fullValue: true },
             { label: "Purpose", value: "Card purchases from Cash" },
             { label: "Current limit", value: limitLabel(metadata.previousAllowanceBaseUnits) },
             ...(!revoke ? [{ label: "New limit", value: formatUsdStablecoinAmount(metadata.allowanceBaseUnits) }] : []),
-            { label: "Network", value: "Base" },
             { label: "Valid until", value: formatPresentationDate(action.expiresAt, { style: "date-time-zone" }) },
           ]} /> : null}
           {action?.warnings[0] && step !== "amount" ? <Alert><AlertDescription>{action.warnings[0]}</AlertDescription></Alert> : null}

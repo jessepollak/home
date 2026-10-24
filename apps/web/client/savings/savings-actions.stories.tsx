@@ -313,8 +313,24 @@ export const Review: Story = {
   play: async ({ canvasElement }) => {
     const screen = await enterAmountAndContinue(canvasElement);
     await expect(await screen.findByRole("button", { name: "Deposit $25.00" })).toBeVisible();
-    await expect(await screen.findByText("Network fee")).toBeVisible();
-    await expect(await screen.findByText("Up to 0.02 USDC · ≈ $0.02")).toBeVisible();
+    const review = screen.getByRole("dialog", { name: "Confirm" });
+    await expect(review.querySelector('[data-slot="confirm-amount"]')).toHaveTextContent("$25.00");
+    for (const [label, value] of [["From", "0x1111…111111"], ["Network", "Base"], ["Network fee", "Up to 0.02 USDC · ≈ $0.02"]]) {
+      await expect(within(review).getByText(label, { selector: "dt", exact: true }).nextElementSibling).toHaveTextContent(value);
+    }
+  },
+};
+
+export const WithdrawReview: Story = {
+  args: { mode: "withdraw" },
+  play: async ({ canvasElement }) => {
+    const screen = await enterAmountAndContinue(canvasElement);
+    await expect(await screen.findByRole("button", { name: "Withdraw $25.00" })).toBeVisible();
+    const review = screen.getByRole("dialog", { name: "Confirm" });
+    await expect(review.querySelector('[data-slot="confirm-amount"]')).toHaveTextContent("$25.00");
+    for (const [label, value] of [["From", "0x1111…111111"], ["Network", "Base"], ["Network fee", "Up to 0.02 USDC · ≈ $0.02"]]) {
+      await expect(within(review).getByText(label, { selector: "dt", exact: true }).nextElementSibling).toHaveTextContent(value);
+    }
   },
 };
 

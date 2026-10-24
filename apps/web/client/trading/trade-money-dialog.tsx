@@ -12,7 +12,7 @@ import {
   MoneyAmountDisplay, MoneyAssetPicker, MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal,
   MoneyModalBody, MoneyModalFooter, MoneyModalHeader,
   MoneyModalStep,
-  decimalFromBaseUnits, isPositiveDecimalAmount, maxAmountAfterNetworkFee, moneyConfirmFromRow, useMoneyAmountUnit,
+  decimalFromBaseUnits, isPositiveDecimalAmount, maxAmountAfterNetworkFee, moneyConfirmFacts, useMoneyAmountUnit,
   useMoneyModalExit, useMoneyModalPending, useNetworkFeeReserveState, type MoneyAssetPrice, type MoneyConfirmRow,
 } from "@/client/money-modal";
 import { Button } from "@/components/ui/button";
@@ -111,6 +111,7 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
   const preparation = useRef(0);
   const confirming = useRef(false);
   const metadata = prepared?.metadata?.product === "trade" ? prepared.metadata : null;
+  const confirmFacts = prepared ? moneyConfirmFacts(prepared) : null;
   const customer = metadata ? tradeCustomerAmounts(metadata) : null;
   const { expired, recheckExpired } = useReactiveExpiry(prepared?.expiresAt ?? null);
   const actionExpired = expired || (prepared !== null && serverExpiredId === prepared.id);
@@ -277,7 +278,7 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
               : null}
             {maxBaseUnits === null ? <Alert role="status"><AlertDescription>Balance unavailable. Try again shortly.</AlertDescription></Alert> : null}
           </MoneyAmountDisplay> : null}
-        {prepared && metadata && customer && step !== "amount" && step !== "dispatch-unknown" ? <MoneyConfirmSummary key={prepared.id} action={prepared}
+        {prepared && confirmFacts && metadata && customer && step !== "amount" && step !== "dispatch-unknown" ? <MoneyConfirmSummary key={prepared.id} facts={confirmFacts}
           amount={spentAmount} lead={conversion ? `Convert ${conversion.from.code} to ${conversion.to.code}` : `${direction === "buy" ? "Buy" : "Sell"} ${assetName}`}
           rows={conversionPair ? [
             { label: "You pay", value: spentAmount },
@@ -288,7 +289,7 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
             { label: "You get", value: `≈ ${receivedAmount}` },
             ...metadata.operatorFee ? [{ label: SERVICE_FEE_LABEL, value: serviceFeeValue(metadata.operatorFee) }] : [],
           ]}
-          details={tradeDetailRows(prepared, metadata, customer, actionExpired ? 0 : secondsLeft, conversionPair)} /> : null}
+          details={tradeDetailRows(metadata, customer, actionExpired ? 0 : secondsLeft, conversionPair)} /> : null}
         {step === "dispatch-unknown" ? <Alert ref={revealNotice} role="alert" variant="destructive"><AlertDescription>{conversion ? "This conversion may have been submitted. Check Activity for its result." : "This trade may have been submitted. Check Activity for its result."}</AlertDescription></Alert> : null}
         {expiredUnresolved ? <Alert ref={revealNotice} role="alert" variant="destructive"><AlertDescription>{conversion ? "This quote expired before the outcome was recorded. Check Activity before converting again." : "This quote expired before the outcome was recorded. Check Activity before trading again."}</AlertDescription></Alert>
           : error ? <Alert ref={revealNotice} role="alert" variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
@@ -342,15 +343,12 @@ function tradeContractRow(metadata: TradeMoneyActionMetadata): MoneyConfirmRow {
   const traded = metadata.direction === "buy" ? metadata.toAsset : metadata.fromAsset;
   return { label: `${traded.symbol} contract`, value: <CopyableValue value={traded.address} presentation="reveal" valueKind="contract" className="-my-3 justify-end" /> };
 }
-function tradeDetailRows(action: PreparedMoneyAction, metadata: TradeMoneyActionMetadata, customer: TradeCustomerAmounts, secondsLeft: number, conversionPair: { from: CashConversionCurrency; to: CashConversionCurrency } | null): MoneyConfirmRow[] {
+function tradeDetailRows(metadata: TradeMoneyActionMetadata, customer: TradeCustomerAmounts, secondsLeft: number, conversionPair: { from: CashConversionCurrency; to: CashConversionCurrency } | null): MoneyConfirmRow[] {
   return [
     { label: "Minimum received", value: conversionPair ? formatExactPresentationCashAmount(customer.minimumReceiveBaseUnits, metadata.toAsset.decimals, conversionPair.to.code) : tradeDisplayAmount(customer.minimumReceiveBaseUnits, metadata.toAsset) },
     ...(!conversionPair ? [{ label: "Rate", value: tradeRateLabel(metadata) }] : []),
-    { label: "Max slippage", value: `${metadata.slippageBps / 100}%` },
     ...metadata.fees.filter((fee) => fee.kind !== "gas").map((fee) => ({ label: "Protocol fee", value: formatExactPresentationTokenAmount(fee.amountBaseUnits, fee.decimals, fee.symbol) })),
     { label: "Quote expires in", value: secondsLeft > 0 ? `${secondsLeft}s` : "Expired" },
-    { label: "Network", value: metadata.network.name },
-    moneyConfirmFromRow(action.owner),
     tradeContractRow(metadata),
   ];
 }

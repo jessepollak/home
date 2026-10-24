@@ -4,7 +4,8 @@ import { expect, userEvent, within } from "storybook/test";
 import { waitForReady } from "@/tests/helpers/story-readiness";
 import { CopyableValue } from "@/components/copyable-value";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
-import { MoneyConfirmSummary, moneyConfirmFromRow } from "./confirm-summary";
+import { MoneyConfirmSummary } from "./confirm-summary";
+import { moneyConfirmFacts } from "./confirm-facts";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const RECIPIENT = "0x2222222222222222222222222222222222222222";
@@ -15,6 +16,12 @@ const action: PreparedMoneyAction = {
   networkFee: { payment: "usdc", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "20000", decimals: 6 },
 };
 
+function factsFor(prepared: PreparedMoneyAction) {
+  const facts = moneyConfirmFacts(prepared);
+  if (!facts) throw new Error("Confirmation story requires prepared facts");
+  return facts;
+}
+
 const meta = {
   id: "money-modal-confirm-summary",
   title: "Money modal/Confirm summary",
@@ -24,10 +31,8 @@ const meta = {
     lead: "You're sending USDC",
     rows: [
       { label: "To", value: <CopyableValue value={RECIPIENT} presentation="full" valueKind="address" className="sm:justify-end" />, fullValue: true },
-      moneyConfirmFromRow(action.owner),
-      { label: "Network", value: "Base" },
     ],
-    action,
+    facts: factsFor(action),
   },
   render: (args) => <div className="mx-auto w-full max-w-md p-4"><MoneyConfirmSummary {...args} /></div>,
   parameters: { viewport: { defaultViewport: "mobile" } },
@@ -51,8 +56,9 @@ async function checkRows(canvasElement: HTMLElement, pairs: readonly (readonly [
 
 export const SendReview: Story = {
   play: async ({ canvasElement }) => {
+    await expect(getHeadline(canvasElement)).toHaveTextContent("$25.00");
     await checkRows(canvasElement, [
-      ["To", RECIPIENT], ["From", "0x1111…111111"], ["Network", "Base"],
+      ["From", "0x1111…111111"], ["To", RECIPIENT], ["Network", "Base"],
       ["Network fee", "Up to 0.02 USDC · ≈ $0.02"],
     ]);
     await expect(within(canvasElement).getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeVisible();
@@ -65,7 +71,7 @@ function frame(width: number, args: SummaryArgs) {
   return <div data-slot="confirm-frame" style={{ width, maxWidth: "100%" }}><MoneyConfirmSummary {...args} /></div>;
 }
 
-const simpleRows = [{ label: "Network", value: "Base" }];
+const simpleRows: SummaryArgs["rows"] = [];
 
 function getFrame(canvasElement: HTMLElement): HTMLElement {
   const element = canvasElement.querySelector('[data-slot="confirm-frame"]');
@@ -123,7 +129,7 @@ function EnlargedText({ children }: { children: ReactNode }) {
 }
 
 export const ShortMobile: Story = {
-  args: { amount: "$25.00", rows: simpleRows, action: null },
+  args: { amount: "$25.00", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => {
     const headline = await checkFit(canvasElement, "$25.00");
@@ -132,7 +138,7 @@ export const ShortMobile: Story = {
 };
 
 export const LargeWholeMobile: Story = {
-  args: { amount: "$12,345,678,901", rows: simpleRows, action: null },
+  args: { amount: "$12,345,678,901", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => {
     const headline = await checkFit(canvasElement, "$12,345,678,901");
@@ -141,67 +147,67 @@ export const LargeWholeMobile: Story = {
 };
 
 export const LongDecimalMobile: Story = {
-  args: { amount: "12,345.678901234567 WETH", rows: simpleRows, action: null },
+  args: { amount: "12,345.678901234567 WETH", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => { await checkFit(canvasElement, "12,345.678901234567 WETH"); },
 };
 
 export const LongSymbolMobile: Story = {
-  args: { amount: "1,250.50 USDCBRIDGED", rows: simpleRows, action: null },
+  args: { amount: "1,250.50 USDCBRIDGED", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => { await checkFit(canvasElement, "1,250.50 USDCBRIDGED"); },
 };
 
 export const LocalizedDotsMobile: Story = {
-  args: { amount: "1.234.567,89 €", rows: simpleRows, action: null },
+  args: { amount: "1.234.567,89 €", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => { await checkFit(canvasElement, "1.234.567,89 €"); },
 };
 
 export const LocalizedSpacesMobile: Story = {
-  args: { amount: "12\u202f345\u202f678,90 €", rows: simpleRows, action: null },
+  args: { amount: "12\u202f345\u202f678,90 €", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => { await checkFit(canvasElement, "12\u202f345\u202f678,90 €"); },
 };
 
 export const SignedMobile: Story = {
-  args: { amount: "-$1,234,567.89", rows: simpleRows, action: null },
+  args: { amount: "-$1,234,567.89", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => { await checkFit(canvasElement, "-$1,234,567.89"); },
 };
 
 export const QualifiedMobile: Story = {
-  args: { amount: "Up to 1,234.567891 USDC", rows: simpleRows, action: null },
+  args: { amount: "Up to 1,234.567891 USDC", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => { await checkFit(canvasElement, "Up to 1,234.567891 USDC"); },
 };
 
 export const TinyMobile: Story = {
-  args: { amount: "0.000000000000000001 ETH", rows: simpleRows, action: null },
+  args: { amount: "0.000000000000000001 ETH", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => { await checkFit(canvasElement, "0.000000000000000001 ETH"); },
 };
 
 export const ExtremeFallbackMobile: Story = {
-  args: { amount: "Up to 123,456,789,012,345.123456789012345678 WETH", rows: simpleRows, action: null },
+  args: { amount: "Up to 123,456,789,012,345.123456789012345678 WETH", rows: simpleRows },
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => checkFallback(canvasElement, "Up to 123,456,789,012,345.123456789012345678 WETH"),
 };
 
 export const LargeWholeWideMobile: Story = {
-  args: { amount: "$12,345,678,901", rows: simpleRows, action: null },
+  args: { amount: "$12,345,678,901", rows: simpleRows },
   render: (args) => frame(390, args),
   play: async ({ canvasElement }) => { await checkFit(canvasElement, "$12,345,678,901"); },
 };
 
 export const LargeWholeDesktopSheet: Story = {
-  args: { amount: "$12,345,678,901", rows: simpleRows, action: null },
+  args: { amount: "$12,345,678,901", rows: simpleRows },
   render: (args) => frame(448, args),
   play: async ({ canvasElement }) => { await checkFit(canvasElement, "$12,345,678,901"); },
 };
 
 export const EnlargedTextMobile: Story = {
-  args: { amount: "12,345.678901234567 WETH", rows: simpleRows, action: null },
+  args: { amount: "12,345.678901234567 WETH", rows: simpleRows },
   render: (args) => frame(320, args),
   decorators: [(StoryComponent) => <EnlargedText><StoryComponent /></EnlargedText>],
   play: async ({ canvasElement }) => {
@@ -210,7 +216,7 @@ export const EnlargedTextMobile: Story = {
 };
 
 export const ResizeRefit: Story = {
-  args: { amount: "$12,345,678,901", rows: simpleRows, action: null },
+  args: { amount: "$12,345,678,901", rows: simpleRows },
   render: (args) => frame(448, args),
   play: async ({ canvasElement }) => {
     const frameElement = getFrame(canvasElement);
@@ -228,7 +234,7 @@ export const ResizeRefit: Story = {
 export const ReviewDetails: Story = {
   args: {
     rows: [{ label: "You get", value: "≈ 1 DEGEN" }],
-    details: [{ label: "Minimum received", value: "0.99 DEGEN" }, { label: "Max slippage", value: "1%" }],
+    details: [{ label: "Minimum received", value: "0.99 DEGEN" }],
   },
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement);
@@ -241,25 +247,50 @@ export const ReviewDetails: Story = {
   },
 };
 
+export const PaidInEth: Story = {
+  args: { facts: factsFor({ ...action, networkFee: { payment: "native" } }) },
+  play: async ({ canvasElement }) => {
+    await expect(getHeadline(canvasElement)).toHaveTextContent("$25.00");
+    await checkRows(canvasElement, [
+      ["From", "0x1111…111111"], ["To", RECIPIENT], ["Network", "Base"],
+      ["Network fee", "Paid in ETH"],
+    ]);
+  },
+};
+
+export const CardAllowanceReview: Story = {
+  args: {
+    lead: "Set card spending limit",
+    rows: [{ label: "Purpose", value: "Card purchases from Cash" }],
+    facts: factsFor({ ...action, kind: "card-allowance", title: "Set card spending limit" }),
+  },
+  play: async ({ canvasElement }) => {
+    await expect(getHeadline(canvasElement)).toHaveTextContent("$25.00");
+    await checkRows(canvasElement, [
+      ["From", "0x1111…111111"], ["Purpose", "Card purchases from Cash"],
+      ["Network", "Base"], ["Network fee", "Up to 0.02 USDC · ≈ $0.02"],
+    ]);
+  },
+};
+
 export const SavingsDepositReview: Story = {
   args: {
     amount: "$25.00",
     lead: "Deposit to Save",
     rows: [
-      moneyConfirmFromRow(action.owner),
       { label: "Vault", value: "Gauntlet USDC Prime" },
-      { label: "Network", value: "Base (8453)" },
       { label: "Rate", value: "4.6% APY" },
       { label: "Vault fee", value: "10.00%" },
       { label: "Amount", value: "$25.00" },
     ],
-    action: { ...action, id: "storybook-savings-review", kind: "savings-deposit", title: "Deposit USDC" },
+    facts: factsFor({ ...action, id: "storybook-savings-review", kind: "savings-deposit", title: "Deposit USDC" }),
   },
   play: async ({ canvasElement }) => {
+    await expect(getHeadline(canvasElement)).toHaveTextContent("$25.00");
     await checkRows(canvasElement, [
       ["From", "0x1111…111111"], ["Vault", "Gauntlet USDC Prime"],
-      ["Network", "Base (8453)"], ["Rate", "4.6% APY"],
-      ["Vault fee", "10.00%"], ["Amount", "$25.00"],
+      ["Rate", "4.6% APY"], ["Vault fee", "10.00%"], ["Amount", "$25.00"],
+      ["Network", "Base"],
       ["Network fee", "Up to 0.02 USDC · ≈ $0.02"],
     ]);
   },

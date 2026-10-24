@@ -132,7 +132,13 @@ export const WithdrawalPending: Story = {
   },
   play: async ({ canvasElement }) => {
     const screen = canvas(canvasElement);
-    await userEvent.click(await screen.findByRole("button", { name: "Withdraw $2.00" }));
+    const confirm = await screen.findByRole("button", { name: "Withdraw $2.00" });
+    const review = screen.getByRole("dialog", { name: "Confirm" });
+    await expect(review.querySelector('[data-slot="confirm-amount"]')).toHaveTextContent("$2.00");
+    for (const [label, value] of [["From", "0x1111…111111"], ["Network", "Base"], ["Network fee", "Paid in ETH"]]) {
+      await expect(within(review).getByText(label, { selector: "dt", exact: true }).nextElementSibling).toHaveTextContent(value);
+    }
+    await userEvent.click(confirm);
     await expect(await screen.findByRole("heading", { name: "Returning $2.00 to your account" })).toBeVisible();
     await expect(screen.queryByText(/payout/i)).toBeNull();
     await expect(screen.getByRole("button", { name: "View in Activity" })).toBeVisible();
