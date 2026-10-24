@@ -12,12 +12,15 @@ export function balanceSnapshotStoreContract(options: {
   name: string;
   createStore: () => BalanceSnapshotStore;
   reset: () => Promise<void> | void;
+  enroll?: (address: `0x${string}`) => Promise<void>;
 }) {
   describe(`${options.name} BalanceSnapshotStore contract`, () => {
     let store: BalanceSnapshotStore;
     beforeEach(async () => {
       await options.reset();
       store = options.createStore();
+      await options.enroll?.(ADDRESS);
+      await options.enroll?.(OTHER);
     });
 
     test("newer observations never lose to older blocks", async () => {
@@ -27,6 +30,81 @@ export function balanceSnapshotStoreContract(options: {
       expect(await store.get(8453, ADDRESS)).toMatchObject({
         blockNumber: "12",
         observedAt: "2026-09-13T12:00:12.000Z",
+      });
+    });
+
+    test("an undefined revision permits inserts and updates without a compare-and-set condition", async () => {
+      expect(await store.putObservation(observation("10", "2026-09-13T12:00:10.000Z"), undefined)).toBeTrue();
+      expect(await store.putObservation(observation("11", "2026-09-13T12:00:11.000Z"), undefined)).toBeTrue();
+      expect(await store.get(8453, ADDRESS)).toMatchObject({
+        blockNumber: "11",
+        observedAt: "2026-09-13T12:00:11.000Z",
+      });
+    });
+
+    test("a null revision permits only the first observation and preserves signals on rejection", async () => {
+      expect(await store.putObservation(observation("10", "2026-09-13T12:00:10.000Z"), null)).toBeTrue();
+      await store.markStale(8453, ADDRESS, new Date("2026-09-13T12:00:11.000Z"));
+      await store.markHot(8453, ADDRESS, new Date("2026-09-13T12:01:10.000Z"));
+      const original = await store.get(8453, ADDRESS);
+      expect(await store.putObservation(observation("11", "2026-09-13T12:00:12.000Z"), null)).toBeFalse();
+      expect(await store.get(8453, ADDRESS)).toEqual(original);
+      expect(original).toMatchObject({
+        staleAt: "2026-09-13T12:00:11.000Z",
+        hotUntil: "2026-09-13T12:01:10.000Z",
+      });
+    });
+
+    test("a matching block and observation time permit a conditional write", async () => {
+      const basis = observation("10", "2026-09-13T12:00:10.500Z");
+      await store.putObservation(basis);
+      expect(await store.putObservation(observation("11", "2026-09-13T12:00:11.000Z"), {
+        blockNumber: basis.blockNumber,
+        observedAt: basis.observedAt,
+      })).toBeTrue();
+      expect(await store.get(8453, ADDRESS)).toMatchObject({
+        blockNumber: "11",
+        observedAt: "2026-09-13T12:00:11.000Z",
+      });
+    });
+
+    test.each([
+      { blockNumber: "9", observedAt: "2026-09-13T12:00:10.000Z" },
+      { blockNumber: "10", observedAt: "2026-09-13T12:00:10.500Z" },
+    ])("a mismatched revision %j rejects the write without changing the row or signals", async (expected) => {
+      await store.putObservation(observation("10", "2026-09-13T12:00:10.000Z"));
+      await store.markStale(8453, ADDRESS, new Date("2026-09-13T12:00:11.000Z"));
+      await store.markHot(8453, ADDRESS, new Date("2026-09-13T12:01:10.000Z"));
+      const original = await store.get(8453, ADDRESS);
+      expect(await store.putObservation(observation("11", "2026-09-13T12:00:12.000Z"), expected)).toBeFalse();
+      expect(await store.get(8453, ADDRESS)).toEqual(original);
+    });
+
+    test("a non-null revision cannot insert a missing row", async () => {
+      expect(await store.putObservation(observation("11", "2026-09-13T12:00:11.000Z"), {
+        blockNumber: "10",
+        observedAt: "2026-09-13T12:00:10.000Z",
+      })).toBeFalse();
+      expect(await store.get(8453, ADDRESS)).toBeNull();
+    });
+
+    test("a same-block advance by another writer fences a write built from the earlier revision", async () => {
+      const basis = observation("10", "2026-09-13T12:00:10.000Z");
+      await store.putObservation(basis);
+      expect(await store.putObservation(observation("10", "2026-09-13T12:00:11.000Z"))).toBeTrue();
+      await store.markStale(8453, ADDRESS, new Date("2026-09-13T12:00:12.000Z"));
+      await store.markHot(8453, ADDRESS, new Date("2026-09-13T12:01:10.000Z"));
+      const latest = await store.get(8453, ADDRESS);
+      expect(await store.putObservation(observation("11", "2026-09-13T12:00:13.000Z"), {
+        blockNumber: basis.blockNumber,
+        observedAt: basis.observedAt,
+      })).toBeFalse();
+      expect(await store.get(8453, ADDRESS)).toEqual(latest);
+      expect(latest).toMatchObject({
+        blockNumber: "10",
+        observedAt: "2026-09-13T12:00:11.000Z",
+        staleAt: "2026-09-13T12:00:12.000Z",
+        hotUntil: "2026-09-13T12:01:10.000Z",
       });
     });
 
