@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Named } from "@gdp-ts/core";
 import { authorizeSession } from "@/server/auth/authorize";
 import { requestOrigin } from "@/server/auth/signed-cookie";
 import { getSqlExecutor } from "@/server/db/sql";
@@ -9,6 +10,7 @@ import { authorizeOperatorRequest } from "@/server/operator/api";
 import { readOperatorConfig, type OperatorConfig } from "@/server/operator/config";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import { invalidateInvestVisibility } from "@/server/operator-settings/invest";
+import type { OperatorAccess, OperatorAddress } from "@/server/proofs/operator-access";
 import { BRAND_SETTINGS_DOMAIN } from "@/shared/operator-branding/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parsePutSettingsRequest, validCursor, type OperatorSettingsErrorCode } from "@/shared/operator-settings/contract";
@@ -39,8 +41,8 @@ function providers(deps: Dependencies) {
   };
 }
 
-async function authorized(request: Request, deps: Dependencies) {
-  return authorizeOperatorRequest(request, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig);
+async function authorized<R>(request: Request, deps: Dependencies, run: <N>(operator: Named<N, OperatorAddress>, proof: OperatorAccess<N>) => R): Promise<Response | R> {
+  return authorizeOperatorRequest(request, run, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig);
 }
 
 async function available(run: () => Promise<Response>): Promise<Response> {
@@ -53,28 +55,21 @@ async function available(run: () => Promise<Response>): Promise<Response> {
 
 export function createSettingsListHandler(deps: Dependencies = {}) {
   const { store } = providers(deps);
-  return async (request: Request): Promise<Response> => {
-    const decision = await authorized(request, deps);
-    if (decision instanceof Response) return decision;
-    return available(async () => privateJson({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, domains: await store().readAll() }, 200));
-  };
+  return async (request: Request): Promise<Response> => authorized(request, deps, () =>
+    available(async () => privateJson({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, domains: await store().readAll() }, 200)));
 }
 
 export function createSettingsDomainHandlers(deps: Dependencies = {}) {
   const { store } = providers(deps);
-  const GET = async (request: Request, context: { params: Promise<{ domain: string }> }): Promise<Response> => {
-    const decision = await authorized(request, deps);
-    if (decision instanceof Response) return decision;
+  const GET = async (request: Request, context: { params: Promise<{ domain: string }> }): Promise<Response> => authorized(request, deps, async () => {
     const { domain } = await context.params;
     return available(async () => {
       const settingsStore = store();
       if (!settingsStore.hasDomain(domain)) return error("NOT_FOUND", 404);
       return privateJson({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, ...await settingsStore.read(domain) }, 200);
     });
-  };
-  const PUT = async (request: Request, context: { params: Promise<{ domain: string }> }): Promise<Response> => {
-    const decision = await authorized(request, deps);
-    if (decision instanceof Response) return decision;
+  });
+  const PUT = async (request: Request, context: { params: Promise<{ domain: string }> }): Promise<Response> => authorized(request, deps, async (operator, proof) => {
     const { domain } = await context.params;
     return available(async () => {
       const settingsStore = store();
@@ -89,11 +84,11 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
       const parsed = parsePutSettingsRequest(read.value);
       const definition = settingsStore.registry[domain];
       if (!parsed || !definition || (definition.parseWrite ?? definition.parse)(parsed.value) === null) return error("INVALID_REQUEST", 400);
-      if (parsed.operator !== decision.address.toLowerCase()) {
+      if (parsed.operator !== operator.value) {
         return privateJson({ error: { code: "OPERATOR_CHANGED" }, current: { version: OPERATOR_SETTINGS_CONTRACT_VERSION, ...await settingsStore.read(domain) } }, 409);
       }
       try {
-        const written = await settingsStore.write({ domain, value: parsed.value, expectedRevision: parsed.expectedRevision, actor: decision.address });
+        const written = await settingsStore.write({ domain, value: parsed.value, expectedRevision: parsed.expectedRevision }, operator, proof);
         if (domain === REGIONS_SETTINGS_DOMAIN) invalidateRegionPolicy();
         if (domain === "invest") (deps.invalidateInvest ?? invalidateInvestVisibility)();
         if (domain === "products") invalidateProductOffering();
@@ -110,20 +105,18 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
         throw cause;
       }
     });
-  };
+  });
   return { GET, PUT };
 }
 
 export function createAuditListHandler(deps: Dependencies = {}) {
   const { audit } = providers(deps);
-  return async (request: Request): Promise<Response> => {
-    const decision = await authorized(request, deps);
-    if (decision instanceof Response) return decision;
+  return async (request: Request): Promise<Response> => authorized(request, deps, () => {
     const params = new URL(request.url).searchParams;
     if ([...params.keys()].some((key) => key !== "limit" && key !== "before") || params.getAll("limit").length > 1 || params.getAll("before").length > 1) return error("INVALID_REQUEST", 400);
     const rawLimit = params.get("limit");
     const rawBefore = params.get("before");
     if ((rawLimit !== null && (!/^(?:[1-9]|[1-9]\d|100)$/.test(rawLimit))) || (rawBefore !== null && !validCursor(rawBefore))) return error("INVALID_REQUEST", 400);
     return available(async () => privateJson({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, ...await audit().list({ limit: rawLimit === null ? undefined : Number(rawLimit), before: rawBefore ?? undefined }) }, 200));
-  };
+  });
 }

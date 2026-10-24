@@ -1,7 +1,9 @@
 import "server-only";
 
 import { isDeepStrictEqual } from "node:util";
+import type { Named } from "@gdp-ts/core";
 import { isUniqueViolation, type SqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
+import type { OperatorAccess, OperatorAddress } from "@/server/proofs/operator-access";
 import { OPERATOR_SETTINGS_DOMAINS, type DomainRegistry, type SettingsEntry } from "@/shared/operator-settings/contract";
 
 export class OperatorSettingsCorruptError extends Error {}
@@ -52,7 +54,7 @@ export class OperatorSettingsStore {
     return Object.keys(this.registry).map((domain) => this.effective(domain, rows.rows.find((row) => row.domain === domain)));
   }
 
-  async write(input: { domain: string; expectedRevision: number; value: unknown; actor: string }): Promise<SettingsEntry> {
+  async write<N>(input: { domain: string; expectedRevision: number; value: unknown }, operator: Named<N, OperatorAddress>, _proof: OperatorAccess<N>): Promise<SettingsEntry> {
     const definition = this.definition(input.domain);
     const parsed = (definition.parseWrite ?? definition.parse)(input.value);
     if (parsed === null || (definition.acceptsWrite && !definition.acceptsWrite(parsed)) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw new OperatorSettingsValidationError("Invalid settings write");
@@ -64,12 +66,12 @@ export class OperatorSettingsStore {
         if (isDeepStrictEqual(current.settings.value, parsed)) return current;
         const written = result.rows.length === 0
           ? await tx.query<SettingsRow>(`INSERT INTO operator_settings (domain, schema_version, value, revision, updated_at, updated_by)
-              VALUES ($1, $2, $3::jsonb, 1, now(), $4) RETURNING *`, [input.domain, definition.schemaVersion, JSON.stringify(parsed), input.actor])
+              VALUES ($1, $2, $3::jsonb, 1, now(), $4) RETURNING *`, [input.domain, definition.schemaVersion, JSON.stringify(parsed), operator.value])
           : await tx.query<SettingsRow>(`UPDATE operator_settings SET schema_version = $2, value = $3::jsonb,
               revision = revision + 1, updated_at = now(), updated_by = $4 WHERE domain = $1 RETURNING *`,
-              [input.domain, definition.schemaVersion, JSON.stringify(parsed), input.actor]);
+              [input.domain, definition.schemaVersion, JSON.stringify(parsed), operator.value]);
         await tx.query(`INSERT INTO admin_audit_log (actor, action, target_kind, target_id, before, after)
-          VALUES ($1, 'settings.update', 'settings', $2, $3::jsonb, $4::jsonb)`, [input.actor, input.domain, JSON.stringify(current.settings.value), JSON.stringify(parsed)]);
+          VALUES ($1, 'settings.update', 'settings', $2, $3::jsonb, $4::jsonb)`, [operator.value, input.domain, JSON.stringify(current.settings.value), JSON.stringify(parsed)]);
         return this.effective(input.domain, written.rows[0]);
       });
     } catch (error) {

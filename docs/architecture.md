@@ -92,6 +92,13 @@ Shared primitives live under `apps/web/` at these owners.
 | Query factories | `client/query/query-options.ts` | Owner/public query and infinite-query options with scope keys, stale times, and owner persistence metadata |
 | Owner boundary | `client/account/owner-keys.ts` | Owner identity keys and session/UI boundary keys |
 | Query view state | `client/query/query-view-state.ts` | Query view-state classification, including failures with cached data |
+| Authorization proofs | `server/proofs/` | Named evidence required by privileged effects authorized in another module |
+
+### Authorization proofs
+
+A function must demand a proof when its authorization decision happens in another module and its effect is privileged. Proofs live in `server/proofs/`, one module per fact. Only those modules call `defineProof`; the prover stays private, and the check remains the runtime authority. A proof binds to the decision, not to how the session was verified, so mint it only in the module that authorizes the request. Minting proves the check ran, not that its inputs were trustworthy: a caller that assembles the check's inputs can mint a proof the real request path would deny. Production entry points take the config only from `readOperatorConfig` and the session only from `authorizeSession`; the `config` and `authorize` parameters exist for tests.
+
+Proofs are point-in-time and not a runtime guarantee: they do not detect staleness across config or session changes, and a proof value can be forged. The `gdp-ts` Oxlint rules are syntactic: they reject a type assertion to a proof type imported directly from `@gdp-ts/core` or `server/proofs/`, a direct `defineProof` import or call outside `server/proofs/`, and an exported prover. Routes the rules do not model are review obligations, including an ambient `declare`, a `never` value, a proof type re-exported by another module and cast there, `defineProof` through a dynamic import or a re-export, and a prover re-bound or re-exported under another name. The assertion-debt gate compares per-file assertion counts, so it fails an unexcepted increase but not a forged cast that replaces an existing one. Never cache or persist a proof.
 
 ## Data model
 
