@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlertIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from "@/components/ui/alert";
@@ -178,6 +178,11 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const nameRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    formRef.current?.setAttribute("data-hydrated", "true");
+  }, []);
 
   const result = validate(draft);
   const preview = result.value ?? candidate(draft);
@@ -295,7 +300,7 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
   }
 
   return (
-    <form noValidate onSubmit={submit} aria-labelledby={`${id}-title`} className="w-full max-w-2xl" data-brand-settings="">
+    <form ref={formRef} noValidate onSubmit={submit} aria-labelledby={`${id}-title`} className="w-full max-w-2xl" data-brand-settings="">
       <Card>
         <CardHeader>
           <CardTitle><h2 id={`${id}-title`}>Brand</h2></CardTitle>
@@ -416,8 +421,8 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
         <CardFooter className="flex-wrap justify-between gap-3">
           <p role="status" className="min-w-0 font-medium">{saving ? "Saving…" : status}</p>
           <div className="flex gap-2">
-            <Button type="button" size="touch" variant="outline" disabled={locked || !dirty} onClick={cancel}>Cancel</Button>
             <Button type="submit" size="touch" loading={saving} disabled={blocked !== null}>Save</Button>
+            <Button type="button" size="touch" variant="outline" disabled={locked || !dirty} onClick={cancel}>Cancel</Button>
           </div>
         </CardFooter>
       </Card>

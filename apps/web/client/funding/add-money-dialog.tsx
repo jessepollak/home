@@ -28,7 +28,7 @@ import { AddressText } from "@/components/address-text";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { receiveSupportedCashCurrencies } from "@/shared/funding/assets";
-import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
+import { MoneyModal, MoneyModalFooter, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
 import { MethodShimmerRow } from "./method-skeleton";
 import { ReceiveQr } from "./receive-qr";
 import {
@@ -156,14 +156,14 @@ export function AddMoneyDialog({
         />
       ) : null}
       {signedOut ? (
-        <MoneyModalActions>
+        <MoneyModalFooter primary={
           <Link
             className={buttonVariants({ size: "touch" })}
             href="/?account=signin"
           >
             Sign in
           </Link>
-        </MoneyModalActions>
+        } />
       ) : null}
         </MoneyModalStep>
       ) : null}

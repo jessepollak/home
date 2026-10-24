@@ -343,25 +343,27 @@ function CardDetailSheet({
                 <Button className="h-11" disabled={outage} onClick={() => { actions.onReplaceCard(); setDetail(null); }}>Replace card</Button>
                 <Button variant="ghost" className="h-11" onClick={() => setDetail(null)}>Keep current card</Button>
               </>
-            ) : null}
-            {detail === "cancel" ? (
+            ) : detail === "cancel" ? (
               <>
                 <Button variant="destructive" className="h-11" disabled={outage} onClick={() => { actions.onCancelCard(); setDetail(null); }}>Cancel card</Button>
                 <Button variant="ghost" className="h-11" onClick={() => setDetail(null)}>Keep card</Button>
               </>
-            ) : null}
-            {showUnlock ? (
-              <Button className="h-11" onClick={() => { setLocked(false); setDetail(null); }}>Unlock card</Button>
-            ) : null}
-            {detail === "declined-insufficient" ? (
-              <Button className="h-11" onClick={() => { actions.onOpenAddMoney(); setDetail(null); }}>
-                <Plus className="size-4" aria-hidden="true" />Add money
-              </Button>
-            ) : null}
-            {data ? (
-              <Button variant={showUnlock || detail === "declined-insufficient" ? "ghost" : "outline"}
-                className="h-11" onClick={() => setDetail("help")}>Get help</Button>
-            ) : null}
+            ) : (
+              <>
+                {showUnlock ? (
+                  <Button className="h-11" onClick={() => { setLocked(false); setDetail(null); }}>Unlock card</Button>
+                ) : null}
+                {detail === "declined-insufficient" ? (
+                  <Button className="h-11" onClick={() => { actions.onOpenAddMoney(); setDetail(null); }}>
+                    <Plus className="size-4" aria-hidden="true" />Add money
+                  </Button>
+                ) : null}
+                {data ? (
+                  <Button variant={showUnlock || detail === "declined-insufficient" ? "ghost" : "outline"}
+                    className="h-11" onClick={() => setDetail("help")}>Get help</Button>
+                ) : null}
+              </>
+            )}
           </DrawerFooter>
         ) : null}
       </DrawerContent>
