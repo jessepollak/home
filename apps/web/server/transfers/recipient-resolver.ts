@@ -73,15 +73,7 @@ export async function resolveTransferRecipientName(
   }
 }
 
-export async function resolveTransferRecipientLabels(
-  addresses: readonly `0x${string}`[],
-  options: {
-    signal?: AbortSignal;
-    fetchImpl?: FetchLike;
-    timeoutMs?: number;
-    resolveName?: TransferRecipientNameResolver;
-  } = {},
-): Promise<ReadonlyMap<`0x${string}`, string>> {
+function deduplicateAddresses(addresses: readonly `0x${string}`[]): `0x${string}`[] {
   const unique: `0x${string}`[] = [];
   const seen = new Set<string>();
   for (const address of addresses) {
@@ -93,6 +85,19 @@ export async function resolveTransferRecipientLabels(
     }
     if (unique.length === MAX_LABEL_LOOKUPS) break;
   }
+  return unique;
+}
+
+export async function resolveTransferRecipientLabels(
+  addresses: readonly `0x${string}`[],
+  options: {
+    signal?: AbortSignal;
+    fetchImpl?: FetchLike;
+    timeoutMs?: number;
+    resolveName?: TransferRecipientNameResolver;
+  } = {},
+): Promise<ReadonlyMap<`0x${string}`, string>> {
+  const unique = deduplicateAddresses(addresses);
   const resolved = await Promise.all(unique.map(async (address) => {
     const payload = await requestReverseResolver(address, options);
     const name = payload === null ? null : parseResolvedRecipientName(payload);
@@ -167,17 +172,7 @@ export const resolveTransferRecipientLabelsCached = async (
   addresses: readonly `0x${string}`[],
   options?: Parameters<typeof resolveTransferRecipientLabels>[1],
 ): Promise<ReadonlyMap<`0x${string}`, string>> => {
-  const unique: `0x${string}`[] = [];
-  const seen = new Set<string>();
-  for (const address of addresses) {
-    const normalized = normalizeResolvedRecipientAddress(address);
-    const identity = normalized?.toLowerCase();
-    if (normalized && identity && !seen.has(identity)) {
-      seen.add(identity);
-      unique.push(normalized);
-    }
-    if (unique.length === MAX_LABEL_LOOKUPS) break;
-  }
+  const unique = deduplicateAddresses(addresses);
   const labels = new Map<`0x${string}`, string>();
   const misses: `0x${string}`[] = [];
   for (const address of unique) {
