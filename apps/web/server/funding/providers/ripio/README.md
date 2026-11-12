@@ -18,6 +18,10 @@ The authoritative detailed gates, owners/approvers, stop rules, recovery checkli
 - **Evidence:** retain the playbook's redacted phase evidence per rail, environment, and approver; omit credentials, customer/KYC data, IDs, addresses, amounts, instructions, hashes, provider text, and payloads from logs.
 - **Current claim (September 18, 2026):** `in-build` for AR, BR, and CO, matching `apps/web/config/coverage.ts`; no sandbox, live, hosted-funded, or production acceptance is claimed.
 
+## Connection check
+
+Test connection performs the country-specific OAuth token exchange, then one authenticated GET to `/api/v1/depositNetworks/?include_currency=true` through `getDepositNetworks()`; AR, BR, and CO are checked separately, without creating customer or funding records.
+
 ## Confirm against your API
 
 1. **Origin, OAuth, and credentials.** Confirm production origin `https://skala.ripio.com`, token endpoint `POST /oauth2/token/`, HTTP Basic authentication with the country-specific client ID and secret, form body `grant_type=client_credentials`, and response fields `access_token` plus numeric `expires_in`. Argentina uses `RIPIO_CLIENT_ID_AR` / `RIPIO_CLIENT_SECRET_AR`; Brazil uses `RIPIO_CLIENT_ID_BR` / `RIPIO_CLIENT_SECRET_BR`; Colombia uses `RIPIO_CLIENT_ID_CO` / `RIPIO_CLIENT_SECRET_CO` ([client.ts lines 151–223](client.ts#L151-L223), [manifest.ts lines 31–70](manifest.ts#L31-L70)). The adapter has no sandbox origin.

@@ -37,6 +37,26 @@ type JsonRecord = Record<string, unknown>;
 
 export const idrxProvider: FundingProvider = {
   manifest: idrxManifest,
+  async checkConnection(ctx) {
+    const url = new URL(HISTORY_PATH, IDRX_API_ORIGIN);
+    url.search = new URLSearchParams({ transactionType: "MINT", page: "1", take: "1" }).toString();
+    try {
+      const response = await ctx.request(url.toString(), {
+        method: "GET",
+        headers: createRequestHeaders(ctx, "GET", url.toString(), ""),
+        maxBytes: MAX_RESPONSE_BYTES,
+      });
+      if (!response.ok) {
+        if (response.kind !== "http") return response.kind === "invalid" || response.kind === "oversized" ? "inconclusive" : "unreachable";
+        if (response.status === 401 || response.status === 403) return "rejected";
+        return response.status >= 500 ? "unreachable" : "inconclusive";
+      }
+      const value = response.value;
+      return response.status === 200 && value !== null && typeof value === "object" && "records" in value && Array.isArray(value.records) ? "connected" : "inconclusive";
+    } catch {
+      return "unreachable";
+    }
+  },
   onramp: {
     async createQuote(input, ctx) {
       const startedAt = Date.now();

@@ -1,5 +1,9 @@
 # IDRX funding adapter
 
+## Connection check
+
+Test connection signs one GET to `/transaction/user-transaction-history?transactionType=MINT&page=1&take=1`, accepting only HTTP 200 with a `records` array. Production currently checks only that the signature header is present, so this proves key acceptance, not signature correctness.
+
 This adapter implements the IDRX issuer API as an `order` provider on Base. It is wired through the provider registry, private funding routes, durable order store, and Add money flow; it remains inert until every manifest environment variable is configured.
 
 - Region / asset: Indonesia (`ID`) / `base:idrx` (2 decimals). Live payment method: **QRIS** only. Mandiri/BRI virtual accounts are closed VAs — the bank accepts the transfer only from an account registered on the IDRX account that created the order (Mandiri/BRI by account number, INA/Nobu by KYC name). With one operator API key every Home user would pay as the operator and be rejected, so the VA methods stay only in the adapter test fixture until Home users get their own IDRX identity through per-user KYC on the seam. The VA code paths and tests stay for that step.

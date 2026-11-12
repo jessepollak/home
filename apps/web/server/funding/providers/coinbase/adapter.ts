@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { parseAddress, parseHash32 } from "@/shared/chain/hex";
 import { signCdpRequest, type CdpJwtGenerator } from "@/server/cdp/auth";
 import type {
@@ -54,6 +54,27 @@ export function createCoinbaseProvider(
 
   return {
     manifest: coinbaseManifest,
+    async checkConnection(ctx) {
+      const path = `${ORDERS_PATH}/${randomUUID()}`;
+      let token: string;
+      try {
+        token = await createJwt(ctx, "GET", path, generateJwtImplementation);
+      } catch {
+        return "rejected";
+      }
+      try {
+        const response = await ctx.request(`${COINBASE_ONRAMP_API_ORIGIN}${path}`, {
+          method: "GET", headers: requestHeaders(token), maxBytes: MAX_RESPONSE_BYTES,
+        });
+        if (response.ok) return "inconclusive";
+        if (response.kind !== "http") return response.kind === "invalid" || response.kind === "oversized" ? "inconclusive" : "unreachable";
+        if (response.status === 404) return "connected";
+        if (response.status === 401 || response.status === 403) return "rejected";
+        return response.status >= 500 ? "unreachable" : "inconclusive";
+      } catch {
+        return "unreachable";
+      }
+    },
     onramp: {
       async createQuote(input, ctx) {
       const startedAt = Date.now();

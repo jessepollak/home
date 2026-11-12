@@ -2,6 +2,10 @@
 
 Status: implemented on the funding-provider seam for #294. Home uses Coinbase's server-authenticated Headless Orders API and renders Coinbase's hosted payment link in an iframe. Home does not call the iOS/React Native end-user endpoint, open the Cross-Platform FundModal popup, or collect Coinbase verification fields.
 
+## Connection check
+
+Test connection signs one GET to `/platform/v2/onramp/orders/<fresh random UUID>`: 404 is treated as authentication accepted and order absent, never creating an order. This missing-order response is **not live-confirmed**; Coinbase has no read-only account/list endpoint available for this integration.
+
 ## Flow and eligibility
 
 The `US` binding buys USDC on Base with Apple Pay. It is eligible for both `base-account` and `cdp-embedded` sessions when these server-only variables are configured:
