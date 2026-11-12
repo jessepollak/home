@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import stocks from "../../config/invest-sources/base-stocks.json";
 import wrapped from "../../config/invest-sources/coinbase-wrapped.json";
+import curated from "../../config/invest-sources/curated-catalog.json";
 import { compareOnchain, type OnchainReads } from "./onchain";
 
-const rows = [...stocks.stocks, ...wrapped.assets];
+const rows = [...stocks.stocks, ...wrapped.assets, ...curated.memes];
 const rowFor = (address: string) => rows.find((row) => row.contract.toLowerCase() === address.toLowerCase())!;
 const feedFor = (address: string) => stocks.stocks.find((row) => row.feed.proxy.toLowerCase() === address.toLowerCase())!;
 
@@ -28,12 +29,12 @@ test("reads the onchain name only for assets that record one", async () => {
     ...clean,
     tokenName: async (address) => {
       named.push(address.toLowerCase());
-      if (!wrapped.assets.some((row) => row.contract.toLowerCase() === address.toLowerCase())) throw new Error("name read failed");
+      if (!rows.some((row) => "onchainName" in row && row.contract.toLowerCase() === address.toLowerCase())) throw new Error("name read failed");
       return clean.tokenName(address);
     },
   });
   expect(changes).toEqual([]);
-  expect(named).toHaveLength(wrapped.assets.length);
+  expect(named).toHaveLength(wrapped.assets.length + curated.memes.length);
 });
 test.each([
   { label: "a removed registry entry", override: { registryMultiplier: async () => BigInt(0) }, key: "NVDAc", field: "registryMultiplier", actual: "0" },
