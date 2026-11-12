@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isAccountExportAuthBoundaryCode } from "@/shared/account/contracts/data-export";
 import { readJson } from "@/shared/http/read-json";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { privateError, privateJson } from "@/server/http/private-response";
@@ -13,11 +14,11 @@ export function createAccountExportHandler(dependencies: { authorize: SessionAut
       const session = await authorizeSession(request, dependencies.authorize);
       if (session instanceof Response) {
         const body = await readJson(session.clone()).catch(() => null);
-        const code = typeof body === "object" && body !== null && "error" in body
-          && typeof body.error === "object" && body.error !== null && "code" in body.error
-          && typeof body.error.code === "string" ? body.error.code : "AUTH_REQUIRED";
+        const reported = typeof body === "object" && body !== null && "error" in body
+          && typeof body.error === "object" && body.error !== null && "code" in body.error ? body.error.code : null;
+        const code = isAccountExportAuthBoundaryCode(reported) ? reported : session.status === 503 ? "AUTH_UNAVAILABLE" : "UNAUTHENTICATED";
         if (code === "ACCOUNT_DELETED" && session.headers.get("cache-control") === "private, no-store, max-age=0") return session;
-        return privateError(code, "Authentication is required.", session.status);
+        return privateError(code, code === "AUTH_UNAVAILABLE" ? "Authentication is temporarily unavailable." : "Authentication is required.", session.status);
       }
       if (request.signal.aborted) throw new AccountExportError("ACCOUNT_EXPORT_UNAVAILABLE");
       const result = await (dependencies.read ?? readAccountExport)(session, request.signal);

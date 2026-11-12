@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql, readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readMigrationSql, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { fundingAbandonStoreContract } from "@/tests/helpers/funding-store-contract";
 import { PostgresFundingOrderStore } from "./postgres-store";
 import type { FundingReservation } from "./store";
@@ -48,7 +48,7 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     }
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
     store = new PostgresFundingOrderStore(sql);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   beforeEach(async () => { await sql.query("TRUNCATE funding_orders"); });
   afterAll(async () => {
     await sql?.dispose?.();

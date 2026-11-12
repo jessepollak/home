@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ACCOUNT_EXPORT_HOME_CLASSES, parseAccountExportResponse, type AccountExportResponse } from "@/shared/account/contracts/data-export";
+import { ACCOUNT_EXPORT_HOME_CLASSES, parseAccountExportErrorResponse, parseAccountExportResponse, type AccountExportResponse } from "@/shared/account/contracts/data-export";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { AccountExportError } from "./errors";
@@ -57,6 +57,18 @@ describe("account export authenticated boundary", () => {
     expect(response.status).toBe(401);
     expectPrivate(response);
     expect(called).toBe(false);
+  });
+
+  test.each([
+    { name: "an undeclared code", reply: () => Response.json({ error: { code: "AUTH_REQUIRED" } }, { status: 401 }), status: 401, code: "UNAUTHENTICATED" },
+    { name: "an unreadable body", reply: () => new Response("nope", { status: 401 }), status: 401, code: "UNAUTHENTICATED" },
+    { name: "an unreadable unavailable body", reply: () => new Response("nope", { status: 503 }), status: 503, code: "AUTH_UNAVAILABLE" },
+    { name: "a declared code", reply: () => Response.json({ error: { code: "BASE_ACCOUNT_DISABLED" } }, { status: 403 }), status: 403, code: "BASE_ACCOUNT_DISABLED" },
+  ])("authorization failure with $name only emits a declared export error code", async ({ reply, status, code }) => {
+    const response = await createAccountExportHandler({ authorize: async () => reply() })(new Request("https://home.test/api/account/export"));
+    expect(response.status).toBe(status);
+    const parsed = parseAccountExportErrorResponse(await response.json());
+    expect(parsed?.error.code).toBe(code);
   });
 
   test("an aborted request never returns complete data", async () => {

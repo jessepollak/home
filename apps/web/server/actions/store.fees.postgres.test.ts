@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
 import { ActionsStore } from "./store";
 import { readOperatorRevenue } from "@/server/fees/revenue";
@@ -37,7 +37,7 @@ describePostgres("operator fee records and revenue", () => {
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   beforeEach(async () => { await sql.query("TRUNCATE actions CASCADE"); });
   afterAll(async () => {
     await sql?.dispose?.();
