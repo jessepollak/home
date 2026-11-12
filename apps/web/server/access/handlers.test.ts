@@ -77,6 +77,19 @@ describe("access login", () => {
     expect(accessErrorCode(await outage.json())).toBe("ACCESS_UNAVAILABLE");
   });
 
+  test.each([body(CREDENTIAL), body("wrong")])("rate-limits before comparing the credential", async (formBody) => {
+    const limited = createAccessLoginHandler({
+      getConfig: () => ({ kind: "enabled", credential: CREDENTIAL, signingSecret: SIGNING_SECRET }),
+      isRateLimited: async () => true,
+      now: () => new Date("2026-09-18T12:00:00.000Z"),
+    });
+    const response = await limited(request(formBody));
+    expect(response.status).toBe(429);
+    expect(response.headers.has("set-cookie")).toBe(false);
+    expect(response.headers.get("cache-control")).toContain("private");
+    expect(accessErrorCode(await response.json())).toBe("ACCESS_UNAVAILABLE");
+  });
+
   test("rejects an extra form field without setting a cookie", async () => {
     const form = new URLSearchParams(body(CREDENTIAL));
     form.append("unexpected", "value");

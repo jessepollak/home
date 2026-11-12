@@ -127,6 +127,7 @@ export type BalancesReadDurations = {
 };
 
 export const SERVER_EVENT_KINDS = [
+  "access-login",
   "action-prepare",
   "action-read",
   "action-confirm",
@@ -795,7 +796,7 @@ export function normalizeObservabilityEvent(
       code,
       outcome,
       ...(provider ? { provider } : {}),
-      ...(event.kind === "cards-config" && event.errorName ? { errorName: sanitizeIdentifier(event.errorName, "Error") } : {}),
+      ...((event.kind === "cards-config" || event.kind === "access-login") && event.errorName ? { errorName: sanitizeIdentifier(event.errorName, "Error") } : {}),
       ...(region ? { region } : {}),
       ...(typeof event.sandbox === "boolean" ? { sandbox: event.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
