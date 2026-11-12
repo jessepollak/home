@@ -14,6 +14,10 @@ type Row = { id: string; kind: CardPurchase["kind"]; amount_minor: string; curre
 export const UNRECONCILED_CARD_EVENT_SQL = `e.card_id IS NOT NULL AND e.transaction_id IS NOT NULL
   AND (t.id IS NULL OR t.updated_at < e.received_at)`;
 
+const STALE_OBSERVATION_SQL = `((EXCLUDED.status='declined' AND card_transactions.status<>'declined')
+  OR (EXCLUDED.status='pending' AND (card_transactions.status IN ('reversed','completed','refunded')
+    OR (COALESCE(EXCLUDED.authorization_closed,false)=false AND COALESCE(card_transactions.authorization_closed,false)))))`;
+
 export function createCardTransactionStore(sql: Pick<SqlExecutor, "query">) {
   return {
     async cards(customerId: string, mode: CardMode) {
@@ -37,9 +41,15 @@ export function createCardTransactionStore(sql: Pick<SqlExecutor, "query">) {
          INSERT INTO card_transactions (card_id,provider,mode,provider_transaction_id,authorization_id,kind,amount_minor,currency,merchant_name,merchant_category,status,decline_reason_code,provider_created_at,authorization_closed)
          SELECT c.id,$14,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$15 FROM live_card c
          ON CONFLICT (provider,mode,provider_transaction_id) DO UPDATE SET
-         amount_minor=EXCLUDED.amount_minor, currency=EXCLUDED.currency, merchant_name=EXCLUDED.merchant_name,
-         merchant_category=EXCLUDED.merchant_category, status=EXCLUDED.status, decline_reason_code=EXCLUDED.decline_reason_code,
-         authorization_id=EXCLUDED.authorization_id, authorization_closed=EXCLUDED.authorization_closed, updated_at=now()
+         amount_minor=CASE WHEN ${STALE_OBSERVATION_SQL} THEN card_transactions.amount_minor ELSE EXCLUDED.amount_minor END,
+         currency=CASE WHEN ${STALE_OBSERVATION_SQL} THEN card_transactions.currency ELSE EXCLUDED.currency END,
+         merchant_name=CASE WHEN ${STALE_OBSERVATION_SQL} THEN card_transactions.merchant_name ELSE EXCLUDED.merchant_name END,
+         merchant_category=CASE WHEN ${STALE_OBSERVATION_SQL} THEN card_transactions.merchant_category ELSE EXCLUDED.merchant_category END,
+         status=CASE WHEN ${STALE_OBSERVATION_SQL} THEN card_transactions.status ELSE EXCLUDED.status END,
+         decline_reason_code=CASE WHEN ${STALE_OBSERVATION_SQL} THEN card_transactions.decline_reason_code ELSE EXCLUDED.decline_reason_code END,
+         authorization_id=CASE WHEN ${STALE_OBSERVATION_SQL} THEN card_transactions.authorization_id ELSE EXCLUDED.authorization_id END,
+         authorization_closed=CASE WHEN ${STALE_OBSERVATION_SQL} THEN card_transactions.authorization_closed ELSE EXCLUDED.authorization_closed END,
+         updated_at=CASE WHEN ${STALE_OBSERVATION_SQL} THEN card_transactions.updated_at ELSE now() END
          WHERE card_transactions.card_id=EXCLUDED.card_id`,
         [cardId, mode, purchase.id, purchase.authorizationId, purchase.kind, purchase.amountMinor, purchase.currency,
           purchase.merchantName, purchase.merchantCategory, purchase.status, purchase.declineReasonCode, purchase.createdAt, purchase.cardId, provider, purchase.authorizationClosed ?? null]);
