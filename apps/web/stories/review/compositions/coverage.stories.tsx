@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { isValidElement } from "react";
 import { expect, within } from "storybook/test";
-import CoveragePage from "@/app/coverage/page";
+import { CoverageView } from "@/client/coverage/coverage-view";
 import { coverageRegistry } from "@/config/coverage";
 
 type CoverageArgs = { search: string; issuer: string; priority: string; home: string; sort: string };
@@ -9,14 +8,7 @@ const meta = {
   id: "compositions-coverage",
   title: "Compositions/Coverage",
   args: { search: "", issuer: "", priority: "", home: "", sort: "gdp" },
-  loaders: [async ({ args }: { args: CoverageArgs }) => ({ page: await CoveragePage({
-    params: Promise.resolve({}),
-    searchParams: Promise.resolve({ q: args.search, issuer: args.issuer, priority: args.priority, home: args.home, sort: args.sort }),
-  }) })],
-  render: (_args, { loaded }: { loaded: Record<string, unknown> }) => {
-    if (!isValidElement(loaded.page)) throw new Error("Coverage page did not return content");
-    return loaded.page;
-  },
+  render: (args) => <CoverageView query={{ q: args.search, issuer: args.issuer, priority: args.priority, home: args.home, sort: args.sort }} />,
   parameters: {
     layout: "fullscreen",
     a11y: { test: "error" },

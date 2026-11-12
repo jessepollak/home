@@ -7,7 +7,7 @@
   1. `goto "/coverage"`
   2. `expect "Local money coverage"`
 - **Notes**: Exercise the Search textbox and the four comboboxes `1:1 onramp`, `Portfolio`, `Integrated`, `Sort`, plus the `sort` query parameter when validating filters.
-- **Expect**: `Local money coverage | Home` title; coverage table rows (components/ui/coverage-table.tsx); combobox font ≥16px on mobile/landscape (tests/browser/mobile-geometry.pw.ts).
+- **Expect**: `Local money coverage · Home` title, where `Home` is the saved brand name (the default when none is saved); coverage table rows (components/ui/coverage-table.tsx); combobox font ≥16px on mobile/landscape (tests/browser/mobile-geometry.pw.ts).
 - **States**: filtered-empty result reports `Showing 0 of <total> countries and territories.` and an empty coverage table.
 - **Evidence**: screenshot (390×844 and 844×390); DOM snapshot; console/errors.
 - **Owned by**: `apps/web/app/coverage/page.tsx`, `apps/web/client/coverage/`, `apps/web/config/coverage.ts`.

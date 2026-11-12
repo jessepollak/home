@@ -32,6 +32,10 @@ async function brandAudit(context: BrowserContext) {
   return audit.entries.filter((entry) => entry.target.id === "brand");
 }
 
+async function expectOperatorReady(page: Page) {
+  await expect(page.locator("[data-operator-ready=true]")).toBeVisible({ timeout: 15_000 });
+}
+
 async function fill(page: Page, values: { name?: string; description?: string; primary?: string; background?: string }) {
   if (values.name !== undefined) await page.getByLabel("Display name", { exact: true }).fill(values.name);
   if (values.description !== undefined) await page.getByLabel("Description", { exact: true }).fill(values.description);
@@ -57,6 +61,7 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     await page.goto("/admin/settings");
     await page.getByRole("link", { name: /^Brand/ }).click();
     await expectNavigation(page, /\/admin\/settings\/brand$/);
+    await expectOperatorReady(page);
     await expect(page.getByRole("heading", { name: "Brand", exact: true, level: 1 })).toBeVisible();
     await expect(page.getByText("Using deployment defaults. Nothing is saved yet.", { exact: true })).toBeVisible();
     expect(await readBrand(context)).toMatchObject({ source: "default", revision: 0 });
@@ -87,6 +92,7 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({ actor: admin, action: "settings.update", after: stored.value });
     await page.reload();
+    await expectOperatorReady(page);
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Acme Money");
     await expect(page.getByLabel("Primary color", { exact: true })).toHaveValue("#0b6b3a");
     await expect(page.getByText(/Saved settings, revision 1\./)).toBeVisible();
@@ -114,9 +120,11 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
 
   await test.step("a real revision race keeps the rejected draft until the operator chooses", async () => {
     await page.goto("/admin/settings/brand");
+    await expectOperatorReady(page);
     const concurrent = await context.newPage();
     try {
       await concurrent.goto("/admin/settings/brand");
+      await expectOperatorReady(concurrent);
       await fill(page, { name: "Draft Name" });
       await fill(concurrent, { description: "Won the race." });
       expect((await save(concurrent, admin, 1)).status()).toBe(200);
@@ -150,6 +158,7 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     expect(await readBrand(context)).toEqual(before);
     expect(await brandAudit(context)).toEqual(auditBefore);
     await page.getByRole("button", { name: "Reload page", exact: true }).click();
+    await expectOperatorReady(page);
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Draft Name");
     await setSession(context, admin);
   });
