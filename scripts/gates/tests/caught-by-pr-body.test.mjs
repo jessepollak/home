@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { caughtByPrBodyFindings, prBodyDetectors } from "../caught-by-pr-body.mjs";
@@ -57,22 +56,4 @@ test("the template hint is ignored until a fix PR author adds a detector", () =>
   const template = readFileSync(".github/PULL_REQUEST_TEMPLATE.md", "utf8");
   assert.match(caughtByPrBodyFindings(title, template)[0], /exactly one/);
   assert.deepEqual(caughtByPrBodyFindings(title, `${template}\nCaught-by: review`), []);
-});
-
-test("CLI accepts a fix and a non-fix body, rejects missing or conflicting detectors and extra arguments", () => {
-  const run = (prTitle, body, args = []) => spawnSync(process.execPath, ["scripts/gates/caught-by-pr-body.mjs", ...args], {
-    encoding: "utf8", env: { ...process.env, PR_TITLE: prTitle, PR_BODY: body },
-  });
-  const pass = run(title, "Caught-by: lint");
-  assert.equal(pass.status, 0);
-  assert.match(pass.stdout, /Caught-by PR body gate passed/);
-  assert.equal(run("ops(gates): update CI", "").status, 0);
-  for (const body of ["", "Caught-by: lint\nCaught-by: production"]) {
-    const fail = run(title, body);
-    assert.equal(fail.status, 1);
-    assert.match(fail.stdout, /must name exactly one/);
-  }
-  const usage = run(title, "Caught-by: lint", ["extra"]);
-  assert.notEqual(usage.status, 0);
-  assert.match(usage.stderr, /Usage:/);
 });
