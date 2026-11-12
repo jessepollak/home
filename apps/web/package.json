@@ -52,6 +52,7 @@
     "@coinbase/cdp-core": "0.0.123",
     "@coinbase/cdp-hooks": "0.0.123",
     "@coinbase/cdp-sdk": "1.55.0",
+    "@gdp-ts/core": "^0.1.0",
     "@number-flow/react": "^0.6.2",
     "@opentelemetry/api": "^1.9.1",
     "@stripe/stripe-js": "9.17.0",

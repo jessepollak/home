@@ -91,7 +91,7 @@ async function customerSession(request: Request, deps: Dependencies): Promise<Ve
   return (deps.authorize ?? authorizeSession)(new Request(request.url, { method: request.method, headers }));
 }
 async function operatorSession(request: Request, deps: Dependencies): Promise<{ address: `0x${string}` } | Response> {
-  return authorizeOperatorRequest(request, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig);
+  return authorizeOperatorRequest(request, (operator) => ({ address: operator.value }), deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig);
 }
 async function run(route: string, operation: () => Promise<Response>): Promise<Response> {
   try { return await operation(); }
@@ -114,10 +114,10 @@ async function customer(request: Request, deps: Dependencies, route: string, cre
   return { session, id: resolved?.id ?? null, store };
 }
 async function operator(request: Request, deps: Dependencies, route: string): Promise<{ address: `0x${string}`; store: SupportStore } | Response> {
-  const decision = await operatorSession(request, deps);
-  if (decision instanceof Response) return decision;
-  const store = getStore(deps);
-  return store ? { ...decision, store } : fail(route, "SUPPORT_UNAVAILABLE", 503);
+  return authorizeOperatorRequest(request, (operator) => {
+    const store = getStore(deps);
+    return store ? { address: operator.value, store } : fail(route, "SUPPORT_UNAVAILABLE", 503);
+  }, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig);
 }
 async function conversationId(context: Context, route: string): Promise<string | Response> {
   const { id } = await context.params;

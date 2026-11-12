@@ -19,6 +19,7 @@
         "@coinbase/cdp-core": "0.0.123",
         "@coinbase/cdp-hooks": "0.0.123",
         "@coinbase/cdp-sdk": "1.55.0",
+        "@gdp-ts/core": "^0.1.0",
         "@number-flow/react": "^0.6.2",
         "@opentelemetry/api": "^1.9.1",
         "@stripe/stripe-js": "9.17.0",
@@ -251,6 +252,8 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.9", "", { "dependencies": { "@floating-ui/dom": "^1.8.0" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-JDjEFGCpImxDCA7JJKviA0M9+RtmJdj0m/NVU5IMgBK+AmZouAQQ7/+2GLH0GXXY0YMw9oXPB8hKdbPYg5QLYg=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
+
+    "@gdp-ts/core": ["@gdp-ts/core@0.1.0", "", { "peerDependencies": { "eslint": ">=9", "oxlint": ">=1.86", "typescript": ">=5.4" }, "optionalPeers": ["eslint", "oxlint", "typescript"] }, "sha512-eH3PdZALOGZNv4m1L3Zz+cbMK6/g4AaRJbL7VXWFhZ9g8ukykjXRgMPPYoXvv/2cVcxBcl36d+7c3Z81BLqyLQ=="],
 
     "@happy-dom/global-registrator": ["@happy-dom/global-registrator@20.14.6", "", { "dependencies": { "@types/node": ">=20.0.0", "happy-dom": "^20.14.6" } }, "sha512-Xd2FwCdm0cAZ+EG0upp69tpxBT9jtvVxaZv1lnbgWsNaZyEuPs0PojYgvCmtQ1RRdRCYCyWTeLjn3Z0aSxDchA=="],
 
