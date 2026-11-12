@@ -3,19 +3,24 @@ import { createRequire } from "node:module";
 import { existsSync, readFileSync } from "node:fs";
 import { matchesGlob, resolve, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { trackedFiles } from "./unit-test-shards.mjs";
+import { discoverFiles, trackedFiles } from "./unit-test-shards.mjs";
 
 export const MANIFEST_PATH = "scripts/gates/unit-test-scope.json";
 export const CATEGORY_IDS = ["money-math", "transaction-construction", "auth", "action-lifecycle", "route-contract-parser", "money-path-provider-failure", "money-record-integrity", "repository-gate", "review-board-runtime"];
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const webRoot = "apps/web";
+const webTooling = (path) => path.startsWith("oxlint/") || path.startsWith("scripts/") || ["pinned-agent-browser.test.ts", "gmail.test.ts", "live-login.test.ts"].includes(path);
+const explicitCategories = new Set(["repository-gate", "review-board-runtime"]);
 const oneLine = (value) => typeof value === "string" && value.trim().length > 0 && !/[\r\n]/.test(value);
 const literal = (value) => /^[A-Za-z0-9_-]+$/.test(value);
 const relativePath = (value) => typeof value === "string" && value.length > 0 && !value.startsWith("/") && !value.includes("\\") && value.split("/").every((part) => part && part !== "." && part !== "..");
 const requireWeb = createRequire(new URL("../../apps/web/package.json", import.meta.url));
 const scriptKinds = new Map([["tsx", "TSX"], ["jsx", "JSX"], ["mts", "MTS"], ["cts", "CTS"]]);
 const caseRoots = new Set(["test", "it", "xtest", "xit"]);
+const testModules = new Set(["bun:test", "node:test"]);
 const factoryMembers = new Set(["each", "if", "skipIf", "todoIf", "failingIf", "concurrentIf", "serialIf"]);
+const caseModifiers = new Set(["skip", "only", "todo", "failing", "serial", "concurrent"]);
+const invokeMembers = new Set(["call", "apply", "bind"]);
 let typescriptModule = null;
 const typescript = () => (typescriptModule ??= requireWeb("typescript"));
 
@@ -29,21 +34,21 @@ export function unitTestCases(file, content) {
     if (ts.isImportEqualsDeclaration(statement)) {
       const reference = statement.moduleReference;
       const external = ts.isExternalModuleReference(reference) && ts.isStringLiteralLike(reference.expression) ? reference.expression.text : null;
-      moduleScope.bindings.set(statement.name.text, external === "bun:test" ? "namespace" : "other");
+      moduleScope.bindings.set(statement.name.text, external !== null && testModules.has(external) ? "namespace" : "other");
       continue;
     }
     if (!ts.isImportDeclaration(statement)) continue;
     const clause = statement.importClause;
     if (!clause || clause.isTypeOnly) continue;
-    const bun = ts.isStringLiteral(statement.moduleSpecifier) && statement.moduleSpecifier.text === "bun:test";
-    if (clause.name) moduleScope.bindings.set(clause.name.text, bun ? "namespace" : "other");
+    const testModule = ts.isStringLiteral(statement.moduleSpecifier) && testModules.has(statement.moduleSpecifier.text);
+    if (clause.name) moduleScope.bindings.set(clause.name.text, testModule ? "test-root" : "other");
     const named = clause.namedBindings;
     if (!named) continue;
-    if (ts.isNamespaceImport(named)) moduleScope.bindings.set(named.name.text, bun ? "namespace" : "other");
+    if (ts.isNamespaceImport(named)) moduleScope.bindings.set(named.name.text, testModule ? "namespace" : "other");
     else if (ts.isNamedImports(named)) for (const element of named.elements) {
       if (element.isTypeOnly) continue;
       const imported = (element.propertyName ?? element.name).text;
-      moduleScope.bindings.set(element.name.text, bun && caseRoots.has(imported) ? imported : "other");
+      moduleScope.bindings.set(element.name.text, testModule && imported === "default" ? "test-root" : testModule && caseRoots.has(imported) ? imported : "other");
     }
   }
   const chainKind = (node) => ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) || ts.isCallExpression(node) || ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node) || ts.isExpressionWithTypeArguments(node);
@@ -57,13 +62,13 @@ export function unitTestCases(file, content) {
     return null;
   };
   const factoryCall = (node) => ts.isCallExpression(node) && factoryMembers.has(memberName(unwrap(node.expression)));
-  const tracked = (kind) => kind !== null && kind !== "other";
+  const tracked = (kind) => kind !== null && kind !== "other" && kind !== "subtest";
   const lookup = (scope, name) => {
     for (let current = scope; current; current = current.parent) if (current.bindings.has(name)) return current.bindings.get(name);
     return null;
   };
   const unsupported = (reason) => new Error(`${file}: ${reason}; declare cases with test/it or move the suite into a protected category`);
-  const moduleCall = (node) => ts.isCallExpression(node) && node.arguments.length >= 1 && ts.isStringLiteralLike(node.arguments[0]) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || ts.isIdentifier(node.expression) && node.expression.text === "require") && node.arguments[0].text === "bun:test";
+  const moduleCall = (node) => ts.isCallExpression(node) && node.arguments.length >= 1 && ts.isStringLiteralLike(node.arguments[0]) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || ts.isIdentifier(node.expression) && node.expression.text === "require") && testModules.has(node.arguments[0].text);
   const awaitedModule = (node) => {
     let child = node;
     for (let parent = node.parent; parent; child = parent, parent = parent.parent) {
@@ -85,13 +90,22 @@ export function unitTestCases(file, content) {
         if (member === null) return "namespace-dynamic";
       }
       const object = resolve(scope, node.expression);
+      if (object === "subtest") {
+        if (member === null) throw unsupported("unsupported dynamic access on a test context");
+        return caseRoots.has(member) ? "test-root" : null;
+      }
+      if (object === "test-root") {
+        if (member === null) return "namespace-dynamic";
+        if (member === "default" || caseRoots.has(member) || caseModifiers.has(member) || factoryMembers.has(member) || invokeMembers.has(member)) return "test-root";
+        return null;
+      }
       if (object !== "namespace") return object;
-      if (member === "default") return "namespace";
+      if (member === "default") return "test-root";
       if (caseRoots.has(member)) return member;
       return member === null ? "namespace-dynamic" : null;
     }
     if (ts.isAwaitExpression(node)) return resolve(scope, node.expression);
-    if (moduleCall(node)) return node.expression.kind !== ts.SyntaxKind.ImportKeyword || awaitedModule(node) ? "namespace" : "namespace-dynamic";
+    if (moduleCall(node)) return node.expression.kind !== ts.SyntaxKind.ImportKeyword || awaitedModule(node) ? "test-root" : "namespace-dynamic";
     if (!ts.isCallExpression(node)) return null;
     const kind = resolve(scope, node.expression);
     if (factoryCall(node)) return kind;
@@ -132,6 +146,32 @@ export function unitTestCases(file, content) {
         setName(scope, element.name, "namespace-dynamic");
         continue;
       }
+      if (object === "test-root") {
+        if (element.dotDotDotToken) {
+          setName(scope, element.name, "namespace");
+          continue;
+        }
+        if (member === null || !ts.isIdentifier(element.name)) {
+          setName(scope, element.name, "namespace-dynamic");
+          continue;
+        }
+        if (member === "default") {
+          setName(scope, element.name, "test-root");
+          continue;
+        }
+        if (caseRoots.has(member)) {
+          setName(scope, element.name, member);
+          continue;
+        }
+        if (caseModifiers.has(member) || factoryMembers.has(member) || invokeMembers.has(member)) throw unsupported("unsupported destructuring of a test binding");
+        setName(scope, element.name, "other");
+        continue;
+      }
+      if (namespace && (caseModifiers.has(member) || factoryMembers.has(member) || invokeMembers.has(member))) throw unsupported("unsupported destructuring of a test binding");
+      if (object === "namespace" && member === "default") {
+        setName(scope, element.name, "test-root");
+        continue;
+      }
       setName(scope, element.name, object === "namespace" && caseRoots.has(member) ? member : "other");
     }
   };
@@ -147,7 +187,7 @@ export function unitTestCases(file, content) {
   const aliasKind = (scope, initializer) => {
     if (!initializer) return "other";
     const kind = resolve(scope, initializer);
-    return tracked(kind) ? kind : "other";
+    return tracked(kind) || kind === "subtest" ? kind : "other";
   };
   const declareVariable = (scope, name, initializer) => {
     if (ts.isObjectBindingPattern(name)) declarePattern(scope, name, initializer);
@@ -182,6 +222,14 @@ export function unitTestCases(file, content) {
     ts.forEachChild(node, (child) => hoistVars(scope, child));
   };
   const scopes = new Map([[source, moduleScope]]);
+  const testCallback = (node, scope) => {
+    const call = node.parent;
+    if (!call || !ts.isCallExpression(call) || !call.arguments.includes(node)) return false;
+    const callee = unwrap(call.expression);
+    if (ts.isCallExpression(callee)) return false;
+    const kind = resolve(scope, callee);
+    return caseRoots.has(kind) || kind === "test-root";
+  };
   const build = (node, scope, functionScope) => {
     let current = scope;
     let currentFunction = functionScope;
@@ -194,8 +242,9 @@ export function unitTestCases(file, content) {
         if (ts.isFunctionExpression(node)) declareName(current, node.name);
         else if (ts.isFunctionDeclaration(node)) declareName(scope, node.name);
       }
-      for (const parameter of node.parameters ?? []) {
-        declareName(current, parameter.name);
+      const context = testCallback(node, scope) ? "subtest" : "other";
+      for (const [index, parameter] of (node.parameters ?? []).entries()) {
+        declareName(current, parameter.name, index === 0 ? context : "other");
         if (parameter.initializer && tracked(resolve(scope, parameter.initializer))) throw unsupported("unsupported tracked parameter default");
       }
     } else if (ts.isClassExpression(node) || ts.isClassDeclaration(node)) {
@@ -264,7 +313,6 @@ export function unitTestCases(file, content) {
     }
     return false;
   };
-  const invokeMembers = new Set(["call", "apply", "bind"]);
   const modeledModuleLoad = (node) => {
     let child = node;
     for (let parent = node.parent; parent; child = parent, parent = parent.parent) {
@@ -281,12 +329,13 @@ export function unitTestCases(file, content) {
   const names = [];
   const visit = (node, scope) => {
     const current = scopes.get(node) ?? scope;
-    if (moduleCall(node) && !modeledModuleLoad(node)) throw unsupported("unsupported bun:test module load form");
+    if (moduleCall(node) && !modeledModuleLoad(node)) throw unsupported("unsupported bun:test module load or node:test module load form");
     if (ts.isCallExpression(node) && !factoryCall(node)) {
       const kind = resolve(current, node.expression);
-      if (kind === "namespace-dynamic") throw unsupported("unsupported dynamic member call on a bun:test namespace import");
-      if (caseRoots.has(kind) && invokeMembers.has(memberName(unwrap(node.expression)))) throw unsupported("unsupported invocation form on a test binding");
-      if (caseRoots.has(kind)) {
+      if (kind === "namespace-dynamic") throw unsupported("unsupported dynamic member call on a test module namespace import");
+      const rootCall = caseRoots.has(kind) || kind === "test-root";
+      if (rootCall && invokeMembers.has(memberName(unwrap(node.expression)))) throw unsupported("unsupported invocation form on a test binding");
+      if (rootCall) {
         const [argument] = node.arguments;
         names.push(!argument ? "" : ts.isStringLiteralLike(argument) ? argument.text : argument.getText().replace(/\s+/g, " ").trim());
       }
@@ -312,10 +361,10 @@ function addedCases(baseCases, headCases) {
   return added;
 }
 
-function readBaseContents(root, revision, paths) {
+function readBaseContents(root, revision, paths, prefix) {
   const contents = new Map();
   if (!paths.length) return contents;
-  const input = paths.map((path) => `${revision}:${webRoot}/${path}\0`).join("");
+  const input = paths.map((path) => `${revision}:${prefix ? `${prefix}/` : ""}${path}\0`).join("");
   const output = execFileSync("git", ["cat-file", "--batch", "-Z"], { cwd: root, input, maxBuffer: 64 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
   let offset = 0;
   for (const path of paths) {
@@ -336,7 +385,8 @@ function readBaseContents(root, revision, paths) {
 }
 
 export function validScope(pattern, category) {
-  if (!relativePath(pattern)) return false;
+  if (!relativePath(pattern) || webTooling(pattern)) return false;
+  if (explicitCategories.has(category) && /[*!?{}[\]()]/.test(pattern)) return false;
   const parts = pattern.split("/");
   if (category === "route-contract-parser" && /^shared\/\*\*\/contract[^/]*\.test\.ts$/.test(pattern)) return true;
   if (parts.length === 1) return !/[*!?{}[\]()]/.test(pattern);
@@ -349,25 +399,33 @@ export function validScope(pattern, category) {
   return !["client", "components"].includes(parts[0]) || !parts.at(-1).includes("**");
 }
 
-export function evaluateUnitTestScope({ files, manifest, reference = null, baseContents = new Map(), headContents = new Map() }) {
+const webSpace = {
+  residue: relativePath,
+  invalidScope: "name one feature directory; client/components scopes need an individual file or filename glob in one directory; repository and review-board exceptions need an exact file; lint/tooling tests are shrink-only residue",
+  invalidResidue: "a literal path and short reason are required",
+  unclassified: "outside the protected categories in docs/architecture.md#test-policy; adding a scope requires a policy category",
+  reclassify: "move it into a protected category (docs/architecture.md#test-policy), cover it with a story, or delete it",
+};
+
+const toolingSpace = {
+  residue: (path) => relativePath(path) && !path.startsWith(`${webRoot}/`),
+  invalidResidue: "a literal repository test path outside apps/web and a short reason are required",
+  unclassified: "outside the protected categories in docs/architecture.md#test-policy; gate, lint and tooling scripts take no new unit tests, so delete it and verify the change by running it",
+  reclassify: "gate, lint and tooling scripts take no new unit tests, so delete it",
+};
+
+function evaluateSpace({ space, files, scopes, grandfathered, reference = null, baseContents = new Map(), headContents = new Map() }) {
   const findings = [];
-  const categories = manifest?.categories;
-  if (!categories || typeof categories !== "object" || Array.isArray(categories)) findings.push("categories must be an object");
-  else {
-    for (const id of Object.keys(categories)) if (!CATEGORY_IDS.includes(id)) findings.push(`Unknown category id: ${id}`);
-    for (const id of CATEGORY_IDS) if (!Object.hasOwn(categories, id) || !oneLine(categories[id])) findings.push(`Category ${id} needs a one-line policy description`);
-  }
-  if (!Array.isArray(manifest?.scopes)) findings.push("scopes must be an array");
-  if (!Array.isArray(manifest?.grandfathered)) findings.push("grandfathered must be an array");
   const classified = new Map();
   const patterns = new Set();
-  for (const entry of Array.isArray(manifest?.scopes) ? manifest.scopes : []) {
+  for (const entry of scopes) {
     const { pattern, category } = entry ?? {};
     if (!CATEGORY_IDS.includes(category)) findings.push(`Unknown category id: ${category} for scope ${pattern}`);
     if (!validScope(pattern, category)) {
-      findings.push(`Invalid scope ${pattern}: name one feature directory; client/components scopes need an individual file or filename glob in one directory`);
+      findings.push(`Invalid scope ${pattern}: ${space.invalidScope}`);
       continue;
     }
+    if (explicitCategories.has(category) && !oneLine(entry.reason)) findings.push(`Scope ${pattern}: ${category} requires an explicit one-line admission reason`);
     if (patterns.has(pattern)) findings.push(`Duplicate scope pattern: ${pattern}`);
     patterns.add(pattern);
     const matched = files.filter((file) => matchesGlob(file, pattern));
@@ -377,28 +435,28 @@ export function evaluateUnitTestScope({ files, manifest, reference = null, baseC
       classified.set(file, category);
     }
   }
-  const grandfathered = new Set();
-  for (const entry of Array.isArray(manifest?.grandfathered) ? manifest.grandfathered : []) {
+  const residue = new Set();
+  for (const entry of grandfathered) {
     const { path, reason } = entry ?? {};
-    if (!relativePath(path) || /[*!?{}[\]()]/.test(path) || !oneLine(reason)) {
-      findings.push(`Invalid grandfathered entry: ${path}; a literal path and short reason are required`);
+    if (!space.residue(path) || /[*!?{}[\]()]/.test(path) || !oneLine(reason)) {
+      findings.push(`Invalid grandfathered entry: ${path}; ${space.invalidResidue}`);
       continue;
     }
-    if (grandfathered.has(path)) findings.push(`Duplicate grandfathered path: ${path}`);
-    grandfathered.add(path);
+    if (residue.has(path)) findings.push(`Duplicate grandfathered path: ${path}`);
+    residue.add(path);
     if (!files.includes(path)) findings.push(`Stale grandfathered path: ${path}; remove it because the unit test no longer exists`);
     if (classified.has(path)) findings.push(`Stale grandfathered path: ${path}; remove it because it now matches a scope`);
     if (reference && !reference.includes(path)) findings.push(`New grandfathered path: ${path}; the list may only shrink`);
   }
   for (const file of files) {
     if (!file.split("/").at(-1).includes(".test.")) findings.push(`${file}: name unit tests *.test.* so the test-only lint rules apply`);
-    if (!classified.has(file) && !grandfathered.has(file)) findings.push(`${file}: outside the protected categories in docs/architecture.md#test-policy; adding a scope requires a policy category`);
+    if (!classified.has(file) && !residue.has(file)) findings.push(`${file}: ${space.unclassified}`);
   }
   if (reference) {
     const basePaths = new Set(reference);
-    for (const entry of Array.isArray(manifest?.grandfathered) ? manifest.grandfathered : []) {
+    for (const entry of grandfathered) {
       const { path } = entry ?? {};
-      if (!relativePath(path) || !grandfathered.has(path) || !files.includes(path) || !basePaths.has(path)) continue;
+      if (!space.residue(path) || !residue.has(path) || !files.includes(path) || !basePaths.has(path)) continue;
       const baseContent = baseContents.get(path);
       if (baseContent === undefined) throw new Error(`${path}: grandfathered in the base manifest but missing from the merge base; merge the base branch and rerun so its cases can be compared`);
       const headContent = headContents.get(path);
@@ -407,33 +465,84 @@ export function evaluateUnitTestScope({ files, manifest, reference = null, baseC
       if (!added.length) continue;
       const names = added.map((name) => JSON.stringify(name)).join(", ");
       findings.push(added.length === 1
-        ? `${path}: new unit test case ${names} in a grandfathered file; move it into a protected category (docs/architecture.md#test-policy), cover it with a story, or delete it`
-        : `${path}: new unit test cases ${names} in a grandfathered file; move each into a protected category (docs/architecture.md#test-policy), cover it with a story, or delete it`);
+        ? `${path}: new unit test case ${names} in a grandfathered file; ${webTooling(path) ? toolingSpace.reclassify : space.reclassify}`
+        : `${path}: new unit test cases ${names} in a grandfathered file; ${webTooling(path) ? toolingSpace.reclassify : space.reclassify}`);
     }
   }
-  return { findings: findings.sort(), scoped: classified.size, grandfathered: grandfathered.size, total: files.length };
+  return { findings, scoped: classified.size, grandfathered: residue.size, total: files.length };
+}
+
+export function evaluateUnitTestScope({ files, toolingFiles = [], manifest, reference = null, toolingReference = null, baseContents = new Map(), toolingBaseContents = new Map(), headContents = new Map(), toolingHeadContents = new Map() }) {
+  const findings = [];
+  const categories = manifest?.categories;
+  if (!categories || typeof categories !== "object" || Array.isArray(categories)) findings.push("categories must be an object");
+  else {
+    for (const id of Object.keys(categories)) if (!CATEGORY_IDS.includes(id)) findings.push(`Unknown category id: ${id}`);
+    for (const id of CATEGORY_IDS) if (!Object.hasOwn(categories, id) || !oneLine(categories[id])) findings.push(`Category ${id} needs a one-line policy description`);
+  }
+  if (!Array.isArray(manifest?.scopes)) findings.push("scopes must be an array");
+  if (!Array.isArray(manifest?.grandfathered)) findings.push("grandfathered must be an array");
+  const tooling = manifest?.tooling?.grandfathered;
+  if (tooling !== undefined && !Array.isArray(tooling)) findings.push("tooling.grandfathered must be an array");
+  const web = evaluateSpace({
+    space: webSpace,
+    files,
+    scopes: Array.isArray(manifest?.scopes) ? manifest.scopes : [],
+    grandfathered: Array.isArray(manifest?.grandfathered) ? manifest.grandfathered : [],
+    reference, baseContents, headContents,
+  });
+  const toolingResult = evaluateSpace({
+    space: toolingSpace,
+    files: toolingFiles,
+    scopes: [],
+    grandfathered: Array.isArray(tooling) ? tooling : [],
+    reference: toolingReference, baseContents: toolingBaseContents, headContents: toolingHeadContents,
+  });
+  return {
+    findings: [...findings, ...web.findings, ...toolingResult.findings].sort(),
+    scoped: web.scoped,
+    grandfathered: web.grandfathered + toolingResult.grandfathered,
+    total: web.total + toolingResult.total,
+  };
 }
 
 export function readBaseGrandfathered(root, baseRef) {
   if (!/^(?:[A-Za-z0-9][A-Za-z0-9_./-]*)$/.test(baseRef)) throw new Error("Invalid base ref");
   const base = /^[a-f0-9]{40}$/i.test(baseRef) ? baseRef : `origin/${baseRef}`;
   const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  if (!git(["ls-tree", "--name-only", base, "--", MANIFEST_PATH]).trim()) return null;
-  const manifest = JSON.parse(git(["show", `${base}:${MANIFEST_PATH}`]));
-  if (!Array.isArray(manifest?.grandfathered) || manifest.grandfathered.some((entry) => !relativePath(entry?.path) || !oneLine(entry?.reason))) throw new Error("Invalid base grandfathered list");
-  const paths = manifest.grandfathered.map((entry) => entry.path);
-  return { paths, contents: readBaseContents(root, git(["merge-base", base, "HEAD"]).trim(), paths) };
+  const mergeBase = git(["merge-base", base, "HEAD"]).trim();
+  const baseFiles = discoverFiles(git(["ls-tree", "-rz", "--name-only", mergeBase]).split("\0").filter(Boolean));
+  const baseWebFiles = baseFiles.filter((path) => path.startsWith(`${webRoot}/`)).map((path) => path.slice(webRoot.length + 1));
+  const hasManifest = git(["ls-tree", "--name-only", base, "--", MANIFEST_PATH]).trim();
+  const manifest = hasManifest ? JSON.parse(git(["show", `${base}:${MANIFEST_PATH}`])) : null;
+  const grandfathered = manifest?.grandfathered;
+  if (hasManifest && (!Array.isArray(grandfathered) || grandfathered.some((entry) => !relativePath(entry?.path) || !oneLine(entry?.reason)))) throw new Error("Invalid base grandfathered list");
+  const tooling = manifest?.tooling?.grandfathered;
+  if (tooling !== undefined && (!Array.isArray(tooling) || tooling.some((entry) => !toolingSpace.residue(entry?.path) || !oneLine(entry?.reason)))) throw new Error("Invalid base tooling residue list");
+  const migratedTooling = baseWebFiles.filter((path) => webTooling(path) && manifest?.scopes?.some((entry) => entry.category === "repository-gate" && matchesGlob(path, entry.pattern)));
+  const paths = hasManifest ? [...new Set([...grandfathered.map((entry) => entry.path), ...migratedTooling])] : baseWebFiles;
+  const toolingPaths = tooling === undefined ? baseFiles.filter((path) => !path.startsWith(`${webRoot}/`)) : tooling.map((entry) => entry.path);
+  return {
+    paths,
+    contents: readBaseContents(root, mergeBase, paths, webRoot),
+    tooling: { paths: toolingPaths, contents: readBaseContents(root, mergeBase, toolingPaths, "") },
+  };
 }
 
 export function checkUnitTestScope({ root = repositoryRoot, baseRef = process.env.BASE_REF || "main" } = {}) {
   const web = join(root, webRoot);
-  const files = trackedFiles(web).filter((file) => existsSync(join(web, file)));
+  const repositoryFiles = trackedFiles(root).filter((file) => existsSync(join(root, file)));
+  const files = repositoryFiles.filter((file) => file.startsWith(`${webRoot}/`)).map((file) => file.slice(webRoot.length + 1));
+  const toolingFiles = repositoryFiles.filter((file) => !file.startsWith(`${webRoot}/`));
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST_PATH), "utf8"));
   const base = readBaseGrandfathered(root, baseRef);
   const grandfathered = new Set((Array.isArray(manifest?.grandfathered) ? manifest.grandfathered : []).map((entry) => entry?.path));
+  const toolingGrandfathered = new Set((Array.isArray(manifest?.tooling?.grandfathered) ? manifest.tooling.grandfathered : []).map((entry) => entry?.path));
   const headContents = new Map();
   for (const file of files) if (grandfathered.has(file)) headContents.set(file, readFileSync(join(web, file), "utf8"));
-  return evaluateUnitTestScope({ files, manifest, reference: base?.paths ?? null, baseContents: base?.contents, headContents });
+  const toolingHeadContents = new Map();
+  for (const file of toolingFiles) if (toolingGrandfathered.has(file)) toolingHeadContents.set(file, readFileSync(join(root, file), "utf8"));
+  return evaluateUnitTestScope({ files, toolingFiles, manifest, reference: base?.paths ?? null, toolingReference: base?.tooling?.paths ?? null, baseContents: base?.contents, toolingBaseContents: base?.tooling?.contents, headContents, toolingHeadContents });
 }
 
 export function run(options = {}) {
