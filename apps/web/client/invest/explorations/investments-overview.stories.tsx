@@ -78,7 +78,7 @@ const meta = {
       if (!name.endsWith("Snapshot")) continue;
       const fixture = snapshot as BalancesSnapshot;
       try {
-        parseBalancesSnapshot(fixture, { subject: "synthetic-investments-owner", smartAccountAddress: fixture.owner.address, chainId: fixture.owner.chainId }, fixture.region);
+        parseBalancesSnapshot(fixture, { subject: "synthetic-investments-owner", smartAccountAddress: fixture.owner.address, chainId: fixture.owner.chainId }, fixture.region, fixture.quoteCurrency);
       } catch (error) {
         invalidFixtures.push(`${name}: ${String(error)}`);
       }

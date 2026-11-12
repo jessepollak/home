@@ -377,7 +377,7 @@ async function installFixtures(context: BrowserContext) {
 
     if (path === "/api/session") return json(route, { user: { subject: "readme-sample-subject" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" });
     if (path === "/api/account/country-preference" && route.request().method() === "GET") {
-      return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: "US" });
+      return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: "US", displayCurrency: null });
     }
     if (path === "/api/client-performance" && route.request().method() === "POST") {
       await route.fulfill({ status: 204 });

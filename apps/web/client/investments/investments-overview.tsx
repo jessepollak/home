@@ -10,6 +10,7 @@ import { CurrencyMark } from "@/components/currency-mark";
 import { compactFinancialValue } from "@/components/compact-financial-value";
 import { BalanceRow } from "@/components/finance-rows";
 import { MoneyTicker } from "@/components/money-ticker";
+import { UnavailableValue } from "@/components/unavailable-value";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -116,7 +117,7 @@ export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed
     <Card variant="flush" aria-label="Investments balance" aria-busy={loading || undefined}><CardContent inset="hero">
       <div className="@container flex flex-col gap-1">
         <p className="text-sm text-muted-foreground">Investments</p>
-        {loading ? <div data-shimmer="hero"><Skeleton className="h-14 w-48" /><span className="sr-only">Updating…</span></div> : failed ? <BalancesCantLoad onRetry={onRetryBalances} /> : summary?.value ? <div className="text-2xl @2xs:text-3xl @xs:text-4xl font-semibold tabular-nums"><MoneyTicker align="start" reserveDigits={false} value={compactFinancialValue(summary.value)} aria-label={summary.value} /></div> : active && !active.quoteCurrency ? <p className="text-sm text-muted-foreground">Choose a country in Account to set how money is shown</p> : null}
+        {loading ? <div data-shimmer="hero"><Skeleton className="h-14 w-48" /><span className="sr-only">Updating…</span></div> : failed ? <BalancesCantLoad onRetry={onRetryBalances} /> : summary?.value ? <div className="text-2xl @2xs:text-3xl @xs:text-4xl font-semibold tabular-nums"><MoneyTicker align="start" reserveDigits={false} value={compactFinancialValue(summary.value)} aria-label={summary.value} /></div> : active?.quoteCurrency && summary?.value === null ? <UnavailableValue variant="hero" /> : active && !active.quoteCurrency ? <p className="text-sm text-muted-foreground">Choose a country in Account to set how money is shown</p> : null}
       </div>
     </CardContent></Card>
     {listLoading || rowsFailed || rows.length > 0 ? <section key={active ? `${active.owner.address}:${active.region}` : "unavailable"} aria-labelledby="investments-held-heading" aria-busy={listLoading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">

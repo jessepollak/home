@@ -575,7 +575,7 @@ export const NotHeldBuy: Story = {
   args: { fixture: borrowOverviewBody({ openMarketId: null, notHeldMarketIds: markets.map((market) => market.marketId) }) },
   decorators: [(StoryComponent) => <AccountWalletClientProvider client={{
     ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", isSignedIn: true, ownerKey: dataOwnerKey(borrowStorySession), session: borrowStorySession,
-    fetchBalances: async (region) => balancesSnapshot(region),
+    fetchBalances: async ({ region }) => balancesSnapshot(region),
     fetchAccountResource: async (path) => path.startsWith("/api/trades?assetId=") ? tradeAvailabilityBody(decodeURIComponent(path.slice("/api/trades?assetId=".length))) : { version: 1, usdcReserveBaseUnits: "20000" },
   }}><StoryComponent /></AccountWalletClientProvider>],
   play: async ({ canvasElement }) => {

@@ -15,7 +15,7 @@ import {
 } from "@/client/query/query-client";
 import type { QueryScope } from "@/client/query/query-scopes";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { RegionId } from "@/config/regions";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 
 const homeRefreshScope = {
   balances: "balances",
@@ -36,13 +36,14 @@ export type HomeRefreshOutcome = Exclude<HomeRefreshState, { phase: "idle" } | {
 export function useHomeRefresh(input: {
   session: VerifiedAccountSession | null;
   regionId: RegionId;
+  currency?: FiatCurrencyCode | null;
   fetchActivity: FetchActivity;
   enabled: boolean;
 }): { state: HomeRefreshState; refresh: () => Promise<HomeRefreshOutcome>; dismiss: () => void } {
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const session = isVerifiedActivitySession(input.session) ? input.session : null;
   const ownerKey = session ? dataOwnerKey(session) : null;
-  const scope = `${ownerKey ?? "signed-out"}\u0000${input.regionId}\u0000${input.enabled}`;
+  const scope = `${ownerKey ?? "signed-out"}\u0000${input.regionId}\u0000${input.currency ?? "none"}\u0000${input.enabled}`;
   const [result, setResult] = useState<{ scope: string; state: HomeRefreshState }>({ scope, state: { phase: "idle" } });
   if (result.scope !== scope) setResult({ scope, state: { phase: "idle" } });
   const generation = useRef(0);
@@ -102,7 +103,7 @@ export function useHomeRefresh(input: {
         if (result?.status === "rejected" && !queryClient.getQueryCache().findAll({ queryKey: balancesKey, type: "active" }).every((query) => query.state.data !== undefined)) throw result.reason;
       }),
       refreshActivityThroughController({
-        queryClient, ownerKey, session, regionId: input.regionId, fetchActivity: input.fetchActivity,
+        queryClient, ownerKey, session, regionId: input.regionId, currency: input.currency, fetchActivity: input.fetchActivity,
         isCurrent,
         onPrefetchKey: (key) => {
           if (key && isCurrent()) {
@@ -135,6 +136,6 @@ export function useHomeRefresh(input: {
     });
     cycle.current = { generation: currentGeneration, promise };
     return promise;
-  }, [input.enabled, input.fetchActivity, input.regionId, ownerKey, queryClient, scope, session]);
+  }, [input.enabled, input.fetchActivity, input.regionId, input.currency, ownerKey, queryClient, scope, session]);
   return { state: result.scope === scope ? result.state : { phase: "idle" }, refresh, dismiss };
 }

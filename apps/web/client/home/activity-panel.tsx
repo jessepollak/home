@@ -20,7 +20,7 @@ import type { ActivityOrder } from "@/shared/activity/contract-orders";
 import { FUNDING_ORDER_RESOLUTION_VERSION, readResolveFundingOrderResponse } from "@/shared/funding/contracts/order-resolution";
 import type { ActivityLedgerNextActionKind } from "@/client/activity/activity-ledger";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { RegionId } from "@/config/regions";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { useCashOutWithdrawJourney } from "@/client/activity/cash-out-withdraw-journey";
 import { openPanelAfterClose, useOptionalHomeShellRouting, type ActivityDetailReturn } from "./panel-routing";
 import { ShimmerRows } from "./panel-shared";
@@ -58,12 +58,14 @@ export function ActivityPage({
   fetchActivity,
   fetchOperations,
   regionId,
+  currency,
   showSessionShimmer,
 }: {
   activitySession: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   regionId: RegionId;
+  currency?: FiatCurrencyCode | null;
   showSessionShimmer: boolean;
 }) {
   const suppressDetailReturn = useActivityReturnInvalidation(showSessionShimmer);
@@ -87,6 +89,7 @@ export function ActivityPage({
         fetchActivity={fetchActivity}
         fetchOperations={fetchOperations}
         regionId={regionId}
+        currency={currency}
         suppressDetailReturn={suppressDetailReturn}
       />
     </div>
@@ -101,6 +104,7 @@ export function ConnectedActivityPanel({
   fetchActivity,
   fetchOperations,
   regionId,
+  currency,
   emptyAction,
   onDetailsOpenChange,
   scheduleContinuationRetry,
@@ -115,6 +119,7 @@ export function ConnectedActivityPanel({
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   regionId: RegionId;
+  currency?: FiatCurrencyCode | null;
   scheduleContinuationRetry?: RetrySchedule;
   suppressDetailReturn?: boolean;
 }) {
@@ -188,7 +193,7 @@ export function ConnectedActivityPanel({
     setCancelActionKind(null);
     setCancelError(null);
   }
-  const activity = useActivity(activitySession, fetchActivity, regionId, { scheduleContinuationRetry });
+  const activity = useActivity(activitySession, fetchActivity, regionId, { currency, scheduleContinuationRetry });
   const actions = useHomeQuery({
     ...recentActionsQuery({ owner: ownerKey, session: activitySession, fetchOperations }),
     refetchInterval: (query) => {

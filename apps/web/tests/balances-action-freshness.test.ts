@@ -209,11 +209,11 @@ test("a retained non-stale snapshot served after a settlement observation does n
     log: () => undefined,
   });
 
-  const first = await service(FIXTURE_OWNER_ADDRESS, "US");
+  const first = await service(FIXTURE_OWNER_ADDRESS, "US", "USD");
   expect(observations).toBe(1);
   expect(first.block.number).toBe("100");
   expect(first.fetchedAt).toBe("2026-09-13T12:00:00.000Z");
-  const retained = await service(FIXTURE_OWNER_ADDRESS, "US");
+  const retained = await service(FIXTURE_OWNER_ADDRESS, "US", "USD");
   expect(observations).toBe(1);
   expect(retained.stale).toBeUndefined();
   expect(retained.block.number).toBe("100");
@@ -224,12 +224,12 @@ test("a retained non-stale snapshot served after a settlement observation does n
 
   nowMs += 120_001;
   blockNumber = "110";
-  const revalidating = await service(FIXTURE_OWNER_ADDRESS, "US");
+  const revalidating = await service(FIXTURE_OWNER_ADDRESS, "US", "USD");
   expect(revalidating.stale).toBe(true);
   expect(snapshotProvesFreshness(revalidating, marker)).toBe(false);
   expect(scheduled).toHaveLength(1);
   for (const task of scheduled.splice(0)) await task();
-  const fresh = await service(FIXTURE_OWNER_ADDRESS, "US");
+  const fresh = await service(FIXTURE_OWNER_ADDRESS, "US", "USD");
   expect(observations).toBe(2);
   expect(fresh.stale).toBeUndefined();
   expect(fresh.block.number).toBe("110");

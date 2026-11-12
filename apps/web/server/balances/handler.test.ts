@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BalancesResponseError, parseBalancesSnapshot } from "@/shared/balances/contract";
+import { BalancesResponseError, parseBalancesErrorResponse, parseBalancesSnapshot } from "@/shared/balances/contract";
 import { balancesSnapshotFixture, borrowPosition, buildBalancesSnapshotFixture, priced } from "@/shared/balances/fixtures";
 import type { BalancesSession, BalancesSnapshot } from "@/shared/balances/types";
 import { createBalancesHandler } from "./handler";
@@ -29,7 +29,7 @@ describe("balances handler", () => {
       subject: verified.user.subject,
       smartAccountAddress: verified.smartAccount.address,
       chainId: 8453,
-    }, "US")).toEqual(balancesSnapshotFixture);
+    }, "US", "USD")).toEqual(balancesSnapshotFixture);
   });
   test.each([
     [
@@ -71,6 +71,59 @@ describe("balances handler", () => {
     expect(await response.json()).toMatchObject({
       error: { code },
     });
+  });
+
+  test.each(["", "BTC", "usd", "country-default", "USD&currency=EUR", "USD&currency=USD"])("rejects invalid or repeated currency %s before reading balances", async (currency) => {
+    let reads = 0;
+    const handler = createBalancesHandler({
+      authorize: async () => verified,
+      readBalances: async () => { reads += 1; return balancesSnapshotFixture; },
+    });
+    const response = await handler(new Request(`https://home.test/api/balances?region=BR&currency=${currency}`));
+    expect(response.status).toBe(400);
+    expect(parseBalancesErrorResponse(await response.json())?.error.code).toBe("INVALID_CURRENCY");
+    expect(reads).toBe(0);
+  });
+
+  test.each([
+    ["BR", "&currency=USD", "USD"],
+    ["BR", "&currency=EUR", "EUR"],
+    ["BR", "", "BRL"],
+    ["GLOBAL", "&currency=USD", "USD"],
+    ["GLOBAL", "", null],
+  ] as const)("threads %s%s to the reader without changing the country", async (region, query, currency) => {
+    const handler = createBalancesHandler({
+      authorize: async () => verified,
+      readBalances: async (owner, requestedRegion, requestedCurrency) => buildBalancesSnapshotFixture({
+        owner, region: requestedRegion, currency: requestedCurrency,
+      }),
+    });
+    const response = await handler(new Request(`https://home.test/api/balances?region=${region}${query}`));
+    expect(response.status).toBe(200);
+    const snapshot = await response.json();
+    const parsed = parseBalancesSnapshot(snapshot, {
+      subject: verified.user.subject, smartAccountAddress: verified.smartAccount.address, chainId: 8453,
+    }, region, currency);
+    expect(parsed).toEqual(snapshot);
+    expect(parsed.total.status).toBe(currency === null ? "no-quote-currency" : "complete");
+  });
+
+  test("a valid explicit currency never bypasses region validation", async () => {
+    const handler = createBalancesHandler({ authorize: async () => verified, readBalances: async () => balancesSnapshotFixture });
+    const response = await handler(new Request("https://home.test/api/balances?region=bad&currency=USD"));
+    expect(response.status).toBe(400);
+    expect(parseBalancesErrorResponse(await response.json())?.error.code).toBe("INVALID_REGION");
+  });
+
+  test("rejects a reader's previous-currency snapshot for the same country", async () => {
+    const handler = createBalancesHandler({
+      authorize: async () => verified,
+      readBalances: async () => buildBalancesSnapshotFixture({ region: "BR", currency: "BRL" }),
+      log: () => {},
+    });
+    const response = await handler(new Request("https://home.test/api/balances?region=BR&currency=USD"));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ error: { code: "BALANCES_UNAVAILABLE" } });
   });
 
   test("maps read failures to 502 and emits one source event", async () => {
@@ -169,10 +222,11 @@ describe("balances handler", () => {
     const events: unknown[] = [];
     const handler = createBalancesHandler({
       authorize: async () => verified,
-      readBalances: async (owner, region) => {
+      readBalances: async (owner, region, quoteCurrency) => {
         const assembled = assembleBalancesSnapshot({
           owner,
           region,
+          quoteCurrency,
           read: {
             block: balancesSnapshotFixture.block,
             observedAt: balancesSnapshotFixture.fetchedAt,
@@ -208,9 +262,10 @@ describe("balances handler", () => {
   test("serves an assembled reader snapshot the client parser accepts", async () => {
     const handler = createBalancesHandler({
       authorize: async () => verified,
-      readBalances: async (owner, region) => assembleBalancesSnapshot({
+      readBalances: async (owner, region, quoteCurrency) => assembleBalancesSnapshot({
         owner,
         region,
+        quoteCurrency,
         read: {
           block: balancesSnapshotFixture.block,
           observedAt: balancesSnapshotFixture.fetchedAt,
@@ -231,7 +286,7 @@ describe("balances handler", () => {
       subject: "user-1",
       smartAccountAddress: verified.smartAccount.address,
       chainId: 8453,
-    }, "US")).toEqual(body);
+    }, "US", "USD")).toEqual(body);
   });
 
   test("attempts subscription once per address without delaying or failing reads", async () => {
@@ -271,7 +326,7 @@ describe("balances handler", () => {
 
   async function servedSnapshot(fixture: BalancesSnapshot) {
     const snapshot = assembleBalancesSnapshot({
-      owner: fixture.owner.address, region: fixture.region, holdings: fixture.holdings, borrow: fixture.borrow,
+      owner: fixture.owner.address, region: fixture.region, quoteCurrency: fixture.quoteCurrency, holdings: fixture.holdings, borrow: fixture.borrow,
       read: { block: fixture.block, observedAt: fixture.fetchedAt, holdings: [], coverage: { registry: "complete", catalog: "complete" } },
     });
     const handler = createBalancesHandler({
@@ -295,7 +350,7 @@ describe("balances handler", () => {
     }), "complete"],
   ] as const)("round-trips real %s handler output through the wire contract", async (_name, fixture, totalStatus) => {
     const { body, snapshot } = await servedSnapshot(fixture);
-    const parsed = parseBalancesSnapshot(body, session, fixture.region);
+    const parsed = parseBalancesSnapshot(body, session, fixture.region, fixture.quoteCurrency);
     expect(snapshot.total.status).toBe(totalStatus);
     expect(parsed.total.status).toBe(totalStatus);
     expect(parsed).toEqual(snapshot);
@@ -328,8 +383,8 @@ describe("balances handler", () => {
       const wire: BalancesSnapshot = JSON.parse(JSON.stringify(original));
       change(wire);
       const body = JSON.parse(JSON.stringify(wire));
-      expect(() => parseBalancesSnapshot(body, session, original.region), name).toThrow(BalancesResponseError);
-      if (detail) expect(() => parseBalancesSnapshot(body, session, original.region), name).toThrow(detail);
+      expect(() => parseBalancesSnapshot(body, session, original.region, original.quoteCurrency), name).toThrow(BalancesResponseError);
+      if (detail) expect(() => parseBalancesSnapshot(body, session, original.region, original.quoteCurrency), name).toThrow(detail);
     }
   });
 });

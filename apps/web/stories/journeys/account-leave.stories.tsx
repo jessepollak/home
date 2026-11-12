@@ -58,7 +58,7 @@ function AccountLeaveJourney({ scenario = "review" }: { scenario?: Scenario }) {
       { name: "Restored query cache", cleared: true }, { name: "Home summary cookie", cleared: true },
       { name: "Device preferences and Home storage", cleared: true },
     ]} /> : <AccountDeletionCompletionContext.Provider value={setCompleted}>
-      <DashboardShell initialAccountSettingsOpen region={{ regionId: "US", selectRegion: () => {}, resolutionSource: "persisted", preferenceMessage: "", isPreferenceReady: true, offeredCountries: ["US"] }} />
+      <DashboardShell initialAccountSettingsOpen region={{ displayCurrency: { currency: "USD", source: "country-default", withdrawn: null }, selectDisplayCurrency: () => {}, displayCurrencyMessage: "", displayCurrencyWriteFailed: false, retryDisplayCurrencyWrite: () => {}, regionId: "US", selectRegion: () => {}, resolutionSource: "persisted", preferenceMessage: "", isPreferenceReady: true, offeredCountries: ["US"] }} />
     </AccountDeletionCompletionContext.Provider>}
   </AccountWalletClientProvider>;
 }

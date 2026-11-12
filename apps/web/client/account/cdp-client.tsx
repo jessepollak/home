@@ -59,7 +59,7 @@ export type AccountWalletClient = {
   signInWithBaseAccount: (onPhase: (phase: BaseAccountLoginPhase) => void) => Promise<void>;
   cancelSignInAttempt: () => void;
   fetchBalances: (
-    region: import("@/config/regions").RegionId,
+    scope: import("@/shared/account/display-currency").PresentationScope,
     signal?: AbortSignal,
   ) => Promise<unknown>;
   fetchActivity: (query: string, signal?: AbortSignal) => Promise<unknown>;

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { presentationRegions, type RegionId } from "@/config/regions";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import {
   BALANCES_CHAIN_ID,
   BALANCES_VERSION,
@@ -20,6 +20,7 @@ import type { BalancesRead } from "./types";
 export function assembleBalancesSnapshot({
   owner,
   region,
+  quoteCurrency,
   read,
   holdings,
   borrow,
@@ -27,12 +28,12 @@ export function assembleBalancesSnapshot({
 }: {
   owner: BalancesAddress;
   region: RegionId;
+  quoteCurrency: FiatCurrencyCode | null;
   read: BalancesRead;
   holdings: Holding[];
   borrow: BalancesBorrow;
   stale?: boolean;
 }): BalancesSnapshot {
-  const quoteCurrency = presentationRegions[region].currency.code;
   const total: BalancesSnapshot["total"] = quoteCurrency === null
     ? { status: "no-quote-currency", value: null, currency: null }
     : {

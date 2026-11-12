@@ -1,5 +1,6 @@
 import "server-only";
 
+import { COUNTRY_DEFAULT_CURRENCY, isOfferedDisplayCurrency } from "@/shared/account/display-currency";
 import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
 
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest, type CountryPreferenceReadResponse, type CountryPreferenceResponse } from "@/shared/account/contracts/country-preference";
@@ -17,8 +18,8 @@ export function createCountryPreferenceReadHandler(dependencies: {
     const session = await authorizeSession(request, dependencies.authorize);
     if (session instanceof Response) return session;
     try {
-      const regionId = await (dependencies.read ?? readCountryPreference)(session);
-      return privateJson({ version: COUNTRY_PREFERENCE_VERSION, regionId } satisfies CountryPreferenceReadResponse, 200);
+      const preference = await (dependencies.read ?? readCountryPreference)(session);
+      return privateJson({ version: COUNTRY_PREFERENCE_VERSION, regionId: preference?.regionId ?? null, displayCurrency: preference?.displayCurrency ?? null } satisfies CountryPreferenceReadResponse, 200);
     } catch (error) {
       const deletionError = deletionAuthErrorResponse(error);
       if (deletionError) return deletionError;
@@ -36,14 +37,19 @@ export function createCountryPreferenceHandler(dependencies: {
     const session = await authorizeSession(request, dependencies.authorize);
     if (session instanceof Response) return session;
     const result = await readJsonBody(request, { maxBytes: 64 * 1024 });
-    const input = parseCountryPreferenceRequest(result.kind === "ok" ? result.value : null);
+    const body = result.kind === "ok" ? result.value : null;
+    if (typeof body === "object" && body !== null && "displayCurrency" in body &&
+      body.displayCurrency !== COUNTRY_DEFAULT_CURRENCY && !isOfferedDisplayCurrency(body.displayCurrency)) {
+      return privateError("COUNTRY_PREFERENCE_INVALID", "Choose a supported currency.", 400);
+    }
+    const input = parseCountryPreferenceRequest(body);
     if (!input) return privateError("COUNTRY_PREFERENCE_INVALID", "Choose a supported country.", 400);
     try {
-      if (!await (dependencies.regionOffered ?? isRegionOffered)(input.regionId)) {
+      if (input.regionId !== undefined && !await (dependencies.regionOffered ?? isRegionOffered)(input.regionId)) {
         return privateError("COUNTRY_PREFERENCE_INVALID", "Choose a supported country.", 400);
       }
-      const regionId = await (dependencies.write ?? writeCountryPreference)(session, input.regionId, { onlyIfUnset: input.adopt === true });
-      return privateJson({ version: COUNTRY_PREFERENCE_VERSION, regionId } satisfies CountryPreferenceResponse, 200);
+      const preference = await (dependencies.write ?? writeCountryPreference)(session, input, { onlyIfUnset: input.adopt === true });
+      return privateJson({ version: COUNTRY_PREFERENCE_VERSION, ...preference } satisfies CountryPreferenceResponse, 200);
     } catch (error) {
       const deletionError = deletionAuthErrorResponse(error);
       if (deletionError) return deletionError;

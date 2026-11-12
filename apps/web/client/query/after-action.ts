@@ -2,7 +2,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { VerifiedAccountSession } from "@/client/account/session-client";
 import { dataOwnerKey as dataOwnerKeyForSession } from "@/client/account/owner-keys";
 import { reportClientError } from "@/client/observability/client-reporter";
-import type { RegionId } from "@/config/regions";
+import { presentationScopeKey, type PresentationScope } from "@/shared/account/display-currency";
+import { parseBalancesScope } from "./balances-scope";
 import {
   freshUntilMoved,
   type BalanceSnapshot,
@@ -98,7 +99,7 @@ export function advanceActivityWindowEnd(
 
 export type BalanceActionMarker = {
   at: number;
-  fresh: Partial<Record<RegionId, true>>;
+  fresh: Partial<Record<string, true>>;
   dispatchedActionIds?: string[];
   dispatchedAt?: Record<string, number>;
   dispatchedOverflow?: true;
@@ -133,7 +134,7 @@ export function highestBlockNumber(left: string | undefined, right: string | und
 export function freshRegionMarker(
   current: BalanceActionMarker | undefined,
   observed: BalanceActionMarker,
-  region: RegionId,
+  scope: PresentationScope,
   snapshot: Pick<BalancesSnapshot, "block" | "fetchedAt" | "stale"> | undefined | null,
 ): BalanceActionMarker | undefined {
   const currentBoundaries = current?.dispatchedActionIds ?? [];
@@ -143,8 +144,8 @@ export function freshRegionMarker(
     current.dispatchedOverflow !== observed.dispatchedOverflow ||
     (current.settledActionIds ?? []).length !== (observed.settledActionIds ?? []).length ||
     !(current.settledActionIds ?? []).every((id, index) => id === observed.settledActionIds?.[index]) ||
-    current.fresh[region] === true || !snapshotProvesFreshness(snapshot, current)) return undefined;
-  return { ...current, fresh: { ...current.fresh, [region]: true } };
+    current.fresh[presentationScopeKey(scope)] === true || !snapshotProvesFreshness(snapshot, current)) return undefined;
+  return { ...current, fresh: { ...current.fresh, [presentationScopeKey(scope)]: true } };
 }
 
 function parseBlockNumber(value: unknown): bigint | null {
@@ -373,26 +374,29 @@ export async function startBalanceFreshness(input: {
     readFresh: async () => {
       const merged: Record<string, string | null> = Object.fromEntries(assetIds.map((id) => [id, null]));
       for (const balanceQuery of balanceQueries) {
-        const region = balanceQuery.queryKey[2];
-        if (typeof region !== "string") continue;
+        const scope = balanceQuery.queryKey.length === 4
+          ? parseBalancesScope(balanceQuery.queryKey[2], balanceQuery.queryKey[3]) : null;
+        if (!scope) continue;
+        const { region, currency } = scope;
         const snapshot = await queryClient.fetchQuery({
           ...ownerQuery<BalancesSnapshot>({
             owner: dataOwnerKey,
             scope: "balances",
-            key: [region],
+            key: [region, currency ?? "none"],
             retry: false,
             queryFn: async ({ signal }) => parseBalancesSnapshot(
               await fetchVerifiedResource(
                 "/api/balances",
                 signal,
-                new URLSearchParams({ region }).toString(),
+                new URLSearchParams({ region, ...(currency === null ? {} : { currency }) }).toString(),
               ),
               {
                 subject: session.user.subject,
                 smartAccountAddress: session.smartAccount!.address,
                 chainId: 8453,
               },
-              region as import("@/config/regions").RegionId,
+              region,
+              currency,
             ),
           }),
           staleTime: 0,

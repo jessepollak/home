@@ -1,5 +1,5 @@
 import * as z from "zod/mini";
-import { parseAuthBoundaryErrorResponse, type AuthBoundaryErrorResponse } from "@/shared/account/contracts/auth-boundary";
+import { AUTH_BOUNDARY_ERROR_CODES, type AuthBoundaryErrorCode } from "@/shared/account/contracts/auth-boundary";
 import { parseAddress, parseHash32 } from "@/shared/chain/hex";
 import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
 import { getBorrowMarketRef } from "@/shared/borrowing/config";
@@ -17,6 +17,8 @@ import {
 
 /** @public version token for the balances route contract inventory */
 export { BALANCES_VERSION } from "./types";
+
+export const INVALID_BALANCES_CURRENCY = "INVALID_CURRENCY" as const;
 
 const assetKeyPattern = /^eip155:8453\/erc20:0x[0-9a-f]{40}$/;
 const decimalIntegerPattern = /^(?:0|[1-9]\d*)$/;
@@ -193,11 +195,20 @@ export type BalancesBorrow = z.output<typeof borrowSchema>;
 export type BalancesTotal = z.output<typeof totalSchema>;
 export type BalancesTotals = z.output<typeof totalsSchema>;
 export type BalancesSnapshot = z.output<typeof balancesSnapshotSchema>;
-export type BalancesErrorResponse = AuthBoundaryErrorResponse;
+const balancesErrorSchema = z.strictObject({ error: z.strictObject({
+  code: z.enum([...AUTH_BOUNDARY_ERROR_CODES, "INVALID_REGION", INVALID_BALANCES_CURRENCY,
+    "SMART_ACCOUNT_UNAVAILABLE", "BALANCES_UNAVAILABLE"]),
+  message: z.string(),
+}) });
+export type BalancesErrorResponse = { error: {
+  code: AuthBoundaryErrorCode | "INVALID_REGION" | typeof INVALID_BALANCES_CURRENCY | "SMART_ACCOUNT_UNAVAILABLE" | "BALANCES_UNAVAILABLE";
+  message: string;
+} };
 
-/** @public parses balances auth-boundary errors for clients */
+/** @public parses balances endpoint errors for clients */
 export function parseBalancesErrorResponse(value: unknown): BalancesErrorResponse | null {
-  return parseAuthBoundaryErrorResponse(value);
+  const result = balancesErrorSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export class BalancesResponseError extends Error {
@@ -213,9 +224,8 @@ function validUnitValue(unit: z.output<typeof unitValueSchema> | undefined, valu
 }
 
 export function parseBalancesSnapshot(
-  value: unknown, session: BalancesSession, expectedRegion: RegionId,
+  value: unknown, session: BalancesSession, expectedRegion: RegionId, expectedCurrency: FiatCurrencyCode | null,
 ): BalancesSnapshot {
-  const expectedCurrency = presentationRegions[expectedRegion].currency.code;
   const sessionAddress = parseAddress(session.smartAccountAddress);
   const contextualSchema = balancesSnapshotSchema
     .check(z.refine((snapshot) => snapshot.owner.address === sessionAddress && sessionAddress !== null &&

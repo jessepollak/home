@@ -1,4 +1,5 @@
 import { MoneyTicker } from "@/components/money-ticker";
+import { UnavailableValue } from "@/components/unavailable-value";
 import { Button } from "@/components/ui/button";
 import type { MoneyBreakdownItem } from "@/shared/balances/present";
 
@@ -18,6 +19,7 @@ type BreakdownProps = {
 export function SignedBalanceBar({ items, selectedId, onSelect }: BreakdownProps) {
   const borrow = items.find((item) => item.id === "borrow" && item.weight > 0);
   const assets = items.filter((item) => item.id !== "borrow" && item.weight > 0);
+  if (!borrow && assets.length === 0) return null;
   return (
     <div
       className="flex h-2 w-full items-center gap-0.5"
@@ -70,7 +72,7 @@ export function MoneyBreakdownLegend({ items, selectedId, onSelect }: BreakdownP
                   </span>
                 </span>
                 <span className="text-foreground">
-                  <MoneyTicker className="text-[0.8125rem]" value={item.value} align="start" reserveDigits={false} />
+                  {item.value === null ? <UnavailableValue /> : <MoneyTicker className="text-[0.8125rem]" value={item.value} align="start" reserveDigits={false} />}
                 </span>
               </Button>
             </li>

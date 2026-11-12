@@ -11,7 +11,7 @@ import { investAssets } from "@/config/invest-assets";
 import { formatExactPresentationTokenAmount, formatFiatAmount } from "@/shared/formatting";
 import type { Holding } from "@/shared/balances/types";
 import { AssetIcon } from "./asset-icon";
-import { usePresentationRegionId } from "./presentation-quote";
+import { usePresentationScope } from "./presentation-quote";
 import { BalancesCantLoad } from "@/client/balances/balances-cant-load";
 
 const unavailableBalances: AccountWalletClient["fetchBalances"] = async () => { throw new Error("Account unavailable"); };
@@ -28,13 +28,14 @@ export function AssetPosition({ asset, assetMarkResolution }: {
 }) {
   const account = useOptionalAccountWallet();
   const session = account && isServerVerified(account) ? account.session : null;
-  const regionId = usePresentationRegionId();
+  const scope = usePresentationScope();
+  const regionId = scope.region;
   const balances = useBalancesData(session?.smartAccount ? {
     subject: session.user.subject,
     smartAccountAddress: session.smartAccount.address,
     chainId: session.smartAccount.chainId,
     accountProvider: session.accountProvider,
-  } : null, regionId, account?.fetchBalances ?? unavailableBalances);
+  } : null, scope, account?.fetchBalances ?? unavailableBalances);
   const holdings = balances.status === "ready" && session?.smartAccount
     ? balances.snapshot.holdings : null;
   const holding = useMemo(() => holdings ? findAssetHolding(holdings, { id: asset.id, contractAddress: asset.contractAddress }) : undefined,

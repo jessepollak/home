@@ -322,7 +322,7 @@ test("summary-only reload retains rate subtitles without pulsing placeholders", 
   await expect(money).toContainText("APR");
   await waitForSettledPersistedBalances(page);
   await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some((key) => {
-    if (!key.includes(":home-summary:US")) return false;
+    if (!key.endsWith(":home-summary:US:USD")) return false;
     const value = localStorage.getItem(key);
     if (!value) return false;
     const record: { rates?: { cash?: { value?: string }; borrow?: { value?: string } } } = JSON.parse(value);
@@ -392,7 +392,7 @@ test("cached Home HTML contains money before React hydration", async ({ browser,
   const summary = presentation.summary;
   const total = presentation.displayTotal;
   if (!summary || total === null) throw new Error("Summary fixture invalid");
-  const value = encodeHomeSummaryCookie({ version: 3, owner: dataOwnerKey(session), region: "US", updatedAt: now, presentation: { ...presentation, status: "ready", summary },
+  const value = encodeHomeSummaryCookie({ version: 5, owner: dataOwnerKey(session), region: "US", currency: "USD", updatedAt: now, presentation: { ...presentation, status: "ready", summary },
     rates: { cash: { value: "3.50% APY", updatedAt: now }, borrow: { value: "3.15% APR", updatedAt: now } } });
   if (!value || !baseURL) throw new Error("Summary fixture unavailable");
   const noScript = await browser.newContext({ extraHTTPHeaders: { "x-vercel-ip-country": "US" }, viewport: { width: 390, height: 844 } });

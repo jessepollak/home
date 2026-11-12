@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
-import { presentationRegions, type RegionId } from "@/config/regions";
+import { presentationRegions, type FiatCurrencyCode, type RegionId } from "@/config/regions";
+import { countryDefaultCurrency, type PresentationScope } from "@/shared/account/display-currency";
 import type {
   MarketPresentationQuote,
   PresentationFxQuote,
@@ -20,6 +21,8 @@ const PresentationQuoteContext =
 
 const PresentationRegionContext = createContext<RegionId | null>(null);
 
+const PresentationCurrencyContext = createContext<FiatCurrencyCode | null | undefined>(undefined);
+
 export function PresentationQuoteProvider({
   value,
   children,
@@ -36,14 +39,18 @@ export function PresentationQuoteProvider({
 
 export function PresentationRegionProvider({
   regionId,
+  currency,
   children,
 }: {
   regionId: RegionId;
+  currency?: FiatCurrencyCode | null;
   children: ReactNode;
 }) {
   return (
     <PresentationRegionContext.Provider value={regionId}>
-      {children}
+      <PresentationCurrencyContext.Provider value={currency}>
+        {children}
+      </PresentationCurrencyContext.Provider>
     </PresentationRegionContext.Provider>
   );
 }
@@ -58,11 +65,29 @@ export function usePresentationRegionId(
   return useContext(PresentationRegionContext) ?? fallback;
 }
 
+export function usePresentationCurrency(
+  fallbackRegion: RegionId = "GLOBAL",
+): FiatCurrencyCode | null {
+  const provided = useContext(PresentationCurrencyContext);
+  const region = useContext(PresentationRegionContext) ?? fallbackRegion;
+  return provided === undefined ? countryDefaultCurrency(region) : provided;
+}
+
+export function usePresentationScope(
+  fallbackRegion: RegionId = "GLOBAL",
+): PresentationScope {
+  const region = usePresentationRegionId(fallbackRegion);
+  return { region, currency: usePresentationCurrency(region) };
+}
+
 export function presentationQuoteForRegion(
   regionId: RegionId,
   fx: readonly PresentationFxQuote[] | null | undefined,
+  displayCurrency?: FiatCurrencyCode | null,
 ): MarketPresentationQuote {
-  const currency = presentationRegions[regionId].currency.code;
+  const currency = displayCurrency === undefined
+    ? presentationRegions[regionId].currency.code
+    : displayCurrency;
   if (!currency || currency === "USD") {
     return {
       regionId,

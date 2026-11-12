@@ -17,6 +17,9 @@ import {
   type ResolutionSource,
 } from "@/config/regions";
 
+import { useHomeDisplayCurrency } from "./use-home-display-currency";
+import type { DisplayCurrencyChoice } from "@/shared/account/display-currency";
+
 type AccountPreferenceWriter = (regionId: CountryCode, adopt: boolean) => Promise<CountryCode>;
 
 export function isRegionAccountSignedIn(account: Pick<AccountWalletClient, "status" | "isSignedIn">): boolean {
@@ -26,6 +29,8 @@ export function isRegionAccountSignedIn(account: Pick<AccountWalletClient, "stat
 export function useHomeRegion({
   detectedCountry,
   accountPreference = null,
+  accountDisplayCurrency = null,
+  writeAccountDisplayCurrency,
   accountIdentity = null,
   accountOwner = null,
   accountPreferencePending = false,
@@ -37,6 +42,8 @@ export function useHomeRegion({
 }: {
   detectedCountry: string | null;
   accountPreference?: CountryCode | null;
+  accountDisplayCurrency?: string | null;
+  writeAccountDisplayCurrency?: (choice: DisplayCurrencyChoice, adopt: boolean) => Promise<string | null>;
   accountIdentity?: string | null;
   accountOwner?: string | null;
   accountPreferencePending?: boolean;
@@ -55,12 +62,13 @@ export function useHomeRegion({
   const [preferenceMessage, setPreferenceMessage] = useState("");
   const [browserPreference, setBrowserPreference] = useState<CountryCode | null>(null);
   const selectionVersion = useRef(0);
+  const generation = useRef(0);
   const previousSignedIn = useRef(signedIn);
   const adoptionAttempted = useRef(false);
   const adoptionIdentity = useRef<string | null>(null);
   const currentIdentity = useRef(accountIdentity);
   const mounted = useRef(true);
-  const pendingWrite = useRef<{ identity: string | null; promise: Promise<unknown> } | null>(null);
+  const pendingWrites = useRef(new Map<string | null, Promise<unknown>>());
   const pendingSettlingSelection = useRef<{ country: CountryCode; identity: string | null; owner: string | null } | null>(null);
   const [heldIdentity, setHeldIdentity] = useState<string | null>(null);
   const [heldSelection, setHeldSelection] = useState<{ identity: string | null; owner: string | null } | null>(null);
@@ -84,24 +92,31 @@ export function useHomeRegion({
 
   const writeExplicitAccountPreference = useCallback((country: CountryCode, version: number) => {
     setPreferenceMessage("");
-    const previousWrite = pendingWrite.current;
     const identity = currentIdentity.current;
+    const epoch = generation.current;
+    const isCurrent = () => mounted.current && identity === currentIdentity.current &&
+      version === selectionVersion.current && epoch === generation.current;
+    const previousWrite = pendingWrites.current.get(identity);
     const write = (async () => {
       try {
-        if (previousWrite?.identity === identity) await previousWrite.promise;
+        if (previousWrite) await previousWrite;
+        if (!isCurrent()) return;
         if (!writeAccountPreference) throw new Error("Account unavailable");
         const stored = await writeAccountPreference(country, false);
-        if (version !== selectionVersion.current || identity !== currentIdentity.current) return;
+        if (!isCurrent()) return;
         setRegionId(presentedRegionId(stored, offer));
         setPreferenceMessage("Country preference saved to your account.");
       } catch {
-        if (version === selectionVersion.current && identity === currentIdentity.current) {
+        if (isCurrent()) {
           setPreferenceMessage("Country updated for this visit only. Could not save to your account.");
         }
         return null;
       }
     })();
-    pendingWrite.current = { identity, promise: write };
+    pendingWrites.current.set(identity, write);
+    void write.finally(() => {
+      if (pendingWrites.current.get(identity) === write) pendingWrites.current.delete(identity);
+    });
   }, [offer, writeAccountPreference]);
 
   const writeBrowserPreference = useCallback((country: CountryCode) => {
@@ -114,7 +129,7 @@ export function useHomeRegion({
     );
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
@@ -127,6 +142,7 @@ export function useHomeRegion({
       setHeldSelection({ identity: held.identity, owner: accountOwner });
     } else if (held.owner !== accountOwner) {
       pendingSettlingSelection.current = null;
+      generation.current += 1;
       selectionVersion.current = 0;
       setHeldSelection(null);
       const resolved = resolvePresentation({ detectedCountry, offer });
@@ -137,8 +153,8 @@ export function useHomeRegion({
 
   useLayoutEffect(() => {
     if (currentIdentity.current === accountIdentity) return;
-    pendingWrite.current = null;
     currentIdentity.current = accountIdentity;
+    generation.current += 1;
     const held = pendingSettlingSelection.current;
     if (held && held.identity !== null && held.identity !== accountIdentity) {
       pendingSettlingSelection.current = null;
@@ -153,6 +169,7 @@ export function useHomeRegion({
 
   useLayoutEffect(() => {
     if (previousSignedIn.current !== signedIn) {
+      generation.current += 1;
       if (!pendingSettlingSelection.current) selectionVersion.current = 0;
       previousSignedIn.current = signedIn;
     }
@@ -208,24 +225,28 @@ export function useHomeRegion({
     adoptionAttempted.current = true;
     const version = selectionVersion.current;
     const identity = currentIdentity.current;
-    const previousWrite = pendingWrite.current;
+    const epoch = generation.current;
+    const isCurrent = () => mounted.current && identity === currentIdentity.current &&
+      version === selectionVersion.current && epoch === generation.current;
+    const previousWrite = pendingWrites.current.get(identity);
     const write = (async () => {
-      if (previousWrite?.identity === identity) await previousWrite.promise;
-      return writeAccountPreference(browserPreference, true);
-    })()
-      .then((stored) => {
-        if (mounted.current && version === selectionVersion.current && identity === currentIdentity.current &&
-            stored !== browserPreference) {
+      try {
+        if (previousWrite) await previousWrite;
+        if (!isCurrent()) return;
+        const stored = await writeAccountPreference(browserPreference, true);
+        if (isCurrent() && stored !== browserPreference) {
           setRegionId(presentedRegionId(stored, offer));
         }
-      })
-      .catch(() => {
-        if (mounted.current && version === selectionVersion.current && identity === currentIdentity.current) {
-          adoptionAttempted.current = false;
-        }
-      });
-    pendingWrite.current = { identity, promise: write };
-  }, [accountReady, browserPreference, offer, savedAccountPreference, signedIn, writeAccountPreference]);
+      } catch {
+        if (isCurrent()) adoptionAttempted.current = false;
+        return null;
+      }
+    })();
+    pendingWrites.current.set(identity, write);
+    void write.finally(() => {
+      if (pendingWrites.current.get(identity) === write) pendingWrites.current.delete(identity);
+    });
+  }, [accountIdentity, accountReady, browserPreference, offer, savedAccountPreference, signedIn, writeAccountPreference]);
 
   function selectRegion(nextRegionId: RegionId) {
     const country = normalizeCountryCode(nextRegionId);
@@ -249,10 +270,25 @@ export function useHomeRegion({
     writeBrowserPreference(country);
   }
 
+  const enqueuePreferenceWrite = useCallback((identity: string | null, task: () => Promise<unknown>) => {
+    const previous = pendingWrites.current.get(identity);
+    const promise = (async () => {
+      if (previous) await previous;
+      return task();
+    })();
+    pendingWrites.current.set(identity, promise);
+    void promise.finally(() => {
+      if (pendingWrites.current.get(identity) === promise) pendingWrites.current.delete(identity);
+    });
+  }, []);
+  const { isDisplayCurrencyReady, ...currency } = useHomeDisplayCurrency({ regionId, accountDisplayCurrency, accountIdentity, accountOwner,
+    accountPreferencePending, signedIn, accountReady, accountSettling, writeAccountDisplayCurrency, enqueuePreferenceWrite });
+
   return {
+    ...currency,
     regionId,
     resolutionSource,
-    isPreferenceReady,
+    isPreferenceReady: isPreferenceReady && isDisplayCurrencyReady,
     preferenceMessage,
     selectRegion,
     offeredCountries: offer.offered,

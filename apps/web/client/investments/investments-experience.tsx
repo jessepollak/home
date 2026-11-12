@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type JSX } from "react";
 import type { UseInvestDiscoverResult } from "@/client/invest/use-invest-discover";
-import { PresentationQuoteProvider, presentationQuoteForRegion, usePresentationRegionId } from "@/client/invest/presentation-quote";
+import { PresentationQuoteProvider, presentationQuoteForRegion, usePresentationCurrency, usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { useMarketPrices } from "@/client/invest/use-market-prices";
 import { type OwnedInvestment } from "@/shared/balances/owned-investments";
 import type { AssetKey, BalancesSnapshot } from "@/shared/balances/types";
@@ -78,8 +78,9 @@ export function InvestmentsExperience({ holding, onOpenHolding, onCloseHolding, 
     }
   };
   const regionId = usePresentationRegionId();
+  const currency = usePresentationCurrency(regionId);
   const { fx, ...markets } = useMarketPrices();
-  const quote = useMemo(() => presentationQuoteForRegion(regionId, fx), [regionId, fx]);
+  const quote = useMemo(() => presentationQuoteForRegion(regionId, fx, currency), [regionId, fx, currency]);
   const status = balances.status === "error" ? "failed" : balances.status === "ready" ? "ready" : "loading";
   return <PresentationQuoteProvider value={quote}>
     {holding ? <OwnedAssetDetail snapshot={balances.snapshot} balanceStatus={status} onRetryBalances={() => void balances.retry()} assetKey={holding} catalog={discover.memeAssets} markets={{ ...markets, memeMarket: discover.memeMarket }} assetMarkResolution={discover.assetMarkResolution} onBack={onCloseHolding} />

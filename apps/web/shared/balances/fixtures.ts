@@ -68,6 +68,7 @@ export type HoldingOverride = Partial<
 
 export type BalancesFixtureOptions = {
   region?: RegionId;
+  currency?: FiatCurrencyCode | null;
   owner?: `0x${string}`;
   registry?: Record<string, HoldingOverride>;
   catalog?: Holding[];
@@ -147,7 +148,7 @@ function discoveredHolding(
 
 export function buildBalancesSnapshotFixture(options: BalancesFixtureOptions = {}): BalancesSnapshot {
   const region = options.region ?? "US";
-  const quoteCurrency = presentationRegions[region].currency.code as FiatCurrencyCode | null;
+  const quoteCurrency = options.currency === undefined ? presentationRegions[region].currency.code : options.currency;
   const owner = options.owner ?? FIXTURE_OWNER_ADDRESS;
 
   const registryHoldings: Holding[] = [...expectedRegistryHoldings().values()].map((expected) => {

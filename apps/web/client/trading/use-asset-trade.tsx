@@ -5,7 +5,8 @@ import { useQueries } from "@tanstack/react-query";
 import { isServerVerified, useOptionalAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
 import { uiBoundary } from "@/client/account/owner-keys";
 import { useBalances } from "@/client/balances";
-import { usePresentationRegionId } from "@/client/invest/presentation-quote";
+import { countryDefaultCurrency } from "@/shared/account/display-currency";
+import { usePresentationScope } from "@/client/invest/presentation-quote";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { moneySheetLoading } from "@/client/money-modal";
 import { browserHomeQueryClient } from "@/client/query/query-client";
@@ -41,7 +42,7 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
   const session = expectedSession === undefined || (verified?.user.subject === expectedSession?.user.subject && verified?.smartAccount?.address === expectedSession?.smartAccount?.address) || keepMountedSession
     ? verified : null;
   const owner = session?.smartAccount ? walletOwner : null;
-  const region = usePresentationRegionId(regionId);
+  const scope = usePresentationScope(regionId);
   const activeCandidates = mounted && mounted.owner === owner && !candidates.some((entry) => entry.assetId === mounted.assetId)
     ? [...candidates, { assetId: mounted.assetId, assetName: mounted.assetName }] : candidates;
   const queries = useQueries({ queries: activeCandidates.map((entry) => tradeAvailabilityOptions(session, entry.assetId, account?.fetchAccountResource ?? unavailableResource)) }, browserHomeQueryClient());
@@ -51,7 +52,7 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
     smartAccountAddress: session.smartAccount.address,
     chainId: session.smartAccount.chainId,
     accountProvider: session.accountProvider,
-  } : null, region, account?.fetchBalances ?? unavailableBalances);
+  } : null, { region: scope.region, currency: countryDefaultCurrency(scope.region) }, account?.fetchBalances ?? unavailableBalances);
   const usableBalances = balances.status === "ready" && !balances.snapshot.stale && !balances.refreshError;
   const cash = usableBalances ? selectBalanceBaseUnits(balances.snapshot, "usdc") : null;
   const states = new Map(candidates.map(({ assetId }) => {

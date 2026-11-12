@@ -15,6 +15,11 @@ function AccountAppearanceJourney({ inviteState = "loaded" }: { inviteState?: In
   return (
     <main className="mx-auto w-full max-w-160 p-4">
       <AccountSettings
+        displayCurrency={{ currency: "USD", source: "country-default", withdrawn: null }}
+        onDisplayCurrencyChange={() => {}}
+        displayCurrencyMessage=""
+        displayCurrencyWriteFailed={false}
+        onRetryDisplayCurrencyWrite={() => {}}
         regionId="US"
         onRegionChange={() => {}}
         resolutionSource="persisted"
