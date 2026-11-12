@@ -119,7 +119,15 @@
     { "pattern": "tests/review-board/frame-loading.test.ts", "category": "review-board-runtime" },
     { "pattern": "tests/review-board/load-queue.test.ts", "category": "review-board-runtime" },
     { "pattern": "tests/review-board/preview-update.test.ts", "category": "review-board-runtime" },
-    { "pattern": "tests/review-board/render-watcher.test.ts", "category": "review-board-runtime" }
+    { "pattern": "tests/review-board/render-watcher.test.ts", "category": "review-board-runtime" },
+    { "pattern": "server/growth/admin-handlers.test.ts", "category": "auth" },
+    { "pattern": "server/operator-settings/registry.test.ts", "category": "auth" },
+    { "pattern": "shared/operator-settings/operator-account.test.ts", "category": "auth" },
+    { "pattern": "shared/operator-settings/growth.test.ts", "category": "route-contract-parser" },
+    { "pattern": "server/growth/qualification-core.test.ts", "category": "money-math" },
+    { "pattern": "server/growth/admin-handlers.postgres.test.ts", "category": "money-record-integrity" },
+    { "pattern": "server/growth/qualification.postgres.test.ts", "category": "money-record-integrity" },
+    { "pattern": "server/growth/queue.postgres.test.ts", "category": "money-record-integrity" }
   ],
   "grandfathered": [
     { "path": "client/balances/pending-cashout.test.ts", "reason": "Existing pending cash-out presentation suite." },

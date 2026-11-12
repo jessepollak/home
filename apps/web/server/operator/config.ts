@@ -1,16 +1,11 @@
 import "server-only";
 
 import { serverEnvironment } from "@/server/config/env";
+import type { OperatorAccountConfig } from "@/shared/operator-settings/operator-account";
 
-export type OperatorConfig =
-  | { kind: "absent" }
-  | { kind: "misconfigured" }
-  | { kind: "configured"; addresses: ReadonlySet<`0x${string}`> };
+export type OperatorConfig = OperatorAccountConfig;
 
-export function readOperatorConfig(
-  env: Record<string, string | undefined> = serverEnvironment(),
-): OperatorConfig {
-  const raw = env.HOME_OPERATOR_ADDRESSES;
+export function parseOperatorAddressList(raw: string | undefined): OperatorAccountConfig {
   if (raw === undefined || /^[ \t\n\r\f\v]*$/.test(raw)) return { kind: "absent" };
 
   const addresses = new Set<`0x${string}`>();
@@ -22,4 +17,10 @@ export function readOperatorConfig(
     addresses.add(normalized);
   }
   return { kind: "configured", addresses };
+}
+
+export function readOperatorConfig(
+  env: Record<string, string | undefined> = serverEnvironment(),
+): OperatorConfig {
+  return parseOperatorAddressList(env.HOME_OPERATOR_ADDRESSES);
 }
