@@ -89,6 +89,15 @@ type ObservedResult = {
 
 type ObservationDurations = ObservedResult["durationMs"];
 
+type AssembledObservation = {
+  read: BalancesRead;
+  basis: BalanceSnapshotRevision | null;
+};
+
+type Observation = AssembledObservation & {
+  reassemble: (latest: BalanceSnapshotRow | null) => AssembledObservation;
+};
+
 export function createBalancesService(dependencies: Dependencies = {}) {
   const store = dependencies.store ?? getBalanceSnapshotStore();
   const readUniverse = dependencies.readUniverse ?? getBalancesUniverse;
@@ -156,7 +165,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       const observed = registryOnly
         ? await observeRegistryOnly(owner, row!, durationMs)
         : await observeFull(owner, row, durationMs);
-      const winner = await persistObserved(owner, observed.read, observed.basis, durationMs);
+      const winner = await persistObserved(owner, observed, durationMs);
       const currentWinner = winner && registryHoldingsMatch(winner.holdings) && !hasUnavailableRegistry(winner.holdings) ? winner : null;
       const refresh = registryOnly &&
         (signaled || expired || needsFullObservation(observed.read, current, borrowRetryMs));
@@ -190,22 +199,47 @@ export function createBalancesService(dependencies: Dependencies = {}) {
 
   async function persistObserved(
     owner: PortfolioAddress,
-    observed: BalancesRead,
-    basis: BalanceSnapshotRevision | null,
+    observed: Observation,
     durationMs: ObservationDurations,
   ): Promise<BalancesRead | null> {
     try {
       const wrote = await timeStage(nowMs, durationMs, "store-write", () =>
-        store.putObservation(observationFromRead(owner, observed), basis));
-      if (!wrote) {
-        const winner = await timeStage(nowMs, durationMs, "store-read", () =>
-          store.get(BALANCES_CHAIN_ID, owner));
-        return winner ? readFromRow(winner) : null;
-      }
+        store.putObservation(observationFromRead(owner, observed.read), observed.basis));
+      if (wrote) return null;
+    } catch {
+      observeStoreFailure("BALANCE_STORE_WRITE_FAILED");
+      return null;
+    }
+
+    let latest: BalanceSnapshotRow | null;
+    try {
+      latest = await timeStage(nowMs, durationMs, "store-read", () =>
+        store.get(BALANCES_CHAIN_ID, owner));
+    } catch {
+      observeStoreFailure("BALANCE_STORE_READ_FAILED");
+      return null;
+    }
+    if (!latest) return null;
+    if (latest.blockNumber === observed.basis?.blockNumber && latest.observedAt === observed.basis?.observedAt) {
+      return readFromRow(latest);
+    }
+
+    try {
+      const retry = observed.reassemble(latest);
+      const wrote = await timeStage(nowMs, durationMs, "store-write", () =>
+        store.putObservation(observationFromRead(owner, retry.read), retry.basis));
+      if (wrote) return retry.read;
     } catch {
       observeStoreFailure("BALANCE_STORE_WRITE_FAILED");
     }
-    return null;
+    try {
+      const winner = await timeStage(nowMs, durationMs, "store-read", () =>
+        store.get(BALANCES_CHAIN_ID, owner));
+      return readFromRow(winner ?? latest);
+    } catch {
+      observeStoreFailure("BALANCE_STORE_READ_FAILED");
+      return readFromRow(latest);
+    }
   }
 
   function scheduleRevalidation(
@@ -221,7 +255,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       const durationMs = emptyObservationDurations();
       try {
         const observed = await observeFull(address, row, durationMs);
-        await persistObserved(address, observed.read, observed.basis, durationMs);
+        await persistObserved(address, observed, durationMs);
         emitBalancesRead(log, outcome, {
           ...durationMs,
           price: 0,
@@ -254,7 +288,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     owner: PortfolioAddress,
     row: BalanceSnapshotRow | null,
     durationMs: ObservationDurations,
-  ): Promise<{ read: BalancesRead; basis: BalanceSnapshotRevision | null }> {
+  ): Promise<Observation> {
     const consumedCursor = row?.enumerationCursor ?? null;
     const universeRequest = readUniverse();
     const registryRequest = timeStage(nowMs, durationMs, "registry-read", async () =>
@@ -269,32 +303,34 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     ]);
     const resolved = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, enumeration));
-    const latest = await latestRow(owner, row);
-    const resumed = latest && (consumedCursor !== null || enumeration.status !== "complete" || resolved.coverage.catalog !== "complete" || losesEnrichment(resolved, latest))
-      ? mergeResumedHoldings(resolved, latest, enumeration, consumedCursor)
-      : resolved;
-    return {
-      read: {
-        ...carryForwardRegistry(resumed, latest),
-        borrow: carryForwardBorrow(borrow, latest?.borrow),
-        observedAt: latest && enumeration.status === "unavailable"
-          ? latest.observedAt
-          : resumed.observedAt,
-        enumerationCursor: enumeration.status === "unavailable"
-          ? latest?.enumerationCursor ?? null
-          : enumeration.status === "complete"
-            ? null
-            : enumeration.nextCursor,
-      },
-      basis: latest ? { blockNumber: latest.blockNumber, observedAt: latest.observedAt } : null,
+    const reassemble = (latest: BalanceSnapshotRow | null): AssembledObservation => {
+      const resumed = latest && (consumedCursor !== null || enumeration.status !== "complete" || resolved.coverage.catalog !== "complete" || losesEnrichment(resolved, latest))
+        ? mergeResumedHoldings(resolved, latest, enumeration, consumedCursor)
+        : resolved;
+      return {
+        read: {
+          ...carryForwardRegistry(resumed, latest),
+          borrow: carryForwardBorrow(borrow, latest?.borrow),
+          observedAt: latest && enumeration.status === "unavailable"
+            ? latest.observedAt
+            : resumed.observedAt,
+          enumerationCursor: enumeration.status === "unavailable"
+            ? latest?.enumerationCursor ?? null
+            : enumeration.status === "complete"
+              ? null
+              : enumeration.nextCursor,
+        },
+        basis: latest ? { blockNumber: latest.blockNumber, observedAt: latest.observedAt } : null,
+      };
     };
+    return { ...reassemble(await latestRow(owner, row)), reassemble };
   }
 
   async function observeRegistryOnly(
     owner: PortfolioAddress,
     row: BalanceSnapshotRow,
     durationMs: ObservationDurations,
-  ): Promise<{ read: BalancesRead; basis: BalanceSnapshotRevision | null }> {
+  ): Promise<Observation> {
     const registryRead = await timeStage(nowMs, durationMs, "registry-read", async () => {
       const universe = await readUniverse();
       return readBalances(universe, owner);
@@ -302,26 +338,28 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     const borrow = await readBorrow(owner, registryRead.block);
     const resolvedRegistry = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, unavailableEnumeration()));
-    const latest = (await latestRow(owner, row)) ?? row;
-    const withEnrichment = carryForwardRegistry(resolvedRegistry, latest);
-    const registryKeys = new Set(withEnrichment.holdings.filter((holding) => holding.source === "registry").map((holding) => holding.key));
-    return {
-      read: {
-        ...withEnrichment,
-        borrow: carryForwardBorrow(borrow, latest.borrow),
-        observedAt: latest.observedAt,
-        holdings: [
-          ...withEnrichment.holdings.filter((holding) => holding.source === "registry"),
-          ...latest.holdings.filter((holding) => holding.source !== "registry" && !registryKeys.has(holding.key)),
-        ],
-        coverage: {
-          registry: withEnrichment.coverage.registry,
-          catalog: latest.coverage.catalog,
+    const reassemble = (latest: BalanceSnapshotRow | null): AssembledObservation => {
+      const withEnrichment = carryForwardRegistry(resolvedRegistry, latest);
+      const registryKeys = new Set(withEnrichment.holdings.filter((holding) => holding.source === "registry").map((holding) => holding.key));
+      return {
+        read: {
+          ...withEnrichment,
+          borrow: carryForwardBorrow(borrow, latest?.borrow),
+          observedAt: latest?.observedAt ?? resolvedRegistry.observedAt,
+          holdings: [
+            ...withEnrichment.holdings.filter((holding) => holding.source === "registry"),
+            ...(latest?.holdings ?? []).filter((holding) => holding.source !== "registry" && !registryKeys.has(holding.key)),
+          ],
+          coverage: {
+            registry: withEnrichment.coverage.registry,
+            catalog: latest?.coverage.catalog ?? "unavailable",
+          },
+          enumerationCursor: latest?.enumerationCursor ?? null,
         },
-        enumerationCursor: latest.enumerationCursor,
-      },
-      basis: { blockNumber: latest.blockNumber, observedAt: latest.observedAt },
+        basis: latest ? { blockNumber: latest.blockNumber, observedAt: latest.observedAt } : null,
+      };
     };
+    return { ...reassemble((await latestRow(owner, row)) ?? row), reassemble };
   }
 
   return async function getBalancesSnapshot(

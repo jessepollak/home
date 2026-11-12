@@ -288,16 +288,21 @@ test("a failed background observation cannot resurrect a balance zeroed by a new
   expect((await f.get()).holdings.find(({ id }) => id === "token")?.balance.baseUnits).toBe("0");
 });
 
-test("a carried observation cannot overwrite a successful zero written after its basis read", async () => {
-  let beforeWrite: (() => Promise<void>) | null = null;
-  const store = new class extends MemoryBalanceSnapshotStore {
-    override async putObservation(row: BalanceObservation, expected?: BalanceSnapshotRevision | null): Promise<boolean> {
-      const interleave = beforeWrite;
-      beforeWrite = null;
-      await interleave?.();
-      return super.putObservation(row, expected);
-    }
-  }();
+class InterleavingBalanceSnapshotStore extends MemoryBalanceSnapshotStore {
+  writes = 0;
+  beforeWrite: (() => Promise<void>) | null = null;
+
+  override async putObservation(row: BalanceObservation, expected?: BalanceSnapshotRevision | null): Promise<boolean> {
+    this.writes += 1;
+    const interleave = this.beforeWrite;
+    this.beforeWrite = null;
+    await interleave?.();
+    return super.putObservation(row, expected);
+  }
+}
+
+async function carriedObservationFixture(hot: boolean) {
+  const store = new InterleavingBalanceSnapshotStore();
   const f = await fixture(false, false, store);
   expect((await f.get()).holdings.find(({ id }) => id === "token")?.balance.baseUnits).toBe("2000000");
   const basis = await store.get(8453, OWNER);
@@ -313,11 +318,82 @@ test("a carried observation cannot overwrite a successful zero written after its
   f.state.time += 1_000;
   f.state.block = 102;
   f.state.fail = true;
-  await store.markHot(8453, OWNER, new Date(f.state.time + 60_000));
-  beforeWrite = async () => { expect(await store.putObservation(zero)).toBeTrue(); };
-  const snapshot = await f.get();
-  expect(await store.get(8453, OWNER)).toMatchObject({ ...zero, hotUntil: new Date(f.state.time + 60_000).toISOString() });
+  if (hot) await store.markHot(8453, OWNER, new Date(f.state.time + 60_000));
+  else await store.markStale(8453, OWNER, new Date(f.state.time));
+  store.writes = 0;
+  return { ...f, store, zero };
+}
+
+test.each([false, true])("a carried observation retries against a successful zero written after its basis read (hot=%s)", async (hot) => {
+  const f = await carriedObservationFixture(hot);
+  f.store.beforeWrite = async () => {
+    expect(await f.store.putObservation(f.zero)).toBeTrue();
+    f.state.fail = false;
+    f.state.tokenRaw = 9_000_000;
+    f.state.onEnumerate = async () => { throw new Error("Observation providers must not be read again"); };
+  };
+  let snapshot = await f.get();
+  if (!hot) {
+    await f.runNextTask();
+    snapshot = await f.get();
+  }
+  const stored = await f.store.get(8453, OWNER);
+  expect(stored?.blockNumber).toBe("102");
+  expect(stored?.coverage.registry).toBe("partial");
+  expect(stored?.holdings.find(({ id }) => id === "token")?.balance).toEqual({ status: "ready", baseUnits: "0" });
+  expect(snapshot.block.number).toBe("102");
+  expect(snapshot.holdings.find(({ id }) => id === "token")?.balance).toEqual({ status: "ready", baseUnits: "0" });
+  expect(f.store.writes).toBe(3);
+});
+
+test.each([false, true])("a second writer wins over the single carried observation retry (hot=%s)", async (hot) => {
+  const f = await carriedObservationFixture(hot);
+  const latest: BalanceObservation = {
+    ...f.zero,
+    observedAt: new Date(f.state.time - 250).toISOString(),
+    holdings: f.zero.holdings.map((holding) => holding.id === "token"
+      ? { ...holding, balance: { status: "ready", baseUnits: "4000000" } }
+      : holding),
+  };
+  f.store.beforeWrite = async () => {
+    expect(await f.store.putObservation(f.zero)).toBeTrue();
+    f.store.beforeWrite = async () => { expect(await f.store.putObservation(latest)).toBeTrue(); };
+  };
+  let snapshot = await f.get();
+  if (!hot) {
+    await f.runNextTask();
+    snapshot = await f.get();
+  }
+  expect(await f.store.get(8453, OWNER)).toMatchObject({
+    ...latest,
+    hotUntil: hot ? new Date(f.state.time + 60_000).toISOString() : null,
+    staleAt: hot ? null : new Date(f.state.time).toISOString(),
+  });
   expect(snapshot.block.number).toBe("101");
+  expect(snapshot.holdings.find(({ id }) => id === "token")?.balance).toEqual({ status: "ready", baseUnits: "4000000" });
+  expect(f.store.writes).toBe(4);
+});
+
+test("an evicted row is not repopulated by a registry-only retry and the served snapshot keeps catalog holdings", async () => {
+  const f = await carriedObservationFixture(true);
+  const catalog = (await f.get()).holdings.find((holding) => holding.source === "catalog");
+  expect(catalog).toBeDefined();
+  f.store.writes = 0;
+  f.store.beforeWrite = async () => { f.store.deleteForTests(8453, OWNER); };
+  const snapshot = await f.get();
+  expect(await f.store.get(8453, OWNER)).toBeNull();
+  expect(snapshot.holdings.find((holding) => holding.key === catalog?.key)).toEqual(catalog);
+  expect(f.store.writes).toBe(1);
+});
+
+test("a row evicted during the retry still serves the zero learned from the first rejection", async () => {
+  const f = await carriedObservationFixture(true);
+  f.store.beforeWrite = async () => {
+    expect(await f.store.putObservation(f.zero)).toBeTrue();
+    f.store.beforeWrite = async () => { f.store.deleteForTests(8453, OWNER); };
+  };
+  const snapshot = await f.get();
+  expect(await f.store.get(8453, OWNER)).toBeNull();
   expect(snapshot.holdings.find(({ id }) => id === "token")?.balance).toEqual({ status: "ready", baseUnits: "0" });
 });
 
