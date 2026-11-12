@@ -321,8 +321,8 @@ function ReviewStep({
         </Alert>
       )}
       <div className="flex flex-wrap justify-end gap-2">
-        <Button variant="outline" size="touch" className="px-4" disabled={saving} onClick={onBack}>Back</Button>
         <Button size="touch" className="px-4" disabled={saving} onClick={onConfirm}>{saving ? "Saving…" : "Confirm"}</Button>
+        <Button variant="outline" size="touch" className="px-4" disabled={saving} onClick={onBack}>Back</Button>
       </div>
     </section>
   );
@@ -600,8 +600,8 @@ export function FundingSettings({ view, operator }: { view: FundingOfferingView;
       <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t bg-background py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <p role="status" className="text-sm text-muted-foreground">{activeNotice === "saved" && changed === 0 ? "Saved." : status}</p>
         <div className="flex flex-wrap gap-2">
-          {changed > 0 && <Button variant="outline" size="touch" className="px-4" onClick={() => { setDraft(initialDraft(effectiveView)); setLostCredentials([]); }}>Discard</Button>}
           <Button ref={saveButton} size="touch" className="px-4" disabled={!canSave} onClick={startReview}>{turningOn.length > 0 ? "Review and save" : "Save"}</Button>
+          {changed > 0 && <Button variant="outline" size="touch" className="px-4" onClick={() => { setDraft(initialDraft(effectiveView)); setLostCredentials([]); }}>Discard</Button>}
         </div>
       </div>
     </div>

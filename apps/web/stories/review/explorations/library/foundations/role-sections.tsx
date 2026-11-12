@@ -194,8 +194,10 @@ function ShapeSample() {
           </ItemActions>
         </Item>
         <div className="flex items-center gap-2">
-          <Input aria-label="Amount" defaultValue="25.00" readOnly />
-          <Button size="sm" variant="outline">Max</Button>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Input aria-label="Amount" defaultValue="25.00" readOnly />
+            <Button size="sm" variant="outline">Max</Button>
+          </div>
           <Button>Send</Button>
         </div>
       </CardContent>

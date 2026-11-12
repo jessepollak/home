@@ -24,8 +24,8 @@ function DestructiveContrast({ destructive }: { destructive: string }) {
           </div>
           <FieldError>Couldn&apos;t remove the key. Try again.</FieldError>
           <footer className="flex justify-end gap-2">
-            <Button variant="outline">Cancel</Button>
             <Button variant="destructive">Remove</Button>
+            <Button variant="outline">Cancel</Button>
           </footer>
         </CardContent>
       </Card>

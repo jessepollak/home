@@ -9,7 +9,7 @@ import { borrowOperationLabels, borrowRiskCopy, borrowRiskState } from "./borrow
 import { collateralDisplayName, formatCash, formatToken, LiquidationBufferMeter, presentBorrowAssetMark } from "./borrowing-experience";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
-import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, deferStep } from "@/client/money-modal";
+import { MoneyModal, MoneyModalFooter, MoneyModalBody, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, deferStep } from "@/client/money-modal";
 import { useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { CurrencyMark } from "@/components/currency-mark";
 import { AssetRow, type FinanceRowAction } from "@/components/finance-rows";
@@ -156,20 +156,19 @@ function SheetFooter({ snapshot, name, debt, pledged, canDispatch, begin, focusO
       className="h-auto min-h-11 w-full whitespace-normal" variant={variant} disabled={!enabled || !canDispatch} aria-label={ariaLabel}
       onPointerDown={() => void BorrowMoneyStep.preload()} onClick={() => begin(operation)}>{label}</Button>;
   }
-  return <>
-    {reason}
-    {debt ? <div className="grid grid-cols-2 gap-2">
+  return <MoneyModalFooter note={reason}
+    primary={debt ? <div className="grid grid-cols-2 gap-2">
       {action({ label: "Repay", operation: "repay", enabled: actions.repay, variant: "default" })}
       {action({ label: "Borrow more", operation: "borrow", enabled: actions.borrowMore, variant: "secondary" })}
     </div> : pledged ? <div className="grid grid-cols-2 gap-2">
       {action({ label: "Withdraw", operation: "withdraw-collateral", enabled: actions.withdraw, variant: "default", ariaLabel: `Withdraw collateral from ${name} position` })}
       {action({ label: "Borrow", operation: "borrow", enabled: actions.borrowOpen, variant: "secondary" })}
     </div> : action({ label: "Borrow", operation: "supply-and-borrow", enabled: actions.borrowOpen, variant: "default" })}
-    {pledged ? <div role="group" aria-label={`Manage ${name} collateral`} className={debt ? "grid grid-cols-2 gap-2" : "space-y-2"}>
+    secondary={pledged ? <div role="group" aria-label={`Manage ${name} collateral`} className={debt ? "grid grid-cols-2 gap-2" : "space-y-2"}>
       {action({ label: "Add collateral", operation: "supply-collateral", enabled: actions.addCollateral, variant: "outline" })}
       {debt ? action({ label: "Withdraw", operation: "withdraw-collateral", enabled: actions.withdraw, variant: "outline", ariaLabel: `Withdraw collateral from ${name} position` }) : null}
     </div> : null}
-  </>;
+  />;
 }
 
 function ManagementSheet({ snapshot, name, regionId, openingAvailableRaw, titleId, detailsId, detailsOpen, setDetailsOpen, canDispatch, onBack, begin, focusOperation, actionFocusRef, heroFocusRef }: {
@@ -208,7 +207,7 @@ function ManagementSheet({ snapshot, name, regionId, openingAvailableRaw, titleI
         Details<ChevronDown className={`size-4 transition-transform duration-150 motion-reduce:transition-none ${detailsOpen ? "rotate-180" : ""}`} />
       </Button><div id={detailsId} hidden={!detailsOpen}><ManagementFacts rows={details} /></div></div> : null}
     </MoneyModalBody>
-    <MoneyModalActions><SheetFooter snapshot={snapshot} name={name} debt={debt} pledged={pledged} canDispatch={canDispatch} begin={begin} focusOperation={focusOperation} actionFocusRef={actionFocusRef} /></MoneyModalActions>
+    <SheetFooter snapshot={snapshot} name={name} debt={debt} pledged={pledged} canDispatch={canDispatch} begin={begin} focusOperation={focusOperation} actionFocusRef={actionFocusRef} />
   </>;
 }
 

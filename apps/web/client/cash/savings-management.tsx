@@ -2,7 +2,7 @@
 
 import { useCallback, type RefObject, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import { MoneyModalActions, MoneyModalBody, MoneyModalHeader, moneySheetIntent } from "@/client/money-modal";
+import { MoneyModalFooter, MoneyModalBody, MoneyModalHeader, moneySheetIntent } from "@/client/money-modal";
 import { getSavingsRateState } from "@/client/savings/portfolio-summary";
 import { ManagementFacts } from "@/components/management-facts";
 import { MoneyTicker } from "@/components/money-ticker";
@@ -129,12 +129,10 @@ export function SavingsManagementSheet({ management, titleId, detailsId, details
         Details<ChevronDown className={`size-4 transition-transform duration-150 motion-reduce:transition-none ${detailsOpen ? "rotate-180" : ""}`} />
       </Button><div id={detailsId} hidden={!detailsOpen}><ManagementFacts rows={management.details} /></div></div> : null}
     </MoneyModalBody>
-    <MoneyModalActions>
-      {reason ? <p className="text-sm text-muted-foreground">{reason}</p> : null}
-      <div className="grid grid-cols-2 gap-2">
-        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="default" ref={restoreActionEnabled && restoreAction === "deposit" ? attachInitialFocus : undefined} disabled={!management.deposit.enabled} {...actionIntent} onClick={onDeposit}>Deposit more</Button>
-        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="secondary" ref={restoreActionEnabled && restoreAction === "withdraw" ? attachInitialFocus : undefined} disabled={!management.withdraw.enabled} {...actionIntent} onClick={onWithdraw}>Withdraw</Button>
-      </div>
-    </MoneyModalActions>
+    <MoneyModalFooter layout="split"
+      note={reason ? <p className="text-sm text-muted-foreground">{reason}</p> : null}
+      primary={<Button className="h-auto min-h-11 w-full whitespace-normal" variant="default" ref={restoreActionEnabled && restoreAction === "deposit" ? attachInitialFocus : undefined} disabled={!management.deposit.enabled} {...actionIntent} onClick={onDeposit}>Deposit more</Button>}
+      secondary={<Button className="h-auto min-h-11 w-full whitespace-normal" variant="secondary" ref={restoreActionEnabled && restoreAction === "withdraw" ? attachInitialFocus : undefined} disabled={!management.withdraw.enabled} {...actionIntent} onClick={onWithdraw}>Withdraw</Button>}
+    />
   </>;
 }
