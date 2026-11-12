@@ -416,8 +416,8 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
         <CardFooter className="flex-wrap justify-between gap-3">
           <p role="status" className="min-w-0 font-medium">{saving ? "Saving…" : status}</p>
           <div className="flex gap-2">
-            <Button type="button" size="touch" variant="outline" disabled={locked || !dirty} onClick={cancel}>Cancel</Button>
             <Button type="submit" size="touch" loading={saving} disabled={blocked !== null}>Save</Button>
+            <Button type="button" size="touch" variant="outline" disabled={locked || !dirty} onClick={cancel}>Cancel</Button>
           </div>
         </CardFooter>
       </Card>
