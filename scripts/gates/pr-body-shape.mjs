@@ -80,7 +80,71 @@ function imageSource(tag) {
   return null;
 }
 
-const inlineDestination = /[ \t]*(?:<([^<>\r\n]*)>|((?:\\.|[^\\\s()]|\([^()\r\n]*\))*?))(?:[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*'|\([^()\r\n]*\)))?[ \t]*\)/y;
+function quotedTitleEnd(line, index) {
+  const open = line[index];
+  const close = open === "(" ? ")" : open;
+  if (open !== '"' && open !== "'" && open !== "(") return -1;
+  for (let cursor = index + 1; cursor < line.length; cursor++) {
+    const char = line[cursor];
+    if (char === "\\") cursor++;
+    else if (char === close) return cursor + 1;
+    else if (open === "(" && char === "(") return -1;
+  }
+  return -1;
+}
+
+const maxDestinationDepth = 32;
+
+function inlineDestination(line, start) {
+  let index = start;
+  while (line[index] === " " || line[index] === "\t") index++;
+  let destination;
+  if (line[index] === "<") {
+    const destinationStart = ++index;
+    while (index < line.length && line[index] !== ">") {
+      if (line[index] === "<") return null;
+      index += line[index] === "\\" ? 2 : 1;
+    }
+    if (line[index] !== ">") return null;
+    destination = line.slice(destinationStart, index++);
+  } else {
+    const destinationStart = index;
+    let depth = 0;
+    while (index < line.length && !/\s/.test(line[index])) {
+      const char = line[index];
+      if (char === "\\") {
+        index += 2;
+        continue;
+      }
+      if (char === "(" && ++depth > maxDestinationDepth) return null;
+      else if (char === ")" && --depth < 0) break;
+      index++;
+    }
+    if (depth > 0) return null;
+    destination = line.slice(destinationStart, index);
+  }
+  const afterDestination = index;
+  while (line[index] === " " || line[index] === "\t") index++;
+  if (index > afterDestination && line[index] !== ")") {
+    const titleEnd = quotedTitleEnd(line, index);
+    if (titleEnd === -1) return null;
+    index = titleEnd;
+    while (line[index] === " " || line[index] === "\t") index++;
+  }
+  return line[index] === ")" ? { destination, end: index + 1 } : null;
+}
+
+const maxLabelLength = 999 * 2;
+
+function referenceLabelEnd(line, start) {
+  for (let index = start; index < line.length && index - start <= maxLabelLength; index++) {
+    const char = line[index];
+    if (char === "\\") index++;
+    else if (char === "[") return -1;
+    else if (char === "]") return index;
+  }
+  return -1;
+}
 
 function skipCodeSpan(line, index) {
   let end = index;
@@ -91,65 +155,64 @@ function skipCodeSpan(line, index) {
   return close === -1 ? end : close + fence.length;
 }
 
-function bracketPairs(line) {
-  const pairs = new Map();
-  const open = [];
-  for (let index = 0; index < line.length;) {
-    const char = line[index];
-    if (char === "\\") index += 2;
-    else if (char === "`") index = skipCodeSpan(line, index);
-    else {
-      if (char === "[") open.push(index);
-      else if (char === "]" && open.length) pairs.set(open.pop(), index);
-      index++;
-    }
-  }
-  return pairs;
-}
-
 function markdownImages(line, definitions) {
   const images = [];
-  const pairs = bracketPairs(line);
-  const undefinedReference = (label, index) => {
-    const reference = definitions.get(referenceId(label));
-    images.push(reference ? { reference, index } : { undefinedLabel: label.trim(), index });
-  };
+  const open = [];
+  let linkFloor = 0;
   for (let index = 0; index < line.length;) {
     const char = line[index];
     if (char === "\\") {
       index += 2;
     } else if (char === "`") {
       index = skipCodeSpan(line, index);
-    } else if (char === "!" && line[index + 1] === "[") {
-      const close = pairs.get(index + 1) ?? -1;
-      if (close === -1) {
-        index += 2;
+    } else if (char === "[" || (char === "!" && line[index + 1] === "[")) {
+      const bracket = char === "[" ? index : index + 1;
+      open.push({ bracket, start: index, image: char === "!", position: open.length });
+      index = bracket + 1;
+    } else if (char === "]" && open.length) {
+      const opener = open.pop();
+      const inactive = !opener.image && opener.position < linkFloor;
+      linkFloor = Math.min(linkFloor, open.length);
+      if (inactive) {
+        index++;
         continue;
       }
-      const text = line.slice(index + 2, close);
-      const next = line[close + 1];
+      const textLength = index - opener.bracket - 1;
+      const text = textLength <= maxLabelLength ? line.slice(opener.bracket + 1, index) : null;
+      const next = line[index + 1];
+      let end = index + 1;
+      let resolved = false;
+      let target;
       if (next === "(") {
-        inlineDestination.lastIndex = close + 2;
-        const match = inlineDestination.exec(line);
-        if (match) {
-          images.push({ reference: match[1] ?? match[2], index });
-          index = inlineDestination.lastIndex;
-        } else {
-          index = close + 1;
-        }
-      } else if (next === "[") {
-        const labelEnd = pairs.get(close + 1) ?? -1;
-        if (labelEnd === -1) {
-          index = close + 1;
-        } else {
-          const label = line.slice(close + 2, labelEnd);
-          undefinedReference(label.trim() ? label : text, index);
-          index = labelEnd + 1;
+        const parsed = inlineDestination(line, index + 2);
+        if (parsed) {
+          resolved = true;
+          target = parsed.destination;
+          end = parsed.end;
         }
       } else {
-        undefinedReference(text, index);
-        index = close + 1;
+        let label = text;
+        if (next === "[") {
+          const labelEnd = referenceLabelEnd(line, index + 2);
+          if (labelEnd !== -1) {
+            const explicit = line.slice(index + 2, labelEnd);
+            if (explicit.trim()) label = explicit;
+            if (label !== null && definitions.has(referenceId(label))) end = labelEnd + 1;
+          }
+        }
+        if (label !== null) {
+          target = definitions.get(referenceId(label));
+          resolved = target !== undefined || opener.image;
+          if (resolved && target === undefined) target = { undefinedLabel: label.trim() };
+        }
       }
+      if (resolved && opener.image) {
+        while (images.length && images.at(-1).index > opener.start) images.pop();
+        images.push(typeof target === "string" ? { reference: target, index: opener.start } : { ...target, index: opener.start });
+      } else if (resolved) {
+        linkFloor = open.length;
+      }
+      index = end;
     } else {
       index++;
     }
