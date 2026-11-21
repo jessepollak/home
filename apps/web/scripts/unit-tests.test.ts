@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { isRecord } from "@/shared/guards";
 import { makeDirectory, readFixture, withUnitTestFixture, writeFixture } from "./unit-tests-fixture";
 import { parseJunit } from "../../../scripts/gates/test-runtime.mjs";
-import { DEFAULT_BATCH_SIZE, batchTests, classifyBatch, discoverTests, filterTests, isDomTestSource, mergeJunit, normalizeRss, run, splitArgs, summarize, type Command } from "./unit-tests";
+import { DEFAULT_BATCH_SIZE, batchTests, classifyBatch, discoverTests, filterTests, isDomTestSource, mergeJunit, run, splitArgs, summarize, type Command } from "./unit-tests";
 
 async function readMemoryBatches(cwd: string) {
   const memory: unknown = JSON.parse(await readFixture(cwd, "unit-test-results/memory.json"));
@@ -151,10 +151,8 @@ test("classification distinguishes test failure, crash and missing JUnit", () =>
   expect(classifyBatch(133, "SIGTRAP", xml("one"), false)).toBe("runtime crash");
   expect(classifyBatch(0, "SIGSEGV", xml("one"), false)).toBe("runtime crash");
   expect(classifyBatch(0, null, "bad xml", false)).toBe("runtime crash");
-  expect(normalizeRss(1048576, "darwin")).toBe(1048576);
   const skipped = xml("one").replace('skipped="0"', 'skipped="1"');
   expect(classifyBatch(1, null, skipped, true)).toBe("no matching tests");
-  expect(normalizeRss(1024, "linux")).toBe(1048576);
   expect(summarize([{ index: 1, partition: "non-dom", files: ["one"], exit: 133, signal: "SIGTRAP", status: "runtime crash", peakRssBytes: 1024 ** 3, seconds: 3, overLimit: false }])).toContain("1 Bun runtime crashes");
   expect(summarize([{ index: 1, partition: "dom", files: ["one"], exit: 1, signal: null, status: "runtime error", peakRssBytes: null, seconds: 1, overLimit: false }])).toContain("1 Bun runtime errors");
 });
@@ -167,10 +165,9 @@ test("runner continues past failures, records RSS ceiling and merges available J
     const command: Command = async (args) => {
       invoked++;
       const path = args.find((arg) => arg.startsWith("--reporter-outfile="))!.split("=")[1];
-      const maxRSS = process.platform === "darwin" ? 3 * 1024 ** 2 : 3 * 1024;
       if (invoked === 1) {
         await writeFixture(cwd, path, xml("one.test.ts", 1));
-        return { exit: 1, signal: null, maxRSS, seconds: 0.1 };
+        return { exit: 1, signal: null, maxRSS: 3 * 1024 ** 2, seconds: 0.1 };
       }
       if (invoked === 2) return { exit: 133, signal: "SIGTRAP", seconds: 0.2 };
       if (invoked === 3) throw new Error("fixture spawn failure");
@@ -179,13 +176,13 @@ test("runner continues past failures, records RSS ceiling and merges available J
         return { exit: 0, signal: null, seconds: 0.1 };
       }
       await writeFixture(cwd, path, xml("two.test.ts"));
-      return { exit: 0, signal: null, maxRSS, seconds: 0.1 };
+      return { exit: 0, signal: null, maxRSS: 1024 ** 2, seconds: 0.1 };
     };
     expect(await run([], { cwd, env: { HOME_UNIT_TEST_BATCH_SIZE: "1", HOME_UNIT_TEST_MAX_RSS_MB: "2" }, command, log: (message) => logs.push(message) })).toBe(1);
     expect(invoked).toBe(5);
     const batches = await readMemoryBatches(cwd);
     expect(batches.map((batch) => batch.status)).toEqual(["test failures", "runtime crash", "runtime crash", "runtime crash", "pass"]);
-    expect(batches.map((batch) => batch.overLimit)).toEqual([true, false, false, false, true]);
+    expect(batches.map((batch) => batch.overLimit)).toEqual([true, false, false, false, false]);
     expect(batches.every((batch) => Array.isArray(batch.files) && batch.files.length === 1)).toBe(true);
     const report = await readFixture(cwd, "unit-test-results/junit.xml");
     expect(parseJunit(report).tests).toHaveLength(2);

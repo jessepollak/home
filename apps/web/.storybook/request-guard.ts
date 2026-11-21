@@ -23,7 +23,6 @@ const STORYBOOK_RUNTIME_PATHS = [
 
 const STORYBOOK_RUNTIME_EXACT_PATHS = [
   "/vite-inject-mocker-entry.js",
-  "/app/coverage/page.tsx",
   "/app/admin/operator-shell.tsx",
   "/tests/helpers/pin-clock.ts",
   "/tests/browser/feature-map/search-fixtures.ts",

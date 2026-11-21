@@ -118,8 +118,8 @@ Follow that guide through database provisioning, first-run Admin setup, and [upd
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) **1.3.12**, pinned by `packageManager`.
-- Node.js **22.13 or newer**.
+- [Bun](https://bun.sh/) **1.4.4**, pinned by `packageManager`.
+- Node.js **22.23.4+, 24.22.1+, or 26.12.1+** on the corresponding supported release line (CVE-2026-111497).
 
 ### Install and run
 

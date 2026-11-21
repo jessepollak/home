@@ -207,7 +207,7 @@ export const ConfirmSaves: Story = {
   play: async ({ canvasElement }) => {
     const canvas = await reviewRipioOnramp(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Confirm" }));
-    await waitForReady(() => expect(canvas.getByRole("status")).toHaveTextContent("Saved."));
+    await waitForReady(() => expect(canvas.getByRole("status", { name: "Save status" })).toHaveTextContent("Saved."));
   },
 };
 
@@ -244,6 +244,30 @@ export const SaveUnavailable: Story = {
     const canvas = await reviewRipioOnramp(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "Confirm" }));
     await waitForReady(() => expect(canvas.getByRole("alert")).toHaveTextContent("Settings can't be saved right now."));
+  },
+};
+
+export const ConnectionChecks: Story = {
+  args: { view: savedView },
+  parameters: {
+    msw: { handlers: [http.post("/api/admin/settings/funding/connections", async ({ request }) => {
+      const body = await readJson(request);
+      return isRecord(body) && body.providerId === "coinbase"
+        ? HttpResponse.json({ version: 1, providerId: "coinbase", checkedAt: "2026-10-21T12:00:00.000Z", status: "connected", scopes: [{ regions: ["US"], status: "connected" }] })
+        : HttpResponse.json({ error: { code: "SETTINGS_UNAVAILABLE" } }, { status: 503 });
+    })] },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const success = canvas.getByRole("button", { name: "Test Coinbase connection" });
+    await userEvent.click(success);
+    await waitForReady(() => expect(canvas.getByRole("status", { name: "Coinbase connection check" })).toHaveTextContent("Connected · Checked"));
+    await expect(canvas.getByRole("status", { name: "Coinbase connection check" })).toHaveTextContent("Oct 21, 2026");
+    await expect(success).toBeEnabled();
+    const failure = canvas.getByRole("button", { name: "Test Peer connection" });
+    await userEvent.click(failure);
+    await waitForReady(() => expect(canvas.getByRole("status", { name: "Peer connection check" })).toHaveTextContent("Check failed, try again"));
+    await expect(failure).toBeEnabled();
   },
 };
 

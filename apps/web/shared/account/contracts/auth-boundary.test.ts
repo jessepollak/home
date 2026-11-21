@@ -23,7 +23,7 @@ import { parseAccountExportErrorResponse } from "./data-export";
 import { readFundingErrorResponse } from "@/shared/funding/contracts/errors";
 import { parseCardWriteError } from "@/shared/cards/contract";
 import { parseCardSpendingError } from "@/shared/cards/allowance-contract";
-import { parseSupportErrorResponse } from "@/shared/support/contract";
+import { parseOperatorSupportErrorResponse } from "@/shared/support/contract";
 import { parseOperatorSettingsErrorResponse } from "@/shared/operator-settings/contract";
 import { parseOperatorErrorResponse } from "@/shared/operator/contract";
 
@@ -86,10 +86,9 @@ const routeErrorParsers = {
   readFundingErrorResponse,
   parseCardWriteError,
   parseCardSpendingError,
-  parseSupportErrorResponse,
 };
 
-const operatorErrorParsers = { parseOperatorSettingsErrorResponse, parseOperatorErrorResponse };
+const operatorErrorParsers = { parseOperatorSettingsErrorResponse, parseOperatorErrorResponse, parseOperatorSupportErrorResponse };
 
 for (const [name, parse] of Object.entries(operatorErrorParsers)) {
   describe(name, () => {
@@ -192,3 +191,19 @@ for (const [name, parse] of Object.entries(routeErrorParsers)) {
     });
   });
 }
+
+describe("parseEmailRequestErrorResponse shape", () => {
+  test.each([
+    { error: { code: "EMAIL_REQUEST_INVALID" } },
+    { version: 1, error: { code: "EMAIL_REQUEST_INVALID", message: "Invalid." } },
+    { error: { code: "EMAIL_REQUEST_INVALID", message: "Invalid.", extra: true } },
+    { error: { code: "EMAIL_REQUEST_INVALID", message: 1 } },
+  ].map((body) => ({ body })))("rejects a body the route never emits: %j", ({ body }) => {
+    expect(parseEmailRequestErrorResponse(body)).toBeNull();
+  });
+
+  test("accepts the route's code and message body", () => {
+    const body = { error: { code: "EMAIL_REQUEST_UNAVAILABLE" as const, message: "Email sharing is temporarily unavailable." } };
+    expect(parseEmailRequestErrorResponse(body)).toEqual(body);
+  });
+});

@@ -73,10 +73,6 @@ export function batchTests(files: string[], size: number) {
   return Array.from({ length: Math.ceil(files.length / size) }, (_, index) => files.slice(index * size, (index + 1) * size));
 }
 
-export function normalizeRss(maxRSS: number | undefined, platform: string): number | null {
-  return maxRSS === undefined ? null : maxRSS * (platform === "darwin" ? 1 : 1024);
-}
-
 function junitParts(xml: string) {
   const match = xml.match(/^(?:<\?xml[^>]*\?>\s*)?<testsuites\b([^>]*)>([\s\S]*)<\/testsuites>\s*$/);
   if (!match) throw new Error("Missing testsuites root");
@@ -190,7 +186,7 @@ export async function run(args = Bun.argv.slice(2), options: { cwd?: string; env
     if (xml) {
       try { junitParts(xml); reports.push(xml); } catch { status = "runtime crash"; }
     }
-    const peakRssBytes = normalizeRss(commandResult.maxRSS, process.platform);
+    const peakRssBytes = commandResult.maxRSS ?? null;
     const overLimit = peakRssBytes !== null && peakRssBytes > maxRssBytes;
     const result = { index, partition, files: batch, exit: commandResult.exit, signal: commandResult.signal, status, peakRssBytes, seconds: commandResult.seconds, overLimit };
     results.push(result);

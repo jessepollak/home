@@ -63,6 +63,6 @@ test("write budget prefers recent captures and failed persistence stays unavaila
   const adapted = { ...program, purchases: { ...program.purchases, list: async () => ({ rows, partial: false }) } };
   expect((await refreshCardPurchases("owner", "sandbox", store, adapted)).status).toBe("unavailable"); expect(writes).toHaveLength(25); expect(writes[0]).toBe("capture");
   store.upsert = async () => { throw new Error("write failed"); };
-  expect((await refreshCardPurchases("owner", "sandbox", store, program)).status).toBe("unavailable");
+  expect((await refreshCardPurchases("owner", "sandbox", store, program, { from: "2026-09-01T00:00:00Z", to: "2026-11-01T00:00:00Z" })).status).toBe("unavailable");
   expect((await refreshCardPurchases("owner", "sandbox", store, null)).status).toBe("unavailable");
 });
