@@ -5,14 +5,15 @@ export const EMAIL_REQUEST_VERSION = 1 as const;
 
 export const EMAIL_REQUEST_ERROR_CODES = [...AUTH_BOUNDARY_ERROR_CODES, "EMAIL_REQUEST_UNSUPPORTED", "EMAIL_REQUEST_UNAVAILABLE", "EMAIL_REQUEST_INVALID"] as const;
 export type EmailRequestErrorCode = (typeof EMAIL_REQUEST_ERROR_CODES)[number];
-export type EmailRequestErrorResponse = { error: { code: EmailRequestErrorCode } };
+export type EmailRequestErrorResponse = { error: { code: EmailRequestErrorCode; message: string } };
 export function isEmailRequestErrorCode(value: unknown): value is EmailRequestErrorCode {
   return typeof value === "string" && (EMAIL_REQUEST_ERROR_CODES as readonly string[]).includes(value);
 }
 /** @public parses this route's wire error codes for shared client use */
 export function parseEmailRequestErrorResponse(value: unknown): EmailRequestErrorResponse | null {
-  if (!isRecord(value) || !isRecord(value.error)) return null;
-  return isEmailRequestErrorCode(value.error.code) ? { error: { code: value.error.code } } : null;
+  if (!isRecord(value) || !hasExactly(value, ["error"]) || !isRecord(value.error) || !hasExactly(value.error, ["code", "message"])) return null;
+  const { code, message } = value.error;
+  return isEmailRequestErrorCode(code) && typeof message === "string" ? { error: { code, message } } : null;
 }
 
 export type EmailRequestChannel = "sign_in" | "share_step";
@@ -99,6 +100,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasOnly(value: Record<string, unknown>, names: string[]): boolean {
   return Object.keys(value).every((key) => names.includes(key));
+}
+
+function hasExactly(value: Record<string, unknown>, names: string[]): boolean {
+  const present = Object.keys(value);
+  return present.length === names.length && names.every((name) => Object.hasOwn(value, name));
 }
 
 function isChannel(value: unknown): value is EmailRequestChannel {

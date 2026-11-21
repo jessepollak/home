@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { ActionsStore, actionOwnerKey } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { RETAINED_SAVINGS_DEPOSITS_LIMIT } from "@/shared/actions/contracts/list";
@@ -45,7 +45,7 @@ describePostgres("actions schema and store", () => {
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
     store = new ActionsStore(sql);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   beforeEach(async () => {
     const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
     setSystemTime(clock.rows[0]!.instant);
