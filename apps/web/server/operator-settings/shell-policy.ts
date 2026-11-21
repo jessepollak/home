@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CountryCode, RegionOffer } from "@/config/regions";
+import type { RegionOffer } from "@/config/regions";
 import { readCountryPreferenceForRender } from "@/server/preferences/country";
 import type { CountryPreferenceSeed } from "@/shared/account/contracts/country-preference";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -11,7 +11,7 @@ import { readProductOffering as readProductOfferingForRender } from "./offering"
 import { readRegionOfferForRender } from "./regions";
 
 type ShellPolicyReaders = {
-  readCountryPreference?: (session: VerifiedAccountSession) => Promise<{ regionId: CountryCode | null } | null>;
+  readCountryPreference?: (session: VerifiedAccountSession) => Promise<Pick<CountryPreferenceSeed, "regionId" | "displayCurrency"> | null>;
   readInvestSettings?: () => Promise<InvestSettings>;
   readProductOffering?: () => Promise<ProductOffering>;
   readRegionOffer?: () => Promise<RegionOffer>;
@@ -34,7 +34,7 @@ export async function readShellPolicyForRender(
   const productOffering = await readProductOffering();
   return {
     accountPreference: session && preference
-      ? { accountProvider: session.accountProvider, subject: session.user.subject, regionId: preference.regionId }
+      ? { accountProvider: session.accountProvider, subject: session.user.subject, regionId: preference.regionId, displayCurrency: preference.displayCurrency }
       : null,
     investVisibility,
     productOffering,

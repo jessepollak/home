@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BalanceRow } from "@/components/finance-rows";
 import { GlyphMark } from "@/components/currency-mark";
 import { MoneyTicker } from "@/components/money-ticker";
+import { UnavailableValue } from "@/components/unavailable-value";
 import {
   MoneyBreakdownLegend,
   SignedBalanceBar,
@@ -84,6 +85,7 @@ export function HomeOverview({
           : "grid auto-rows-fr grid-cols-[repeat(auto-fit,minmax(min(100%,5rem),1fr))] gap-2 @min-[12rem]:grid-cols-2"}>{actions}</div></div> : null}
         <HomeMoneySummary
           summary={assetBalances?.summary ?? null}
+          valuationUnavailable={assetBalances?.valuationUnavailable === true}
           isLoading={isLoading}
           cashRate={cashRate}
           borrowOfferRate={borrowOfferRate}
@@ -129,7 +131,9 @@ function HomeTotalBalance({
         <p className="text-sm text-muted-foreground">Total balance</p>
         {assetBalances?.cachedAt !== undefined ? <span className="sr-only">Updating balance saved {formatPresentationDate(assetBalances.cachedAt, { style: "date-time-zone" })}.</span> : null}
         <div className="@container flex min-h-10 items-center" data-shimmer={isLoading ? "hero" : undefined}>
-        {isLoading ? <><Skeleton className="h-10 w-48" /><span className="sr-only">Updating…</span></> : assetBalances?.status !== "ready" ? <BalancesCantLoad onRetry={onRetryBalances ?? (() => undefined)} /> : displayTotal ? (
+        {isLoading ? <><Skeleton className="h-10 w-48" /><span className="sr-only">Updating…</span></> : assetBalances?.status !== "ready" ? <BalancesCantLoad onRetry={onRetryBalances ?? (() => undefined)} /> : assetBalances.valuationUnavailable ? (
+          <UnavailableValue variant="hero" />
+        ) : displayTotal ? (
           <div className="text-4xl font-semibold tabular-nums" style={{ fontSize: `max(0.75rem, min(2.25rem, calc(100cqi / (${Array.from(displayTotal).length} * 0.65))))` }}>
             <MoneyTicker value={displayTotal} align="start" reserveDigits={false} animated={false} />
           </div>
@@ -168,12 +172,14 @@ export function HomeBalanceBreakdown({ items }: { items: readonly MoneyBreakdown
 
 export function HomeMoneySummary({
   summary,
+  valuationUnavailable = false,
   isLoading,
   cashRate,
   borrowOfferRate,
   destinations,
 }: {
   summary: HomeMoneySummaryModel | null;
+  valuationUnavailable?: boolean;
   isLoading: boolean;
   cashRate: string | null;
   borrowOfferRate: string | null;
@@ -195,18 +201,21 @@ export function HomeMoneySummary({
             <ul className="list-none p-0" data-money-summary="">
               <CashRow
                 summary={summary.cash}
+                unavailable={valuationUnavailable}
                 rate={cashRate}
                 onOpen={destinations.onOpenCash}
               />
               {(offering.products.invest === "on" || summary.investments.ownedCount > 0) ? (
                 <InvestmentsRow
                   summary={summary.investments}
+                  unavailable={valuationUnavailable}
                   onOpen={destinations.onOpenInvestments}
                   />
               ) : null}
               {(borrowEntryOffered(offering) || summary.borrow.kind !== "none" || summary.borrow.hasCollateral) ? (
                 <BorrowRow
                   summary={summary.borrow}
+                  unavailable={valuationUnavailable}
                   offerRate={borrowOfferRate}
                   onOpen={destinations.onOpenBorrow}
                   />
@@ -221,10 +230,12 @@ export function HomeMoneySummary({
 
 function CashRow({
   summary,
+  unavailable,
   rate,
   onOpen,
 }: {
   summary: HomeMoneySummaryModel["cash"];
+  unavailable: boolean;
   rate: string | null;
   onOpen: () => void;
   onRetryBalances?: () => void;
@@ -236,7 +247,7 @@ function CashRow({
       label="Cash"
       context={rate ?? undefined}
       reserveContext
-      value={summaryValue(summary.value)}
+      value={summaryValue(summary.value, unavailable)}
       valueTone={summaryTone(summary.value)}
       onActivate={onOpen}
       activateLabel="Open Cash"
@@ -247,9 +258,11 @@ function CashRow({
 
 function InvestmentsRow({
   summary,
+  unavailable,
   onOpen,
 }: {
   summary: HomeMoneySummaryModel["investments"];
+  unavailable: boolean;
   onOpen: () => void;
   onRetryBalances?: () => void;
 }) {
@@ -263,7 +276,7 @@ function InvestmentsRow({
       context={summary.assetCount === 0
         ? empty ? "Start investing" : undefined
         : `Across ${summary.assetCount} ${summary.assetCount === 1 ? "asset" : "assets"}`}
-      value={empty ? undefined : summaryValue(summary.value)}
+      value={empty ? undefined : summaryValue(summary.value, unavailable)}
       valueTone={summaryTone(summary.value)}
       onActivate={onOpen}
       activateLabel={empty ? "Open Invest" : "Open Investments"}
@@ -274,10 +287,12 @@ function InvestmentsRow({
 
 function BorrowRow({
   summary,
+  unavailable,
   offerRate,
   onOpen,
 }: {
   summary: HomeMoneySummaryModel["borrow"];
+  unavailable: boolean;
   offerRate: string | null;
   onOpen: () => void;
   onRetryBalances?: () => void;
@@ -291,7 +306,7 @@ function BorrowRow({
         iconTone="mark"
         label="Borrow Cash"
         context="Against your investments"
-        value={summaryValue(summary.value)}
+        value={summaryValue(summary.value, unavailable)}
         valueTone={summaryTone(summary.value)}
         valueContext={summary.rate ?? undefined}
         onActivate={onOpen}
@@ -334,6 +349,7 @@ function summaryTone(value: string | null): "default" | "muted" {
   return value === null ? "muted" : "default";
 }
 
-function summaryValue(value: string | null): ReactNode {
-  return value ? <MoneyTicker value={value} reserveDigits={false} animated={false} /> : null;
+function summaryValue(value: string | null, unavailable: boolean): ReactNode {
+  if (value) return <MoneyTicker value={value} reserveDigits={false} animated={false} />;
+  return unavailable ? <UnavailableValue /> : null;
 }

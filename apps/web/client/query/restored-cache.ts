@@ -1,4 +1,4 @@
-import { regionIds } from "@/config/regions";
+import { parseBalancesScope } from "./balances-scope";
 import { ACTIVITY_CONTRACT_VERSION, isVerifiedActivitySession, parseActivityPage } from "@/shared/activity/contract";
 import { ACTIVITY_BASE_CHAIN_ID } from "@/shared/activity/types";
 import { mergeActivityPages } from "@/shared/activity/pages";
@@ -81,17 +81,16 @@ export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry):
 
 export function trustRestoredBalances(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   const owner = restoredOwner(entry.ownerKey);
-  const requestedRegion = entry.queryKey[2];
-  if (!owner || owner.chainId !== BALANCES_CHAIN_ID || typeof requestedRegion !== "string") return null;
-  const region = regionIds.find((candidate) => candidate === requestedRegion);
-  if (!region) return null;
+  const scope = entry.queryKey.length === 4 && entry.queryKey[1] === "balances"
+    ? parseBalancesScope(entry.queryKey[2], entry.queryKey[3]) : null;
+  if (!owner || owner.chainId !== BALANCES_CHAIN_ID || !scope) return null;
   try {
     return {
       data: parseBalancesSnapshot(data, {
         subject: owner.subject,
         smartAccountAddress: owner.address,
         chainId: owner.chainId,
-      }, region),
+      }, scope.region, scope.currency),
     };
   } catch {
     return null;
@@ -101,8 +100,10 @@ export function trustRestoredBalances(data: unknown, entry: RestoredQueryEntry):
 export function trustRestoredBalanceActionMarker(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   if (!restoredOwner(entry.ownerKey) || entry.queryKey.length !== 2 || entry.queryKey[1] !== "balances-action" ||
     !isRecord(data) || typeof data.at !== "number" || !Number.isFinite(data.at) || data.at < 0 ||
-    !isRecord(data.fresh) || !Object.entries(data.fresh).every(([region, fresh]) =>
-      regionIds.some((candidate) => candidate === region) && fresh === true) ||
+    !isRecord(data.fresh) || !Object.entries(data.fresh).every(([scopeKey, fresh]) => {
+      const parts = scopeKey.split("|");
+      return parts.length === 2 && parseBalancesScope(parts[0], parts[1]) !== null && fresh === true;
+    }) ||
     (data.settledBlock !== undefined && (typeof data.settledBlock !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(data.settledBlock))) ||
     (data.settledActionId !== undefined && (typeof data.settledActionId !== "string" || data.settledActionId.length === 0 || data.settledActionId.length > 64)) ||
     (data.settledActionIds !== undefined && (!Array.isArray(data.settledActionIds) || data.settledActionIds.length > 16 ||

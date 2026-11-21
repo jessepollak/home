@@ -1,17 +1,17 @@
 import type { ReactNode } from "react";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
-import type { RegionId } from "@/config/regions";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyPanel, ShimmerRows } from "./panel-shared";
 
-export function CashPanel({ regionId, isVerified, isChecking, content }: {
-  regionId: RegionId;
+export function CashPanel({ regionId, currency, isVerified, isChecking, content }: {
+  regionId: RegionId; currency?: FiatCurrencyCode | null;
   isVerified: boolean;
   isChecking: boolean;
   content?: ReactNode;
 }) {
   return (
-    <PresentationRegionProvider regionId={regionId}>
+    <PresentationRegionProvider regionId={regionId} currency={currency}>
       <div id="cash-panel" aria-busy={isChecking}>
         {isVerified ? content ?? <EmptyPanel label="Cash" /> : isChecking ? <CashPanelShell /> : <EmptyPanel label="Cash" />}
       </div>
@@ -21,21 +21,22 @@ export function CashPanel({ regionId, isVerified, isChecking, content }: {
 
 export function InvestPanel({
   regionId,
+  currency,
   content,
 }: {
-  regionId: RegionId;
+  regionId: RegionId; currency?: FiatCurrencyCode | null;
   content?: ReactNode;
 }) {
   return (
-    <PresentationRegionProvider regionId={regionId}>
+    <PresentationRegionProvider regionId={regionId} currency={currency}>
       {content ?? <EmptyPanel label="Investments" />}
     </PresentationRegionProvider>
   );
 }
 
-export function InvestmentsPanel({ regionId, content }: { regionId: RegionId; content?: ReactNode }) {
+export function InvestmentsPanel({ regionId, currency, content }: { regionId: RegionId; currency?: FiatCurrencyCode | null; content?: ReactNode }) {
   return (
-    <PresentationRegionProvider regionId={regionId}>
+    <PresentationRegionProvider regionId={regionId} currency={currency}>
       {content ?? <EmptyPanel label="Investments" />}
     </PresentationRegionProvider>
   );

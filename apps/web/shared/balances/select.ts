@@ -92,8 +92,8 @@ export function selectCash(
   snapshot: BalancesSnapshot,
   deps: { localCashAsset?: (currency: FiatCurrencyCode) => DirectPortfolioAsset | null } = {},
 ): CashSelection[] {
-  const currency = presentationRegions[snapshot.region].currency.code;
-  const localAsset = currency ? (deps.localCashAsset ?? verifiedLocalCashAsset)(currency) : null;
+  const localCurrency = presentationRegions[snapshot.region].currency.code;
+  const localAsset = localCurrency ? (deps.localCashAsset ?? verifiedLocalCashAsset)(localCurrency) : null;
   const cashHoldings = snapshot.holdings.filter((holding) => holding.cashCurrency !== null);
   const byId = new Map(cashHoldings.map((holding) => [holding.id, holding]));
   const selected: CashSelection[] = [];
@@ -105,13 +105,13 @@ export function selectCash(
       selected.push({ kind: "holding", holding });
       used.add(holding.id);
     }
-  } else if (currency && currency !== "USD") {
+  } else if (localCurrency && localCurrency !== "USD") {
     const candidate = presentationRegions[snapshot.region].candidateAsset;
     if (candidate) {
       selected.push({
         kind: "unsupported",
-        key: `cash:unsupported:${currency}`,
-        currency,
+        key: `cash:unsupported:${localCurrency}`,
+        currency: localCurrency,
         name: presentationRegions[snapshot.region].currency.name,
         symbol: candidate.symbol,
         verificationStatus: candidate.verificationStatus,

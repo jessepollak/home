@@ -1,5 +1,6 @@
 import { dataOwnerKey } from "@/shared/account/data-owner";
 import { homeSummaryCookieName, parseHomeSummaryCookie } from "@/shared/balances/home-summary";
+import { resolveDisplayCurrency } from "@/shared/account/display-currency";
 import { resolvePresentation } from "@/config/regions";
 import { cookies, headers } from "next/headers";
 import { Suspense } from "react";
@@ -24,7 +25,7 @@ async function ShellContent({ children }: { children: React.ReactNode }) {
   const region = resolvePresentation({ persistedCountry: accountPreference?.regionId, detectedCountry, offer: regionOffer }).region.id;
   const summaryCookies = cookieStore.getAll(homeSummaryCookieName);
   const initialHomeSummary = rendered?.session.smartAccount && summaryCookies.length === 1
-    ? parseHomeSummaryCookie(summaryCookies[0]?.value, dataOwnerKey(rendered.session), region) : null;
+    ? parseHomeSummaryCookie(summaryCookies[0]?.value, dataOwnerKey(rendered.session), region, resolveDisplayCurrency(region, accountPreference?.displayCurrency).currency) : null;
   return (
     <AccountRouteProvider
       projectId={normalizeProjectId(process.env.NEXT_PUBLIC_CDP_PROJECT_ID)}

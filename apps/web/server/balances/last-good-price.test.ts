@@ -43,7 +43,7 @@ for (const outcome of ["throws", "stale", "unavailable"] as const) {
     expect(first.holdings[0].cashValue).toEqual({ status: "priced", currency: "USD", amount: { atoms: "5000000000000000000", scale: 18 } });
     if (outcome === "throws") {
       expect(first.holdings[1].value).toEqual({ status: "unpriced", reason: "price-unavailable" });
-      const snapshot = assembleBalancesSnapshot({ owner: OWNER, region: "US", read, ...first });
+      const snapshot = assembleBalancesSnapshot({ owner: OWNER, region: "US", quoteCurrency: "USD", read, ...first });
       expect(snapshot.total).toEqual({ status: "complete", value: { atoms: "5000000000000000000", scale: 18 }, currency: "USD" });
     }
     for (const task of tasks.splice(0)) await task();
