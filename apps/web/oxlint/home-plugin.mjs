@@ -43,7 +43,7 @@ import { noLiteralJsxColors } from "./rules/jsx-colors.mjs";
 import { isolateInstrumentationCalls, noSilentCatch } from "./rules/observability.mjs";
 import { noAmountFallback } from "./rules/amounts.mjs";
 import { noComments } from "./rules/no-comments.mjs";
-import { moneyModalPublicApi, noAlternateMoneyModal, noSheetPrimitiveReexports, noSheetPrimitives, noTransientMoneyCopy, noUnownedLoading } from "./rules/money-modal.mjs";
+import { affirmativeActionFirst, moneyModalPublicApi, noAlternateMoneyModal, noSheetPrimitiveReexports, noSheetPrimitives, noTransientMoneyCopy, noUnownedLoading } from "./rules/money-modal.mjs";
 import { explorationStoryTag } from "./rules/exploration-story-tag.mjs";
 import { ownerIdentityHelper } from "./rules/owner-identity.mjs";
 import { noDeferredEffectSetstate } from "./rules/react-effects.mjs";
@@ -117,6 +117,7 @@ const homePlugin = {
     "money-modal-public-api": moneyModalPublicApi,
     "no-alternate-money-modal": noAlternateMoneyModal,
     "no-unowned-loading": noUnownedLoading,
+    "affirmative-action-first": affirmativeActionFirst,
     "no-transient-money-copy": noTransientMoneyCopy,
     "exploration-story-tag": explorationStoryTag,
     "owner-identity-helper": ownerIdentityHelper,
