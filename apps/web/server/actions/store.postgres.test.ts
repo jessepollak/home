@@ -494,6 +494,14 @@ describePostgres("actions schema and store", () => {
         .toMatchObject({ transaction_hash: op("f6").transactionHash });
     });
 
+    test("a twin confirmed more than a day earlier that holds only a wallet batch id still keeps the claim open", async () => {
+      const older = await confirmedSend(baseOwner);
+      await store.recordHandle(baseOwner, older, { providerHandle: "wallet-call-id" });
+      await sql.query("UPDATE actions SET confirmed_at = now() - interval '25 hours' WHERE id = $1", [older]);
+      const id = await confirmedSend(baseOwner);
+      expect(await store.claimDiscoveredOperation(baseOwner, id, { matches: [op("e7")], recordProviderHandle: false })).toBeNull();
+    });
+
     test("refuses ambiguous matches, a declined action and a settled action", async () => {
       const id = await confirmedSend();
       expect(await store.claimDiscoveredOperation(owner, id, { matches: [op("a7"), op("b8")], recordProviderHandle: true })).toBeNull();

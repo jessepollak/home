@@ -145,6 +145,7 @@ export function createUserOperationCallDataLookup(options: {
           !hexDataPattern.test(transaction.input) || typeof transaction.hash !== "string" || transaction.hash.toLowerCase() !== hash) return;
         inputs.set(hash, { to: transaction.to.toLowerCase(), input: transaction.input });
       });
+      if (inputs.size !== transactionHashes.length) return noMatch;
       const matches = [...candidates.values()].filter((candidate) => {
         const transaction = inputs.get(candidate.transactionHash);
         if (!transaction || transaction.to !== USER_OPERATION_ENTRY_POINTS[candidate.version] || !isHex(transaction.input)) return false;

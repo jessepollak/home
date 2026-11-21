@@ -457,7 +457,7 @@ export class ActionsStore {
          WHERE account_address = $1 AND confirmed_at IS NOT NULL AND confirmed_at >= now() - interval '30 days'
            AND (LOWER(provider_handle) = ANY($2::text[]) OR LOWER(transaction_hash) = ANY($3::text[])
              OR (LOWER(confirmed_call_data_hash) = $4 AND outcome IS NULL
-               AND transaction_hash IS NULL AND declined_reported_at IS NULL AND confirmed_at >= now() - interval '24 hours'))`,
+               AND transaction_hash IS NULL AND declined_reported_at IS NULL))`,
         [account, operationHashes, transactionHashes, callDataHash],
       );
       const claimedOperations = new Set(related.rows.flatMap((row) => row.provider_handle ? [row.provider_handle.toLowerCase()] : [])
