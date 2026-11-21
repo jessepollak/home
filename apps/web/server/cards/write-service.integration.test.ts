@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readMigrationSql } from "@/tests/helpers/migrations";
 import { fakeProgram } from "@/tests/cards/fake-program";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseCardEnrollmentResponse, parseCardRevealResponse, parseCardsResponse, parseCardWriteResponse } from "@/shared/cards/contract";
@@ -39,7 +39,7 @@ let cardId: string;
     await sql.query("INSERT INTO customer_credentials(id,customer_id,account_provider,subject,first_seen_at,last_seen_at) VALUES (gen_random_uuid(),$1,'base-account','owner',now(),now())", [owner]);
     await sql.query("INSERT INTO customer_wallets(id,customer_id,credential_id,chain_id,address) VALUES (gen_random_uuid(),$1,(SELECT id FROM customer_credentials WHERE customer_id=$1),8453,$2)", [owner, wallet]);
     programs = createCardPrograms([fake.program], "bridge", sql); service = createCardWriteService({ sql, programs });
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); });
   test("enrollment is owner-scoped and deterministic across retries", async () => {
     const handlers = createCardWriteHandlers({ authorize: async () => session, customer: async () => ({ id: owner }), service: () => service });

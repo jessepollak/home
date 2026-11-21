@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { describeUserTokenStore } from "./testing/describeUserTokenStore";
 import { PostgresFundingProviderUserTokenStore } from "./user-token-store";
 import { randomBytes } from "node:crypto";
@@ -23,7 +23,7 @@ describePostgres("Postgres funding provider user token store", () => {
     for (const migration of await readAllMigrationSql()) await inSchema(migration);
     sql = createPostgresSqlExecutor(connectionString!, { schema: SCHEMA });
     store = new PostgresFundingProviderUserTokenStore(sql);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   beforeEach(async () => { await sql.query("TRUNCATE funding_provider_user_tokens"); });
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`); await admin?.close(); });
   describeUserTokenStore("shared PostgreSQL contract", () => store, async (key) => {
