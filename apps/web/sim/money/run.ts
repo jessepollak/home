@@ -134,9 +134,11 @@ export async function simulateRun(input: { seed: number; chain: Chain; clock: Vi
       order.totalAmount === action.amount && order.totalAmount - order.returnedAmount - order.filledAmount > BigInt(0));
     const list = await home.list();
     const items = Array.isArray(list.body.actions) ? list.body.actions as Array<Record<string, unknown>> : [];
+    // An earlier cash-out is resolved for the guard only once Home stores its final outcome, not when a receipt reads failed.
+    const stored = await readRows(db, ownerKey);
     const unresolvedInHome = actions.some((other) => other !== action && other.kind === "cash-out" && other.amount === action.amount &&
       other.payee === action.payee && other.calls &&
-      items.some((item) => item.id === other.id && item.status !== "failed" &&
+      items.some((item) => item.id === other.id && !["reverted", "not_submitted"].includes(stored.get(other.id!)?.outcome ?? "") &&
         (item.cashout as { state?: string; settledAt?: string | null } | undefined)?.settledAt == null));
     // docs/actions.md: a new cash-out matching an unresolved local one (same amount, platform, currency, payee) is refused.
     const orders = await peer.orders(wallet.address);

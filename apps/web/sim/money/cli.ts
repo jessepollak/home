@@ -15,6 +15,8 @@ const { values } = parseArgs({
     block: { type: "string", default: DEFAULT_FORK_BLOCK },
     workers: { type: "string", default: "4" },
     "worker-seeds": { type: "string" },
+    repro: { type: "string" },
+    "land-first": { type: "string", default: "B" },
     verbose: { type: "boolean", default: false },
   },
 });
@@ -23,6 +25,17 @@ const silence = () => {
   if (values.verbose) return;
   for (const method of ["log", "info", "warn", "error", "debug"] as const) console[method] = () => undefined;
 };
+
+if (values.repro !== undefined) {
+  if (values.repro !== "cashout-swap" || (values["land-first"] !== "A" && values["land-first"] !== "B")) throw new Error("--repro takes cashout-swap; --land-first takes A or B");
+  const print = console.log.bind(console);
+  silence();
+  const { reproCashoutSwap } = await import("./repro-cashout-swap");
+  const { reproduced, lines } = await reproCashoutSwap(forkBlock, values["land-first"]);
+  print([`cash-out swap repro (two identical cash-outs prepared before either confirms; ${values["land-first"]}'s deposit lands first)`, ...lines,
+    reproduced ? "REPRODUCED: each finalized cash-out is still linked to the other's deposit" : "not reproduced"].join("\n"));
+  process.exit(reproduced ? 1 : 0);
+}
 
 if (values["worker-seeds"] !== undefined) {
   const seeds = values["worker-seeds"].split(",").map(Number);
