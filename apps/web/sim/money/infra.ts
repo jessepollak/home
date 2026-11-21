@@ -63,7 +63,7 @@ export async function startFork(upstream: string, block: bigint, reusePort?: num
   const url = `http://127.0.0.1:${port}`;
   const anvil = Bun.spawn([
     "anvil", "--fork-url", upstream, "--fork-block-number", block.toString(), "--host", "127.0.0.1", "--port", String(port),
-    "--chain-id", "8453", "--no-mining", "--silent", "--accounts", "3", "--balance", "1000",
+    "--chain-id", "8453", "--no-mining", "--silent", "--prune-history", "4096", "--accounts", "3", "--balance", "1000",
   ], { stdout: "ignore", stderr: "ignore", env: { PATH: process.env.PATH ?? "" } });
   for (let attempt = 0; attempt < 120; attempt++) {
     if (anvil.exitCode !== null) throw new Error("anvil exited before the fork was ready");

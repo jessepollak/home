@@ -17,9 +17,11 @@ const erc20 = parseAbi([
 ]);
 const vault = parseAbi(["function convertToAssets(uint256) view returns (uint256)"]);
 const USER_OPERATION_EVENT = "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f";
+const TRANSFER_EVENT = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 export type Call = { to: Address; data: Hex; value: string };
-export type Landing = { transactionHash: Hex; blockNumber: bigint; blockHash: Hex; success: boolean };
+/** A landed user operation, with the wallet's USDC and Save-share movements read from its own receipt logs. */
+export type Landing = { transactionHash: Hex; blockNumber: bigint; blockHash: Hex; success: boolean; usdcDelta: bigint; sharesDelta: bigint };
 export type DispatchMode = "normal" | "inner-revert" | "bundle-revert";
 type Submission = { transactionHash: Hex; mode: DispatchMode; checked: boolean };
 export type Dispatch = {
@@ -34,7 +36,7 @@ export type Dispatch = {
 export class Chain {
   readonly client: PublicClient;
   readonly wallet: WalletClient;
-  constructor(readonly url: string) {
+  constructor(readonly url: string, readonly forkBlock = BigInt(0)) {
     const transport = http(url, { timeout: 30_000, retryCount: 0 });
     this.client = createPublicClient({ chain: base, transport }) as PublicClient;
     this.wallet = createWalletClient({ chain: base, transport });
@@ -169,7 +171,17 @@ export class SimWallet {
           log.topics[0]?.toLowerCase() === USER_OPERATION_EVENT && log.topics[1]?.toLowerCase() === record.userOpHash.toLowerCase());
         if (!event || record.landing) continue;
         const success = BigInt(`0x${event.data.slice(66, 130)}`) === BigInt(1);
-        record.landing = { transactionHash: receipt.transactionHash, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash, success };
+        const delta = (token: Address) => receipt.logs.reduce((sum, log) => {
+          if (log.address.toLowerCase() !== token.toLowerCase() || log.topics[0]?.toLowerCase() !== TRANSFER_EVENT || log.topics.length !== 3) return sum;
+          const from = `0x${log.topics[1]!.slice(26)}`.toLowerCase();
+          const to = `0x${log.topics[2]!.slice(26)}`.toLowerCase();
+          const value = BigInt(log.data);
+          return sum + (to === this.address ? value : BigInt(0)) - (from === this.address ? value : BigInt(0));
+        }, BigInt(0));
+        record.landing = {
+          transactionHash: receipt.transactionHash, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash, success,
+          usdcDelta: delta(USDC), sharesDelta: delta(SAVE_VAULT),
+        };
       }
     }
   }

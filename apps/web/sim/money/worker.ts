@@ -4,7 +4,9 @@ import type { RunResult } from "./run";
 
 const B20_STUB_CODE = "0x60206000f3";
 export type Crashed = { seed: number; crashed: string };
-export type WorkerOutput = { results: Array<RunResult | Crashed>; stubbed: string[]; upstream: "BASE_RPC_URL" | "public RPC"; retried: number[] };
+export type WorkerOutput = {
+  results: Array<RunResult | Crashed>; stubbed: string[]; upstream: "BASE_RPC_URL" | "public RPC"; retried: number[]; peerRequestsRefused: number;
+};
 
 /**
  * One isolated world: its own anvil fork and scratch Postgres, running the given seeds in order from one baseline.
@@ -25,15 +27,23 @@ export async function simulateSeeds(seeds: number[], forkBlock: bigint, onProgre
   process.env.DATABASE_URL = pg.url;
   delete process.env.CDP_PAYMASTER_URL;
   delete process.env.BASE_ACCOUNT_STATUS_RPC_URL;
+  // The US Peer corridor, production contracts on the fork; Peer's offchain services are the stand-in in ./peer.
+  process.env.PEER_OFFRAMP_ENABLED = "1";
+  delete process.env.PEER_OFFRAMP_MODE;
   const db = new SQL(pg.url);
   const results: WorkerOutput["results"] = [];
   const retried: number[] = [];
   let stubbed: string[] = [];
+  let peerGuard: { refused: () => number } | null = null;
   try {
     const { Chain } = await import("./chain");
     const { simulateRun, VirtualClock } = await import("./run");
     const { getBalancesUniverse } = await import("@/server/balances/universe");
-    const chain = new Chain(fork.url);
+    const { PeerStandIn, guardPeerNetwork } = await import("./peer");
+    const chain = new Chain(fork.url, forkBlock);
+    const peer = new PeerStandIn(chain);
+    peer.install();
+    peerGuard = guardPeerNetwork();
     const clock = new VirtualClock(db);
     const [bundler] = await chain.rpc<`0x${string}`[]>("eth_accounts", []);
     if (!bundler) throw new Error("anvil exposed no accounts");
@@ -72,7 +82,7 @@ export async function simulateSeeds(seeds: number[], forkBlock: bigint, onProgre
           }
           await chain.revert(baseline);
           baseline = await chain.snapshot();
-          outcome = await simulateRun({ seed, chain, clock, db, bundler });
+          outcome = await simulateRun({ seed, chain, clock, db, bundler, peer });
         } catch (error) {
           if (attempt === 1) outcome = { seed, crashed: String(error).split("\n")[0]!.slice(0, 200) };
         }
@@ -88,5 +98,5 @@ export async function simulateSeeds(seeds: number[], forkBlock: bigint, onProgre
     await fork.stop();
     await pg.stop();
   }
-  return { results, stubbed, upstream: configured ? "BASE_RPC_URL" : "public RPC", retried };
+  return { results, stubbed, upstream: configured ? "BASE_RPC_URL" : "public RPC", retried, peerRequestsRefused: peerGuard?.refused() ?? 0 };
 }

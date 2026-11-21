@@ -55,12 +55,13 @@ if (workers === 1) {
     const text = await new Response(child.stdout).text();
     await child.exited;
     const line = text.split("\n").find((entry) => entry.startsWith(RESULT_MARKER));
-    if (!line) return { results: chunk.map((seed) => ({ seed, crashed: `worker exited ${child.exitCode} without a result` })), stubbed: [], upstream: "BASE_RPC_URL", retried: [] } satisfies WorkerOutput;
+    if (!line) return { results: chunk.map((seed) => ({ seed, crashed: `worker exited ${child.exitCode} without a result` })), stubbed: [], upstream: "BASE_RPC_URL", retried: [], peerRequestsRefused: 0 } satisfies WorkerOutput;
     return JSON.parse(line.slice(RESULT_MARKER.length)) as WorkerOutput;
   }));
   process.stderr.write("\n");
   output = { results: outputs.flatMap((entry) => entry.results).sort((a, b) => a.seed - b.seed), stubbed: outputs[0]!.stubbed, upstream: outputs[0]!.upstream,
-    retried: outputs.flatMap((entry) => entry.retried).sort((a, b) => a - b) };
+    retried: outputs.flatMap((entry) => entry.retried).sort((a, b) => a - b),
+    peerRequestsRefused: outputs.reduce((total, entry) => total + entry.peerRequestsRefused, 0) };
 }
 
 const results = output.results;
@@ -72,18 +73,29 @@ const share = results.length ? (100 * passing.length) / results.length : 0;
 const brokenIn = (name: string) => completed.filter((result) => result.violations.some((violation) => violation.invariant === name)).length;
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
+type Phase = "entry" | "exit";
+const phaseLines = (phase: Phase, label: string, kinds: string) => [
+  `${label.padEnd(10)}${sum((r) => r[phase].actions)} actions (${kinds}): ` +
+    `${sum((r) => r[phase].landed.succeeded)} landed ok, ${sum((r) => r[phase].landed.reverted)} landed reverted, ${sum((r) => r[phase].prepareRefused)} refused by Home before dispatch`,
+  `          faults: lost handle post ${sum((r) => r[phase].faults.lostHandle)}; reverted ${sum((r) => r[phase].faults.innerRevert)} in the wallet + ` +
+    `${sum((r) => r[phase].faults.bundleRevert)} as a bundle (then resubmitted); double confirm ${sum((r) => r[phase].faults.doubleConfirm)} ` +
+    `(both accepted ${sum((r) => r[phase].doubleConfirmBothAccepted)}); decline then retry ${sum((r) => r[phase].faults.declineRetry)}`,
+  `          ${completed.filter((r) => r[phase].maxInFlight >= 2).length} runs had 2+ actions in flight at once; ` +
+    `${sum((r) => r[phase].lostHandleUnresolved)} lost-handle actions stay unresolved in Home (documented: no handle, no trigger can find them)`,
+];
+const kindCount = (phase: Phase, kind: keyof RunResult["entry"]["kinds"]) => sum((r) => r[phase].kinds[kind]);
+
 const lines = [
-  "Home money-action simulation: send + Save deposit on a Base mainnet fork",
+  "Home money-action simulation: send, Save deposit, Save withdraw and Peer cash-out on a Base mainnet fork",
   `fork      Base mainnet at block ${forkBlock} (anvil, ${output.upstream} upstream); scratch Postgres with every migration`,
   `runs      ${plural(results.length, "seeded run")} (${replay ? `seed ${seeds[0]}` : `seeds ${seeds[0]}-${seeds.at(-1)}`}), ` +
-    `${workers} ${workers === 1 ? "world" : "parallel worlds"}, ${((performance.now() - startedAt) / 60_000).toFixed(1)} min`,
-  `actions   ${sum((r) => r.actions)} (${sum((r) => r.kinds.send)} send, ${sum((r) => r.kinds["savings-deposit"])} Save deposit): ` +
-    `${sum((r) => r.landed.succeeded)} landed ok, ${sum((r) => r.landed.reverted)} landed reverted, ${sum((r) => r.prepareRefused)} refused by Home before dispatch`,
-  `faults    lost handle post ${sum((r) => r.faults.lostHandle)}; reverted ${sum((r) => r.faults.innerRevert)} in the wallet + ` +
-    `${sum((r) => r.faults.bundleRevert)} as a bundle (then resubmitted); double confirm ${sum((r) => r.faults.doubleConfirm)} ` +
-    `(both accepted ${sum((r) => r.doubleConfirmBothAccepted)}); decline then retry ${sum((r) => r.faults.declineRetry)}`,
-  `          ${completed.filter((r) => r.maxInFlight >= 2).length} runs had 2+ actions in flight at once; ` +
-    `${sum((r) => r.lostHandleUnresolved)} lost-handle actions stay unresolved in Home (documented: no handle, no trigger can find them)`,
+    `${workers} ${workers === 1 ? "world" : "parallel worlds"}, ${((performance.now() - startedAt) / 60_000).toFixed(1)} min; each run is an entry phase then an exit phase`,
+  ...phaseLines("entry", "entry", `${kindCount("entry", "send")} send, ${kindCount("entry", "savings-deposit")} Save deposit`),
+  ...phaseLines("exit", "exit", `${kindCount("exit", "savings-withdraw")} Save withdraw, ${kindCount("exit", "cash-out")} cash-out, ` +
+    `${kindCount("exit", "cash-out-withdraw")} cash-out cancel, ${kindCount("exit", "send")} send, ${kindCount("exit", "savings-deposit")} Save deposit`),
+  `guard     ${sum((r) => r.guard.twins)} same-amount cash-out twins, ${sum((r) => r.guard.twinsRefused)} refused by the Peer guard; ` +
+    `${sum((r) => r.guard.distinctAccepted)} cash-outs accepted; ${sum((r) => r.guard.cancelsSkipped)} cancels skipped (deposit never landed); ` +
+    `${output.peerRequestsRefused} requests to Peer's real services refused locally`,
   "",
   `RESULT    ${share.toFixed(1)}% of seeded runs held every invariant (${passing.length}/${results.length})`,
   "",
@@ -107,7 +119,9 @@ if (replay && completed[0]) {
   lines.push("", "violations:", ...(completed[0].violations.length
     ? completed[0].violations.map((violation) => `  step ${violation.step} ${violation.invariant}: ${violation.detail}`) : ["  none"]));
 }
-lines.push("", "stand-ins: the customer's CDP wallet and bundler are a Coinbase Smart Wallet v1.1 with a seeded test key whose user operations " +
+lines.push("", "stand-ins: Peer's offchain services (payee registration hashes, the deposit indexer read from the fork's escrow events " +
+  "with no lag, withdraw calldata in the form Home's boundary check verifies, no buyer ever fills, no fill-time statistics); " +
+  "the customer's CDP wallet and bundler are a Coinbase Smart Wallet v1.1 with a seeded test key whose user operations " +
   "a local EOA submits to EntryPoint v0.6 (CDP idempotency modelled per action id); USDC comes from an impersonated Morpho Blue balance; " +
   "the session authorizer returns the seeded owner; a balances read that fails is retried once before it counts; Next after() is a queue whose tasks each run one follow-through step; one virtual clock " +
   "(2 s per block) drives Home, Postgres now() and the fork; Save prepare skips the Morpho GraphQL rate read" +
