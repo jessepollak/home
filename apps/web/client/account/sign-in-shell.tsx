@@ -4,6 +4,8 @@ import { StatusStep, StatusSteps } from "@/components/ui/status-step";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
+  BASE_ACCOUNT_DOC_HREF,
+  BASE_ACCOUNT_DOC_LABEL,
   CDP_SETUP_DOC_HREF,
   CDP_SETUP_DOC_LABEL,
   signInProviderUnavailableCopy,
@@ -21,11 +23,13 @@ export function SignInBlockedPanel({
         <AlertTitle>{signInUnconfiguredCopy.heading}</AlertTitle>
         <AlertDescription>
           <p>
-            This deployment is missing <code className="font-mono">NEXT_PUBLIC_CDP_PROJECT_ID</code>.
+            Set <code className="font-mono">HOME_SESSION_SECRET</code> for Base Account sign-in, or{" "}
+            <code className="font-mono">NEXT_PUBLIC_CDP_PROJECT_ID</code> for email sign-in.
           </p>
           <p>
             Copy <code className="font-mono">.env.example</code> to{" "}
             <code className="font-mono">apps/web/.env.local</code>, then follow{" "}
+            <a href={BASE_ACCOUNT_DOC_HREF}>{BASE_ACCOUNT_DOC_LABEL}</a> or{" "}
             <a href={CDP_SETUP_DOC_HREF}>{CDP_SETUP_DOC_LABEL}</a>.
           </p>
         </AlertDescription>
