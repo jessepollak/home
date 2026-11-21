@@ -55,11 +55,12 @@ if (workers === 1) {
     const text = await new Response(child.stdout).text();
     await child.exited;
     const line = text.split("\n").find((entry) => entry.startsWith(RESULT_MARKER));
-    if (!line) return { results: chunk.map((seed) => ({ seed, crashed: `worker exited ${child.exitCode} without a result` })), stubbed: [], upstream: "BASE_RPC_URL" } satisfies WorkerOutput;
+    if (!line) return { results: chunk.map((seed) => ({ seed, crashed: `worker exited ${child.exitCode} without a result` })), stubbed: [], upstream: "BASE_RPC_URL", retried: [] } satisfies WorkerOutput;
     return JSON.parse(line.slice(RESULT_MARKER.length)) as WorkerOutput;
   }));
   process.stderr.write("\n");
-  output = { results: outputs.flatMap((entry) => entry.results).sort((a, b) => a.seed - b.seed), stubbed: outputs[0]!.stubbed, upstream: outputs[0]!.upstream };
+  output = { results: outputs.flatMap((entry) => entry.results).sort((a, b) => a.seed - b.seed), stubbed: outputs[0]!.stubbed, upstream: outputs[0]!.upstream,
+    retried: outputs.flatMap((entry) => entry.retried).sort((a, b) => a - b) };
 }
 
 const results = output.results;
@@ -88,6 +89,7 @@ const lines = [
   "",
   ...INVARIANTS.map((name) => `  ${name.padEnd(24)} broken in ${plural(brokenIn(name), "run")}`),
   ...(crashed.length ? [`  ${"simulation crashed".padEnd(24)} in ${plural(crashed.length, "run")}`] : []),
+  ...(output.retried.length ? ["", `harness   ${plural(output.retried.length, "run")} hit a fork or RPC error and ran again from the baseline: ${output.retried.slice(0, 20).join(", ")}${output.retried.length > 20 ? ", ..." : ""}`] : []),
 ];
 const failing: Array<RunResult | Crashed> = [...completed.filter((result) => result.violations.length), ...crashed];
 if (failing.length) {
@@ -107,7 +109,7 @@ if (replay && completed[0]) {
 }
 lines.push("", "stand-ins: the customer's CDP wallet and bundler are a Coinbase Smart Wallet v1.1 with a seeded test key whose user operations " +
   "a local EOA submits to EntryPoint v0.6 (CDP idempotency modelled per action id); USDC comes from an impersonated Morpho Blue balance; " +
-  "the session authorizer returns the seeded owner; Next after() is a queue whose tasks each run one follow-through step; one virtual clock " +
+  "the session authorizer returns the seeded owner; a balances read that fails is retried once before it counts; Next after() is a queue whose tasks each run one follow-through step; one virtual clock " +
   "(2 s per block) drives Home, Postgres now() and the fork; Save prepare skips the Morpho GraphQL rate read" +
   (output.stubbed.length ? `; ${output.stubbed.length} B20 registry tokens anvil cannot execute read as balance 0 (${output.stubbed.join(", ")})` : "") + ".");
 print(lines.join("\n"));

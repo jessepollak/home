@@ -317,7 +317,10 @@ async function checkInvariants(input: {
   }
 
   let read: Awaited<ReturnType<HomeOwner["balances"]>> | null = null;
-  try { read = await home.balances(); } catch (error) { fail("balances-match-chain", `balances read failed: ${String(error).slice(0, 120)}`); }
+  // A read that times out while the local fork is fetching cold state is retried once; a second failure counts.
+  try { read = await home.balances(); } catch {
+    try { read = await home.balances(); } catch (error) { fail("balances-match-chain", `balances read failed twice: ${String(error).slice(0, 120)}`); }
+  }
   if (read) {
     const block = BigInt(read.block.number);
     if (block !== latest) fail("pending-not-spendable", `balances pinned to block ${block}, latest mined is ${latest}`);

@@ -58,8 +58,8 @@ export async function startScratchPostgres(): Promise<ScratchPostgres> {
   };
 }
 
-export async function startFork(upstream: string, block: bigint): Promise<Fork> {
-  const port = await freePort();
+export async function startFork(upstream: string, block: bigint, reusePort?: number): Promise<Fork> {
+  const port = reusePort ?? await freePort();
   const url = `http://127.0.0.1:${port}`;
   const anvil = Bun.spawn([
     "anvil", "--fork-url", upstream, "--fork-block-number", block.toString(), "--host", "127.0.0.1", "--port", String(port),
