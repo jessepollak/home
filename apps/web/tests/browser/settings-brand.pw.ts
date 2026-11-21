@@ -59,6 +59,7 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
 
   await test.step("Settings links to Brand, which names its deployment-default source", async () => {
     await page.goto("/admin/settings");
+    await expectOperatorReady(page);
     await page.getByRole("link", { name: /^Brand/ }).click();
     await expectNavigation(page, /\/admin\/settings\/brand$/);
     await expectOperatorReady(page);
