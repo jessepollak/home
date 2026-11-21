@@ -502,6 +502,18 @@ describePostgres("actions schema and store", () => {
       expect(await store.claimDiscoveredOperation(baseOwner, id, { matches: [op("e7")], recordProviderHandle: false })).toBeNull();
     });
 
+    test("an aborted row deadline releases a claim waiting on the account lock", async () => {
+      const id = await confirmedSend();
+      await admin.begin(async (holder) => {
+        await holder.unsafe(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`action-discovery:${owner.address.toLowerCase()}`]);
+        const deadline = new AbortController();
+        const claim = store.claimDiscoveredOperation(owner, id, { matches: [op("f8")], recordProviderHandle: true }, { signal: deadline.signal });
+        deadline.abort();
+        await expect(claim).rejects.toThrow();
+      });
+      expect((await store.get(owner, id))?.transaction_hash).toBeNull();
+    });
+
     test("refuses ambiguous matches, a declined action and a settled action", async () => {
       const id = await confirmedSend();
       expect(await store.claimDiscoveredOperation(owner, id, { matches: [op("a7"), op("b8")], recordProviderHandle: true })).toBeNull();

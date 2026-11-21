@@ -434,6 +434,7 @@ export class ActionsStore {
     owner: MoneyActionOwner,
     id: string,
     input: { matches: ReadonlyArray<{ userOperationHash: string; transactionHash: string }>; recordProviderHandle: boolean },
+    options: { signal?: AbortSignal } = {},
   ): Promise<ActionRow | null> {
     if (!input.matches.length) return null;
     return await this.sql.transaction(async (tx) => {
@@ -481,7 +482,7 @@ export class ActionsStore {
         [id, actionOwnerKey(owner), input.recordProviderHandle, claim.userOperationHash.toLowerCase(), claim.transactionHash.toLowerCase()],
       );
       return normalizeActionRowOrNull(result.rows[0]);
-    });
+    }, { signal: options.signal });
   }
 
   async beginRetry(owner: MoneyActionOwner, id: string, attempt: number): Promise<{ row: ActionRow | null; conflict: boolean; dispatched: boolean }> {

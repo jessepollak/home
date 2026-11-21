@@ -80,7 +80,7 @@ async function discoverRow(row: ActionRow, owner: MoneyActionOwner, store: Follo
     if (found.status !== "complete" || options.signal.aborted) return row;
     const claimed = await store.claimDiscoveredOperation(owner, row.id, {
       matches: found.matches, recordProviderHandle: row.provider === "cdp-embedded",
-    });
+    }, { signal: options.signal });
     observe(claimed ? "CALL_DATA_MATCH" : "CALL_DATA_MATCH_UNCLAIMED", claimed ? "ok" : "skipped");
     return claimed ?? row;
   } catch {
