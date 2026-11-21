@@ -33,11 +33,11 @@ const LEVELS: Level[] = [
     why: "Anchored popups share one level. Dark popups use a stronger ring and deeper shadow to stay visible above the card.",
   },
   {
-    id: "overlay", name: "Overlay", role: "Dialog and drawer over a scrim",
-    files: ["dialog.tsx", "drawer.tsx"],
+    id: "overlay", name: "Overlay", role: "Drawer over a scrim",
+    files: ["drawer.tsx"],
     light: "1px ring foreground/10 + shadow-lg",
     dark: "1px ring foreground/10, no shadow",
-    why: "The scrim separates the overlay from the page. Dialog and Drawer share a ring; Dark needs no extra shadow.",
+    why: "The scrim separates the overlay from the page. The Drawer takes a ring; Dark needs no extra shadow.",
   },
   {
     id: "toast", name: "Toast", role: "Notices over live content, no scrim",
