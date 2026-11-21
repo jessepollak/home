@@ -28,7 +28,7 @@ type PhaseStats = {
 };
 export type RunResult = {
   seed: number; violations: Violation[]; steps: number; entry: PhaseStats; exit: PhaseStats;
-  guard: { twins: number; twinsRefused: number; distinctAccepted: number; cancels: number; cancelsSkipped: number };
+  guard: { pairs: number; refused: number; accepted: number; cancels: number; cancelsSkipped: number };
 };
 
 const FUNDING = BigInt(100_000_000);
@@ -134,7 +134,8 @@ export async function simulateRun(input: { seed: number; chain: Chain; clock: Vi
       order.totalAmount === action.amount && order.totalAmount - order.returnedAmount - order.filledAmount > BigInt(0));
     const list = await home.list();
     const items = Array.isArray(list.body.actions) ? list.body.actions as Array<Record<string, unknown>> : [];
-    const unresolvedInHome = actions.some((other) => other !== action && other.kind === "cash-out" && other.amount === action.amount && other.calls &&
+    const unresolvedInHome = actions.some((other) => other !== action && other.kind === "cash-out" && other.amount === action.amount &&
+      other.payee === action.payee && other.calls &&
       items.some((item) => item.id === other.id && item.status !== "failed" &&
         (item.cashout as { state?: string; settledAt?: string | null } | undefined)?.settledAt == null));
     // docs/actions.md: a new cash-out matching an unresolved local one (same amount, platform, currency, payee) is refused.
@@ -274,7 +275,7 @@ export async function simulateRun(input: { seed: number; chain: Chain; clock: Vi
     for (let guard = 0; guard < 200; guard++) {
       const live = own.filter((action) => action.stage !== "done");
       if (!live.length) break;
-      const inFlight = actions.filter((action) => action.id && action.stage !== "prepare" && !(wallet.get(action.id)?.landing)).length;
+      const inFlight = actions.filter((action) => action.calls && !(action.id && wallet.get(action.id)?.landing)).length;
       stats[phase].maxInFlight = Math.max(stats[phase].maxInFlight, inFlight);
       const roll = phaseRandom();
       step += 1;
@@ -356,9 +357,10 @@ export async function simulateRun(input: { seed: number; chain: Chain; clock: Vi
   return {
     seed, violations, steps: step, entry: phaseStats("entry"), exit: phaseStats("exit"),
     guard: {
-      twins: actions.filter((a) => a.twinOf !== undefined && a.guard).length,
-      twinsRefused: actions.filter((a) => a.twinOf !== undefined && a.guard === "refused").length,
-      distinctAccepted: actions.filter((a) => a.kind === "cash-out" && a.guard === "accepted").length,
+      // A twin and its original are one same-amount pair; either may reach prepare first and be the one refused.
+      pairs: actions.filter((a) => a.twinOf !== undefined && a.guard && actions[a.twinOf]?.guard).length,
+      refused: actions.filter((a) => a.kind === "cash-out" && a.guard === "refused" && GUARD_CODES.has(a.prepareRefused?.split(" ")[1] ?? "")).length,
+      accepted: actions.filter((a) => a.kind === "cash-out" && a.guard === "accepted").length,
       cancels: actions.filter((a) => a.kind === "cash-out-withdraw" && !a.skipped).length,
       cancelsSkipped: actions.filter((a) => a.kind === "cash-out-withdraw" && a.skipped).length,
     },

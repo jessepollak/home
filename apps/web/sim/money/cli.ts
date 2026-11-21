@@ -80,7 +80,7 @@ const phaseLines = (phase: Phase, label: string, kinds: string) => [
   `          faults: lost handle post ${sum((r) => r[phase].faults.lostHandle)}; reverted ${sum((r) => r[phase].faults.innerRevert)} in the wallet + ` +
     `${sum((r) => r[phase].faults.bundleRevert)} as a bundle (then resubmitted); double confirm ${sum((r) => r[phase].faults.doubleConfirm)} ` +
     `(both accepted ${sum((r) => r[phase].doubleConfirmBothAccepted)}); decline then retry ${sum((r) => r[phase].faults.declineRetry)}`,
-  `          ${completed.filter((r) => r[phase].maxInFlight >= 2).length} runs had 2+ actions in flight at once; ` +
+  `          ${completed.filter((r) => r[phase].maxInFlight >= 2).length} runs had 2+ confirmed actions in flight at once; ` +
     `${sum((r) => r[phase].lostHandleUnresolved)} lost-handle actions stay unresolved in Home (documented: no handle, no trigger can find them)`,
 ];
 const kindCount = (phase: Phase, kind: keyof RunResult["entry"]["kinds"]) => sum((r) => r[phase].kinds[kind]);
@@ -93,8 +93,8 @@ const lines = [
   ...phaseLines("entry", "entry", `${kindCount("entry", "send")} send, ${kindCount("entry", "savings-deposit")} Save deposit`),
   ...phaseLines("exit", "exit", `${kindCount("exit", "savings-withdraw")} Save withdraw, ${kindCount("exit", "cash-out")} cash-out, ` +
     `${kindCount("exit", "cash-out-withdraw")} cash-out cancel, ${kindCount("exit", "send")} send, ${kindCount("exit", "savings-deposit")} Save deposit`),
-  `guard     ${sum((r) => r.guard.twins)} same-amount cash-out twins, ${sum((r) => r.guard.twinsRefused)} refused by the Peer guard; ` +
-    `${sum((r) => r.guard.distinctAccepted)} cash-outs accepted; ${sum((r) => r.guard.cancelsSkipped)} cancels skipped (deposit never landed); ` +
+  `guard     ${plural(sum((r) => r.guard.pairs), "same-amount cash-out pair")} reached prepare; the Peer guard refused ${plural(sum((r) => r.guard.refused), "cash-out")} ` +
+    `(unexpected refusals count under cash-out-guard); ${plural(sum((r) => r.guard.accepted), "cash-out")} accepted; ${plural(sum((r) => r.guard.cancelsSkipped), "cancel")} skipped (deposit never landed); ` +
     `${output.peerRequestsRefused} requests to Peer's real services refused locally`,
   "",
   `RESULT    ${share.toFixed(1)}% of seeded runs held every invariant (${passing.length}/${results.length})`,
