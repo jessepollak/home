@@ -271,6 +271,28 @@ export const ConnectionChecks: Story = {
   },
 };
 
+const partialScopeView: FundingOfferingView = {
+  ...savedOnWithoutCredentialsView,
+  corridors: [
+    corridor({ ...ripioArOn, selected: true, offered: true }),
+    corridor({ ...ripioBrOn, connection: "not-connected", missingEnv: ["RIPIO_CLIENT_ID_BR", "RIPIO_CLIENT_SECRET_BR", "RIPIO_WEBHOOK_SECRET_BR"] }),
+    corridor({ ...idrxId, connection: "not-connected", missingEnv: ["IDRX_CLIENT_ID", "IDRX_CLIENT_SECRET"] }),
+  ],
+  providers: [
+    { providerId: "ripio", displayName: "Ripio", credentials: [{ name: "RIPIO_CLIENT_ID", state: "set" }, { name: "RIPIO_CLIENT_ID_BR", state: "unset" }, { name: "RIPIO_WEBHOOK_SECRET_AR", state: "set" }] },
+    { providerId: "idrx", displayName: "IDRX", credentials: [{ name: "IDRX_CLIENT_ID", state: "unset" }, { name: "IDRX_CLIENT_SECRET", state: "unset" }] },
+  ],
+};
+
+export const ConnectionCheckPartialScopes: Story = {
+  args: { view: partialScopeView },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { name: "Test Ripio connection" })).toBeEnabled();
+    await expect(canvas.getByRole("button", { name: "Test IDRX connection" })).toBeDisabled();
+  },
+};
+
 export const Unavailable: Story = {
   args: { view: null },
 };

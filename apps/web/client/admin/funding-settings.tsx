@@ -227,8 +227,10 @@ async function testFundingConnection(providerId: string, signal: AbortSignal): P
   }
 }
 
-function ProviderRow({ provider }: { provider: FundingProviderCredentialView }) {
+function ProviderRow({ provider, corridors }: { provider: FundingProviderCredentialView; corridors: FundingCorridorView[] }) {
   const missing = provider.credentials.filter((credential) => credential.state === "unset").length;
+  const providerCorridors = corridors.filter((corridor) => corridor.providerId === provider.providerId);
+  const configured = providerCorridors.length > 0 ? providerCorridors.some((corridor) => corridor.connection === "connected") : missing === 0;
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<FundingConnectionResponse | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -236,7 +238,7 @@ function ProviderRow({ provider }: { provider: FundingProviderCredentialView }) 
   const nextId = useRef(0);
   useEffect(() => () => { request.current?.controller.abort(); request.current = null; }, []);
   async function checkConnection() {
-    if (request.current || missing > 0) return;
+    if (request.current || !configured) return;
     const attempt = { id: ++nextId.current, controller: new AbortController() };
     request.current = attempt;
     setChecking(true);
@@ -275,9 +277,9 @@ function ProviderRow({ provider }: { provider: FundingProviderCredentialView }) 
           </>}
         </ItemDescription>}
       </ItemContent>
-      <ItemActions className="flex-wrap">
-        <Badge variant={missing === 0 ? "secondary" : "outline"}>{missing === 0 ? "Credentials set" : "Credentials missing"}</Badge>
-        <Button variant="outline" size="sm" disabled={missing > 0 || checking} onClick={() => { void checkConnection(); }} aria-label={`Test ${provider.displayName} connection`}>{checking ? "Checking…" : "Test connection"}</Button>
+      <ItemActions className="min-w-0 w-full basis-full flex-wrap sm:w-auto sm:basis-auto">
+        <Badge variant={missing === 0 ? "secondary" : "outline"}>{missing === 0 ? "Credentials set" : configured ? "Some credentials missing" : "Credentials missing"}</Badge>
+        <Button variant="outline" size="sm" disabled={!configured || checking} onClick={() => { void checkConnection(); }} aria-label={`Test ${provider.displayName} connection`}>{checking ? "Checking…" : "Test connection"}</Button>
       </ItemActions>
     </Item>
   );
@@ -657,7 +659,7 @@ export function FundingSettings({ view, operator }: { view: FundingOfferingView;
         <section aria-labelledby="funding-providers-heading" className="grid gap-3">
           <h2 id="funding-providers-heading" className="text-lg font-semibold">Provider connections</h2>
           <CorridorList>
-            {effectiveView.providers.map((provider) => <ProviderRow key={JSON.stringify([provider.providerId, effectiveView.revision, provider.credentials])} provider={provider} />)}
+            {effectiveView.providers.map((provider) => <ProviderRow key={JSON.stringify([provider.providerId, effectiveView.revision, provider.credentials])} provider={provider} corridors={effectiveView.corridors} />)}
           </CorridorList>
         </section>
       )}
