@@ -53,6 +53,7 @@ export function actionReviewExpired(expiresAt: string, now: Date): boolean {
 }
 
 export const NON_DECLINED_ACTION_SQL = "(declined_reported_at IS NULL OR provider_handle IS NOT NULL OR transaction_hash IS NOT NULL OR outcome IS NOT NULL)";
+const DISCOVERABLE_ACTION_SQL = "(declined_reported_at IS NULL AND confirmed_call_data_hash IS NOT NULL AND confirmed_at >= now() - interval '24 hours')";
 
 export type ActionOutcome = "succeeded" | "reverted" | "not_submitted";
 export type ObservedReceiptOutcome = Extract<ActionOutcome, "succeeded" | "reverted">;
@@ -429,6 +430,60 @@ export class ActionsStore {
     return normalizeActionRowOrNull(result.rows[0]);
   }
 
+  async claimDiscoveredOperation(
+    owner: MoneyActionOwner,
+    id: string,
+    input: { matches: ReadonlyArray<{ userOperationHash: string; transactionHash: string }>; recordProviderHandle: boolean },
+  ): Promise<ActionRow | null> {
+    if (!input.matches.length) return null;
+    return await this.sql.transaction(async (tx) => {
+      const target = await tx.query<{ account_address: string | null; confirmed_call_data_hash: string | null }>(
+        `SELECT account_address, confirmed_call_data_hash FROM actions
+         WHERE id = $1 AND owner_key = $2 AND confirmed_at IS NOT NULL AND outcome IS NULL
+           AND provider_handle IS NULL AND transaction_hash IS NULL AND declined_reported_at IS NULL
+           AND confirmed_call_data_hash IS NOT NULL AND account_address IS NOT NULL
+         FOR UPDATE`,
+        [id, actionOwnerKey(owner)],
+      );
+      const account = target.rows[0]?.account_address?.toLowerCase();
+      const callDataHash = target.rows[0]?.confirmed_call_data_hash?.toLowerCase();
+      if (!account || !callDataHash) return null;
+      await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`action-discovery:${account}`]);
+      const operationHashes = input.matches.map((match) => match.userOperationHash.toLowerCase());
+      const transactionHashes = input.matches.map((match) => match.transactionHash.toLowerCase());
+      const related = await tx.query<{ provider: string; provider_handle: string | null; transaction_hash: string | null; confirmed_call_data_hash: string | null;
+        outcome: string | null; declined_reported_at: string | Date | null }>(
+        `SELECT provider, provider_handle, transaction_hash, confirmed_call_data_hash, outcome, declined_reported_at FROM actions
+         WHERE account_address = $1 AND confirmed_at IS NOT NULL AND confirmed_at >= now() - interval '30 days'
+           AND (LOWER(provider_handle) = ANY($2::text[]) OR LOWER(transaction_hash) = ANY($3::text[])
+             OR (LOWER(confirmed_call_data_hash) = $4 AND outcome IS NULL
+               AND transaction_hash IS NULL AND declined_reported_at IS NULL AND confirmed_at >= now() - interval '24 hours'))`,
+        [account, operationHashes, transactionHashes, callDataHash],
+      );
+      const claimedOperations = new Set(related.rows.flatMap((row) => row.provider_handle ? [row.provider_handle.toLowerCase()] : [])
+        .filter((handle) => operationHashes.includes(handle)));
+      const claimedTransactions = new Set(related.rows.flatMap((row) => row.transaction_hash &&
+        (row.provider !== "cdp-embedded" || row.provider_handle === null) ? [row.transaction_hash.toLowerCase()] : []));
+      const unclaimed = input.matches.filter((match) => !claimedOperations.has(match.userOperationHash.toLowerCase()) &&
+        !claimedTransactions.has(match.transactionHash.toLowerCase()));
+      const waiting = related.rows.filter((row) => row.confirmed_call_data_hash?.toLowerCase() === callDataHash && row.outcome === null &&
+        row.transaction_hash === null && row.declined_reported_at === null &&
+        (row.provider_handle === null || !claimedOperations.has(row.provider_handle.toLowerCase()))).length;
+      const claim = unclaimed[0];
+      if (!claim || unclaimed.length !== 1 || waiting !== 1) return null;
+      const result = await tx.query<RawActionRow>(
+        `UPDATE actions SET
+           provider_handle = CASE WHEN $3::boolean THEN $4 ELSE provider_handle END,
+           transaction_hash = $5, pending = NULL, handle_recorded_at = COALESCE(handle_recorded_at, now())
+         WHERE id = $1 AND owner_key = $2 AND confirmed_at IS NOT NULL AND outcome IS NULL
+           AND provider_handle IS NULL AND transaction_hash IS NULL AND declined_reported_at IS NULL
+         RETURNING *`,
+        [id, actionOwnerKey(owner), input.recordProviderHandle, claim.userOperationHash.toLowerCase(), claim.transactionHash.toLowerCase()],
+      );
+      return normalizeActionRowOrNull(result.rows[0]);
+    });
+  }
+
   async beginRetry(owner: MoneyActionOwner, id: string, attempt: number): Promise<{ row: ActionRow | null; conflict: boolean; dispatched: boolean }> {
     const result = await this.sql.query<RawActionRow>(
       `UPDATE actions SET dispatch_attempt = $3, declined_reported_at = NULL
@@ -533,12 +588,12 @@ export class ActionsStore {
     const result = await this.sql.query<RawActionRow>(
       perAccountLimit === undefined
         ? `SELECT * FROM actions WHERE confirmed_at >= $1 AND outcome IS NULL
-         AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL) ${accountCondition}
+         AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL OR ${DISCOVERABLE_ACTION_SQL}) ${accountCondition}
        ORDER BY confirmed_at DESC, id DESC LIMIT $2`
         : `WITH ranked AS (
          SELECT id, row_number() OVER (PARTITION BY account_address ORDER BY confirmed_at DESC, id DESC) AS follow_up_rank
          FROM actions WHERE confirmed_at >= $1 AND outcome IS NULL
-           AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL) ${accountCondition}
+           AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL OR ${DISCOVERABLE_ACTION_SQL}) ${accountCondition}
        )
        SELECT actions.* FROM actions JOIN ranked ON actions.id = ranked.id
        WHERE ranked.follow_up_rank <= $4

@@ -240,11 +240,13 @@ describePostgres("write-once action outcomes with real handlers", () => {
     expect(await store.get(secondOwner, triggered)).toMatchObject({ transaction_hash: hash, outcome: "succeeded" });
   });
 
-  test("system follow-up queries select only recent identifiable open rows", async () => {
+  test("system follow-up queries select recent open rows a handle, hash or undeclined committed call can identify", async () => {
     const recent = await prepared();
     const settled = await prepared();
     const old = await prepared();
     const unidentified = await prepared();
+    const declined = await prepared();
+    const staleUnidentified = await prepared();
     const unconfirmed = randomUUID();
     await store.insert({ id: unconfirmed, owner: owner(), kind: "send",
       summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
@@ -255,11 +257,13 @@ describePostgres("write-once action outcomes with real handlers", () => {
     await store.recordOutcome(owner(), settled, { outcome: "not_submitted", source: "wallet", settledAt: null });
     await store.recordHandle(owner(), old, { providerHandle: userOpHash });
     await sql.query("UPDATE actions SET confirmed_at = now() - interval '40 days' WHERE id = $1", [old]);
+    await store.recordDecline(owner(), declined, 0);
+    await sql.query("UPDATE actions SET confirmed_at = now() - interval '25 hours' WHERE id = $1", [staleUnidentified]);
     const since = new Date(Date.now() - 7 * 86_400_000);
-    expect((await store.listOpenByAccounts([address.toUpperCase()], since, 1)).map((row) => row.id)).toEqual([recent]);
-    expect((await store.listOpenForFollowUp(since, 10)).map((row) => row.id)).toEqual([recent]);
-    expect((await store.listOpenForFollowUp(since, 1)).map((row) => row.id)).toEqual([recent]);
-    expect(unidentified).toBeDefined();
+    const expected = [recent, unidentified].sort();
+    expect((await store.listOpenByAccounts([address.toUpperCase()], since, 10)).map((row) => row.id).sort()).toEqual(expected);
+    expect((await store.listOpenForFollowUp(since, 10)).map((row) => row.id).sort()).toEqual(expected);
+    expect(await store.listOpenForFollowUp(since, 1)).toHaveLength(1);
   });
 
   test("duplicate handle, hash, decline and chain reports preserve every column", async () => {
