@@ -72,6 +72,8 @@
     { "pattern": "server/customers/resolve.test.ts", "category": "auth" },
     { "pattern": "server/db/migration-gate.test.ts", "category": "repository-gate" },
     { "pattern": "server/fees/policy.test.ts", "category": "money-math" },
+    { "pattern": "server/funding/connection-check.test.ts", "category": "money-path-provider-failure" },
+    { "pattern": "server/funding/connection-handler.test.ts", "category": "auth" },
     { "pattern": "server/funding/cash-out*.test.ts", "category": "action-lifecycle" },
     { "pattern": "server/funding/core/base-receipt.test.ts", "category": "transaction-construction" },
     { "pattern": "server/funding/core/*postgres-store.integration.test.ts", "category": "money-record-integrity" },
