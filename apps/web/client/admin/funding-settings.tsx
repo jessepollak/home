@@ -23,6 +23,8 @@ import {
   type OperatorSettingsErrorCode,
 } from "@/shared/operator-settings/contract";
 
+import { FUNDING_CONNECTIONS_VERSION, parseFundingConnectionResponse, type FundingConnectionResponse, type FundingConnectionStatus } from "@/shared/operator-settings/contract-funding-connections";
+
 type Draft = Record<string, boolean>;
 type Notice = "saved" | "conflict" | "uncertain";
 type SaveOutcome = "in-flight" | "saved" | "conflict" | "unavailable" | "invalid" | "uncertain";
@@ -196,10 +198,65 @@ function CorridorRow({ corridor, on, saved, onChange }: { corridor: FundingCorri
   );
 }
 
+const connectionMessages: Record<FundingConnectionStatus, string> = {
+  connected: "Connected",
+  rejected: "Credentials rejected",
+  unreachable: "Provider unreachable",
+  inconclusive: "Unexpected response",
+  "not-configured": "Credentials not set",
+  unsupported: "Check not supported",
+};
+
+async function testFundingConnection(providerId: string, signal: AbortSignal): Promise<{ outcome: "checked"; result: FundingConnectionResponse } | { outcome: "failed"; message: string }> {
+  const headers = { "content-type": "application/json", ...deploymentHeaders() };
+  const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+  try {
+    const response = await fetch("/api/admin/settings/funding/connections", {
+      method: "POST", credentials: "same-origin", headers, signal: boundedSignal,
+      body: JSON.stringify({ version: FUNDING_CONNECTIONS_VERSION, providerId }),
+    });
+    const body: unknown = await readJson(response).catch(() => null);
+    boundedSignal.throwIfAborted();
+    const code = parseOperatorSettingsErrorResponse(body)?.error.code;
+    throwIfDeploymentExpired(response, headers, code ?? null);
+    const parsed = response.ok ? parseFundingConnectionResponse(body) : null;
+    if (parsed?.providerId === providerId) return { outcome: "checked", result: parsed };
+    return { outcome: "failed", message: response.status === 401 ? errorMessages.UNAUTHENTICATED : response.status === 403 ? errorMessages.OPERATOR_FORBIDDEN : "Check failed, try again" };
+  } catch (error) {
+    return { outcome: "failed", message: error instanceof DeploymentExpiredError ? error.message : "Check failed, try again" };
+  }
+}
+
 function ProviderRow({ provider }: { provider: FundingProviderCredentialView }) {
   const missing = provider.credentials.filter((credential) => credential.state === "unset").length;
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<FundingConnectionResponse | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const request = useRef<{ id: number; controller: AbortController } | null>(null);
+  const nextId = useRef(0);
+  useEffect(() => () => { request.current?.controller.abort(); request.current = null; }, []);
+  async function checkConnection() {
+    if (request.current || missing > 0) return;
+    const attempt = { id: ++nextId.current, controller: new AbortController() };
+    request.current = attempt;
+    setChecking(true);
+    setFailure(null);
+    setResult(null);
+    const outcome = await testFundingConnection(provider.providerId, attempt.controller.signal);
+    const current = request.current;
+    if (current && current.id !== attempt.id) return;
+    if (!current) {
+      setChecking(false);
+      return;
+    }
+    if (outcome.outcome === "checked") setResult(outcome.result);
+    else setFailure(outcome.message);
+    request.current = null;
+    setChecking(false);
+  }
+  const differingScopes = result && result.scopes.length > 1 && new Set(result.scopes.map((scope) => scope.status)).size > 1;
   return (
-    <Item className="flex-nowrap items-start">
+    <Item className="items-start">
       <ItemContent className="min-w-0">
         <ItemTitle>{provider.displayName}</ItemTitle>
         <ItemDescription lines="wrap">
@@ -210,9 +267,17 @@ function ProviderRow({ provider }: { provider: FundingProviderCredentialView }) 
             </span>
           ))}
         </ItemDescription>
+        {(failure || result) && <ItemDescription lines="wrap" role="status" aria-label={`${provider.displayName} connection check`}>
+          {failure}
+          {result && <>
+            <span className="block">{connectionMessages[result.status]} · Checked {formatPresentationDate(result.checkedAt, { style: "date-time-zone" })}</span>
+            {differingScopes && result.scopes.map((scope) => <span key={scope.regions.join(",")} className="block">{scope.regions.join(", ")}: {connectionMessages[scope.status]}</span>)}
+          </>}
+        </ItemDescription>}
       </ItemContent>
-      <ItemActions>
-        <Badge variant={missing === 0 ? "secondary" : "outline"}>{missing === 0 ? "Connected" : "Not connected"}</Badge>
+      <ItemActions className="flex-wrap">
+        <Badge variant={missing === 0 ? "secondary" : "outline"}>{missing === 0 ? "Credentials set" : "Credentials missing"}</Badge>
+        <Button variant="outline" size="sm" disabled={missing > 0 || checking} onClick={() => { void checkConnection(); }} aria-label={`Test ${provider.displayName} connection`}>{checking ? "Checking…" : "Test connection"}</Button>
       </ItemActions>
     </Item>
   );
@@ -592,13 +657,13 @@ export function FundingSettings({ view, operator }: { view: FundingOfferingView;
         <section aria-labelledby="funding-providers-heading" className="grid gap-3">
           <h2 id="funding-providers-heading" className="text-lg font-semibold">Provider connections</h2>
           <CorridorList>
-            {effectiveView.providers.map((provider) => <ProviderRow key={provider.providerId} provider={provider} />)}
+            {effectiveView.providers.map((provider) => <ProviderRow key={JSON.stringify([provider.providerId, effectiveView.revision, provider.credentials])} provider={provider} />)}
           </CorridorList>
         </section>
       )}
 
       <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t bg-background py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        <p role="status" className="text-sm text-muted-foreground">{activeNotice === "saved" && changed === 0 ? "Saved." : status}</p>
+        <p role="status" aria-label="Save status" className="text-sm text-muted-foreground">{activeNotice === "saved" && changed === 0 ? "Saved." : status}</p>
         <div className="flex flex-wrap gap-2">
           {changed > 0 && <Button variant="outline" size="touch" className="px-4" onClick={() => { setDraft(initialDraft(effectiveView)); setLostCredentials([]); }}>Discard</Button>}
           <Button ref={saveButton} size="touch" className="px-4" disabled={!canSave} onClick={startReview}>{turningOn.length > 0 ? "Review and save" : "Save"}</Button>
