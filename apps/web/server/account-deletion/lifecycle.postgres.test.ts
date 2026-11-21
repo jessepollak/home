@@ -62,6 +62,7 @@ async function seed(rich = false) {
     await sql.query("INSERT INTO card_accounts(customer_id,mode,provider,provider_account_id,provider_cardholder_id) VALUES ($1,'sandbox','bridge',$2,$3)", [id,`bridge-${sequence}`,`holder-${sequence}`]);
     await sql.query("INSERT INTO cards(id,customer_id,mode,provider,provider_card_id,wallet_address) VALUES ($1,$2,'sandbox','bridge',$3,$4)", [card,id,`stripe-${sequence}`,address]);
     await sql.query("INSERT INTO card_transactions(card_id,provider,mode,provider_transaction_id,kind,amount_minor,currency,merchant_name,merchant_category,status,provider_created_at) VALUES ($1,'bridge','sandbox',$2,'transaction',9007199254740993,'USD','Private Merchant','Private Category','completed',now())", [card,`purchase-${sequence}`]);
+    await sql.query("INSERT INTO card_reveal_access(customer_id,card_id,step,outcome) VALUES ($1,$2,'grant','granted')", [id,card]);
     await sql.query("INSERT INTO card_events(provider,mode,event_id,kind,customer_id,card_id,occurred_at) VALUES ('bridge','sandbox',$1,'issuing_transaction.created',$2,$3,now())", [`event-${sequence}`,`bridge-${sequence}`,`stripe-${sequence}`]);
     await sql.query("INSERT INTO customer_preferences(customer_id,country_preference) VALUES ($1,'US')", [id]);
     await sql.query("INSERT INTO operator_events(id,customer_id,name,occurred_at,source,props,idempotency_key) VALUES (gen_random_uuid(),$1,'customer.signed_up',now(),'live',$3::jsonb,$2)", [id,`signup-${sequence}`, JSON.stringify({secret:"remove-me"})]);
@@ -707,7 +708,7 @@ function observeTransaction(before: (text: string) => Promise<void>, after: (tex
     await sweepAccountDeletions(sql,{now:new Date(expiry.getTime()-1),batchSize:500});
     expect((await sql.query("SELECT 1 FROM customers WHERE id=$1",[p])).rowCount).toBe(1);
     await sweepAccountDeletions(sql,{now:expiry,batchSize:500});
-    for(const [table,column,id] of [["customers","id",p],["cashout_orders","action_id",a.action],["operator_fee_records","action_id",a.action],["card_accounts","customer_id",p],["card_transactions","card_id",a.card],["actions","id",a.action],["funding_orders","id",a.funding],["cards","id",a.card],["account_deletion_requests","id",receipt.requestId],["admin_audit_log","target_id",a.id]] as const) expect((await sql.query(`SELECT 1 FROM ${table} WHERE ${column}=$1`,[id])).rowCount).toBe(0);
+    for(const [table,column,id] of [["customers","id",p],["cashout_orders","action_id",a.action],["operator_fee_records","action_id",a.action],["card_accounts","customer_id",p],["card_transactions","card_id",a.card],["actions","id",a.action],["funding_orders","id",a.funding],["cards","id",a.card],["card_reveal_access","card_id",a.card],["account_deletion_requests","id",receipt.requestId],["admin_audit_log","target_id",a.id]] as const) expect((await sql.query(`SELECT 1 FROM ${table} WHERE ${column}=$1`,[id])).rowCount).toBe(0);
     expect((await sql.query("SELECT 1 FROM account_deletion_tombstones WHERE request_id=$1",[receipt.requestId])).rowCount).toBe(0);
     expect((await sweepAccountDeletions(sql,{now:expiry,batchSize:500})).expiredOwners).toBe(0);
   });

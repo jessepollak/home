@@ -65,7 +65,7 @@ One database transaction reads all classes. Its first application statements set
 
 ## Exclusions and boundaries
 
-Never included: passwords, access/session/SDK/quote tokens, cookies, signing secrets, private keys, encrypted envelopes, provider raw payloads, webhook subscription secrets, support assistant credentials, operator credentials/identities, event props or unrelated customer references. Card PANs and ephemeral keys are not selected. Support drafts/discarded messages and runs tied to those messages are internal, so only sent message content and its run metadata are included. Cross-customer support references are excluded even if a conversation row names them. Global prices, asset catalogs and valuation series are not exported; an asset ID on an owned balance row is retained.
+Never included: passwords, access/session/SDK/quote tokens, cookies, signing secrets, private keys, encrypted envelopes, provider raw payloads, webhook subscription secrets, support assistant credentials, operator credentials/identities, event props or unrelated customer references. Card PANs and ephemeral keys are not selected. The internal card-reveal access record (`card_reveal_access`) is a security log and is not exported. Support drafts/discarded messages and runs tied to those messages are internal, so only sent message content and its run metadata are included. Cross-customer support references are excluded even if a conversation row names them. Global prices, asset catalogs and valuation series are not exported; an asset ID on an owned balance row is retained.
 
 The response's boundary strings distinguish:
 

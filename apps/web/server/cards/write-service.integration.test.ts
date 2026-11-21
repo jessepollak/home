@@ -4,7 +4,7 @@ import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readMigrationSql } from "@/tests/helpers/migrations";
 import { fakeProgram } from "@/tests/cards/fake-program";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { parseCardEnrollmentResponse, parseCardRevealResponse, parseCardsResponse, parseCardWriteResponse } from "@/shared/cards/contract";
+import { parseCardEnrollmentResponse, parseCardRevealResponse, parseCardsResponse, parseCardWriteError, parseCardWriteResponse } from "@/shared/cards/contract";
 import { createCardPrograms } from "./programs";
 import { createCardWriteService } from "./write-service";
 import { createCardWriteHandlers } from "./write-handler";
@@ -32,7 +32,7 @@ let cardId: string;
     admin = new Bun.SQL(url!); await admin.unsafe(`CREATE SCHEMA ${schema}`);
     await admin.begin(async (tx) => {
       await tx.unsafe(`SET LOCAL search_path TO ${schema}`);
-      for (const name of ["001_actions.sql", "002_funding_provider_seam.sql", "003_coinbase_hosted_retired.sql", "004_funding_sandbox.sql", "005_balances.sql", "006_valuation_attempts.sql", "007_balance_borrow.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "010_operator_settings.sql", "011_operator_registry.sql", "012_action_outcomes.sql", "013_action_call_commitment.sql", "014_cashout_orders.sql", "014_customer_preferences.sql", "015_invites.sql", "016_action_receipt_observations.sql", "017_record_customer_ids.sql", "017_webhook_subscription_envelopes.sql", "018_cards.sql", "018_customer_email_requests.sql", "018_operator_fee_records.sql", "019_card_events_provider.sql", "020_balance_history.sql", "020_card_accounts.sql", "020_support.sql", "021_card_transactions.sql", "021_cashout_provider_progress.sql", "022_card_programs.sql", "022_funding_order_abandon.sql", "023_account_export_indexes.sql", "024_account_deletion.sql"]) await tx.unsafe(await readMigrationSql(name));
+      for (const name of ["001_actions.sql", "002_funding_provider_seam.sql", "003_coinbase_hosted_retired.sql", "004_funding_sandbox.sql", "005_balances.sql", "006_valuation_attempts.sql", "007_balance_borrow.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "010_operator_settings.sql", "011_operator_registry.sql", "012_action_outcomes.sql", "013_action_call_commitment.sql", "014_cashout_orders.sql", "014_customer_preferences.sql", "015_invites.sql", "016_action_receipt_observations.sql", "017_record_customer_ids.sql", "017_webhook_subscription_envelopes.sql", "018_cards.sql", "018_customer_email_requests.sql", "018_operator_fee_records.sql", "019_card_events_provider.sql", "020_balance_history.sql", "020_card_accounts.sql", "020_support.sql", "021_card_transactions.sql", "021_cashout_provider_progress.sql", "022_card_programs.sql", "022_funding_order_abandon.sql", "023_account_export_indexes.sql", "024_account_deletion.sql", "026_card_reveal_access.sql"]) await tx.unsafe(await readMigrationSql(name));
     });
     sql = createPostgresSqlExecutor(url!, { schema });
     await sql.query("INSERT INTO customers(id,first_seen_at,last_seen_at,first_seen_source) VALUES ($1,now(),now(),'sign_in'),($2,now(),now(),'sign_in')", [owner, other]);
@@ -155,6 +155,30 @@ let cardId: string;
     const mismatch = fakeProgram({ ...fake.program, reveal: async () => ({ method: "stripe-issuing-elements", step: "grant", issuingCard: "ic_other", nonce: "nonce_synthetic123", ephemeralKeySecret: "ek_test_synthetic123456" }) });
     const bad = createCardWriteService({ sql, programs: createCardPrograms([mismatch.program], "bridge", sql) });
     await expect(bad.reveal(owner, cardId, { method: "stripe-issuing-elements", step: "grant", nonce: "nonce_synthetic123" })).rejects.toThrow("CARDS_UNAVAILABLE");
+  });
+  test("reveal access is recorded without secrets before release and fails closed when it cannot be written", async () => {
+    const revealRows = async (customerId: string) => (await sql.query<Record<string, unknown>>("SELECT * FROM card_reveal_access WHERE customer_id=$1 ORDER BY occurred_at,id", [customerId])).rows;
+    const grantBody = { method: "stripe-issuing-elements", step: "grant", nonce: "nonce_synthetic123" } as const;
+    const before = (await revealRows(owner)).length;
+    for (const body of [{ method: "stripe-issuing-elements", step: "prepare" } as const, grantBody]) await service.reveal(owner, cardId, body);
+    const rows = (await revealRows(owner)).slice(before);
+    expect(rows.map((row) => [row.card_id, row.step, row.outcome])).toEqual([[cardId, "prepare", "granted"], [cardId, "grant", "granted"]]);
+    expect(Object.keys(rows[0] ?? {}).sort()).toEqual(["card_id", "customer_id", "id", "occurred_at", "outcome", "step"]);
+    const stored = JSON.stringify(rows);
+    for (const secret of ["nonce_synthetic123", "ek_test_synthetic123456", "ic_fixture1"]) expect(stored).not.toContain(secret);
+    await expect(service.reveal(other, cardId, grantBody)).rejects.toThrow("CARD_NOT_FOUND");
+    expect(await revealRows(other)).toEqual([]);
+    const failing: SqlExecutor = { ...sql, query: sql.query.bind(sql), transaction: (fn, options) => sql.transaction((tx) => fn({ ...tx, query: async (text, values, queryOptions) => {
+      if (text.includes("card_reveal_access")) throw new Error("audit unavailable");
+      return tx.query(text, values, queryOptions);
+    } }), options) };
+    const handler = createCardRevealHandler({ authorize: async () => session, customer: async () => ({ id: owner }), reveal: createCardWriteService({ sql: failing, programs }).reveal });
+    const response = await handler(request(grantBody), cardId);
+    expect(response.status).toBe(503);
+    const text = await response.text();
+    expect(parseCardWriteError(JSON.parse(text))?.error.code).toBe("CARDS_UNAVAILABLE");
+    for (const secret of ["nonce_synthetic123", "ek_test_synthetic123456", "ic_fixture1"]) expect(text).not.toContain(secret);
+    expect((await revealRows(owner)).length).toBe(before + 2);
   });
   test("replacement creates a new deterministic issue key after cancellation", async () => {
     const original = fake.cards.get("ic_fixture1");

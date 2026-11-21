@@ -142,6 +142,10 @@ export function createCardWriteService({ sql, programs = readCardPrograms(sql), 
         const grant = await program.reveal(link, card.providerCardId, request);
         if (grant.method !== request.method || grant.step !== request.step || grant.issuingCard !== card.providerCardId ||
             request.step === "grant" && (grant.step !== "grant" || grant.nonce !== request.nonce)) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
+        let recorded;
+        try { recorded = await tx.query("INSERT INTO card_reveal_access(customer_id,card_id,step,outcome) VALUES ($1,$2,$3,'granted')", [customerId, id, request.step]); }
+        catch { throw new CardWriteFailure("CARDS_UNAVAILABLE", 503); }
+        if (recorded.rowCount !== 1) throw new CardWriteFailure("CARDS_UNAVAILABLE", 503);
         return grant;
       });
     },
