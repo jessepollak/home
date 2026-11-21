@@ -255,13 +255,13 @@ describe("user operation lookup by committed calldata", () => {
   const other = "0x2222222222222222222222222222222222222222";
   const operationHash: `0x${string}` = `0x${"ab".repeat(32)}`;
 
-  function lookupWith(ops: ReturnType<typeof operation>[], events: Array<{ account: string; nonce: bigint; userOperationHash: string }>) {
+  function lookupWith(ops: ReturnType<typeof operation>[], events: Array<{ account: string; nonce: bigint; userOperationHash: string }>, readable = true) {
     const input = encodeFunctionData({ abi: entryPoint06Abi, functionName: "handleOps", args: [ops, other] });
     const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body: { id: number; method: string; params: unknown[] } | Array<{ id: number; method: string; params: unknown[] }> = JSON.parse(String(init?.body));
       if (Array.isArray(body)) {
         return Response.json(body.map((request) => ({ jsonrpc: "2.0", id: request.id,
-          result: { hash: request.params[0], to: USER_OPERATION_ENTRY_POINTS.V06, input } })));
+          result: readable ? { hash: request.params[0], to: USER_OPERATION_ENTRY_POINTS.V06, input } : null })));
       }
       return Response.json({ jsonrpc: "2.0", id: body.id, result: body.method === "eth_chainId" ? "0x2105" : body.method === "eth_blockNumber" ? "0x1000"
         : events.filter((event) => JSON.stringify(body.params[0]).includes(`0x${"0".repeat(24)}${event.account.slice(2)}`))
@@ -276,6 +276,17 @@ describe("user operation lookup by committed calldata", () => {
     const lookup = lookupWith([operation(other, BigInt(7), executeOne), operation(sender, BigInt(3), executeOne)],
       [{ account: sender, nonce: BigInt(3), userOperationHash: handle }]);
     expect(await lookup(target)).toEqual({ status: "complete", matches: [{ userOperationHash: operationHash, transactionHash: hash }] });
+  });
+
+  test("a failed log read or an unreadable transaction never produces a match", async () => {
+    const failing = createUserOperationCallDataLookup({ now: () => confirmedAt + 60_000, fetchImpl: async (_input, init) => {
+      const body: { id: number; method: string } = JSON.parse(String(init?.body));
+      return body.method === "eth_getLogs" ? new Response("unavailable", { status: 503 })
+        : Response.json({ jsonrpc: "2.0", id: body.id, result: body.method === "eth_chainId" ? "0x2105" : "0x1000" });
+    } });
+    expect(await failing(target)).toEqual({ status: "unavailable" });
+    const unreadable = lookupWith([operation(sender, BigInt(3), executeOne)], [{ account: sender, nonce: BigInt(3), userOperationHash: handle }], false);
+    expect(await unreadable(target)).toEqual({ status: "pending" });
   });
 
   test("does not match an operation that runs different calls than the committed ones", async () => {
