@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createUserOperationLogLookup } from "./user-operation-log";
+import { encodeFunctionData, getAddress, keccak256, parseAbi } from "viem";
+import { entryPoint06Abi } from "viem/account-abstraction";
+import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
+import { createUserOperationCallDataLookup, createUserOperationLogLookup } from "./user-operation-log";
 import { USER_OPERATION_ENTRY_POINTS, USER_OPERATION_EVENT_TOPIC } from "./receipt";
 import type { ActionRow } from "./store";
 
@@ -234,5 +237,69 @@ describe("user operation log lookup", () => {
     const ranges = scannedRanges(requests);
     expect(ranges).toHaveLength(1);
     expect(BigInt(ranges[0]!.fromBlock)).toBe(BigInt(4_036));
+  });
+});
+
+const coinbaseSmartAccountAbi = parseAbi(["function execute(address target, uint256 value, bytes data)"]);
+
+describe("user operation lookup by committed calldata", () => {
+  const recipient = "0x3333333333333333333333333333333333333333" as const;
+  const committed = [{ to: recipient, data: "0xa9059cbb" as const, value: "0" }];
+  const target: ActionRow = { ...row, provider_handle: null, confirmed_call_data_hash: keccak256(encodeCoinbaseExecuteBatch(committed)) };
+  const empty: `0x${string}` = "0x";
+  const operation = (account: string, nonce: bigint, callData: `0x${string}`) => ({
+    sender: getAddress(account), nonce, initCode: empty, callData, callGasLimit: BigInt(1), verificationGasLimit: BigInt(1),
+    preVerificationGas: BigInt(1), maxFeePerGas: BigInt(1), maxPriorityFeePerGas: BigInt(1), paymasterAndData: empty, signature: empty,
+  });
+  const executeOne = encodeFunctionData({ abi: coinbaseSmartAccountAbi, functionName: "execute", args: [recipient, BigInt(0), "0xa9059cbb"] });
+  const other = "0x2222222222222222222222222222222222222222";
+  const operationHash: `0x${string}` = `0x${"ab".repeat(32)}`;
+
+  function lookupWith(ops: ReturnType<typeof operation>[], events: Array<{ account: string; nonce: bigint; userOperationHash: string; transactionHash?: string }>, readable: boolean | ((index: number) => boolean) = true) {
+    const input = encodeFunctionData({ abi: entryPoint06Abi, functionName: "handleOps", args: [ops, other] });
+    const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body: { id: number; method: string; params: unknown[] } | Array<{ id: number; method: string; params: unknown[] }> = JSON.parse(String(init?.body));
+      if (Array.isArray(body)) {
+        return Response.json(body.map((request, index) => ({ jsonrpc: "2.0", id: request.id,
+          result: (typeof readable === "function" ? readable(index) : readable) ? { hash: request.params[0], to: USER_OPERATION_ENTRY_POINTS.V06, input } : null })));
+      }
+      return Response.json({ jsonrpc: "2.0", id: body.id, result: body.method === "eth_chainId" ? "0x2105" : body.method === "eth_blockNumber" ? "0x1000"
+        : events.filter((event) => JSON.stringify(body.params[0]).includes(`0x${"0".repeat(24)}${event.account.slice(2)}`))
+          .map((event, index) => ({ address: USER_OPERATION_ENTRY_POINTS.V06, transactionHash: event.transactionHash ?? hash, blockNumber: "0xf00", logIndex: `0x${index.toString(16)}`,
+            topics: [USER_OPERATION_EVENT_TOPIC, event.userOperationHash, `0x${"0".repeat(24)}${event.account.slice(2)}`],
+            data: `0x${event.nonce.toString(16).padStart(64, "0")}${"0".repeat(63)}1${"0".repeat(128)}` })) });
+    };
+    return createUserOperationCallDataLookup({ fetchImpl, now: () => confirmedAt + 60_000 });
+  }
+
+  test("matches a single-call execute against the committed batch, picking the sender's operation by nonce from a shared bundle", async () => {
+    const lookup = lookupWith([operation(other, BigInt(7), executeOne), operation(sender, BigInt(3), executeOne)],
+      [{ account: sender, nonce: BigInt(3), userOperationHash: handle }]);
+    expect(await lookup(target)).toEqual({ status: "complete", matches: [{ userOperationHash: operationHash, transactionHash: hash }] });
+  });
+
+  test("a failed log read or an unreadable transaction never produces a match", async () => {
+    const failing = createUserOperationCallDataLookup({ now: () => confirmedAt + 60_000, fetchImpl: async (_input, init) => {
+      const body: { id: number; method: string } = JSON.parse(String(init?.body));
+      return body.method === "eth_getLogs" ? new Response("unavailable", { status: 503 })
+        : Response.json({ jsonrpc: "2.0", id: body.id, result: body.method === "eth_chainId" ? "0x2105" : "0x1000" });
+    } });
+    expect(await failing(target)).toEqual({ status: "unavailable" });
+    const unreadable = lookupWith([operation(sender, BigInt(3), executeOne)], [{ account: sender, nonce: BigInt(3), userOperationHash: handle }], false);
+    expect(await unreadable(target)).toEqual({ status: "pending" });
+  });
+
+  test("one unreadable candidate transaction withholds a match found in another", async () => {
+    const lookup = lookupWith([operation(sender, BigInt(3), executeOne)], [
+      { account: sender, nonce: BigInt(3), userOperationHash: handle },
+      { account: sender, nonce: BigInt(4), userOperationHash: `0x${"cd".repeat(32)}`, transactionHash: `0x${"ef".repeat(32)}` },
+    ], (index) => index === 0);
+    expect(await lookup(target)).toEqual({ status: "pending" });
+  });
+
+  test("does not match an operation that runs different calls than the committed ones", async () => {
+    const different = encodeFunctionData({ abi: coinbaseSmartAccountAbi, functionName: "execute", args: [recipient, BigInt(1), "0xa9059cbb"] });
+    const lookup = lookupWith([operation(sender, BigInt(3), different)], [{ account: sender, nonce: BigInt(3), userOperationHash: handle }]);
+    expect(await lookup(target)).toEqual({ status: "pending" });
   });
 });
