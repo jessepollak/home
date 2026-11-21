@@ -82,6 +82,7 @@ The root [`.env.example`](../.env.example) is the complete list of names and the
 | --- | --- | --- |
 | `HOME_ACCESS_REQUIRED`, `HOME_ACCESS_PASSWORD`, `HOME_ACCESS_SIGNING_SECRET` | Vercel environment | [Vercel deploy](vercel-deploy.md#pre-release-production-access) |
 | `HOME_OPERATOR_ADDRESSES` | Vercel environment | [Vercel deploy](vercel-deploy.md#administrator-access) |
+| `HOME_PAYOUT_SIGNER_ADDRESSES` (server-only; allowed growth payout accounts, separate from administrator access; redeploy to change) | Vercel environment | [Growth rewards](architecture.md#growth-rewards), [Vercel deploy](vercel-deploy.md#administrator-access) |
 | `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_COMMIT_REF`, `VERCEL_ENV`, `VERCEL_DEPLOYMENT_ID` (identify Admin → Overview → Running version) | Provided by Vercel system environment variables, not operator-generated secrets | [First-run Setup](vercel-deploy.md#first-run-setup) |
 | `HOME_SESSION_SECRET` (at least 32 UTF-8 bytes; required for Base Account sign-in) | Vercel environment; local `.env.local` | [Base Account](base-account.md) |
 | `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` (required for email sign-in validation, balance enumeration, the balance webhook, and CDP SQL Activity history; no separate SQL key is needed) | Vercel environment; local `.env.local` | [CDP setup](cdp-setup.md), [Vercel deploy](vercel-deploy.md#cdp-balance-activity-webhook), [CDP SQL](cdp-sql.md#authentication-decision) |
@@ -103,3 +104,5 @@ Administrators change these in the operator console after [administrator access]
 | --- | --- | --- |
 | Swap fee, 0–300 basis points (default 0, off) | `/admin/settings` → Fees | [Administrator access](vercel-deploy.md#administrator-access) |
 | Revenue destination: a Base address that only receives fees, such as a multisig or another account held outside Home (required when the fee is above 0) | `/admin/settings` → Fees | [Administrator access](vercel-deploy.md#administrator-access) |
+
+Growth settings use the `growth` domain. A non-null payout account must be in `HOME_PAYOUT_SIGNER_ADDRESSES`; being an administrator is not enough. An unset or invalid signer list denies every non-null payout account write, but still permits a disabled draft with no payout account. Enabling also requires offered countries, tax-reporting and sanctions-screening acknowledgements, positive reward and minimum deposit, budget covering a reward, terms, and a payout account. Reward approval reserves budget; it does not send funds. Customer reward surfaces and payouts are not shipped in this slice.

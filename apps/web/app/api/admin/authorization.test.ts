@@ -3,6 +3,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 import { parseOperatorErrorResponse } from "@/shared/operator/contract";
 import { parseOperatorSettingsErrorResponse } from "@/shared/operator-settings/contract";
+import { createRewardDecisionHandler } from "@/server/growth/admin-handlers";
 import { createOperatorApiHandler } from "@/server/operator/api";
 import { readOperatorConfig } from "@/server/operator/config";
 import { createAuditListHandler, createSettingsDomainHandlers, createSettingsListHandler } from "@/server/operator-settings/handlers";
@@ -32,6 +33,7 @@ test("operator authorization precedes malformed-body parsing and settings or aud
       config: () => readOperatorConfig({ HOME_OPERATOR_ADDRESSES: operator }),
       store: denyDataAccess,
       audit: denyDataAccess,
+      sql: denyDataAccess,
     };
     const handlers = createSettingsDomainHandlers(dependencies);
     for (const response of [
@@ -39,6 +41,7 @@ test("operator authorization precedes malformed-body parsing and settings or aud
       await handlers.PUT(request("settings/support", { malformed: true }), context),
       await createSettingsListHandler(dependencies)(request("settings")),
       await createAuditListHandler(dependencies)(request("audit")),
+      await createRewardDecisionHandler(dependencies)(request("growth/rewards/not-a-uuid", { malformed: true }), { params: Promise.resolve({ id: "not-a-uuid" }) }),
     ]) {
       expect(response.status).toBe(variant.status);
       expect<unknown>(parseOperatorSettingsErrorResponse(await response.json())).toEqual({ error: { code: variant.code } });
