@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { countryRegionIds, presentationRegions, type CountryCode, type RegionId } from "@/config/regions";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ export function RegionsPane({ initialEntry, operator }: { initialEntry: RegionEn
   const [baseline, setBaseline] = useState(initialEntry);
   const [draft, setDraft] = useState<RegionSettings>(initialEntry.value);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -169,7 +170,7 @@ export function RegionsPane({ initialEntry, operator }: { initialEntry: RegionEn
       {message && <Alert><AlertDescription>{message}</AlertDescription></Alert>}
       <div><Button size="touch" disabled={!dirty || pending} onClick={() => setReviewOpen(true)}>Review changes</Button></div>
       <Drawer open={reviewOpen} onOpenChange={(open) => { if (!pending) setReviewOpen(open); }}>
-        <DrawerContent>
+        <DrawerContent initialFocus={cancelButton}>
           <DrawerHeader>
             <DrawerTitle>Review region changes</DrawerTitle>
             <DrawerDescription>Confirm which countries Home offers before saving.</DrawerDescription>
@@ -183,8 +184,8 @@ export function RegionsPane({ initialEntry, operator }: { initialEntry: RegionEn
             {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
           </div>
           <DrawerFooter className="flex-row justify-end">
-            <Button variant="outline" size="touch" disabled={pending} onClick={() => setReviewOpen(false)}>Cancel</Button>
             <Button size="touch" loading={pending} disabled={!dirty} onClick={() => { void save(); }}>Confirm changes</Button>
+            <Button ref={cancelButton} variant="outline" size="touch" disabled={pending} onClick={() => setReviewOpen(false)}>Cancel</Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>

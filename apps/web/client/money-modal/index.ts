@@ -2,7 +2,6 @@ export {
   AppDrawer,
   MoneyConfirmFooter,
   MoneyModal,
-  MoneyModalActions,
   MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,

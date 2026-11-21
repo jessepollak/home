@@ -148,6 +148,7 @@ From [Radius](theme.md#radius), [Elevation](theme.md#elevation) and [Type roles]
 - **Do** begin with [owned components](components.md) and their [contracts](theme.md#type-roles).
 - **Do** use the [appearance review](theme.md#appearance) and [motion contracts](theme.md#motion).
 - **Do** follow the [design-engineering working sequence](../../.agents/skills/design-engineering/SKILL.md#working-sequence).
+- **Do** put the affirmative or primary action first in every action group (sheet footer, card actions, alert action, review or confirm step); dismiss, cancel and back follow it. Destructive confirmations keep the same order, and initial focus may still go to the safe action. Sheet footers get this order from `MoneyModalFooter`'s `primary` and `secondary` slots; the `home/affirmative-action-first` lint rule rejects a dismiss-style button before an affirmative one elsewhere.
 - **Don't** bypass [component styling rules](rules.md) or [styling guards](styling-guards.md); consult the [enforced gates](../gates.md#styling-guards).
 
 ## Declared tokens
