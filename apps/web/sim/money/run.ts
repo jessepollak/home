@@ -12,7 +12,7 @@ type Faults = { lostHandle: boolean; revert: DispatchMode; doubleConfirm: boolea
 type Stage = "prepare" | "confirm" | "decline" | "dispatch" | "handle" | "hint" | "done";
 type SimAction = {
   index: number; kind: Kind; amount: bigint; faults: Faults; stage: Stage;
-  id?: string; calls?: Call[]; userOpHash?: Hex; handlePosted: boolean; prepareRefused?: string; dispatchUnknown?: boolean;
+  id?: string; calls?: Call[]; userOpHash?: Hex; handlePosted: boolean; prepareRefused?: string; dispatchUnknown?: boolean; minShares?: bigint;
 };
 export type RunResult = {
   seed: number; violations: Violation[]; actions: number; kinds: Record<Kind, number>;
@@ -60,6 +60,7 @@ export async function simulateRun(input: { seed: number; chain: Chain; clock: Vi
   await chain.fundUsdc(wallet.address, FUNDING);
   await mine(1);
   const home = new HomeOwner(`sim-${seed}`, wallet.address);
+  const recipientStart = await chain.usdcBalance(RECIPIENT);
   const ownerKey = actionOwnerKey({ subject: `sim-${seed}`, address: wallet.address, chainId: 8453, accountProvider: "cdp-embedded" });
 
   const count = 2 + Math.floor(random() * 4);
@@ -85,7 +86,7 @@ export async function simulateRun(input: { seed: number; chain: Chain; clock: Vi
 
   const check = async (final: boolean) => {
     await wallet.observe();
-    const found = await checkInvariants({ chain, wallet, home, db, ownerKey, actions, final });
+    const found = await checkInvariants({ chain, wallet, home, db, ownerKey, actions, final, recipientStart });
     for (const finding of found) violations.push({ ...finding, step });
   };
 
@@ -95,13 +96,21 @@ export async function simulateRun(input: { seed: number; chain: Chain; clock: Vi
         const params = action.kind === "send"
           ? { assetId: "usdc", recipient: RECIPIENT, amountBaseUnits: action.amount.toString() }
           : { vaultAddress: SAVE_VAULT, amountBaseUnits: action.amount.toString() };
+        const available = await chain.usdcBalance(wallet.address);
         const response = await home.prepare(action.kind, params);
         if (response.status !== 201 || typeof response.body.id !== "string") {
           action.prepareRefused = `${response.status} ${String(response.body.code ?? "")}`;
+          // Save prepare simulates the deposit at the latest block, so it may refuse an amount the account no longer holds.
+          // Any other refusal means Home turned away an action the chain would have accepted.
+          if (!(action.kind === "savings-deposit" && action.amount > available)) {
+            violations.push({ invariant: "actions-resolve", step, detail: `${action.kind} of ${action.amount} refused at prepare (${action.prepareRefused}) with ${available} available` });
+          }
           action.stage = "done";
           return true;
         }
         action.id = response.body.id;
+        const metadata = response.body.metadata as { minimumSharesBaseUnits?: string } | undefined;
+        if (action.kind === "savings-deposit") action.minShares = BigInt(metadata?.minimumSharesBaseUnits ?? "0");
         action.stage = "confirm";
         return true;
       }
@@ -118,6 +127,7 @@ export async function simulateRun(input: { seed: number; chain: Chain; clock: Vi
         }
         if (!accepted.length) {
           action.prepareRefused = `confirm ${responses.map((response) => response.status).join("/")}`;
+          violations.push({ invariant: "actions-resolve", step, detail: `${id.slice(0, 8)} confirm refused (${action.prepareRefused})` });
           action.stage = "done";
           return true;
         }
@@ -241,9 +251,9 @@ async function settled(db: SQL, ownerKey: string, actions: SimAction[]): Promise
 }
 
 async function checkInvariants(input: {
-  chain: Chain; wallet: SimWallet; home: HomeOwner; db: SQL; ownerKey: string; actions: SimAction[]; final: boolean;
+  chain: Chain; wallet: SimWallet; home: HomeOwner; db: SQL; ownerKey: string; actions: SimAction[]; final: boolean; recipientStart: bigint;
 }): Promise<Array<Omit<Violation, "step">>> {
-  const { chain, wallet, home, db, ownerKey, actions, final } = input;
+  const { chain, wallet, home, db, ownerKey, actions, final, recipientStart } = input;
   const out: Array<Omit<Violation, "step">> = [];
   const fail = (invariant: Invariant, detail: string) => out.push({ invariant, detail });
   const latest = BigInt(await chain.rpc<string>("eth_blockNumber", []));
@@ -290,15 +300,19 @@ async function checkInvariants(input: {
     }
     if (item.status === "failed" && landing?.success) fail("records-match-receipts", `${id.slice(0, 8)} shown failed but succeeded onchain`);
     if (final && wallet.get(id) && actions.find((a) => a.id === id)?.handlePosted && landing && item.status !== (landing.success ? "confirmed" : "failed")) {
-      fail("settles", `${id.slice(0, 8)} still ${String(item.status)} after finality; receipt success=${landing.success}`);
+      fail("actions-resolve", `${id.slice(0, 8)} still ${String(item.status)} after finality; receipt success=${landing.success}`);
     }
   }
   if (final) {
     for (const action of actions) {
+      if (action.userOpHash && !action.handlePosted && !wallet.get(action.id!)?.landing) {
+        fail("actions-resolve", `${action.id!.slice(0, 8)} was dispatched but never landed`);
+      }
       if (!action.handlePosted || !action.id) continue;
       const row = rows.get(action.id);
       const landing = wallet.get(action.id)?.landing;
-      if (landing && !row?.outcome) fail("settles", `${action.id.slice(0, 8)} landed (success=${landing.success}) but no outcome recorded`);
+      if (!landing) fail("actions-resolve", `${action.id.slice(0, 8)} was dispatched and its handle posted, but never landed`);
+      if (landing && !row?.outcome) fail("actions-resolve", `${action.id.slice(0, 8)} landed (success=${landing.success}) but no outcome recorded`);
     }
   }
 
@@ -317,6 +331,12 @@ async function checkInvariants(input: {
     if (shares?.balance.status !== "ready" || BigInt(shares.balance.baseUnits) !== chainShares) {
       fail("balances-match-chain", `Save shares home=${shares?.balance.baseUnits ?? "unavailable"} chain=${chainShares}`);
     }
+    const landedOk = actions.filter((action) => wallet.get(action.id ?? "")?.landing?.success);
+    const sent = landedOk.reduce((sum, action) => action.kind === "send" ? sum + action.amount : sum, BigInt(0));
+    const credited = await chain.usdcBalance(RECIPIENT, block) - recipientStart;
+    if (credited !== sent) fail("balances-match-chain", `recipient credited ${credited}, landed sends total ${sent}`);
+    const minShares = landedOk.reduce((sum, action) => sum + (action.minShares ?? BigInt(0)), BigInt(0));
+    if (chainShares < minShares) fail("balances-match-chain", `Save shares ${chainShares} below the ${minShares} landed deposits promised`);
     // Conservation: everything that left spendable USDC is a landed, succeeded action; Home's confirmed rows never exceed it.
     const landedSpend = actions.reduce((sum, action) => wallet.get(action.id ?? "")?.landing?.success ? sum + action.amount : sum, BigInt(0));
     const chainSpent = FUNDING - chainUsdc;

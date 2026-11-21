@@ -21,7 +21,7 @@ export class HomeOwner {
   private readonly scheduled: Array<() => Promise<unknown>> = [];
   private readonly authorize: () => Promise<VerifiedAccountSession>;
   private readonly handlers;
-  private virtualNow = Date.now();
+  private taskClockReads = 0;
 
   constructor(readonly subject: string, readonly address: Address) {
     const session: VerifiedAccountSession = {
@@ -34,9 +34,9 @@ export class HomeOwner {
       handle: createHandleActionHandler({
         authorize: this.authorize,
         schedule: (task) => { this.scheduled.push(task); },
-        // A clock that jumps past the 45 s loop deadline after each read, so each drained task runs Home's
-        // follow-through step exactly once instead of sleeping between attempts.
-        followDeps: { now: () => (this.virtualNow += 46_000) },
+        // The loop reads this clock for its deadline, its loop check, and after each step. The third read jumps past
+        // the 45 s deadline, so each drained task runs Home's follow-through step exactly once instead of sleeping.
+        followDeps: { now: () => Date.now() + (++this.taskClockReads >= 3 ? 46_000 : 0) },
       }),
       decline: createDeclineActionHandler({ authorize: this.authorize }),
       retry: createRetryActionHandler({ authorize: this.authorize }),
@@ -66,7 +66,10 @@ export class HomeOwner {
   /** Runs every follow-through task the handle route scheduled (the `after()` stand-in). */
   async drainScheduled(): Promise<number> {
     const tasks = this.scheduled.splice(0);
-    for (const task of tasks) await task();
+    for (const task of tasks) {
+      this.taskClockReads = 0;
+      await task();
+    }
     return tasks.length;
   }
 

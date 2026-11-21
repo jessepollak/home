@@ -10,7 +10,10 @@ export type WorkerOutput = { results: Array<RunResult | Crashed>; stubbed: strin
 export async function simulateSeeds(seeds: number[], forkBlock: bigint, onProgress?: (done: number) => void): Promise<WorkerOutput> {
   const configured = process.env.BASE_RPC_URL?.trim();
   const pg = await startScratchPostgres();
-  const fork = await startFork(configured || "https://mainnet.base.org", forkBlock);
+  const fork = await startFork(configured || "https://mainnet.base.org", forkBlock).catch(async (error: unknown) => {
+    await pg.stop();
+    throw error;
+  });
   // Home reads its chain and database only through these: point them at the fork and the scratch database.
   process.env.BASE_RPC_URL = fork.url;
   process.env.DATABASE_URL = pg.url;
