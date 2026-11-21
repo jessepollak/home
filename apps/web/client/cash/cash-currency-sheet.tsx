@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useQueries } from "@tanstack/react-query";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, deferStep } from "@/client/money-modal";
+import { MoneyModal, MoneyModalFooter, MoneyModalBody, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, deferStep } from "@/client/money-modal";
 import { browserHomeQueryClient } from "@/client/query/query-client";
 import { tradeAvailabilityOptions } from "@/client/trading/use-trade-availability";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -167,11 +167,12 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
           <p className="text-sm text-muted-foreground">{source.symbol}{row?.usdValue ? ` · ≈ ${row.usdValue}` : ""}</p>
         </div>}
       </MoneyModalBody>
-      <MoneyModalActions>{fundingNux ? <Button className="min-h-11 w-full" onClick={() => { addMoneyAfterClose.current = true; onCancel(); }}>Add money</Button> : <div className={canSave ? "grid grid-cols-2 gap-2" : ""}>
-        {source.convertOffered ? <Button className="min-h-11 w-full" onPointerDown={() => void TradeStep.preload()} onClick={convert}>Convert</Button>
-          : <p className="text-center text-sm text-muted-foreground">{CASH_CONVERSION_UNAVAILABLE_REASON}</p>}
-        {canSave ? <Button variant="secondary" className="min-h-11 w-full" onPointerDown={() => void SavingsStep.preload()} onClick={() => { setSaveCandidate(best); setStep("save"); void SavingsStep.preload(); }}>Save</Button> : null}
-      </div>}</MoneyModalActions>
+      <MoneyModalFooter layout={!fundingNux && canSave ? "split" : "stack"}
+        primary={fundingNux ? <Button className="min-h-11 w-full" onClick={() => { addMoneyAfterClose.current = true; onCancel(); }}>Add money</Button>
+          : source.convertOffered ? <Button className="min-h-11 w-full" onPointerDown={() => void TradeStep.preload()} onClick={convert}>Convert</Button>
+            : <p className="text-center text-sm text-muted-foreground">{CASH_CONVERSION_UNAVAILABLE_REASON}</p>}
+        secondary={!fundingNux && canSave ? <Button variant="secondary" className="min-h-11 w-full" onPointerDown={() => void SavingsStep.preload()} onClick={() => { setSaveCandidate(best); setStep("save"); void SavingsStep.preload(); }}>Save</Button> : null}
+      />
     </MoneyModalStep> : null}
     {step === "destination" ? <MoneyModalStep step="destination" depth={depth}>
       <MoneyModalHeader title="Convert to" titleId={titleId} closeLabel="Close conversion" onBack={entry.kind === "currency" ? () => setStep("currency") : undefined} />
@@ -206,7 +207,7 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
 
         {destinations.some((currency, index) => currency.convertOffered && queries[index]?.isError) ? <Button variant="secondary" className="min-h-11" onClick={() => { for (const [index, currency] of destinations.entries()) if (currency.convertOffered && queries[index]?.isError) void queries[index].refetch(); }}>Try again</Button> : null}
       </MoneyModalBody>
-      {sourceBalance === "0" && !balanceStale ? <MoneyModalActions><Button className="min-h-11 w-full" onClick={() => { addMoneyAfterClose.current = true; onCancel(); }}>Add money</Button></MoneyModalActions> : null}
+      {sourceBalance === "0" && !balanceStale ? <MoneyModalFooter primary={<Button className="min-h-11 w-full" onClick={() => { addMoneyAfterClose.current = true; onCancel(); }}>Add money</Button>} /> : null}
     </MoneyModalStep> : null}
     {step === "trade" && selected && trade && trade.currency.code === selected.code ? <TradeStep key={`${resetKey}:${source.code}:${trade.currency.code}`} depth={depth + 1} session={session} token={trade.token}
       direction={trade.direction} assetName={selected.name} conversion={{ from: source, to: selected }}
@@ -222,7 +223,7 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
       : step === "trade" ? <MoneyModalStep key={resetKey} step="trade-unavailable" depth={depth + 1}>
         <MoneyModalHeader title="Conversion unavailable" titleId="trade-action-title" onBack={backFromTrade} closeLabel="Close conversion" />
         <MoneyModalBody hasFooter={Boolean(selectedQuery?.isError)}><p>Can&apos;t convert this currency right now. Try again later.</p></MoneyModalBody>
-        {selectedQuery?.isError ? <MoneyModalActions><Button variant="secondary" className="min-h-11 w-full" onClick={() => void selectedQuery.refetch()}>Try again</Button></MoneyModalActions> : null}
+        {selectedQuery?.isError ? <MoneyModalFooter primary={<Button variant="secondary" className="min-h-11 w-full" onClick={() => void selectedQuery.refetch()}>Try again</Button>} /> : null}
       </MoneyModalStep> : null}
     {step === "save" && saveCandidate ? <SavingsStep key={`${resetKey}:${saveCandidate.vaultAddress}`} depth={1} onBack={() => setStep("currency")} onDone={onCancel} mode="deposit" session={session} candidate={saveCandidate}
       availableLabel={usdcBaseUnits !== null ? `${formatUsdStablecoinAmount(usdcBaseUnits)} available` : undefined} availableBaseUnits={usdcBaseUnits} availableStale={balanceStale}

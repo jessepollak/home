@@ -2,7 +2,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { ArrowDownLeft, CircleAlert, CircleCheck, CircleQuestionMark, CircleX, Clock } from "lucide-react";
-import { MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, MoneyModalStep, MoneyResult, MoneyResultFooter, moneyConfirmFromRow, useAutoFitAmountText } from "@/client/money-modal";
+import { MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, MoneyModalStep, MoneyResult, MoneyResultFooter, moneyConfirmFromRow, useAutoFitAmountText } from "@/client/money-modal";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { useReactiveExpiry } from "@/client/actions/expiry";
 import { formatExactPresentationTokenAmount, formatUsdStablecoinAmount } from "@/shared/formatting";
@@ -294,7 +294,7 @@ export function ActivityLedgerDetailSheet({
         ) : null}
       </MoneyModalBody>
       {item && primaryAction ? primaryAction.kind === "clear-order" ? (
-        <MoneyModalActions>
+        <MoneyModalFooter primary={
           <Button
             size="lg"
             variant="outline"
@@ -304,7 +304,7 @@ export function ActivityLedgerDetailSheet({
           >
             {primaryAction.label}
           </Button>
-        </MoneyModalActions>
+        } />
       ) : (
         <MoneyModalFooter
           primaryLabel={primaryAction.label}
