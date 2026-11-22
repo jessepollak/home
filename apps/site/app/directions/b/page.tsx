@@ -59,7 +59,10 @@ export default function DirectionB() {
             <a href={talkToUs}>Talk to us</a>
           </nav>
         </header>
+      </div>
 
+      <main>
+        <div className={styles.hero}>
         <div className={`${styles.inner} ${styles.intro}`}>
           <h1 className={styles.pitch}>
             <span>{pitchLead}</span> <span className={styles.pitchAccent}>{pitchRest.join(" ")}</span>
@@ -78,7 +81,6 @@ export default function DirectionB() {
         </div>
       </div>
 
-      <main>
         <figure className={styles.stage}>
           <div className={styles.phones}>
             {captures.map((capture, index) => (

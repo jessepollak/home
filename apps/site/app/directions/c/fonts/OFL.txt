@@ -3,8 +3,8 @@ Fonts in this directory
 JetBrainsMono-Variable.woff2: JetBrains Mono, latin subset, variable weight.
 Source: https://github.com/JetBrains/JetBrainsMono (subset via https://cdn.jsdelivr.net/npm/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2)
 
-IBMPlexSans-Variable.woff2: IBM Plex Sans, latin subset, variable weight.
-Source: https://github.com/IBM/plex (subset via https://cdn.jsdelivr.net/npm/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2)
+InterTight-latin.woff2: Inter Tight, latin subset, variable weight 100-900.
+Source: https://github.com/rsms/inter-tight (WOFF2 latin subset as served by Google Fonts)
 
 Both are licensed under the SIL Open Font License, Version 1.1.
 
@@ -106,13 +106,13 @@ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ================================================================
-IBM Plex Sans
+Inter Tight
 ================================================================
-Copyright 2019 IBM Corp. All rights reserved. IBMPlexSans-Italic[wdth,wght].ttf: Copyright 2019 IBM Corp. All rights reserved.
+Copyright 2022 The Inter Project Authors (https://github.com/rsms/inter-tight)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
-http://scripts.sil.org/OFL
+https://scripts.sil.org/OFL
 
 
 -----------------------------------------------------------
@@ -128,7 +128,7 @@ with others.
 
 The OFL allows the licensed fonts to be used, studied, modified and
 redistributed freely as long as they are not sold by themselves. The
-fonts, including any derivative works, can be bundled, embedded,
+fonts, including any derivative works, can be bundled, embedded, 
 redistributed and/or sold with any software provided that any reserved
 names are not used by derivative works. The fonts and derivatives,
 however, cannot be released under any other type of license. The

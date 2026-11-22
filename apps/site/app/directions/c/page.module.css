@@ -297,25 +297,18 @@
 }
 
 .plateRail {
-  display: flex;
-  gap: 2.5rem;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-padding-inline: var(--gutter);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
   padding: 0 var(--gutter) 0.75rem;
-  scrollbar-width: thin;
-  scrollbar-color: var(--rule-strong) transparent;
-  cursor: grab;
-}
-
-.plateRail:active {
-  cursor: grabbing;
 }
 
 .specimen {
-  flex: 0 0 auto;
-  width: min(62vw, 15rem);
-  scroll-snap-align: start;
+  min-width: 0;
+}
+
+.specimen:nth-child(2) {
+  display: none;
 }
 
 .specMeta {
@@ -907,16 +900,15 @@
   }
 
   .plateRail {
+    display: flex;
     justify-content: center;
     gap: clamp(2rem, 5vw, 4.5rem);
-    cursor: default;
   }
 
-  .plateRail:active {
-    cursor: default;
-  }
-
-  .specimen {
+  .specimen,
+  .specimen:nth-child(2) {
+    display: block;
+    flex: 0 0 auto;
     width: clamp(12rem, 24vw, 17rem);
   }
 
@@ -1091,7 +1083,7 @@
   }
 
   .caret {
-    animation: c-blink 1.1s steps(1) infinite;
+    animation: c-blink 1.1s steps(1) 4;
   }
 
   .plate {
@@ -1099,7 +1091,7 @@
   }
 
   .dep::after {
-    animation: c-flow 900ms linear infinite;
+    animation: c-flow 900ms linear 5;
   }
 
   .dep:nth-child(odd)::after {
@@ -1107,7 +1099,7 @@
   }
 
   .core {
-    animation: c-pulse 3.2s ease-in-out infinite;
+    animation: c-pulse 3.2s ease-in-out 1;
   }
 
   @supports (animation-timeline: view()) {
@@ -1135,7 +1127,7 @@
     .dep::after {
       animation:
         c-draw-x linear both,
-        c-flow 900ms linear infinite;
+        c-flow 900ms linear 5;
       animation-timeline: view(), auto;
       animation-range: entry 30% cover 40%, normal;
     }
@@ -1151,5 +1143,15 @@
   .root *::before,
   .root *::after {
     transition-duration: 0ms !important;
+  }
+
+  .root .primary:hover::after,
+  .root .secondary:hover::after,
+  .root .primary:active,
+  .root .secondary:active,
+  .root .specimen:hover .specFrame,
+  .root .specimen:hover .specFrame::before,
+  .root .specimen:hover .specFrame::after {
+    transform: none;
   }
 }

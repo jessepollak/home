@@ -607,7 +607,33 @@
   .root *,
   .root *::before,
   .root *::after {
-    animation: none;
-    transition-duration: 0ms;
+    animation: none !important;
+    transition-duration: 0ms !important;
+  }
+
+  .root .buttonSolid:active,
+  .root .buttonGhost:active,
+  .root .phone:hover {
+    scale: none;
+  }
+}
+
+@media (max-width: 39.99rem) {
+  .phones {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .phone {
+    width: auto;
+    margin-inline: 0;
+    rotate: none;
+    translate: none;
+    animation: none !important;
+  }
+
+  .phoneCenter {
+    display: none;
   }
 }

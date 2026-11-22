@@ -14,8 +14,8 @@ const mono = localFont({
 });
 
 const sans = localFont({
-  src: "./fonts/IBMPlexSans-Variable.woff2",
-  weight: "100 700",
+  src: "./fonts/InterTight-latin.woff2",
+  weight: "100 900",
   variable: "--c-font-sans",
   display: "swap",
   fallback: ["ui-sans-serif", "system-ui", "sans-serif"],

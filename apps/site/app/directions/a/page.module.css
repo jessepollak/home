@@ -210,29 +210,17 @@
 
 .plateRow {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 72%;
-  gap: 1.25rem;
-  margin: 0 calc(var(--gutter) * -1);
-  padding: 0 var(--gutter) 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 0;
   list-style: none;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-padding-inline: var(--gutter);
-  scrollbar-width: none;
 }
 
-.plateRow:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-}
-
-.plateRow::-webkit-scrollbar {
+.plateRow > :nth-child(2) {
   display: none;
 }
 
 .plate {
-  scroll-snap-align: start;
   min-width: 0;
 }
 
@@ -539,6 +527,14 @@
 /* Wider sheets */
 
 @media (min-width: 40rem) {
+  .plateRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .plateRow > :nth-child(2) {
+    display: block;
+  }
+
   .runIn {
     columns: 2;
   }
@@ -681,14 +677,12 @@
 
 @keyframes settle {
   from {
-    opacity: 0;
     transform: translateY(0.75rem);
   }
 }
 
 @keyframes rise {
   from {
-    opacity: 0;
     transform: translateY(1.5rem);
   }
 }
