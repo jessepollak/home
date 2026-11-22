@@ -222,7 +222,8 @@ export function PortfolioHomeExperience({
   const renderSearchContent = useCallback((props: ShellSearchContentProps) => <PresentationRegionProvider regionId={region.regionId}>
     <PricedAssetSearch {...props} discover={discover} investVisibility={investVisibility} fallback={noSearchFallback} /></PresentationRegionProvider>, [region.regionId, discover, investVisibility]);
   const searchEnabled = productOffering.products.invest === "on" && getVisibleShelves(discover.memeAssets, investVisibility ?? INVEST_SETTINGS_DEFAULTS).length > 0;
-  useEffect(() => { void PricedAssetSearch.preload(); }, []);
+  const investOn = productOffering.products.invest === "on";
+  useEffect(() => { if (investOn) void PricedAssetSearch.preload(); }, [investOn]);
   const renderCashContent = useCallback((props: { view: "cash" | "savings"; onOpenSavings: () => void }) => (
     <AuthenticatedCashExperience view={props.view} onOpenSavings={props.onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />
   ), [regionReady, pendingCashout]);

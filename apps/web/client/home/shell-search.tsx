@@ -118,7 +118,6 @@ export function ShellSearchProvider({ children, content, available, signedOut, o
   }, [detailTargetRef, ownerKey]);
   const closeSearch = useCallback(() => {
     detailTargetRef.current = null;
-    focusInputWhenReadyRef.current = false;
     const saved = searchEntry;
     const historyState: unknown = window.history.state;
     if ((isRecord(historyState) && historyState.assetSearchPushed === true) || (saved?.href === `${window.location.pathname}${window.location.search}` && saved.state.assetSearchPushed)) { backClientHistory(); return; }
@@ -146,6 +145,7 @@ export function ShellSearchProvider({ children, content, available, signedOut, o
       if (!isRecord(value) || Object.entries(saved.state).some(([key, item]) => value[key] !== item)) window.history.replaceState({ ...window.history.state, ...saved.state }, "");
     }
     if (searchOpen) { wasSearchOpenRef.current = true; searchOriginPathRef.current = pathname; searchOriginOwnerRef.current = ownerKey; return; }
+    focusInputWhenReadyRef.current = false;
     if (!wasSearchOpenRef.current) return;
     wasSearchOpenRef.current = false;
     if (pathname !== searchOriginPathRef.current || ownerKey !== searchOriginOwnerRef.current || !available || signedOut) return;
