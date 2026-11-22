@@ -108,6 +108,7 @@ function evaluateInWorker(input, budgetMs) {
   const signal = new Int32Array(new SharedArrayBuffer(8));
   const { port1, port2 } = new MessageChannel();
   const worker = new Worker(new URL(import.meta.url), { workerData: { knipGlob: { input, port: port2, signal: signal.buffer } }, transferList: [port2], stdout: true, stderr: true });
+  worker.on("error", () => {});
   worker.unref();
   const deadline = performance.now() + budgetMs;
   let stdout = "";
