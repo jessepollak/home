@@ -1,16 +1,14 @@
 "use client";
 
-import { Banknote, CircleCheck, Clock, PiggyBank, Plus } from "lucide-react";
-import type { CSSProperties } from "react";
+import { Banknote, ChevronDown, CircleCheck, Clock, PiggyBank, Plus, X } from "lucide-react";
+import type { CSSProperties, ReactNode } from "react";
 import { GlyphMark } from "@/components/currency-mark";
 import { ActivityRow, BalanceRow } from "@/components/finance-rows";
-import { ManagementFacts } from "@/components/management-facts";
 import { MoneyTicker } from "@/components/money-ticker";
 import { MoneyBreakdownLegend, SignedBalanceBar } from "@/components/signed-balance-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { PayoutMark } from "@/components/ui/payout-mark";
 import { ResultHeader } from "@/components/ui/result-header";
 import { StatusStep, StatusSteps } from "@/components/ui/status-step";
 import { StatusMark } from "@/components/ui/status-texture";
@@ -68,50 +66,57 @@ export function AddMoneyDemo() {
   );
 }
 
+const sendFacts: readonly [string, ReactNode][] = [
+  ["From", <span key="from" className="font-mono">0x1111…111111</span>],
+  ["To", <span key="to" className="flex items-center justify-end gap-2 font-mono">0x2211…d77DA9<ChevronDown className="size-4 text-muted-foreground" aria-hidden="true" /></span>],
+  ["Asset", "USDC"],
+  ["Network", "Base"],
+  ["Network fee", "Up to 0.02 USDC · ≈ $0.02"],
+];
+
+function ReviewFacts({ rows }: { rows: readonly [string, ReactNode][] }) {
+  return (
+    <Card variant="flush">
+      <CardContent inset="list">
+        <dl>
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-3 py-3 text-sm">
+              <dt className="min-w-0 text-muted-foreground">{label}</dt>
+              <dd className="ms-auto min-w-0 text-end font-medium tabular-nums">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SendDemo() {
   const board = useStoryboard(sendHolds);
   const sent = board.step >= 2;
   const confirmed = board.step === 3;
   return (
     <DemoFrame {...board} label="Send">
-      <Card className="grid p-4">
-        <div className={cn("col-start-1 row-start-1 flex flex-col gap-5 transition-[opacity,translate] duration-base ease-standard", sent && "-translate-y-2 opacity-0")}>
-          <p className="text-center text-base font-semibold">Confirm</p>
-          <div className="flex flex-col items-center gap-1">
-            <p className="text-4xl leading-none font-semibold tabular-nums">$25.00</p>
-            <p className="text-sm text-muted-foreground">You&apos;re sending USDC</p>
+      <Card className="gap-5 p-4">
+        <div className="grid">
+          <div className={cn("col-start-1 row-start-1 flex flex-col gap-5 transition-[opacity,translate] duration-base ease-standard", sent && "-translate-y-2 opacity-0")}>
+            <p className="text-center text-base font-semibold">Confirm</p>
+            <div className="flex flex-col items-center gap-1">
+              <p className="text-4xl leading-none font-semibold tabular-nums">$25.00</p>
+              <p className="text-sm text-muted-foreground">You&apos;re sending USDC</p>
+            </div>
           </div>
-          <Card variant="flush">
-            <CardContent className="py-1">
-              <ManagementFacts rows={[["From", "0x1111…1111"], ["To", "0x2211…7DA9"], ["Network", "Base"], ["Network fee", "Up to 0.02 USDC · ≈ $0.02"]]} />
-            </CardContent>
-          </Card>
-          <Button size="touch" loading={board.step === 1}>Send $25.00</Button>
+          <div className={cn("col-start-1 row-start-1 flex items-center justify-center transition-[opacity,translate] duration-base ease-standard", !sent && "translate-y-2 opacity-0", confirmed && "opacity-0")}>
+            <ResultHeader outcome="pending" title="$25.00 on its way" description="We'll update Activity when it's confirmed." />
+          </div>
+          <div className={cn("col-start-1 row-start-1 flex items-center justify-center transition-[opacity,scale] duration-base ease-enter", confirmed ? "opacity-100" : "scale-95 opacity-0")}>
+            <ResultHeader outcome="success" title="$25.00 sent" />
+          </div>
         </div>
-        <div className={cn("col-start-1 row-start-1 grid grid-rows-[1fr_auto] gap-5 transition-[opacity,translate] duration-base ease-standard", sent ? "opacity-100" : "translate-y-2 opacity-0")}>
-          <div className="grid">
-            <div className={cn("col-start-1 row-start-1 flex flex-col items-center justify-center gap-8 transition-opacity duration-base ease-exit", confirmed && "opacity-0")}>
-              <ResultHeader outcome="pending" title="$25.00 on its way" description="We'll update Activity when it's confirmed." />
-              <div className="w-full">
-                <StatusSteps>
-                  <StatusStep status="complete" title="Submitted" time="11:42 AM" />
-                  <StatusStep status="current" title="Confirming on Base" />
-                </StatusSteps>
-              </div>
-            </div>
-            <div className={cn("col-start-1 row-start-1 flex items-center justify-center transition-[opacity,scale] duration-base ease-enter", confirmed ? "opacity-100" : "scale-95 opacity-0")}>
-              <ResultHeader outcome="success" title="$25.00 sent" />
-            </div>
-          </div>
-          <div className="grid items-end">
-            <div className={cn("col-start-1 row-start-1 flex flex-col gap-2 transition-opacity duration-base ease-exit", confirmed && "opacity-0")}>
-              <Button size="touch">Done</Button>
-              <Button size="touch" variant="outline">View in Activity</Button>
-            </div>
-            <div className={cn("col-start-1 row-start-1 transition-opacity duration-base ease-enter", !confirmed && "opacity-0")}>
-              <Button size="touch" className="w-full">Done</Button>
-            </div>
-          </div>
+        <ReviewFacts rows={sendFacts} />
+        <div className="grid">
+          <Button size="touch" loading={board.step === 1} className={cn("col-start-1 row-start-1 transition-opacity duration-base ease-standard", sent && "opacity-0")}>Send $25.00</Button>
+          <Button size="touch" className={cn("col-start-1 row-start-1 transition-opacity duration-base ease-standard", !sent && "opacity-0")}>Done</Button>
         </div>
       </Card>
     </DemoFrame>
@@ -172,44 +177,80 @@ function DetailBadge({ confirmed }: { confirmed: boolean }) {
   );
 }
 
+function SheetFacts({ rows }: { rows: readonly [string, ReactNode][] }) {
+  return (
+    <Card variant="flush">
+      <CardContent inset="list">
+        <dl>
+          {rows.map(([label, value]) => (
+            <div key={label} className="grid min-h-11 grid-cols-[minmax(6rem,0.65fr)_minmax(0,1.35fr)] items-center gap-3 px-3 text-sm">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="min-w-0 text-end wrap-anywhere">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+function cashOutFacts(paid: boolean): [string, ReactNode][] {
+  return [
+    ["Date", "Sep 28, 2026, 11:16 AM"],
+    ["Network", "Base"],
+    ["Provider", "Peer"],
+    ["Payout app", "Cash App"],
+    ["Payout handle", "alice"],
+    [paid ? "Quoted receive" : "You receive", "≈ $50.00 to Cash App"],
+    ...(paid ? [] : [["Arrives", "Usually within 1 hour"] as [string, ReactNode]]),
+    ["Transaction", <span key="transaction" className="font-mono">0x8f3c2a1b…4d7e9c21</span>],
+  ];
+}
+
+function CashOutHeadline({ confirmed }: { confirmed: boolean }) {
+  return (
+    <div className="flex flex-col items-center gap-2 py-3">
+      <p className="text-4xl leading-none font-semibold tabular-nums">−$50.00</p>
+      <DetailBadge confirmed={confirmed} />
+    </div>
+  );
+}
+
 export function CashOutDemo() {
   const board = useStoryboard(cashOutHolds);
-  const confirmed = board.step === 2;
+  const paid = board.step === 2;
   return (
     <DemoFrame {...board} label="Cash out">
-      <div className="flex flex-col gap-3">
-        <Card variant="flush">
-          <CardContent inset="list">
-            <ul className="list-none p-0">
-              <ActivityRow
-                icon={<PayoutMark variant="cashapp">$</PayoutMark>}
-                iconTone="mark"
-                label="Cash out to Cash App"
-                context="Sep 28, 11:16 AM"
-                value="−$50.00"
-                valueTone={confirmed ? "default" : "muted"}
-                onActivate={noop}
-                activateLabel="View Cash out to Cash App details"
-              />
-            </ul>
-          </CardContent>
-        </Card>
-        <div className="flex flex-col gap-3 pt-2">
-          <div className="flex flex-col items-center gap-2 py-1">
-            <p className="text-4xl leading-none font-semibold tabular-nums">−$50.00</p>
-            <DetailBadge confirmed={confirmed} />
+      <Card className="gap-2 px-4 pt-2">
+        <div className="grid h-11 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center">
+          <span />
+          <p className="truncate text-center text-base font-semibold">Cash out to Cash App</p>
+          <span className="flex justify-end pe-3.5"><X className="size-4" aria-hidden="true" /></span>
+        </div>
+        <div className="grid">
+          <div className={cn("col-start-1 row-start-1 flex flex-col gap-4 transition-opacity duration-base ease-exit", paid && "opacity-0")}>
+            <CashOutHeadline confirmed={false} />
+            <div className="grid">
+              {["Waiting for a buyer", "Buyer paying you"].map((title, index) => (
+                <div key={title} className={cn("col-start-1 row-start-1 transition-opacity duration-base ease-standard", board.step !== index && "opacity-0")}>
+                  <StatusSteps>
+                    <StatusStep status="current" title={title} showConnector={false} />
+                  </StatusSteps>
+                </div>
+              ))}
+            </div>
+            <SheetFacts rows={cashOutFacts(false)} />
+            <p className="self-end text-sm font-medium text-muted-foreground">View on explorer<span aria-hidden="true"> ↗</span></p>
           </div>
-          <div className="grid">
-            {["Waiting for a buyer", "Buyer paying you"].map((title, index) => (
-              <div key={title} className={cn("col-start-1 row-start-1 transition-opacity duration-base ease-standard", board.step !== index && "opacity-0")}>
-                <StatusSteps>
-                  <StatusStep status="current" title={title} showConnector={false} />
-                </StatusSteps>
-              </div>
-            ))}
+          <div className={cn("col-start-1 row-start-1 flex flex-col gap-4 transition-[opacity,scale] duration-base ease-enter", paid ? "opacity-100" : "scale-[0.98] opacity-0")}>
+            <div className="flex flex-1 flex-col justify-center">
+              <CashOutHeadline confirmed />
+            </div>
+            <SheetFacts rows={cashOutFacts(true)} />
+            <p className="self-end text-sm font-medium text-muted-foreground">View on explorer<span aria-hidden="true"> ↗</span></p>
           </div>
         </div>
-      </div>
+      </Card>
     </DemoFrame>
   );
 }
