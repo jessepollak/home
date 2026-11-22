@@ -10,16 +10,19 @@
     "knip": "knip --production --no-progress"
   },
   "dependencies": {
+    "lucide-react": "^1.57.0",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "knip": "^6.41.0",
     "oxlint": "^1.88.0",
+    "tailwindcss": "^4",
     "typescript": "^5"
   },
   "packageManager": "bun@1.4.4"

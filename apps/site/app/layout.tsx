@@ -13,8 +13,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" className="antialiased">
+      <body className="min-h-dvh">{children}</body>
     </html>
   );
 }

@@ -24,7 +24,12 @@
       {
         "name": "next"
       }
-    ]
+    ],
+    "paths": {
+      "@/*": [
+        "../web/*"
+      ]
+    }
   },
   "include": [
     "next-env.d.ts",
