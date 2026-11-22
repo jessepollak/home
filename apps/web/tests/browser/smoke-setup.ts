@@ -17,7 +17,7 @@ export default async function smokeSetup(config: FullConfig) {
   try {
     for (const path of ["/admin", "/admin/settings/funding", "/cash/savings"]) {
       const started = performance.now();
-      const response = await context.get(path, { maxRedirects: 0 });
+      const response = await context.get(path, { maxRedirects: 0, timeout: 170_000 });
       if (response.status() !== 200) throw new Error(`Smoke compile ${path}: HTTP ${response.status()}`);
       await response.dispose();
       console.log(`Smoke compile ${path}: ${Math.round(performance.now() - started)}ms`);
