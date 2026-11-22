@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { collectBranches, eligiblePreviews, planPrune } from "../../ci/neon-preview-prune-plan.mjs";
+import { collectBranches, eligiblePreviews, planPrune, runCli } from "../../ci/neon-preview-prune-plan.mjs";
 
 const cli = fileURLToPath(new URL("../../ci/neon-preview-prune-plan.mjs", import.meta.url));
 const branch = (name, created_at, extra = {}) => ({ name, id: name, created_at, ...extra });
@@ -116,13 +116,13 @@ test("collectBranches concatenates pages in order and rejects untrustworthy list
 test("collect CLI matches the collector and rejects malformed pages", () => {
   const pages = [{ branches: [other[0]] }, { branches: previews }];
   const result = spawnSync(process.execPath, [cli, "collect"], { input: JSON.stringify(pages), encoding: "utf8" });
+  assert.deepEqual(runCli(["collect"], () => JSON.stringify(pages)), collectBranches(pages));
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), collectBranches(pages));
-  for (const input of ["not json", JSON.stringify([{}]), JSON.stringify([{ branches: [] }])]) {
-    const bad = spawnSync(process.execPath, [cli, "collect"], { input, encoding: "utf8" });
-    assert.notEqual(bad.status, 0);
-    assert.match(bad.stderr, /Neon preview prune planner:/);
-  }
+  const bad = spawnSync(process.execPath, [cli, "collect"], { input: "not json", encoding: "utf8" });
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stderr, /Neon preview prune planner:/);
+  for (const input of [JSON.stringify([{}]), JSON.stringify([{ branches: [] }])]) assert.throws(() => runCli(["collect"], () => input));
 });
 
 test("invalid cap, headroom and stale values fail", () => {
@@ -135,14 +135,9 @@ test("invalid cap, headroom and stale values fail", () => {
 
 test("eligible and plan CLIs match the module and reject malformed input", () => {
   const branches = [...other, ...previews];
-  const eligible = spawnSync(process.execPath, [cli, "eligible"], { input: JSON.stringify(branches), encoding: "utf8" });
-  assert.equal(eligible.status, 0, eligible.stderr);
-  assert.deepEqual(JSON.parse(eligible.stdout), eligiblePreviews(branches));
-  const args = [cli, "plan", "--cap", "10", "--headroom", "4", "--stale", '["preview/5"]'];
-  const result = spawnSync(process.execPath, args, { input: JSON.stringify(branches), encoding: "utf8" });
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), planPrune({ branches, stale: ["preview/5"], cap: 10, headroom: 4 }));
-  const bad = spawnSync(process.execPath, args, { input: "not json", encoding: "utf8" });
-  assert.notEqual(bad.status, 0);
-  assert.match(bad.stderr, /Neon preview prune planner:/);
+  const input = () => JSON.stringify(branches);
+  assert.deepEqual(JSON.parse(JSON.stringify(runCli(["eligible"], input))), eligiblePreviews(branches));
+  const args = ["plan", "--cap", "10", "--headroom", "4", "--stale", '["preview/5"]'];
+  assert.deepEqual(JSON.parse(JSON.stringify(runCli(args, input))), planPrune({ branches, stale: ["preview/5"], cap: 10, headroom: 4 }));
+  assert.throws(() => runCli(args, () => "not json"), SyntaxError);
 });

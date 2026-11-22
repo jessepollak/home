@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { failureCasesFindings, failureCasesReport } from "../failure-cases.mjs";
+import { failureCasesFindings, failureCasesReport, runFailureCases } from "../failure-cases.mjs";
 
 for (const [name, body, expected] of [
   ["empty body", "", /## Test plan/],
@@ -74,9 +74,9 @@ test("the unfilled PR template fails until the author fills the line", () => {
 });
 
 test("CLI accepts a valid body and rejects an invalid one and extra arguments", () => {
-  const run = (body, args = []) => spawnSync(process.execPath, ["scripts/gates/failure-cases.mjs", ...args], {
-    encoding: "utf8", env: { ...process.env, PR_BODY: body },
-  });
+  const run = (body, args = []) => args.length
+    ? spawnSync(process.execPath, ["scripts/gates/failure-cases.mjs", ...args], { encoding: "utf8", env: { ...process.env, PR_BODY: body } })
+    : { ...runFailureCases({ args, env: { ...process.env, PR_BODY: body } }), stderr: "" };
   const pass = run("## Test plan\nFailure-cases: 2/3");
   assert.equal(pass.status, 0);
   assert.match(pass.stdout, /## Failure cases\nFailure-cases: 2\/3\.\nFailure-cases gate passed\./);

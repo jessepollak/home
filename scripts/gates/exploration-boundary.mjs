@@ -47,11 +47,15 @@ export function existingBoundaryPaths(paths, stat = lstatSync) {
 export const EXEMPTIONS_PATH = "scripts/gates/exploration-boundary-exemptions.json";
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
-function git(args) {
-  const result = spawnSync("git", args, { cwd: repositoryRoot, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
-  if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
-  return result.stdout;
+export function boundaryGit(cwd = repositoryRoot, env = process.env) {
+  return (args) => {
+    const result = spawnSync("git", args, { cwd, env, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+    if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
+    return result.stdout;
+  };
 }
+
+const git = boundaryGit();
 
 // The base revision's source directories and reviewed entries decide whether an
 // exemption that no longer covers any source was emptied by merged removals or
@@ -74,16 +78,16 @@ export function readBoundaryBase(baseRef = "main", gitRunner = git) {
   return { base, directories, exemptions };
 }
 
-export function readBoundaryInput() {
+export function readBoundaryInput({ root = repositoryRoot, gitRunner = git } = {}) {
   const prefix = "apps/web/";
-  const paths = existingBoundaryPaths(git(["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"]).split("\0")
-    .filter(Boolean).map((entry) => path.join(repositoryRoot, entry)))
-    .map((entry) => path.relative(repositoryRoot, entry).split(path.sep).join("/"))
+  const paths = existingBoundaryPaths(gitRunner(["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"]).split("\0")
+    .filter(Boolean).map((entry) => path.join(root, entry)))
+    .map((entry) => path.relative(root, entry).split(path.sep).join("/"))
     .filter((entry) => entry.startsWith(prefix)).map((entry) => entry.slice(prefix.length));
   return {
     directories: topLevelSourceDirectories(paths),
     rootFiles: rootSourceFiles(paths),
-    exemptions: JSON.parse(readFileSync(path.join(repositoryRoot, EXEMPTIONS_PATH), "utf8")),
+    exemptions: JSON.parse(readFileSync(path.join(root, EXEMPTIONS_PATH), "utf8")),
   };
 }
 

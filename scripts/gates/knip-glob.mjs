@@ -1,13 +1,10 @@
-import { spawnSync } from "node:child_process";
-import { readFileSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { MessageChannel, Worker, isMainThread, receiveMessageOnPort, workerData } from "node:worker_threads";
 
 const requireWeb = createRequire(new URL("../../apps/web/package.json", import.meta.url));
 const picomatch = createRequire(requireWeb.resolve("knip"))("picomatch");
 const knipMatchers = new Map();
-const modulePath = fileURLToPath(import.meta.url);
+const outputLimit = 32 * 1024 * 1024;
 
 export const knipGlobBudgetMs = 5000;
 
@@ -62,10 +59,8 @@ export function evaluateKnipGlobs(patterns, files, { budgetMs = knipGlobBudgetMs
   const matches = new Map();
   const failures = new Map();
   const requested = [...new Set(patterns)];
-  const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
-    input: JSON.stringify({ patterns: requested, files }), timeout: budgetMs, killSignal: "SIGKILL", encoding: "utf8", maxBuffer: 32 * 1024 * 1024,
-  });
-  // A killed child may have written only part of its final result.
+  const result = evaluateInWorker({ patterns: requested, files }, budgetMs);
+  // A terminated worker may have written only part of its final result.
   const output = result.stdout ?? "";
   const lines = output.split("\n");
   const trailing = lines.pop() ?? "";
@@ -109,19 +104,70 @@ export function evaluateKnipGlobs(patterns, files, { budgetMs = knipGlobBudgetMs
   return { matches, failures, error };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === modulePath) {
-  const { patterns, files } = JSON.parse(readFileSync(0, "utf8"));
-  for (const pattern of patterns) {
-    let result;
-    try {
-      const { matcher, degradation } = compileKnipGlob(pattern);
-      const matched = files.filter((file) => matcher(file));
-      result = degradation && !matched.length
-        ? { pattern, error: degradation.replace(/^cannot be (?:compiled|interpreted): /, ""), degradation: degradation.startsWith("cannot be interpreted:") }
-        : { pattern, matches: matched };
-    } catch (error) {
-      result = { pattern, error: error.message };
+function evaluateInWorker(input, budgetMs) {
+  const signal = new Int32Array(new SharedArrayBuffer(8));
+  const { port1, port2 } = new MessageChannel();
+  const worker = new Worker(new URL(import.meta.url), { workerData: { knipGlob: { input, port: port2, signal: signal.buffer } }, transferList: [port2], stdout: true, stderr: true });
+  worker.on("error", () => {});
+  worker.unref();
+  const deadline = performance.now() + budgetMs;
+  let stdout = "";
+  let stderr = "";
+  let bytes = 0;
+  let error = null;
+  let state = 0;
+  for (;;) {
+    const posted = Atomics.load(signal, 0);
+    for (let message = receiveMessageOnPort(port1); message && !error; message = receiveMessageOnPort(port1)) {
+      if (typeof message.message.stderr === "string") stderr += message.message.stderr;
+      else {
+        bytes += Buffer.byteLength(message.message.stdout);
+        if (bytes > outputLimit) error = Object.assign(new Error("pattern evaluation output exceeded its buffer (ENOBUFS)"), { code: "ENOBUFS" });
+        else stdout += message.message.stdout;
+      }
     }
-    writeSync(1, JSON.stringify(result) + "\n");
+    state = Atomics.load(signal, 1);
+    if (error || (state && posted === Atomics.load(signal, 0))) break;
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) {
+      error = Object.assign(new Error("pattern evaluation timed out (ETIMEDOUT)"), { code: "ETIMEDOUT" });
+      break;
+    }
+    Atomics.wait(signal, 0, posted, remaining);
   }
+  if (error || state !== 1) void worker.terminate();
+  port1.close();
+  return { stdout, stderr, error, status: error ? null : state === 1 ? 0 : 1, signal: error ? "SIGKILL" : null };
+}
+
+if (!isMainThread && workerData?.knipGlob) {
+  const { input: { patterns, files }, port, signal: buffer } = workerData.knipGlob;
+  const signal = new Int32Array(buffer);
+  const post = (message) => {
+    port.postMessage(message);
+    Atomics.add(signal, 0, 1);
+    Atomics.notify(signal, 0);
+  };
+  let state = 1;
+  try {
+    for (const pattern of patterns) {
+      let result;
+      try {
+        const { matcher, degradation } = compileKnipGlob(pattern);
+        const matched = files.filter((file) => matcher(file));
+        result = degradation && !matched.length
+          ? { pattern, error: degradation.replace(/^cannot be (?:compiled|interpreted): /, ""), degradation: degradation.startsWith("cannot be interpreted:") }
+          : { pattern, matches: matched };
+      } catch (error) {
+        result = { pattern, error: error.message };
+      }
+      post({ stdout: JSON.stringify(result) + "\n" });
+    }
+  } catch (error) {
+    state = 2;
+    post({ stderr: `${error?.stack ?? error}\n` });
+  }
+  Atomics.store(signal, 1, state);
+  Atomics.add(signal, 0, 1);
+  Atomics.notify(signal, 0);
 }

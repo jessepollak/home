@@ -361,13 +361,13 @@ function addedCases(baseCases, headCases) {
   return added;
 }
 
-function readBaseContents(root, revision, paths, prefix) {
+function readBlobs(root, names) {
   const contents = new Map();
-  if (!paths.length) return contents;
-  const input = paths.map((path) => `${revision}:${prefix ? `${prefix}/` : ""}${path}\0`).join("");
+  if (!names.length) return contents;
+  const input = names.map((name) => `${name}\0`).join("");
   const output = execFileSync("git", ["cat-file", "--batch", "-Z"], { cwd: root, input, maxBuffer: 64 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
   let offset = 0;
-  for (const path of paths) {
+  for (const name of names) {
     const end = output.indexOf(0, offset);
     if (end === -1) throw new Error("Malformed git cat-file output");
     const header = output.toString("utf8", offset, end);
@@ -378,10 +378,23 @@ function readBaseContents(root, revision, paths, prefix) {
       continue;
     }
     const size = Number(match[1]);
-    contents.set(path, output.toString("utf8", offset, offset + size));
+    contents.set(name, output.toString("utf8", offset, offset + size));
     offset += size + 1;
   }
   return contents;
+}
+
+function readBaseContents(root, revision, groups) {
+  const names = groups.flatMap(({ paths, prefix }) => paths.map((path) => `${revision}:${prefix ? `${prefix}/` : ""}${path}`));
+  const blobs = readBlobs(root, names);
+  return groups.map(({ paths, prefix }) => {
+    const contents = new Map();
+    for (const path of paths) {
+      const name = `${revision}:${prefix ? `${prefix}/` : ""}${path}`;
+      if (blobs.has(name)) contents.set(path, blobs.get(name));
+    }
+    return contents;
+  });
 }
 
 export function validScope(pattern, category) {
@@ -513,8 +526,9 @@ export function readBaseGrandfathered(root, baseRef) {
   const mergeBase = git(["merge-base", base, "HEAD"]).trim();
   const baseFiles = discoverFiles(git(["ls-tree", "-rz", "--name-only", mergeBase]).split("\0").filter(Boolean));
   const baseWebFiles = baseFiles.filter((path) => path.startsWith(`${webRoot}/`)).map((path) => path.slice(webRoot.length + 1));
-  const hasManifest = git(["ls-tree", "--name-only", base, "--", MANIFEST_PATH]).trim();
-  const manifest = hasManifest ? JSON.parse(git(["show", `${base}:${MANIFEST_PATH}`])) : null;
+  const manifestSource = readBlobs(root, [`${base}:${MANIFEST_PATH}`]).get(`${base}:${MANIFEST_PATH}`);
+  const hasManifest = manifestSource !== undefined;
+  const manifest = hasManifest ? JSON.parse(manifestSource) : null;
   const grandfathered = manifest?.grandfathered;
   if (hasManifest && (!Array.isArray(grandfathered) || grandfathered.some((entry) => !relativePath(entry?.path) || !oneLine(entry?.reason)))) throw new Error("Invalid base grandfathered list");
   const tooling = manifest?.tooling?.grandfathered;
@@ -522,11 +536,8 @@ export function readBaseGrandfathered(root, baseRef) {
   const migratedTooling = baseWebFiles.filter((path) => webTooling(path) && manifest?.scopes?.some((entry) => entry.category === "repository-gate" && matchesGlob(path, entry.pattern)));
   const paths = hasManifest ? [...new Set([...grandfathered.map((entry) => entry.path), ...migratedTooling])] : baseWebFiles;
   const toolingPaths = tooling === undefined ? baseFiles.filter((path) => !path.startsWith(`${webRoot}/`)) : tooling.map((entry) => entry.path);
-  return {
-    paths,
-    contents: readBaseContents(root, mergeBase, paths, webRoot),
-    tooling: { paths: toolingPaths, contents: readBaseContents(root, mergeBase, toolingPaths, "") },
-  };
+  const [contents, toolingContents] = readBaseContents(root, mergeBase, [{ paths, prefix: webRoot }, { paths: toolingPaths, prefix: "" }]);
+  return { paths, contents, tooling: { paths: toolingPaths, contents: toolingContents } };
 }
 
 export function checkUnitTestScope({ root = repositoryRoot, baseRef = process.env.BASE_REF || "main" } = {}) {
