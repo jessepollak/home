@@ -7,6 +7,8 @@ Follow this path to launch your own instance, finish Admin setup, and maintain i
 1. **Fork Home on GitHub.** A fork keeps the upstream relationship for later updates. The [README deploy button](../README.md#deploy-your-own) instead copies Home into a new repository and sets Root Directory; it neither provisions a database nor sets the Install Command.
 2. In Vercel, choose **Add New → Project**, import your fork, and apply these settings. Check the Install Command even if you used the button.
 
+   If you cannot fork (for example, you own the upstream repository) or do not want Git integration, create the project from the CLI instead: `vercel project add <project>`, run `vercel link --project <project>` at the repository root, apply the same settings in Project Settings, and deploy a clean checkout with `vercel deploy --prod`. The CLI records the checkout's Git commit and branch with the deployment. Deploy later updates the same way, from the merged checkout.
+
    | Setting | Value |
    | --- | --- |
    | Root Directory | `apps/web` |
@@ -17,10 +19,13 @@ Follow this path to launch your own instance, finish Admin setup, and maintain i
    | Fluid compute | Enabled (Project Settings → Functions) |
 
    The build runs `bun run db:migrate && next build`. With `DATABASE_URL` set, production builds apply migrations; non-production Vercel builds skip them unless explicitly enabled. See [Environment](#environment) before configuring previews.
+
+   New projects start with Vercel's standard Deployment Protection: preview and deployment-specific URLs require a Vercel login, while the production domain (`<project>.vercel.app` or your custom domain) is public from the first deploy. To keep the instance private until it is ready, set the [pre-release access gate](#pre-release-production-access) variables before that deploy.
 3. **Attach PostgreSQL separately.** Add the Neon integration from the Vercel Marketplace and connect its database to the Home project, or paste your own server-only `DATABASE_URL` into Vercel environment settings with `sslmode=require` (or `verify-full`). Use Neon's pooled hostname on Vercel. Database provisioning is an operator step, not something Home or the deploy button does. Keep scratch and preview databases separate from production.
 4. Generate a session secret on your own device, for example `openssl rand -base64 32`. Paste it only into the Home project's Vercel environment settings as server-only `HOME_SESSION_SECRET`; it must be at least 32 UTF-8 bytes. Never put it in Git, a public form, or evidence.
 5. Obtain the **Base smart-account address** of each administrator and set server-only `HOME_OPERATOR_ADDRESSES` in Vercel to a comma-separated list of unique `0x` addresses with 40 hex characters. Use the account that will sign in with Base Account, not a different wallet or an email-sign-in account. If you do not know its address, deploy with the session secret first, sign in with **Continue with Base Account**, and open **Account** from the Home header or desktop sidebar (`/home?account=settings`). In its **Account** section, select the address under the Basename or **Base account**, then choose **Copy address** in the full-address popover. This control uses the signed-in smart-account address. Copy only that address into the allowlist, not session responses or cookies. Opening `/api/session` directly is not an address lookup: native Base sessions require the `X-Home-Account-Provider: base-account` request header. This is the verified session described in [Base Account sign-in](base-account.md#manual-user-smoke); it requires no transfer. Until the allowlist is configured, Admin remains denied.
-6. **Redeploy** after setting the environment variables. Sign in with Base Account on the deployed Home origin, open `/admin`, and use **Overview → Setup**. If a separate deployment-access gate is enabled, pass it first; it does not make you an administrator.
+6. **Email sign-in.** Set `NEXT_PUBLIC_CDP_PROJECT_ID`, `CDP_API_KEY_ID`, and `CDP_API_KEY_SECRET` from one CDP project, then add the exact production origin (for example `https://<project>.vercel.app`, no trailing slash) under that project's Embedded Wallets allowed domains ([CDP setup](cdp-setup.md#portal-click-path)). Until both are done the sign-in dialog offers only Base Account, or email fails with "We could not send a code". Set `BASE_RPC_URL` to a CDP Node endpoint from the same project. [Provider readiness](provider-readiness.md#required-for-launch) lists the other launch accounts, such as Codex for prices.
+7. **Redeploy** after setting the environment variables. Sign in with Base Account on the deployed Home origin, open `/admin`, and use **Overview → Setup**. If a separate deployment-access gate is enabled, pass it first; it does not make you an administrator.
 
 ### First-run Setup
 
@@ -59,12 +64,12 @@ Home's [releases](releases.md) explain version names and what a tag promises; ea
 
 ### Backup and restore rehearsal
 
-Use PostgreSQL client tools compatible with your database. Set `SOURCE_DATABASE_URL` and `SCRATCH_DATABASE_URL` privately; never record their values. Capture the source metadata close to the backup, while settings and audit metadata are stable:
+Use PostgreSQL client tools at least as new as your database server: compare `pg_dump --version` with `psql "$SOURCE_DATABASE_URL" -Atc 'show server_version'`, because an older `pg_dump` refuses a newer server and an older `pg_restore` reports a newer dump as `unreadable`. Use Neon's unpooled (direct) connection string for `pg_dump`. Set `SOURCE_DATABASE_URL` and `SCRATCH_DATABASE_URL` privately; never record their values. Run these from the repository root; `--cwd apps/web` resolves `--file` inside `apps/web`, so pass the dump as an absolute path. Capture the source metadata close to the backup, while settings and audit metadata are stable:
 
 ```sh
 DATABASE_URL="$SOURCE_DATABASE_URL" bun run --silent --cwd apps/web db:settings-fingerprint
 TZ=UTC pg_dump --format=custom --file home-before-update.dump "$SOURCE_DATABASE_URL"
-TZ=UTC bun run --silent --cwd apps/web db:backup-check -- --file home-before-update.dump --max-age-hours 24
+TZ=UTC bun run --silent --cwd apps/web db:backup-check -- --file "$PWD/home-before-update.dump" --max-age-hours 24
 ```
 
 Alternatively, record the database provider's restore point and its time, then rehearse the provider's restore flow. A provider restore point is not a dump file and is not checked by `db:backup-check`.
@@ -81,9 +86,11 @@ Alternatively, record the database provider's restore point and its time, then r
 **A readable artifact or provider restore point is not a verified restore.** Restore into an isolated scratch database or Neon branch, never production and never a preview sharing production's database. For an empty scratch database:
 
 ```sh
-pg_restore --exit-on-error --no-owner --dbname "$SCRATCH_DATABASE_URL" home-before-update.dump
+pg_restore --exit-on-error --no-owner --no-privileges --dbname "$SCRATCH_DATABASE_URL" home-before-update.dump
 DATABASE_URL="$SCRATCH_DATABASE_URL" bun run --silent --cwd apps/web db:settings-fingerprint
 ```
+
+`--no-privileges` skips grant statements: a Neon database created through the Vercel Marketplace carries a `neon_auth` schema whose default privileges the database owner cannot recreate, so without it the restore stops with `permission denied to change default privileges`. To get an empty scratch database on the same Neon project, run `CREATE DATABASE <scratch-name>` with the owner role and point `SCRATCH_DATABASE_URL` at it; drop it afterwards.
 
 For a provider restore point, use the provider's restore-to-new-database/branch flow instead. Compare the source snapshot taken at backup time with the scratch result. `db:settings-fingerprint` uses a read-only transaction and emits JSON: migration count/latest, each settings domain's `schemaVersion`, `revision`, `updatedAt`, and `valueSha256`, audit count, and an aggregate `fingerprint`. It does not print settings values. Missing `DATABASE_URL` exits 2; connection or query failure exits 3. A matching result checks this metadata, not every restored table or external service; investigate differences before updating.
 
