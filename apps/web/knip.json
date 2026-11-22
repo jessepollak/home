@@ -67,7 +67,9 @@
     "scripts/invest-catalog/refresh.ts!",
     "scripts/invest-history-sample.ts!",
     "scripts/immersve-probe.ts!",
-    "scripts/bridge-allowance-fork.ts!"
+    "scripts/bridge-allowance-fork.ts!",
+    // Money-action fork simulation CLI, run directly by `bun run sim:money`.
+    "sim/money/cli.ts!"
   ],
   "ignore": [
     // Non-production design-lane code lives under explorations/ or inside a
