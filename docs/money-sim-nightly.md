@@ -10,14 +10,17 @@ The money-action simulation (`bun run --cwd apps/web sim:money`) runs once a nig
 2. **Run the simulation.** It runs `sim:money -- --runs 1000`. The simulation starts its own anvil fork and scratch PostgreSQL and never reads `DATABASE_URL`.
 3. **Replay failures.** It replays every failing seed alone once with `--seed`.
    - A seed that passes alone is a **flake**.
-   - A seed that fails again is **real**. If it is in the known #2292 cash-out swap set, it is a known swap instead.
+   - A seed whose replay stops before any invariant result (fork startup, crash) is a **replay error**, reported apart from failures.
+   - A seed whose replay violates an invariant again is **real**. If it is in the known #2292 cash-out swap set and violates nothing but the swap, it is a known swap instead. While #2292 is open, known swaps stay local.
 4. **Write the one-line report.** It appends one line to `~/Library/Logs/home-money-sim/report.log`: the `main` SHA, the RESULT line, and the flakes, known swaps and real failures. Per-run output is kept in `runs/` beside it.
 5. **Comment on real failures.** For a real failure outside the known set, it writes one comment per issue, naming the SHA, the RESULT line and each seed with its replay command.
    - A real failure with the #2292 swap signature goes to #2292.
-   - Any other real failure goes to the open money-actions debt issue, `chore(money-actions): pay down money-actions debt` ([work sizing](work-sizing.md)), counted only when Jesse or the factory bot opened it. With none open, it goes to #2292 under a "Non-swap failure" heading. No new issue is ever created.
+   - Any other real failure, and any replay error, goes to the open money-actions debt issue, `chore(money-actions): pay down money-actions debt` ([work sizing](work-sizing.md)), counted only when Jesse or the factory bot opened it. With none open, it goes to #2292 under a "Non-swap failure" heading. No new issue is ever created.
    - The comment posts only as the factory bot account. The token is read at post time from the factory's own `~/.config/home-factory/bot-token` (owner-only), is used only for those `gh` calls, and must belong to `jessepollakj`. Without it, the comment stays in the local log.
 
-The agent checks every hour. With `--scheduled`, a run starts only between 01:00 and 06:00 local time and at most once per 20 hours. A lock directory prevents overlapping runs.
+6. **Alert when the run cannot finish.** If the worktree cannot be updated or bootstrapped, if the simulation ends without a RESULT line, or if runs fail but no failing seeds are listed, it logs locally and posts one "did not complete" alert. That alert goes to the debt issue, or to #2292 with none open, at most once per kind per week.
+
+The agent runs at 02:00. When the Mac sleeps through 02:00, launchd runs the job once on wake. With `--scheduled`, each night slot runs once, and the report line notes nights the Mac missed entirely. A lock directory prevents overlapping runs. Manual runs never mark a night as done.
 
 ## Requirements
 

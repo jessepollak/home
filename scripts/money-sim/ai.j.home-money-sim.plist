@@ -10,8 +10,9 @@
     <string>__HOME__/.local/share/home-money-sim/nightly.sh</string>
     <string>--scheduled</string>
   </array>
-  <!-- Hourly check; --scheduled runs at most once per 20h and only between 01:00 and 06:00. -->
-  <key>StartInterval</key><integer>3600</integer>
+  <!-- 02:00 nightly. launchd runs a slot missed during sleep once on wake; --scheduled runs each night slot once. -->
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>2</integer><key>Minute</key><integer>0</integer></dict>
   <key>RunAtLoad</key><false/>
   <key>LowPriorityIO</key><true/>
   <key>Nice</key><integer>10</integer>
