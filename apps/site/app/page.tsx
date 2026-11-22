@@ -163,7 +163,7 @@ export default function Page() {
 
         <Section id="talk" title="Talk to us">
           <p>
-            We are looking for the first team to run Home for its own customers. That team works directly with Jesse. <a href={talkToUs}>Message @jessepollak on X</a>, or open an issue on{" "}
+            We are looking for the first team to run Home for its own customers. No licence fee. The first operator works directly with Jesse. <a href={talkToUs}>Message @jessepollak on X</a>, or open an issue on{" "}
             <a href={repo}>GitHub</a>.
           </p>
         </Section>
