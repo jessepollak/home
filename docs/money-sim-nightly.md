@@ -11,7 +11,7 @@ The money-action simulation (`bun run --cwd apps/web sim:money`) runs once a nig
 3. **Replay failures.** It replays every failing seed alone once with `--seed`.
    - A seed that passes alone is a **flake**, logged locally only.
    - A seed whose replay stops before any invariant result (fork startup, crash) is a **replay error**, reported apart from failures.
-   - A seed whose completed replay violates an invariant again is a **failure**. A failure on a seed in the known #2292 set that violates nothing but the swap is a **known swap**.
+   - A seed whose completed replay violates an invariant again is a **failure**. A failure on a seed in the known #2292 set that violates nothing but the swap is a **known swap**, but only while #2292 is open. Once #2292 is closed, every swap is reported as a new failure.
 4. **Write the one-line report.** It appends one line to `~/Library/Logs/home-money-sim/report.log`: the `main` SHA, the RESULT line, and the flakes, known swaps, failures and replay errors. Per-run output is kept in `runs/` beside it.
 5. **Report through standing comments.** Every reported kind is one comment from the factory bot account. The first night a kind appears, the comment is posted and notifies; later nights edit it in place with the latest SHA, RESULT and seeds, so nothing repeats nightly.
    - **Known swap and new swap seeds:** #2292.

@@ -35,8 +35,10 @@ main() {
   local ref="${MONEY_SIM_REF:-main}"
   case "$ref" in -*|*..*|*[!A-Za-z0-9._/-]*|'') echo "MONEY_SIM_REF must be a plain branch name" >&2; exit 2 ;; esac
   local swap_issue=2292
-  # Seeds already known to reproduce #2292. Their swap is reported in one standing comment on #2292, not as new.
+  # Seeds already known to reproduce #2292. While #2292 is open their swap is reported in one standing "known"
+  # comment; once #2292 is closed the set is empty, so any recurrence is reported as a new swap failure.
   local known_swap=" 12 77 109 126 127 216 319 361 573 630 853 952 "
+  if [ "$(gh issue view "$swap_issue" --repo jessepollak/home --json state -q .state 2>/dev/null || true)" = "CLOSED" ]; then known_swap=" "; fi
   # The factory's own bot token, read at post time only; never copied, printed or logged.
   local bot_token_file="$HOME/.config/home-factory/bot-token"
   local sha="unknown" result="" stamp_name gap=""
