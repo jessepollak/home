@@ -23,7 +23,7 @@ function Feature({ id, title, children, demo }: { id: string; title: string; chi
 
 function TextLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <a href={href} className="rounded-sm font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">
+    <a href={href} className="rounded-sm font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
       {children}
     </a>
   );
@@ -34,7 +34,7 @@ export default function Page() {
     <>
       <header className="border-b bg-background">
         <div className="mx-auto flex h-16 max-w-4xl items-center justify-between gap-4 px-5">
-          <Link href="/" className="flex items-center gap-3 rounded-sm text-base font-semibold outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+          <Link href="/" className="flex items-center gap-3 rounded-sm text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <span aria-hidden="true" className="size-6 rounded-sm bg-primary" />
             Home
           </Link>
@@ -64,7 +64,7 @@ export default function Page() {
           To any Base address, with a review of amount, recipient and network fee.
         </Feature>
         <Feature id="save" title="Save" demo={<SaveDemo />}>
-          Earn a variable rate on cash through Morpho vaults.
+          Earn a variable rate on USDC through Morpho vaults.
         </Feature>
         <Feature id="cash-out" title="Cash out" demo={<CashOutDemo />}>
           Through Peer to apps such as Cash App, Zelle, Revolut or Monzo, in the countries you enable.
@@ -95,7 +95,7 @@ export default function Page() {
       </main>
 
       <footer className="mx-auto max-w-4xl px-5 pb-10 text-xs text-foreground/70">
-        Home&apos;s original code is open source under the <a href={licence} className="rounded-sm underline underline-offset-4 outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">MIT licence</a>. Marks and fonts keep their own terms.
+        Home&apos;s original code is open source under the <a href={licence} className="rounded-sm underline underline-offset-4 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">MIT licence</a>. Marks and fonts keep their own terms.
       </footer>
     </>
   );

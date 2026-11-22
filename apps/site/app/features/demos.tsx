@@ -1,17 +1,18 @@
 "use client";
 
-import { Banknote, PiggyBank, Plus } from "lucide-react";
+import { Banknote, CircleCheck, Clock, PiggyBank, Plus } from "lucide-react";
 import type { CSSProperties } from "react";
 import { GlyphMark } from "@/components/currency-mark";
 import { ActivityRow, BalanceRow } from "@/components/finance-rows";
 import { ManagementFacts } from "@/components/management-facts";
 import { MoneyTicker } from "@/components/money-ticker";
 import { MoneyBreakdownLegend, SignedBalanceBar } from "@/components/signed-balance-bar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { PayoutMark } from "@/components/ui/payout-mark";
 import { ResultHeader } from "@/components/ui/result-header";
-import { StatusStep, StatusSteps, type StepStatus } from "@/components/ui/status-step";
+import { StatusStep, StatusSteps } from "@/components/ui/status-step";
 import { StatusMark } from "@/components/ui/status-texture";
 import { cn } from "@/lib/utils";
 import { BRAND_DEFAULTS, type BrandSettings } from "@/shared/operator-branding/schema";
@@ -87,21 +88,30 @@ export function SendDemo() {
           </Card>
           <Button size="touch" loading={board.step === 1}>Send $25.00</Button>
         </div>
-        <div className={cn("col-start-1 row-start-1 flex flex-col gap-5 transition-[opacity,translate] duration-base ease-standard", sent ? "opacity-100" : "translate-y-2 opacity-0")}>
-          <div className="flex flex-1 flex-col items-center justify-center gap-6">
-            <ResultHeader
-              outcome={confirmed ? "success" : "pending"}
-              title={confirmed ? "$25.00 sent" : "$25.00 on its way"}
-              description={confirmed ? "Track it in Activity." : "We'll update Activity when it's confirmed."}
-            />
-            <div className="w-full">
-              <StatusSteps>
-                <StatusStep status="complete" title="Submitted" time="11:42 AM" />
-                <StatusStep status={confirmed ? "complete" : "current"} title={confirmed ? "Confirmed on Base" : "Confirming on Base"} />
-              </StatusSteps>
+        <div className={cn("col-start-1 row-start-1 grid grid-rows-[1fr_auto] gap-5 transition-[opacity,translate] duration-base ease-standard", sent ? "opacity-100" : "translate-y-2 opacity-0")}>
+          <div className="grid">
+            <div className={cn("col-start-1 row-start-1 flex flex-col items-center justify-center gap-8 transition-opacity duration-base ease-exit", confirmed && "opacity-0")}>
+              <ResultHeader outcome="pending" title="$25.00 on its way" description="We'll update Activity when it's confirmed." />
+              <div className="w-full">
+                <StatusSteps>
+                  <StatusStep status="complete" title="Submitted" time="11:42 AM" />
+                  <StatusStep status="current" title="Confirming on Base" />
+                </StatusSteps>
+              </div>
+            </div>
+            <div className={cn("col-start-1 row-start-1 flex items-center justify-center transition-[opacity,scale] duration-base ease-enter", confirmed ? "opacity-100" : "scale-95 opacity-0")}>
+              <ResultHeader outcome="success" title="$25.00 sent" />
             </div>
           </div>
-          <Button size="touch">Done</Button>
+          <div className="grid items-end">
+            <div className={cn("col-start-1 row-start-1 flex flex-col gap-2 transition-opacity duration-base ease-exit", confirmed && "opacity-0")}>
+              <Button size="touch">Done</Button>
+              <Button size="touch" variant="outline">View in Activity</Button>
+            </div>
+            <div className={cn("col-start-1 row-start-1 transition-opacity duration-base ease-enter", !confirmed && "opacity-0")}>
+              <Button size="touch" className="w-full">Done</Button>
+            </div>
+          </div>
         </div>
       </Card>
     </DemoFrame>
@@ -136,7 +146,7 @@ export function SaveDemo() {
                 icon={<GlyphMark size="sm"><PiggyBank className="size-4" /></GlyphMark>}
                 iconTone="mark"
                 label="US dollar"
-                context="4.10% APY"
+                context="USDC"
                 value={<MoneyTicker value={saved ? "$420.00" : "$320.00"} reserveDigits={false} />}
                 onActivate={noop}
                 activateLabel="Open US dollar savings"
@@ -153,16 +163,18 @@ export function SaveDemo() {
   );
 }
 
-const cashOutSteps: Record<number, [StepStatus, StepStatus, StepStatus]> = {
-  0: ["complete", "current", "upcoming"],
-  1: ["complete", "complete", "current"],
-  2: ["complete", "complete", "complete"],
-};
+function DetailBadge({ confirmed }: { confirmed: boolean }) {
+  return (
+    <Badge variant="secondary">
+      {confirmed ? <CircleCheck aria-hidden="true" /> : <Clock aria-hidden="true" />}
+      {confirmed ? "Confirmed" : "Pending"}
+    </Badge>
+  );
+}
 
 export function CashOutDemo() {
   const board = useStoryboard(cashOutHolds);
-  const [sent, matched, paid] = cashOutSteps[board.step] ?? cashOutSteps[2]!;
-  const settled = paid === "complete";
+  const confirmed = board.step === 2;
   return (
     <DemoFrame {...board} label="Cash out">
       <div className="flex flex-col gap-3">
@@ -173,20 +185,30 @@ export function CashOutDemo() {
                 icon={<PayoutMark variant="cashapp">$</PayoutMark>}
                 iconTone="mark"
                 label="Cash out to Cash App"
-                context={settled ? "Sep 28, 11:24 AM" : matched === "complete" ? "Buyer paying you" : "Waiting for a buyer"}
-                value="−$50"
+                context="Sep 28, 11:16 AM"
+                value="−$50.00"
+                valueTone={confirmed ? "default" : "muted"}
                 onActivate={noop}
                 activateLabel="View Cash out to Cash App details"
-                {...(settled ? {} : { working: "Cashing out" })}
               />
             </ul>
           </CardContent>
         </Card>
-        <StatusSteps>
-          <StatusStep status={sent} title="Sent from your balance" time="Sep 28, 11:16 AM" />
-          <StatusStep status={matched} title="Matched with a buyer" time={matched === "complete" ? "Sep 28, 11:19 AM" : undefined} />
-          <StatusStep status={paid} title="Paid out" time="To your Cash App" />
-        </StatusSteps>
+        <div className="flex flex-col gap-3 pt-2">
+          <div className="flex flex-col items-center gap-2 py-1">
+            <p className="text-4xl leading-none font-semibold tabular-nums">−$50.00</p>
+            <DetailBadge confirmed={confirmed} />
+          </div>
+          <div className="grid">
+            {["Waiting for a buyer", "Buyer paying you"].map((title, index) => (
+              <div key={title} className={cn("col-start-1 row-start-1 transition-opacity duration-base ease-standard", board.step !== index && "opacity-0")}>
+                <StatusSteps>
+                  <StatusStep status="current" title={title} showConnector={false} />
+                </StatusSteps>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </DemoFrame>
   );
@@ -209,12 +231,11 @@ export function ActivityDemo() {
               icon={<GlyphMark size="sm"><Banknote className="size-4" /></GlyphMark>}
               iconTone="mark"
               label="Add money"
-              context={complete ? "Sep 28, 10:49 AM" : "Arriving on Base"}
+              context="Sep 28, 10:49 AM"
               value="+$200.00"
               valueTone={complete ? "success" : "default"}
               onActivate={noop}
               activateLabel="View Add money details"
-              {...(complete ? {} : { working: "Arriving on Base" })}
             />
           </ul>
           <div className={cn("transition-[translate] duration-(--motion-duration-slow) ease-(--motion-ease-emphasized)", complete && "-translate-y-8")}>
