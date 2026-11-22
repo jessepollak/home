@@ -159,6 +159,8 @@ bun build      # production build
 bun check      # repository gates, test, lint, typecheck, and build
 ```
 
+The operator marketing site is `apps/site`, a static one-page Next app: `bun run --cwd apps/site dev` serves it on port 3300, and `bun check` runs its lint, typecheck, Knip and build.
+
 `bun build` and `bun check` apply database migrations when `DATABASE_URL` is set, including through `apps/web/.env.local`. Never validate against a serving database: use an isolated local/scratch database or run `DATABASE_URL="" bun check` to override any env-file value. For deployed updates, [back up and rehearse the restore before merging or validating](docs/vercel-deploy.md#update-a-fork).
 
 ## Customize it
