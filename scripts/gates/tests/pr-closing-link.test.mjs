@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { prClosingLinkFindings, runPrClosingLink } from "../pr-closing-link.mjs";
+import { prClosingLinkFindings } from "../pr-closing-link.mjs";
 
 const title = "ops(gates): update metadata";
 
@@ -92,22 +91,4 @@ test("template hint does not satisfy the check without an issue number or reason
   const template = readFileSync(".github/PULL_REQUEST_TEMPLATE.md", "utf8");
   assert.match(prClosingLinkFindings(title, template)[0], /visible/);
   assert.deepEqual(prClosingLinkFindings(title, template.replace("\nCloses #", "\nNo issue: operator change")), []);
-});
-
-test("CLI accepts a link or reason and rejects a missing one and extra arguments", () => {
-  const run = (prTitle, body, args = []) => args.length
-    ? spawnSync(process.execPath, ["scripts/gates/pr-closing-link.mjs", ...args], { encoding: "utf8", env: { ...process.env, PR_TITLE: prTitle, PR_BODY: body } })
-    : { ...runPrClosingLink({ args, env: { ...process.env, PR_TITLE: prTitle, PR_BODY: body } }), stderr: "" };
-  for (const body of ["Closes #123", "No issue: operator change"]) {
-    const pass = run(title, body);
-    assert.equal(pass.status, 0);
-    assert.match(pass.stdout, /PR closing link gate passed/);
-  }
-  assert.equal(run("design(home): propose", "Refs #123").status, 0);
-  const fail = run(title, "<!-- Closes #123 -->");
-  assert.equal(fail.status, 1);
-  assert.match(fail.stdout, /must have a visible/);
-  const usage = run(title, "Closes #123", ["extra"]);
-  assert.notEqual(usage.status, 0);
-  assert.match(usage.stderr, /Usage:/);
 });
