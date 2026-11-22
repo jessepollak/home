@@ -1,0 +1,344 @@
+.root {
+  position: relative;
+  isolation: isolate;
+}
+
+.root[data-depth-region="hero"],
+.root[data-depth-region="customers"],
+.root[data-depth-region="team"] {
+  overflow-x: clip;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.bar {
+  display: block;
+  height: 0.5rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+}
+
+.amount {
+  height: 1.5rem;
+  margin-top: 0.875rem;
+  width: 9rem;
+}
+
+.dot {
+  display: block;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+.split {
+  display: flex;
+  gap: 2px;
+  height: 0.375rem;
+  margin-top: 1rem;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.cash {
+  flex: 1604;
+  background: var(--balance-bar-cash);
+  opacity: 0.35;
+}
+
+.investments {
+  flex: 4381;
+  background: var(--balance-bar-investments);
+  opacity: 0.3;
+}
+
+/* Hero: a receding stack of product cards beside the headline. */
+
+.root[data-depth-region="hero"] {
+  view-timeline: --depth-hero block;
+}
+
+.heroFrame {
+  position: relative;
+  max-width: 56rem;
+  height: 100%;
+  margin-inline: auto;
+}
+
+.heroStack {
+  position: absolute;
+  top: 3rem;
+  right: -10.25rem;
+  width: 14rem;
+  opacity: 0.6;
+}
+
+.heroDrift {
+  position: absolute;
+  inset: 0 0 auto;
+}
+
+.heroCard {
+  display: block;
+  height: 11.5rem;
+  overflow: hidden;
+  padding: 1.25rem;
+  opacity: 0.92;
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  box-shadow: var(--elevation-overlay);
+}
+
+.heroDrift[data-depth="back"] .heroCard {
+  translate: 3.5rem -3rem;
+  scale: 0.88;
+  opacity: 0.45;
+  filter: blur(2px);
+}
+
+.heroDrift[data-depth="mid"] .heroCard {
+  translate: 1.75rem -1.5rem;
+  scale: 0.94;
+  opacity: 0.7;
+  filter: blur(0.75px);
+}
+
+@media (min-width: 48rem) {
+  .heroStack {
+    top: 4.5rem;
+    right: -7rem;
+    width: 16rem;
+    opacity: 0.7;
+  }
+}
+
+@media (min-width: 64rem) {
+  .heroStack {
+    top: 4.75rem;
+    right: -4.5rem;
+    width: 19rem;
+    opacity: 1;
+  }
+}
+
+/* Demo: two blurred ghosts of the card stacked behind each product demo. */
+
+.root[data-depth-region="demo"] {
+  display: grid;
+  view-timeline: --depth-demo block;
+}
+
+.root[data-depth-region="demo"] > * {
+  grid-area: 1 / 1;
+}
+
+.demoStack {
+  position: relative;
+  z-index: -1;
+  justify-self: center;
+  width: 100%;
+  max-width: 24rem;
+  margin-bottom: 2.5rem;
+  pointer-events: none;
+  --depth-peek: 0.625rem;
+}
+
+.demoDrift {
+  position: absolute;
+  inset: 0;
+  translate: 0 calc(var(--depth-peek) * -1);
+}
+
+.demoDrift[data-depth="far"] {
+  translate: 0 calc(var(--depth-peek) * -1.9);
+}
+
+.demoGhost {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  box-shadow: var(--elevation-overlay);
+  scale: 0.93 1;
+  opacity: 0.9;
+  filter: blur(0.5px);
+  transition-property: translate, opacity;
+  transition-duration: calc(var(--motion-duration-slow) * 2);
+  transition-timing-function: var(--motion-ease-standard);
+}
+
+.demoDrift[data-depth="far"] .demoGhost {
+  scale: 0.86 1;
+  opacity: 0.6;
+  filter: blur(1.5px);
+}
+
+.root[data-depth-lift] .demoGhost {
+  translate: 0 -0.25rem;
+  opacity: 1;
+}
+
+.root[data-depth-lift] .demoDrift[data-depth="far"] .demoGhost {
+  translate: 0 -0.5rem;
+  opacity: 0.7;
+}
+
+@media (min-width: 48rem) {
+  .demoStack {
+    justify-self: end;
+    --depth-peek: 1rem;
+  }
+}
+
+/* Halves: the page darkens toward the raised team band, whose top edge carries the page tone in and fades as it scrolls. */
+
+.boundary {
+  position: absolute;
+  inset-inline: 0;
+  bottom: -2.5rem;
+  height: 22rem;
+  background:
+    linear-gradient(to bottom, transparent, color-mix(in oklab, var(--foreground) 2.5%, transparent) 85%, color-mix(in oklab, var(--foreground) 4%, transparent)),
+    linear-gradient(to bottom, transparent calc(100% - 1.5rem), color-mix(in oklab, var(--foreground) 3%, transparent));
+}
+
+@media (min-width: 48rem) {
+  .boundary {
+    bottom: -3.5rem;
+  }
+}
+
+.lift {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 16rem;
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--muted) 80%, transparent), transparent);
+}
+
+/* Motion opts in on the client; scroll timelines only, so nothing moves unless the page does. */
+
+@media (prefers-reduced-motion: no-preference) {
+  .root[data-depth-motion] .heroSettle {
+    animation: depth-settle calc(var(--motion-duration-slow) * 3) var(--motion-ease-emphasized) both;
+  }
+
+  .root[data-depth-motion] [data-depth="mid"] .heroSettle {
+    animation-delay: calc(var(--motion-duration-slow) * 0.4);
+  }
+
+  .root[data-depth-motion] [data-depth="back"] .heroSettle {
+    animation-delay: calc(var(--motion-duration-slow) * 0.8);
+  }
+
+  .root[data-depth-motion] .heroCard {
+    animation: depth-float 14s var(--motion-ease-standard) infinite alternate paused;
+  }
+
+  .root[data-depth-motion][data-depth-active] .heroCard {
+    animation-play-state: running;
+  }
+
+  .root[data-depth-motion] [data-depth="mid"] .heroCard {
+    animation-duration: 17s;
+    animation-direction: alternate-reverse;
+  }
+
+  .root[data-depth-motion] [data-depth="back"] .heroCard {
+    animation-duration: 21s;
+  }
+
+  @supports (animation-timeline: view()) {
+    .root[data-depth-motion] .heroDrift {
+      animation: depth-hero-drift linear both;
+      animation-timeline: --depth-hero;
+      animation-range: exit 0% exit 100%;
+      --depth-lag: 3rem;
+    }
+
+    .root[data-depth-motion] .heroDrift[data-depth="mid"] {
+      --depth-lag: 5rem;
+    }
+
+    .root[data-depth-motion] .heroDrift[data-depth="back"] {
+      --depth-lag: 7.5rem;
+    }
+
+    .root[data-depth-motion] .demoDrift {
+      animation: depth-fan linear both;
+      animation-timeline: --depth-demo;
+      animation-range: cover 0% cover 100%;
+      --depth-rest: -1;
+    }
+
+    .root[data-depth-motion] .demoDrift[data-depth="far"] {
+      --depth-rest: -1.9;
+    }
+
+    .root[data-depth-motion] .boundary {
+      animation: depth-fade linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 60%;
+    }
+
+    .root[data-depth-motion] .lift {
+      animation: depth-lift linear both;
+      animation-timeline: view();
+      animation-range: entry 50% exit 0%;
+    }
+  }
+}
+
+@keyframes depth-settle {
+  from {
+    opacity: 0;
+    transform: translate(-1.5rem, 1.25rem) scale(0.97);
+  }
+}
+
+@keyframes depth-float {
+  from {
+    transform: translateY(-0.25rem);
+  }
+  to {
+    transform: translateY(0.375rem);
+  }
+}
+
+@keyframes depth-hero-drift {
+  to {
+    translate: 0 var(--depth-lag);
+    opacity: 0.4;
+  }
+}
+
+@keyframes depth-fan {
+  0% {
+    translate: 0 0.5rem;
+  }
+  45%,
+  55% {
+    translate: 0 calc(var(--depth-peek) * var(--depth-rest));
+  }
+  100% {
+    translate: 0 calc(var(--depth-peek) * var(--depth-rest) * 0.35);
+  }
+}
+
+@keyframes depth-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes depth-lift {
+  to {
+    opacity: 0.25;
+  }
+}
