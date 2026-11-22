@@ -32,22 +32,22 @@ The first tagged release. Home is under active development: it is not production
 ### Branding
 
 - Set your app's name, description, primary color, and background color in Admin → Settings → Brand, with no code change.
-- Deeper changes to logo, navigation, and theme are code defaults in your fork ([fork and extend](docs/fork-and-extend.md)).
+- Deeper changes to navigation, theme, and default assets are code defaults in your fork ([fork and extend](docs/fork-and-extend.md)).
 
 ### Providers and hosting
 
 - Deploys to Vercel with PostgreSQL; the [deploy guide](docs/vercel-deploy.md) covers launch, update, backup, and recovery.
-- Deeper changes to navigation, theme, and default assets are code defaults in your fork ([fork and extend](docs/fork-and-extend.md)).
+- [Provider readiness](docs/provider-readiness.md) lists the accounts to open for each provider, which approvals take time, and what each costs.
 
 ### Not yet included
 
-- Tokenized stock trading, card programs, operator fee collection reporting, and the operator support inbox are in progress and not part of this release.
+- Tokenized stock trading, card programs, operator fees, and the operator support inbox are in progress and not part of this release.
 
 ## Upgrading
 
 Moving between tags is a merge of upstream Home into your fork. Follow [Update, backup and recovery](docs/vercel-deploy.md#update-backup-and-recovery) every time: back up and rehearse the restore first. Between versions:
 
-- Tokenized stock trading, card programs, operator fees, and the operator support inbox are in progress and not part of this release.
+- **Database migrations run on the Vercel build.** A production deploy with `DATABASE_URL` set applies pending migrations automatically, so back up and rehearse the restore before you deploy. Migrations are additive; an application rollback does not undo them.
 - **New environment variables appear in `.env.example`.** Compare it with the previous tag and set any new variable in Vercel before you deploy. A release entry names any variable you must set.
 - **Settings rows survive.** Operator settings live in your database and carry over. When a release changes a settings format, it upgrades your saved values on read; older releases cannot read a newer format, so check the rollback rules before rolling back.
 
