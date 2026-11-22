@@ -22,6 +22,7 @@ import {
 } from "@/shared/account/contracts/base-nonce";
 import { NATIVE_BASE_VERIFY_VERSION, parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
+import { sessionRevocations, type SessionRevocations } from "@/server/auth/session-revocation";
 import { HOME_CDP_LIVE_COOKIE, HOME_CDP_SESSION_COOKIE } from "@/server/auth/cdp-render-session";
 import {
   clearCookie,
@@ -137,7 +138,7 @@ function issueSessionToken(
 export type NativeBaseSessionRead =
   | { kind: "absent" }
   | { kind: "invalid" }
-  | { kind: "valid"; session: VerifiedAccountSession };
+  | { kind: "valid"; session: VerifiedAccountSession; token: string; expiresAt: Date };
 
 export function readNativeBaseSessionToken(
   token: string,
@@ -161,7 +162,7 @@ export function readNativeBaseSessionToken(
       !Number.isFinite(Date.parse(payload.expiresAt)) ||
       Date.parse(payload.expiresAt) <= now.getTime()
     ) return { kind: "invalid" };
-    return { kind: "valid", session: sessionForAddress(address) };
+    return { kind: "valid", session: sessionForAddress(address), token, expiresAt: new Date(payload.expiresAt) };
   } catch {
     return { kind: "invalid" };
   }
@@ -376,10 +377,25 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
   };
 }
 
-export function createNativeBaseLogoutHandler() {
+export type NativeBaseLogoutDependencies = {
+  sessionSecret?: string;
+  now?: () => Date;
+  revocations?: () => SessionRevocations | null;
+};
+
+export function createNativeBaseLogoutHandler(input: NativeBaseLogoutDependencies = {}) {
   return async function POST(request: Request): Promise<Response> {
     if (!isSameOriginPost(request)) {
       return json({ error: { code: "INVALID_REQUEST" } }, 403);
+    }
+    const now = (input.now ?? (() => new Date()))();
+    const current = readNativeBaseSession(request, input.sessionSecret ?? readHomeSessionSecret(), now);
+    if (current.kind === "valid") {
+      try {
+        await (input.revocations ?? sessionRevocations)()?.revoke(current.token, current.expiresAt, now);
+      } catch {
+        return json({ error: { code: "AUTH_UNAVAILABLE" } }, 503);
+      }
     }
     return json({ signedOut: true }, 200, [
       clearCookie(HOME_CHALLENGE_COOKIE, request),
