@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { createHash, randomBytes } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { assertCredentialLive } from "@/server/account-deletion/tombstone";
@@ -15,7 +15,7 @@ const schema = `session_revocation_test_${randomBytes(4).toString("hex")}`;
 const SECRET = "test-home-session-secret-that-is-long-enough";
 const ORIGIN = "http://127.0.0.1:3103";
 const ADDRESS = "0x3333333333333333333333333333333333333333";
-const NOW = new Date();
+const NOW = new Date("2026-09-12T12:00:00.000Z");
 let admin: Bun.SQL;
 const executors: SqlExecutor[] = [];
 
@@ -52,11 +52,13 @@ function sessionRequest(value: string): Request {
 
 (connectionString ? describe : describe.skip)("native sign-out revocation on PostgreSQL", () => {
   beforeAll(async () => {
+    setSystemTime(NOW);
     admin = new Bun.SQL(connectionString);
     await admin.unsafe(`CREATE SCHEMA ${schema}`);
     await admin.begin(async (tx) => { await tx.unsafe(`SET LOCAL search_path TO ${schema}`); for (const migration of await readAllMigrationSql()) await tx.unsafe(migration); });
   }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   afterAll(async () => {
+    setSystemTime();
     for (const sql of executors) await sql.dispose?.();
     await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close();
   });
