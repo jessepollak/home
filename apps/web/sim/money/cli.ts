@@ -17,6 +17,7 @@ const { values } = parseArgs({
     "worker-seeds": { type: "string" },
     repro: { type: "string" },
     "land-first": { type: "string", default: "B" },
+    "failing-seeds": { type: "string" },
     verbose: { type: "boolean", default: false },
   },
 });
@@ -141,4 +142,5 @@ lines.push("", "stand-ins: Peer's offchain services (payee registration hashes, 
   "(2 s per block) drives Home, Postgres now() and the fork; Save prepare skips the Morpho GraphQL rate read" +
   (output.stubbed.length ? `; ${output.stubbed.length} B20 registry tokens anvil cannot execute read as balance 0 (${output.stubbed.join(", ")})` : "") + ".");
 print(lines.join("\n"));
+if (values["failing-seeds"]) await Bun.write(values["failing-seeds"], failing.map((result) => `${result.seed}\n`).join(""));
 process.exit(passing.length === results.length ? 0 : 1);
