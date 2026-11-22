@@ -1,20 +1,20 @@
 {
   "version": 2,
   "domNodes": {
-    "/home": 456,
-    "/activity": 275,
+    "/home": 762,
+    "/activity": 551,
     "/cash": 350,
     "/invest": 513,
     "/borrow": 251,
     "/investments": 362
   },
   "initialJs": {
-    "/home": 673917,
-    "/activity": 673917,
-    "/cash": 673917,
-    "/invest": 673917,
-    "/borrow": 673917,
-    "/investments": 673917
+    "/home": 763678,
+    "/activity": 763678,
+    "/cash": 763678,
+    "/invest": 763678,
+    "/borrow": 763678,
+    "/investments": 763678
   },
   "balancesPainted": {
     "/home": {
