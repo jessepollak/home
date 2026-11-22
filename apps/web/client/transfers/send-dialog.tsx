@@ -37,7 +37,7 @@ import {
   MoneyAssetPicker,
   CashOutReview,
   MoneyConfirmSummary,
-  moneyConfirmFromRow,
+  moneyConfirmFacts,
   MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
@@ -480,6 +480,7 @@ export function SendDialog({
   const offrampName = cashout?.providerName ?? selectedOfframp?.displayName;
   const busy = step === "pending" || preparing;
   const reviewing = step === "confirm" || step === "pending" || step === "error";
+  const confirmFacts = action ? moneyConfirmFacts(action) : null;
   const modalTitle = reviewing ? "Confirm" : entry === "cash-out" || cashout ? `Cash out${offrampName ? ` with ${offrampName}` : ""}` : "Send";
   const amountAssetProps = {
     assetId: activeAssetId ?? undefined,
@@ -569,25 +570,22 @@ export function SendDialog({
           platform={cashout.platform} platformLabel={cashout.platformLabel} canonicalHandle={cashout.canonicalHandle}
           onEdit={() => returnToCashoutHandle(true)}
           notice={quoteExpired ? { tone: "neutral", text: "This quote expired. Get a new quote to continue." } : quoteNotice ? { tone: "neutral", text: quoteNotice } : null}
-        /> : (request || cashout) && (!request || requestAsset) && reviewing ? <>
-          <MoneyConfirmSummary action={action} amount={confirmAmount} lead={cashout ? `You're withdrawing from ${cashout.providerName}` : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
-            ...(action ? [moneyConfirmFromRow(action.owner)] : []),
+        /> : (request || cashout) && (!request || requestAsset) && reviewing && confirmFacts ? (
+          <MoneyConfirmSummary facts={confirmFacts} amount={confirmAmount} lead={cashout ? `You're withdrawing from ${cashout.providerName}` : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
             { label: "Provider", value: cashout.providerName },
             { label: "Payout app", value: cashout.platformLabel },
-            { label: "Network", value: "Base" },
           ] : [
-            ...(action ? [moneyConfirmFromRow(action.owner)] : []),
             { label: "To", value: <CopyableValue value={request!.recipient} presentation="reveal" valueKind="address" className="-my-3 justify-end" /> },
-            { label: "Asset", value: requestAsset?.symbol ?? "" }, { label: "Network", value: "Base" },
+            { label: "Asset", value: requestAsset?.symbol ?? "" },
           ]} />
-        </> : null}
+        ) : null}
         {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
       </MoneyModalBody> : null}
       {step === "result" && action && submission ? <SendResult action={action} submission={submission} amount={confirmAmount} provider={cashout?.providerName} submittedAt={submittedAt} fetchAccountResource={fetchAccountResource} onDone={onClose} onTryAgain={() => { setAction(null); setSubmission(null); setStep("amount"); onInvalidResume?.(); }} onViewActivity={() => openPanelAfterClose(routing, "activity", onClose)} /> : null}
       {step === "amount" && amountAvailable ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinueAmount} primaryLoading={preparing} onPrimary={continueFromAmount} /> : null}
       {step === "destination" && entry === "send" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={effectiveRecipient === null || resolving} primaryLoading={preparing} onPrimary={() => void prepareSend()} /> : null}
       {step === "handle" ? <MoneyModalFooter primaryLabel="Review" primaryDisabled={!canonicalizeCashPayee(selectedPlatform?.platform ?? "", payoutHandle)} primaryLoading={preparing} onPrimary={() => void prepareCashout()} /> : null}
-      {(step === "confirm" || step === "pending") && action ? <MoneyConfirmFooter action={action} actionExpired={quoteExpired} primaryLabel={quoteExpired ? "Get new quote" : cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} submitting={step === "pending" || preparing} onPrimary={() => void (quoteExpired ? requoteCashout() : confirm())} secondaryLabel="Back" onSecondary={back} /> : null}
+      {(step === "confirm" || step === "pending") && action ? <MoneyConfirmFooter action={action} actionExpired={quoteExpired} primaryDisabled={!confirmFacts && !quoteExpired} primaryLabel={quoteExpired ? "Get new quote" : cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} submitting={step === "pending" || preparing} onPrimary={() => void (quoteExpired ? requoteCashout() : confirm())} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}
       </MoneyModalStep>
     </MoneyModal>
