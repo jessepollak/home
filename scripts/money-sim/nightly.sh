@@ -55,17 +55,19 @@ main() {
     if [ -n "$last" ] && [ "$last" != "$yesterday" ]; then gap=" (missed nights after $last)"; fi
   fi
 
-  # The lock records its owner's PID, so a lock left by a run that was killed or cut off by a restart is reclaimed.
-  if ! mkdir "$state/lock" 2>/dev/null; then
+  # The lock is a symlink whose target is the owner's PID: creating it publishes the owner in one atomic step, so
+  # no holder is ever visible without its PID. A lock whose PID is no longer running (a killed run, a restart) is
+  # reclaimed; a lock that is not a PID symlink (an older lock directory) is left alone and reported.
+  if [ -d "$state/lock" ] && [ ! -L "$state/lock" ]; then echo "$state/lock is not a PID lock; remove it to resume" >&2; exit 0; fi
+  if ! ln -s "$$" "$state/lock" 2>/dev/null; then
     local owner
-    owner=$(cat "$state/lock/pid" 2>/dev/null || true)
-    case "$owner" in ''|*[!0-9]*) owner="" ;; esac
-    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then echo "run $owner holds $state/lock" >&2; exit 0; fi
-    rm -rf "$state/lock"
-    mkdir "$state/lock" || { echo "could not take $state/lock" >&2; exit 0; }
+    owner=$(readlink "$state/lock" 2>/dev/null || true)
+    case "$owner" in ''|*[!0-9]*) echo "$state/lock is not a PID lock; remove it to resume" >&2; exit 0 ;; esac
+    if kill -0 "$owner" 2>/dev/null; then echo "run $owner holds $state/lock" >&2; exit 0; fi
+    rm -f "$state/lock"
+    ln -s "$$" "$state/lock" 2>/dev/null || { echo "another run took $state/lock" >&2; exit 0; }
   fi
-  echo $$ > "$state/lock/pid"
-  trap 'rm -rf "$state/lock"' EXIT
+  trap '[ "$(readlink "$state/lock" 2>/dev/null)" = "$$" ] && rm -f "$state/lock"' EXIT
   # Only scheduled runs mark their night, so a manual or probe run never suppresses tonight's run.
   if [ "$scheduled" = 1 ]; then echo "$night" > "$state/last-night"; fi
 
@@ -211,9 +213,15 @@ standing() {
   if [ ! -f "$bot_token_file" ] || [ ! -O "$bot_token_file" ] || [ -n "$(find "$bot_token_file" -perm -044 -o -perm -040 -o -perm -004)" ]; then
     echo "comment not posted for #$target ($key): no factory bot token readable only by this user" >> "$state/report.log"; return 0
   fi
-  id=$(gh api "repos/jessepollak/home/issues/$target/comments" --paginate \
-    -q ".[] | select(.user.login == \"jessepollakj\" and (.body | contains(\"$marker\"))) | .id" 2>/dev/null | tail -1 || true)
-  case "$id" in *[!0-9]*) id="" ;; esac
+  # A failed lookup is not proof that no standing comment exists: defer to the next night instead of duplicating.
+  local found
+  if ! found=$(gh api "repos/jessepollak/home/issues/$target/comments" --paginate \
+    -q ".[] | select(.user.login == \"jessepollakj\" and (.body | contains(\"$marker\"))) | .id" 2>/dev/null); then
+    echo "comment not posted for #$target ($key): the standing-comment lookup failed; retrying next night" >> "$state/report.log"
+    return 0
+  fi
+  id=$(printf '%s\n' "$found" | tail -1)
+  case "$id" in *[!0-9]*) echo "comment not posted for #$target ($key): the lookup returned an unexpected id" >> "$state/report.log"; return 0 ;; esac
   if [ -n "$id" ]; then
     if GH_TOKEN="$(cat "$bot_token_file")" gh api -X PATCH "repos/jessepollak/home/issues/comments/$id" -F "body=@$file" > /dev/null 2>> "$state/report.log"; then
       echo "standing comment edited on #$target ($key)" >> "$state/report.log"
