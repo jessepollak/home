@@ -40,6 +40,8 @@ Setup links to **General settings** (`/admin/settings`), **Products and markets*
 
 ## Update, backup and recovery
 
+Home's [releases](releases.md) explain version names and what a tag promises; each [changelog](../CHANGELOG.md) entry lists the upgrade steps for that version.
+
 ### Update a fork
 
 1. Record the full running commit and deployment ID from **Admin → Overview → Running version**. In your local fork, add the upstream remote once, fetch, and inspect the changes before merging or deploying:
