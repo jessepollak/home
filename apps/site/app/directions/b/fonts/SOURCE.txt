@@ -1,0 +1,4 @@
+Inter Tight (variable, wght 100-900, latin subset)
+Source: https://github.com/rsms/inter-tight
+WOFF2 latin subset as served by Google Fonts: https://fonts.google.com/specimen/Inter+Tight
+Licence: SIL Open Font License 1.1, see OFL.txt
