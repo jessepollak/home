@@ -57,7 +57,8 @@ main() {
   fi
   echo $$ > "$state/lock/pid"
   trap 'rm -rf "$state/lock"' EXIT
-  date +%s > "$state/last-start"
+  # Only scheduled runs advance the once-per-night stamp, so a manual or probe run never suppresses tonight's run.
+  if [ "$scheduled" = 1 ]; then date +%s > "$state/last-start"; fi
 
   local stamp_name out seeds
   stamp_name=$(date -u +%Y%m%dT%H%M%SZ)
