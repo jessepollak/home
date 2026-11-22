@@ -6,14 +6,15 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { BASELINE_PATH, evaluateDisableBudget, repositoryFiles } from "../lint-disables.mjs";
-import { EXEMPTIONS_BASELINE_PATH, evaluateExemptions, readExemptionInput, shrinkExemptions } from "../lint-exemptions.mjs";
+import { EXEMPTIONS_BASELINE_PATH, evaluateExemptions, readExemptionInput, shrinkExemptions, runLintExemptions } from "../lint-exemptions.mjs";
 
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const clean = { unlisted: [], stale: [], invalid: [] };
 const record = (glob = "client/**", rule = "home/example", reason = "Reviewed fixture exemption") => ({ glob, rule, reason });
 const fixture = (files = ["client/**"], value = "off") => ({ overrides: [{ files, rules: { "home/example": value } }] });
 const evaluate = (config, baseline = []) => evaluateExemptions({ config, baseline });
-const cli = (args = [], cwd = root) => spawnSync("node", ["scripts/gates/lint-exemptions.mjs", ...args], { cwd, encoding: "utf8" });
+const cliProcess = (args = [], cwd = root) => spawnSync("node", ["scripts/gates/lint-exemptions.mjs", ...args], { cwd, encoding: "utf8" });
+const cli = (args = [], cwd = root) => runLintExemptions({ args, cwd });
 
 function createMirror(t) {
   const directory = mkdtempSync(path.join(tmpdir(), "home-lint-exemptions-"));
@@ -191,7 +192,7 @@ test("shrink CLI reproduces the shipped baseline bytes in a disposable mirror", 
   const shippedBytes = readFileSync(path.join(root, EXEMPTIONS_BASELINE_PATH));
   copyFileSync(path.join(root, "apps/web/.oxlintrc.jsonc"), path.join(directory, "apps/web/.oxlintrc.jsonc"));
   copyFileSync(path.join(root, EXEMPTIONS_BASELINE_PATH), baselineFile);
-  const result = cli(["--shrink"], directory);
+  const result = cliProcess(["--shrink"], directory);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, "");
   assert.deepEqual(readFileSync(baselineFile), shippedBytes);
