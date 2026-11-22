@@ -14,7 +14,7 @@ The money-action simulation (`bun run --cwd apps/web sim:money`) runs once a nig
 4. **Write the one-line report.** It appends one line to `~/Library/Logs/home-money-sim/report.log`: the `main` SHA, the RESULT line, and the flakes, known swaps and real failures. Per-run output is kept in `runs/` beside it.
 5. **Comment on real failures.** For a real failure outside the known set, it writes one comment per issue, naming the SHA, the RESULT line and each seed with its replay command.
    - A real failure with the #2292 swap signature goes to #2292.
-   - Any other real failure goes to the open money-actions debt issue, `chore(money-actions): pay down money-actions debt` ([work sizing](work-sizing.md)). With none open, it goes to #2292 under a "Non-swap failure" heading. No new issue is ever created.
+   - Any other real failure goes to the open money-actions debt issue, `chore(money-actions): pay down money-actions debt` ([work sizing](work-sizing.md)), counted only when Jesse or the factory bot opened it. With none open, it goes to #2292 under a "Non-swap failure" heading. No new issue is ever created.
    - The comment posts only as the factory bot account. The token is read at post time from the factory's own `~/.config/home-factory/bot-token` (owner-only), is used only for those `gh` calls, and must belong to `jessepollakj`. Without it, the comment stays in the local log.
 
 The agent checks every hour. With `--scheduled`, a run starts only between 01:00 and 06:00 local time and at most once per 20 hours. A lock directory prevents overlapping runs.

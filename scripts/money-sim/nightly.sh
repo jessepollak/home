@@ -50,6 +50,7 @@ main() {
   if ! mkdir "$state/lock" 2>/dev/null; then
     local owner
     owner=$(cat "$state/lock/pid" 2>/dev/null || true)
+    case "$owner" in ''|*[!0-9]*) owner="" ;; esac
     if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then echo "run $owner holds $state/lock" >&2; exit 0; fi
     rm -rf "$state/lock"
     mkdir "$state/lock" || { echo "could not take $state/lock" >&2; exit 0; }
@@ -115,8 +116,11 @@ main() {
   done
   local debt=""
   if [ -n "$other" ]; then
+    # Anyone can open an issue on a public repo, so only a debt issue opened by Jesse or the factory bot counts.
     debt=$(gh issue list --repo jessepollak/home --state open --search 'chore(money-actions): pay down money-actions debt in:title' \
-      --json number,title -q '.[] | select(.title == "chore(money-actions): pay down money-actions debt") | .number' 2>/dev/null | head -1 || true)
+      --json number,title,author -q '.[] | select(.title == "chore(money-actions): pay down money-actions debt" and
+        (.author.login == "jessepollak" or .author.login == "jessepollakj")) | .number' 2>/dev/null | head -1 || true)
+    case "$debt" in *[!0-9]*) debt="" ;; esac
   fi
   local body="$state/runs/$stamp_name.comment-$swap_issue.md"
   : > "$body"
