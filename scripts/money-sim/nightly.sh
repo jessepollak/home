@@ -99,8 +99,11 @@ result=$(grep -m1 '^RESULT' "$out" | sed 's/^RESULT *//' || true)
 held=$(printf '%s\n' "$result" | sed -n 's/.*(\([0-9][0-9]*\)\/\([0-9][0-9]*\)).*/\1/p')
 total=$(printf '%s\n' "$result" | sed -n 's/.*(\([0-9][0-9]*\)\/\([0-9][0-9]*\)).*/\2/p')
 [ -n "$held" ] && [ -n "$total" ] || harness "the RESULT line could not be read"
-if [ ! -f "$seeds" ] || grep -qv '^[0-9][0-9]*$' "$seeds"; then harness "the failing-seed list is missing or unreadable"; fi
-listed=$(wc -l < "$seeds" | tr -d ' ')
+# Each line is a seed, tagged " crashed" when its batch run stopped before any invariant result.
+seed_check=0
+grep -qvE '^[0-9]+( crashed)?$' "$seeds" 2>/dev/null || seed_check=$?
+[ "$seed_check" = 1 ] || harness "the failing-seed list is missing, unreadable, or malformed"
+listed=$(wc -l < "$seeds" | tr -d ' ') || harness "the failing-seed list could not be read"
 [ "$listed" = "$((total - held))" ] || harness "the failing-seed list has $listed entries but RESULT reports $((total - held)) failed runs"
 if [ "$held" = "$total" ]; then
   [ "$exit_status" = 0 ] || harness "every run held but the simulation exited $exit_status"
@@ -110,23 +113,25 @@ fi
 [ "$exit_status" != 0 ] || harness "$((total - held)) runs failed but the simulation exited 0"
 
 # Replay each failing seed alone once. "Failed again" needs a completed replay that reports an invariant violation.
-again=0 flakes=0 errors=0 shown=0 lines=""
-while read -r seed; do
+again=0 flakes=0 errors=0 crashed=0 shown=0 lines=""
+while read -r seed tag; do
+  batch="violated an invariant in the batch"
+  if [ "$tag" = crashed ]; then crashed=$((crashed + 1)) batch="crashed in the batch (harness error, no invariant result)"; fi
   replay="$state/runs/$stamp.seed-$seed.txt"
   if (cd "$worktree" && bun run --cwd apps/web sim:money -- --seed "$seed" < /dev/null) > "$replay" 2>&1; then
-    flakes=$((flakes + 1)) what="passed alone (flake)"
+    flakes=$((flakes + 1)) what="passed alone"
   elif grep -q '^RESULT' "$replay" && grep -q '^  step ' "$replay"; then
     again=$((again + 1)) what="failed again: $(grep -m1 '^  step ' "$replay" | sed 's/^  //' | cut -c1-200)"
   else
-    errors=$((errors + 1)) what="replay harness error (no invariant result)"
+    errors=$((errors + 1)) what="stopped before any invariant result (harness error)"
   fi
-  echo "seed $seed: $what" >> "$out.replays"
-  if [ "$shown" -lt 20 ]; then shown=$((shown + 1)) lines="$lines- \`$seed\` $what"$'\n'; fi
+  echo "seed $seed: $batch; replay $what" >> "$out.replays"
+  if [ "$shown" -lt 20 ]; then shown=$((shown + 1)) lines="$lines- \`$seed\` $batch; replay $what"$'\n'; fi
 done < "$seeds"
 
-log "$result; failed again $again, flakes $flakes, replay harness errors $errors; seeds in $out.replays"
+log "$result; batch crashes $crashed; replays failed again $again, passed $flakes, harness errors $errors; seeds in $out.replays"
 more=$((listed - shown))
-fail "Seeds that violated an invariant in the batch: $((total - held)). Replayed alone: $again failed again, $flakes passed (flakes), $errors replay harness errors.
+fail "$((total - held)) runs failed in the batch: $((listed - crashed)) violated an invariant, $crashed crashed before any invariant result (harness errors). Replayed alone: $again failed again, $flakes passed, $errors stopped before any invariant result (harness errors).
 
 ${lines}$([ "$more" -gt 0 ] && echo "- and $more more (full list in the local log)")
 

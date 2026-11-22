@@ -9,9 +9,9 @@ The money-action simulation (`bun run --cwd apps/web sim:money`) runs once a nig
 1. **Update the worktree.** It fetches `origin/main` and detaches a dedicated worktree at it (`~/src/home-worktrees/money-sim-nightly` by default). It creates the worktree when missing, then runs `bun run worktree:bootstrap -- --copy-env`.
 2. **Run the simulation.** It runs `sim:money -- --runs 1000 --failing-seeds <file>`. The simulation starts its own anvil fork and scratch PostgreSQL and never reads `DATABASE_URL`.
 3. **Check the result.** The night is green only when the simulation exits 0, its RESULT line reads every run as held, and the failing-seed list is empty. A green night appends one line to `~/Library/Logs/home-money-sim/report.log` and posts nothing.
-4. **Replay failures.** It replays every failing seed alone once with `--seed`. A seed **failed again** only when its replay completed and reported an invariant violation. A seed that passes alone is a **flake**; a replay that stops before any invariant result is a **replay harness error**.
+4. **Replay failures.** The seed list tags each failed batch run as an invariant violation or a crash (a harness error with no invariant result). It replays every failing seed alone once with `--seed`. A seed **failed again** only when its replay completed and reported an invariant violation; otherwise its replay either passed alone or stopped before any invariant result (a harness error).
 5. **Report the failure.** Any other outcome is a failure and posts one new comment on #2292 (`MONEY_SIM_ISSUE` overrides it):
-   - seeds that violated an invariant, with each replay's outcome
+   - failed batch runs, each labelled as a violation or a crash, with its replay's outcome
    - a bootstrap failure, a missing RESULT line, or a nonzero exit, labelled as harness errors
    - a failing-seed list that is missing, unreadable, or whose count disagrees with RESULT
 
