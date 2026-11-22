@@ -37,7 +37,7 @@
 
 The full check suite also covers:
 
-- `bun check` (including Oxlint-only lint with warnings denied, unused suppressions reported, and the Knip production dead-code gate)
+- `bun check` (including Oxlint-only lint with warnings denied, unused suppressions reported, and the Knip production dead-code gate; `bun run site:check` runs the same lint, typecheck, Knip and build for `apps/site`)
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
 - `bun run gates` (the repository gate unit tests above, including commit provenance, plus all verification-tool Bun tests under `scripts/verify/`; also run inside `bun check`)

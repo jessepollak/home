@@ -1,0 +1,16 @@
+@import "../../web/app/globals.css";
+
+@source "../../web/components/{currency-mark,finance-rows,management-facts,money-ticker,signed-balance-bar}.tsx";
+@source "../../web/components/ui/{badge,button,card,item,payout-mark,result-header,separator,status-step,status-texture}.tsx";
+
+[data-demo]:not([data-demo-playing]) * {
+  animation: none;
+}
+
+[data-demo]:not([data-demo-playing]) [data-slot="status-spinner"] {
+  display: none;
+}
+
+[data-demo]:not([data-demo-playing]) [data-slot="status-clock"] {
+  display: block;
+}
