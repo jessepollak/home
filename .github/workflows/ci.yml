@@ -344,7 +344,7 @@ jobs:
           echo "HOME_SMOKE_DISCARDED_SECONDS=$(( $(date +%s) - started ))" >> "$GITHUB_ENV"
           echo "HOME_SMOKE_CACHE_DISCARDED=1" >> "$GITHUB_ENV"
           rm -rf apps/web/.next/dev
-          bun run --cwd apps/web test:browser-smoke
+          bun run --cwd apps/web test:browser-smoke --global-timeout=140000
 
       - name: Record Turbopack cache status
         if: ${{ !cancelled() }}
@@ -359,8 +359,10 @@ jobs:
       - name: Enforce smoke job budget
         run: |
           elapsed=$(( $(date +%s) - HOME_SMOKE_STARTED_AT - ${HOME_SMOKE_DISCARDED_SECONDS:-0} ))
-          echo "Chromium smoke: ${elapsed}s before artifact upload (125s budget; 10s reserved for cleanup)."
-          test "$elapsed" -le 125
+          budget=125
+          test -z "${HOME_SMOKE_CACHE_DISCARDED:-}" || budget=175
+          echo "Chromium smoke: ${elapsed}s before artifact upload (${budget}s budget; 10s reserved for cleanup)."
+          test "$elapsed" -le "$budget"
 
       - name: Upload Playwright timings and failure traces
         if: always()
