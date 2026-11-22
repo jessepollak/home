@@ -1,0 +1,112 @@
+.hero {
+  position: relative;
+  isolation: isolate;
+  color: var(--foreground);
+  --foreground: #fff;
+  --primary: #fff;
+  --primary-foreground: #0045d6;
+  --background: rgb(255 255 255 / 0.08);
+  --border: rgb(255 255 255 / 0.42);
+  --ring: rgb(255 255 255 / 0.9);
+  --state-hover: rgb(255 255 255 / 0.16);
+  --state-pressed: rgb(255 255 255 / 0.22);
+}
+
+.light {
+  position: relative;
+  isolation: isolate;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hero > .layer {
+  bottom: -180px;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 900ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.layer[data-ready] .canvas {
+  opacity: 1;
+}
+
+.still {
+  position: absolute;
+  inset: 0;
+  transition: opacity 900ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.layer[data-ready] .still {
+  opacity: 0;
+}
+
+.hero .still {
+  background:
+    radial-gradient(28rem 20rem at 92% 6%, rgb(41 198 255 / 0.9), transparent 70%),
+    radial-gradient(48rem 30rem at 80% 50%, #0052ff, transparent 72%),
+    radial-gradient(40rem 22rem at 12% 112%, #4a2fd6, transparent 70%),
+    linear-gradient(180deg, #020626 0%, #061154 calc(100% - 180px), #3f7bff calc(100% - 150px), transparent 100%);
+}
+
+.hero .grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.09;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mask-image: linear-gradient(180deg, #000 calc(100% - 200px), transparent calc(100% - 60px));
+}
+
+.customers .still {
+  background:
+    radial-gradient(34rem 26rem at 92% 14rem, rgb(0 82 255 / 0.5), transparent 70%),
+    radial-gradient(22rem 22rem at 100% 34rem, rgb(41 198 255 / 0.4), transparent 70%);
+  mask-image: linear-gradient(180deg, #000 0, transparent 52rem);
+}
+
+.team .still {
+  background: radial-gradient(40rem 20rem at 88% 0, rgb(0 82 255 / 0.1), transparent 70%);
+}
+
+@media (max-width: 767px) {
+  .hero .still {
+    background:
+      radial-gradient(14rem 10rem at 100% 0, rgb(0 82 255 / 0.7), transparent 70%),
+      linear-gradient(180deg, #020626 0%, #061154 calc(100% - 180px), #3f7bff calc(100% - 150px), transparent 100%);
+  }
+
+  .customers .still {
+    background: radial-gradient(20rem 14rem at 100% 0, rgb(0 82 255 / 0.12), transparent 70%);
+  }
+}
+
+.demo {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+}
+
+.halo {
+  position: absolute;
+  inset: -14% 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(closest-side at 62% 40%, rgb(0 82 255 / 0.12), transparent),
+    radial-gradient(closest-side at 30% 75%, rgb(91 59 234 / 0.08), transparent);
+}
+
+:global(#team) .halo {
+  opacity: 0.55;
+}
