@@ -2,12 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
+import { AnimatePresence } from "motion/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SHELL_SEARCH_PARAM, backClientHistory, commitClientUrl, parseShellOverlayIntent, shellHref } from "@/config/shell-location";
 import { useShellKeyboardOpen } from "@/components/visual-viewport";
 import styles from "@/components/primary-navigation.module.css";
 import { isRecord } from "@/shared/guards";
-import { deferStep } from "@/client/money-modal/deferred-sheet";
 import type { HomeExperienceProps, ShellSearchContentProps } from "./home-types";
 
 type SearchDetailTarget = { href: string; assetId: string; query: string; token: string };
@@ -15,8 +15,6 @@ type SearchState = { open: boolean; openSearch?: (opener: HTMLButtonElement) => 
 const SearchStateContext = createContext<SearchState>({ open: false });
 const SearchSurfaceContext = createContext<ReactNode>(null);
 const RouteSearchContext = createContext("");
-const ShellSearchPresence = deferStep(() => import("./shell-search-presence").then((module) => module.ShellSearchPresence));
-const noFallback = () => null;
 
 export function ShellRouteSearchProvider({ children }: { children: ReactNode }) {
   const searchParams = useSearchParams();
@@ -90,13 +88,7 @@ export function ShellSearchProvider({ children, content, available, signedOut, o
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
-  const focusInputWhenReadyRef = useRef(false);
-  const onSearchInputReady = useCallback((input: HTMLInputElement | null) => {
-    searchInputRef.current = input;
-    if (!input || !focusInputWhenReadyRef.current) return;
-    focusInputWhenReadyRef.current = false;
-    queueMicrotask(() => { if (input.isConnected) input.focus({ preventScroll: true }); });
-  }, []);
+  const onSearchInputReady = useCallback((input: HTMLInputElement | null) => { searchInputRef.current = input; }, []);
   const commitSearchQuery = useCallback((nextQuery: string) => {
     const next = new URL(window.location.href);
     if (!next.searchParams.has(SHELL_SEARCH_PARAM) || next.searchParams.get(SHELL_SEARCH_PARAM) === nextQuery) return;
@@ -113,12 +105,10 @@ export function ShellSearchProvider({ children, content, available, signedOut, o
     next.searchParams.set(SHELL_SEARCH_PARAM, "");
     commitClientUrl(`${next.pathname}${next.search}`, "push", { assetSearchPushed: true, assetSearchScrollTop: 0, assetSearchResult: null }, true);
     flushSync(() => { setSearchEntry(assetSearchEntry()); setUrlSearchOverride(next.search); });
-    if (searchInputRef.current) searchInputRef.current.focus({ preventScroll: true });
-    else focusInputWhenReadyRef.current = true;
+    searchInputRef.current?.focus({ preventScroll: true });
   }, [detailTargetRef, ownerKey]);
   const closeSearch = useCallback(() => {
     detailTargetRef.current = null;
-    focusInputWhenReadyRef.current = false;
     const saved = searchEntry;
     const historyState: unknown = window.history.state;
     if ((isRecord(historyState) && historyState.assetSearchPushed === true) || (saved?.href === `${window.location.pathname}${window.location.search}` && saved.state.assetSearchPushed)) { backClientHistory(); return; }
@@ -175,9 +165,9 @@ export function ShellSearchProvider({ children, content, available, signedOut, o
     return () => { cancelAnimationFrame(frame); document.removeEventListener("focusin", onFocus); };
   }, [searchFocusPending, searchOpen, pathname, keyboardOpen, ownerKey, available, signedOut, shellRef]);
   const state = useMemo(() => ({ open: searchOpen, openSearch: available ? openSearch : undefined, closeSearch }), [searchOpen, available, openSearch, closeSearch]);
-  const surface = useMemo(() => <ShellSearchPresence key={`${pathname}:${ownerKey}:${available}:${signedOut}`} fallback={noFallback}>
+  const surface = useMemo(() => <AnimatePresence key={`${pathname}:${ownerKey}:${available}:${signedOut}`}>
     {searchOpen && content ? <ShellSearchSlot key="search" content={content} initialQuery={query ?? ""} initialScrollTop={searchRestoration?.assetSearchScrollTop ?? 0} initialResultId={searchRestoration?.assetSearchResult ?? null} onInputReady={onSearchInputReady} onClose={closeSearch} onQueryCommit={commitSearchQuery} onOpenAsset={openSearchAsset} /> : null}
-  </ShellSearchPresence>, [pathname, ownerKey, available, signedOut, searchOpen, content, query, searchRestoration?.assetSearchScrollTop, searchRestoration?.assetSearchResult, onSearchInputReady, closeSearch, commitSearchQuery, openSearchAsset]);
+  </AnimatePresence>, [pathname, ownerKey, available, signedOut, searchOpen, content, query, searchRestoration?.assetSearchScrollTop, searchRestoration?.assetSearchResult, onSearchInputReady, closeSearch, commitSearchQuery, openSearchAsset]);
   return <SearchStateContext value={state}><SearchSurfaceContext value={surface}>{children}</SearchSurfaceContext></SearchStateContext>;
 }
 

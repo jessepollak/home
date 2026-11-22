@@ -19,12 +19,12 @@ import { PricedInvestExperienceWithDiscover } from "@/client/invest/priced-inves
 import { InvestmentsExperience } from "@/client/investments/investments-experience";
 import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
+import { PricedAssetSearch } from "@/client/invest/asset-search";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { getVisibleShelves } from "@/client/invest/discover";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { INVEST_SETTINGS_DEFAULTS } from "@/shared/operator-settings/invest";
-import { deferStep } from "@/client/money-modal/deferred-sheet";
 import { DashboardShell } from "./shell";
 import type { InvestmentsContentProps, ShellSearchContentProps } from "./home-types";
 import { ProductOfferingProvider } from "./product-offering";
@@ -40,9 +40,6 @@ function RoutedInvestExperience(props: Omit<ComponentProps<typeof PricedInvestEx
   const location = useRouteShellLocation();
   return <PricedInvestExperienceWithDiscover {...props} initialView={investViewFromLocation(location)} />;
 }
-
-const PricedAssetSearch = deferStep(() => import("@/client/invest/asset-search").then((module) => module.PricedAssetSearch));
-const noSearchFallback = () => null;
 
 export function PortfolioHomeExperience({
   detectedCountry,
@@ -220,9 +217,7 @@ export function PortfolioHomeExperience({
   }, [balances.snapshot]);
 
   const renderSearchContent = useCallback((props: ShellSearchContentProps) => <PresentationRegionProvider regionId={region.regionId}>
-    <PricedAssetSearch {...props} discover={discover} investVisibility={investVisibility} fallback={noSearchFallback} /></PresentationRegionProvider>, [region.regionId, discover, investVisibility]);
-  const searchEnabled = productOffering.products.invest === "on" && getVisibleShelves(discover.memeAssets, investVisibility ?? INVEST_SETTINGS_DEFAULTS).length > 0;
-  useEffect(() => { void PricedAssetSearch.preload(); }, []);
+    <PricedAssetSearch {...props} discover={discover} investVisibility={investVisibility} /></PresentationRegionProvider>, [region.regionId, discover, investVisibility]);
   const renderCashContent = useCallback((props: { view: "cash" | "savings"; onOpenSavings: () => void }) => (
     <AuthenticatedCashExperience view={props.view} onOpenSavings={props.onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />
   ), [regionReady, pendingCashout]);
@@ -238,7 +233,8 @@ export function PortfolioHomeExperience({
       initialRateLabels={initialHomeSummary && initialHomeSummary.owner === (session ? dataOwnerKey(session) : null) && initialHomeSummary.region === region.regionId ? initialHomeSummary.rates : undefined}
       cardsEnabled={cardsEnabled}
       investContent={<RoutedInvestExperience discover={discover} investVisibility={investVisibility} />}
-      searchContent={searchEnabled ? renderSearchContent : undefined}
+      searchContent={productOffering.products.invest === "on" && getVisibleShelves(discover.memeAssets, investVisibility ?? INVEST_SETTINGS_DEFAULTS).length > 0
+        ? renderSearchContent : undefined}
       cashContent={renderCashContent}
       investmentsContent={renderInvestmentsContent}
       interruption={interruptionStatus.interruption}

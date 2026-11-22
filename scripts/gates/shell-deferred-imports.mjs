@@ -41,9 +41,6 @@ export const deferredShellModules = [
   { path: "apps/web/client/transfers/send-dialog.tsx", flow: "Send" },
   { path: "apps/web/client/funding/add-money-dialog.tsx", flow: "Add money" },
   { path: "apps/web/client/borrowing/borrow-money-dialog.tsx", flow: "Borrow" },
-  { path: "apps/web/client/home/shell-search-presence.tsx", flow: "Asset search" },
-  { path: "apps/web/client/invest/asset-search.tsx", flow: "Asset search" },
-  { path: "apps/web/components/ui/shell-search-surface.tsx", flow: "Asset search" },
 ];
 
 function exactCasePath(root, file, entryNames) {
