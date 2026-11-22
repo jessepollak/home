@@ -46,8 +46,16 @@ main() {
     stamp=$(cat "$state/last-start" 2>/dev/null || echo 0)
     if [ $((now - stamp)) -lt $((20 * 3600)) ]; then exit 0; fi
   fi
-  if ! mkdir "$state/lock" 2>/dev/null; then echo "another run holds $state/lock" >&2; exit 0; fi
-  trap 'rmdir "$state/lock" 2>/dev/null || true' EXIT
+  # The lock records its owner's PID, so a lock left by a run that was killed or cut off by a restart is reclaimed.
+  if ! mkdir "$state/lock" 2>/dev/null; then
+    local owner
+    owner=$(cat "$state/lock/pid" 2>/dev/null || true)
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then echo "run $owner holds $state/lock" >&2; exit 0; fi
+    rm -rf "$state/lock"
+    mkdir "$state/lock" || { echo "could not take $state/lock" >&2; exit 0; }
+  fi
+  echo $$ > "$state/lock/pid"
+  trap 'rm -rf "$state/lock"' EXIT
   date +%s > "$state/last-start"
 
   local stamp_name out seeds
@@ -85,7 +93,7 @@ main() {
       case "$seed" in ''|*[!0-9]*) continue ;; esac
       if (cd "$worktree" && bun run --cwd apps/web sim:money -- --seed "$seed") > "$state/runs/$stamp_name.seed-$seed.txt" 2>&1; then
         flakes="$flakes $seed"
-      elif [[ "$known_swap" == *" $seed "* ]]; then
+      elif [[ "$known_swap" == *" $seed "* ]] && only_swap "$state/runs/$stamp_name.seed-$seed.txt"; then
         swaps="$swaps $seed"
       else
         real="$real $seed"
@@ -102,7 +110,7 @@ main() {
   # (docs/work-sizing.md); with none open, it goes to #2292 under a "Non-swap failure" heading. One comment per issue.
   local swap_new="" other=""
   for seed in $real; do
-    if grep -q "linked to deposit .*, but its own receipt created" "$state/runs/$stamp_name.seed-$seed.txt"; then swap_new="$swap_new $seed"
+    if only_swap "$state/runs/$stamp_name.seed-$seed.txt"; then swap_new="$swap_new $seed"
     else other="$other $seed"; fi
   done
   local debt=""
@@ -122,6 +130,14 @@ main() {
   fi
   [ -s "$body" ] && post "$swap_issue" "$body"
   exit 1
+}
+
+# only_swap <replay output>: true when the replay failed only with the #2292 swap signature (no other violation, no crash).
+only_swap() {
+  local file="$1"
+  grep -q 'crashed' "$file" && return 1
+  grep -q '^  step ' "$file" || return 1
+  ! grep '^  step ' "$file" | grep -vq "linked to deposit .*, but its own receipt created"
 }
 
 # section <heading> <seeds>: one comment section naming the main SHA, the RESULT line and each seed's replay.

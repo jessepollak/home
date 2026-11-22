@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Template: scripts/money-sim/install-launchd.sh replaces __HOME__ and installs it. See docs/money-sim-nightly.md. -->
+<!-- Template: scripts/money-sim/install-launchd.sh replaces __HOME__ and __PATH__ and installs it. See docs/money-sim-nightly.md. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>ai.j.home-money-sim</string>
@@ -20,7 +20,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key><string>__HOME__</string>
-    <key>PATH</key><string>__HOME__/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PATH</key><string>__PATH__</string>
   </dict>
 </dict>
 </plist>

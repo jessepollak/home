@@ -14,11 +14,20 @@ if [ "${1:-}" = "--uninstall" ]; then
   echo "removed $label"
   exit 0
 fi
-command -v anvil >/dev/null || { echo "anvil (Foundry) is not on PATH" >&2; exit 1; }
-command -v initdb >/dev/null && command -v pg_ctl >/dev/null || { echo "initdb and pg_ctl are not on PATH" >&2; exit 1; }
+# launchd runs without shell startup files, so the agent's PATH is built from where each tool resolves now.
+agent_path=""
+for tool in bun anvil initdb pg_ctl git gh; do
+  found=$(command -v "$tool") || { echo "$tool is not on PATH" >&2; exit 1; }
+  dir=$(dirname "$found")
+  case ":$agent_path:" in *":$dir:"*) ;; *) agent_path="${agent_path:+$agent_path:}$dir" ;; esac
+done
+agent_path="$agent_path:/usr/bin:/bin:/usr/sbin:/sbin"
+for tool in bun anvil initdb pg_ctl git gh; do
+  env -i PATH="$agent_path" /bin/bash -c "command -v $tool" >/dev/null || { echo "$tool does not resolve on the agent PATH" >&2; exit 1; }
+done
 mkdir -p "$share" "$HOME/Library/Logs/home-money-sim" "$(dirname "$agent")"
 install -m 755 "$here/nightly.sh" "$share/nightly.sh"
-sed "s#__HOME__#$HOME#g" "$here/$label.plist" > "$agent"
+sed -e "s#__HOME__#$HOME#g" -e "s#__PATH__#$agent_path#g" "$here/$label.plist" > "$agent"
 plutil -lint "$agent" >/dev/null
 launchctl bootstrap "$domain" "$agent"
 echo "installed $label: hourly check, runs once a night between 01:00 and 06:00"
