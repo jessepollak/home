@@ -29,14 +29,13 @@ main() {
   local repo="${MONEY_SIM_REPO:-$HOME/src/home}"
   local worktree="${MONEY_SIM_WORKTREE:-$HOME/src/home-worktrees/money-sim-nightly}"
   local state="${MONEY_SIM_STATE:-$HOME/Library/Logs/home-money-sim}"
-  local issue="${MONEY_SIM_ISSUE:-}"
   # MONEY_SIM_REF exists only to test an unmerged branch through this entrypoint; nightly runs use origin/main.
   local ref="${MONEY_SIM_REF:-main}"
   case "$ref" in -*|*..*|*[!A-Za-z0-9._/-]*|'') echo "MONEY_SIM_REF must be a plain branch name" >&2; exit 2 ;; esac
-  case "${MONEY_SIM_ISSUE:-}" in ''|*[!0-9]*) [ -z "${MONEY_SIM_ISSUE:-}" ] || { echo "MONEY_SIM_ISSUE takes an issue number" >&2; exit 2; } ;; esac
   local swap_issue=2292
   local known_swap=" 12 77 109 126 127 216 319 361 573 630 853 952 "
-  local bot_token_file="${MONEY_SIM_BOT_TOKEN_FILE:-$HOME/.config/home-money-sim/bot-token}"
+  # The factory's own bot token, read at post time only; never copied, printed or logged.
+  local bot_token_file="$HOME/.config/home-factory/bot-token"
   mkdir -p "$state/runs"
 
   if [ "$scheduled" = 1 ]; then
@@ -99,44 +98,56 @@ main() {
   echo "$line"
   [ -z "$real" ] && exit 0
 
-  # A real failure that shows the #2292 swap signature on a seed outside the known set goes to #2292; every
-  # other real failure goes to the money-sim issue. At most one comment per issue per night.
+  # A swap-signature failure goes to #2292. Any other real failure goes to the open money-actions debt issue
+  # (docs/work-sizing.md); with none open, it goes to #2292 under a "Non-swap failure" heading. One comment per issue.
   local swap_new="" other=""
   for seed in $real; do
     if grep -q "linked to deposit .*, but its own receipt created" "$state/runs/$stamp_name.seed-$seed.txt"; then swap_new="$swap_new $seed"
     else other="$other $seed"; fi
   done
-  [ -n "$swap_new" ] && comment "$swap_issue" "$swap_new" "swap"
-  [ -n "$other" ] && comment "$issue" "$other" "other"
+  local debt=""
+  if [ -n "$other" ]; then
+    debt=$(gh issue list --repo jessepollak/home --state open --search 'chore(money-actions): pay down money-actions debt in:title' \
+      --json number,title -q '.[] | select(.title == "chore(money-actions): pay down money-actions debt") | .number' 2>/dev/null | head -1 || true)
+  fi
+  local body="$state/runs/$stamp_name.comment-$swap_issue.md"
+  : > "$body"
+  [ -n "$swap_new" ] && section "Cash-out swap (#$swap_issue) on new seeds" "$swap_new" >> "$body"
+  if [ -n "$other" ] && [ -n "$debt" ]; then
+    local debt_body="$state/runs/$stamp_name.comment-$debt.md"
+    section "Real failures" "$other" > "$debt_body"
+    post "$debt" "$debt_body"
+  elif [ -n "$other" ]; then
+    section "Non-swap failure (no open money-actions debt issue)" "$other" >> "$body"
+  fi
+  [ -s "$body" ] && post "$swap_issue" "$body"
   exit 1
 }
 
-# comment <issue> <seeds> <name>: writes the comment, then posts it as the factory bot account when allowed.
-comment() {
-  local target="$1" list="$2" name="$3"
-  local body="$state/runs/$stamp_name.comment-$name.md"
-  {
-    echo "Nightly money-action simulation on \`$ref\` at $sha: **$result**."
-    echo
-    echo "Seeds that failed in the batch and again when replayed alone:"
-    echo
-    for seed in $list; do
-      local first
-      first=$(grep -m1 '^  step' "$state/runs/$stamp_name.seed-$seed.txt" | sed 's/^  //' || true)
-      echo "- \`$seed\`: ${first:-see the replay output}. Replay: \`bun run --cwd apps/web sim:money -- --seed $seed\`"
-    done
-  } > "$body"
-  if [ "$post" = 0 ]; then echo "comment not posted (--no-post): $body" >> "$state/report.log"; return; fi
-  if [ -z "$target" ]; then echo "comment not posted: MONEY_SIM_ISSUE is unset: $body" >> "$state/report.log"; return; fi
+# section <heading> <seeds>: one comment section naming the main SHA, the RESULT line and each seed's replay.
+section() {
+  local heading="$1" list="$2" seed first
+  echo "### $heading"
+  echo
+  echo "Nightly money-action simulation on \`$ref\` at $sha: **$result**. Seeds that failed in the batch and again when replayed alone:"
+  echo
+  for seed in $list; do
+    first=$(grep -m1 '^  step' "$state/runs/$stamp_name.seed-$seed.txt" | sed 's/^  //' || true)
+    echo "- \`$seed\`: ${first:-see the replay output}. Replay: \`bun run --cwd apps/web sim:money -- --seed $seed\`"
+  done
+  echo
+}
+
+# post <issue> <body file>: posts as the factory bot account only, with the token used for these gh calls alone.
+post() {
+  local target="$1" body="$2" login
+  if [ "$post" = 0 ]; then echo "comment not posted (--no-post) for #$target: $body" >> "$state/report.log"; return; fi
   if [ ! -f "$bot_token_file" ] || [ ! -O "$bot_token_file" ] || [ -n "$(find "$bot_token_file" -perm -044 -o -perm -040 -o -perm -004)" ]; then
-    echo "comment not posted: no factory bot token readable only by this user: $body" >> "$state/report.log"; return
+    echo "comment not posted for #$target: no factory bot token readable only by this user" >> "$state/report.log"; return
   fi
-  local login
-  local token
-  token=$(cat "$bot_token_file")
-  login=$(GH_TOKEN="$token" gh api user -q .login 2>/dev/null || true)
-  if [ "$login" != "jessepollakj" ]; then echo "comment not posted: token is not the factory bot account: $body" >> "$state/report.log"; return; fi
-  GH_TOKEN="$token" gh issue comment "$target" --repo jessepollak/home --body-file "$body" > /dev/null 2>> "$state/report.log" &&
+  login=$(GH_TOKEN="$(cat "$bot_token_file")" gh api user -q .login 2>/dev/null || true)
+  if [ "$login" != "jessepollakj" ]; then echo "comment not posted for #$target: token is not the factory bot account" >> "$state/report.log"; return; fi
+  GH_TOKEN="$(cat "$bot_token_file")" gh issue comment "$target" --repo jessepollak/home --body-file "$body" > /dev/null 2>> "$state/report.log" &&
     echo "comment posted on #$target" >> "$state/report.log"
 }
 

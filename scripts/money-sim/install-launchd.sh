@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs (or with --uninstall removes) the nightly money-action simulation launchd agent for the current user.
-# MONEY_SIM_ISSUE=<n> sets the issue that non-swap real failures are posted to. See docs/money-sim-nightly.md.
+# See docs/money-sim-nightly.md.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 label="ai.j.home-money-sim"
@@ -18,9 +18,7 @@ command -v anvil >/dev/null || { echo "anvil (Foundry) is not on PATH" >&2; exit
 command -v initdb >/dev/null && command -v pg_ctl >/dev/null || { echo "initdb and pg_ctl are not on PATH" >&2; exit 1; }
 mkdir -p "$share" "$HOME/Library/Logs/home-money-sim" "$(dirname "$agent")"
 install -m 755 "$here/nightly.sh" "$share/nightly.sh"
-issue="${MONEY_SIM_ISSUE:-}"
-case "$issue" in ''|*[!0-9]*) [ -z "$issue" ] || { echo "MONEY_SIM_ISSUE takes an issue number" >&2; exit 2; } ;; esac
-sed -e "s#__HOME__#$HOME#g" -e "s#__ISSUE__#$issue#g" "$here/$label.plist" > "$agent"
+sed "s#__HOME__#$HOME#g" "$here/$label.plist" > "$agent"
 plutil -lint "$agent" >/dev/null
 launchctl bootstrap "$domain" "$agent"
 echo "installed $label: hourly check, runs once a night between 01:00 and 06:00"

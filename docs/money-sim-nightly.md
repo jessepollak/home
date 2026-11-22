@@ -12,11 +12,10 @@ The money-action simulation (`bun run --cwd apps/web sim:money`) runs once a nig
    - A seed that passes alone is a **flake**.
    - A seed that fails again is **real**. If it is in the known #2292 cash-out swap set, it is a known swap instead.
 4. **Write the one-line report.** It appends one line to `~/Library/Logs/home-money-sim/report.log`: the `main` SHA, the RESULT line, and the flakes, known swaps and real failures. Per-run output is kept in `runs/` beside it.
-5. **Comment on real failures.** For a real failure outside the known set, it writes one comment naming the SHA, the RESULT line and each seed with its replay command.
+5. **Comment on real failures.** For a real failure outside the known set, it writes one comment per issue, naming the SHA, the RESULT line and each seed with its replay command.
    - A real failure with the #2292 swap signature goes to #2292.
-   - Any other real failure goes to the issue in `MONEY_SIM_ISSUE`.
-   - The comment posts only with the factory bot account's token. The token is read from `~/.config/home-money-sim/bot-token` (mode 600) and is checked to belong to `jessepollakj`.
-   - Without that token, or without `MONEY_SIM_ISSUE`, the comment stays in the local log.
+   - Any other real failure goes to the open money-actions debt issue, `chore(money-actions): pay down money-actions debt` ([work sizing](work-sizing.md)). With none open, it goes to #2292 under a "Non-swap failure" heading. No new issue is ever created.
+   - The comment posts only as the factory bot account. The token is read at post time from the factory's own `~/.config/home-factory/bot-token` (owner-only), is used only for those `gh` calls, and must belong to `jessepollakj`. Without it, the comment stays in the local log.
 
 The agent checks every hour. With `--scheduled`, a run starts only between 01:00 and 06:00 local time and at most once per 20 hours. A lock directory prevents overlapping runs.
 
@@ -33,7 +32,7 @@ The agent checks every hour. With `--scheduled`, a run starts only between 01:00
 scripts/money-sim/install-launchd.sh
 ```
 
-Prefix it with `MONEY_SIM_ISSUE=<number>` to set the issue for non-swap failures. It copies `nightly.sh` to `~/.local/share/home-money-sim/`, installs `~/Library/LaunchAgents/ai.j.home-money-sim.plist`, and loads it. Rerun it after changing `nightly.sh` or the plist.
+It copies `nightly.sh` to `~/.local/share/home-money-sim/`, installs `~/Library/LaunchAgents/ai.j.home-money-sim.plist`, and loads it. Rerun it after changing `nightly.sh` or the plist.
 
 To run once now, outside the night window:
 
