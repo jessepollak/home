@@ -112,7 +112,7 @@ In progress: tokenized stock trading, card programs (provider foundations only),
 
 The button copies Home into a new repository and sets Root Directory to `apps/web`. It does not provision a database or set the Install Command. It asks only for `HOME_SESSION_SECRET`; add `HOME_OPERATOR_ADDRESSES` after you know your Base smart-account address, as the guide explains. For a fork that keeps upstream updates, fork Home on GitHub, then use Vercel **Add New → Project** to import your fork with the [launch settings](docs/vercel-deploy.md#launch).
 
-Follow that guide through database provisioning, first-run Admin setup, and [updates, backups, and recovery](docs/vercel-deploy.md#update-backup-and-recovery). A completed setup is not production or real-money authorization.
+Before you deploy, read [provider readiness](docs/provider-readiness.md) for the accounts to open, which approvals take time, and what each costs. Follow that guide through database provisioning, first-run Admin setup, and [updates, backups, and recovery](docs/vercel-deploy.md#update-backup-and-recovery). A completed setup is not production or real-money authorization.
 
 ## Get started
 

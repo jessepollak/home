@@ -1,6 +1,6 @@
 # Operator checklist
 
-Each operator sets these values for their own instance; this checklist lists what to set and where, never the values themselves.
+Each operator sets these values for their own instance; this checklist lists what to set and where, never the values themselves. Before you start, [provider readiness](provider-readiness.md) lists each provider account to open, its approval, lead time, and cost.
 
 ## First run
 
