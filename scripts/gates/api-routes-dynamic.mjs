@@ -152,17 +152,29 @@ export async function checkApiRoutes(buildDir = defaultBuildDir) {
   return { apiRouteCount: files.length, prerendered: prerenderedApiRoutes(manifest), staticSources: routesWithoutDynamicSignal(files) };
 }
 
-if (executedAsScript(import.meta.url)) {
+export async function runApiRoutesDynamic(args = process.argv.slice(2)) {
+  const stdout = [];
+  const stderr = [];
+  let status = 0;
   try {
-    const buildDir = process.argv[2] ?? defaultBuildDir;
+    const buildDir = args[0] ?? defaultBuildDir;
     const { apiRouteCount, prerendered, staticSources } = await checkApiRoutes(buildDir);
     const relativeManifestPath = path.relative(repoRoot, path.join(buildDir, "prerender-manifest.json")).split(path.sep).join("/");
-    for (const finding of staticSources) console.error(`${finding.path}: ${finding.reason}; a GET handler here can be prerendered into one shared static response. Read the request argument, headers() or cookies(), call connection(), or bind it from a request-reading handler factory; Cache Components rejects a route segment dynamic export. See ${guidanceUrl}`);
-    for (const route of prerendered) console.error(`${route}: prerendered into the build output (${relativeManifestPath}); every caller would receive the same static response. Its route handler must read the request at run time (the request argument, headers() or cookies()) or call connection(); Cache Components rejects a route segment dynamic export. See ${guidanceUrl}`);
-    if (staticSources.length || prerendered.length) process.exitCode = 1;
-    else console.log(`API routes stay dynamic: ${apiRouteCount} route handlers, 0 prerendered.`);
+    for (const finding of staticSources) stderr.push(`${finding.path}: ${finding.reason}; a GET handler here can be prerendered into one shared static response. Read the request argument, headers() or cookies(), call connection(), or bind it from a request-reading handler factory; Cache Components rejects a route segment dynamic export. See ${guidanceUrl}`);
+    for (const route of prerendered) stderr.push(`${route}: prerendered into the build output (${relativeManifestPath}); every caller would receive the same static response. Its route handler must read the request at run time (the request argument, headers() or cookies()) or call connection(); Cache Components rejects a route segment dynamic export. See ${guidanceUrl}`);
+    if (staticSources.length || prerendered.length) status = 1;
+    else stdout.push(`API routes stay dynamic: ${apiRouteCount} route handlers, 0 prerendered.`);
   } catch (error) {
-    console.error(error.message);
-    process.exitCode = 1;
+    stderr.push(error.message);
+    status = 1;
   }
+  const text = (lines) => lines.map((line) => `${line}\n`).join("");
+  return { status, stdout: text(stdout), stderr: text(stderr) };
+}
+
+if (executedAsScript(import.meta.url)) {
+  const result = await runApiRoutesDynamic();
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exitCode = result.status;
 }
