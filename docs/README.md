@@ -35,6 +35,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [UI direction](ui-direction.md), [design system](design-system.md), and [Storybook review boards](design-system/component-workshop.md#review-boards) — product presentation rules, owned components, tokens, and review workflow; [design-system explorations](design-explorations/design-system.md) — historical gap matrix, finance pattern inventory, and follow-ups; [Mobbin references](design-explorations/mobbin.md) — real-world design references, access, and terms; [design explorations](design-explorations/README.md) — where design-lane non-production code lives, with [decision records](design-explorations/decisions/README.md) preserving selections and rationale.
 - [Observability](observability.md) and [performance observability](performance-observability.md) — privacy-safe events, performance marks, and verification; [modal open profile](modal-open-performance.md) for tap-to-sheet timing and [navigation performance](navigation-performance.md) for warm desktop WebKit navigation.
 - [Vercel deploy](vercel-deploy.md) — Bun monorepo deployment and database migration setup.
+- [Releases](releases.md) and [changelog](../CHANGELOG.md) — version names, what a tag promises, and upgrading between tags.
 
 ## Integrations and data
 
