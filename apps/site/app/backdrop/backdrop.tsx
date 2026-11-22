@@ -1,17 +1,17 @@
 import type { ComponentType, ReactNode } from "react";
-import { ContourBackdrop } from "./contour";
-import { DepthBackdrop } from "./depth";
-import { GrainBackdrop } from "./grain";
+import { AuroraBackdrop } from "./aurora";
+import { DimensionalBackdrop } from "./dimensional";
+import { ShaderBackdrop } from "./shader";
 
-export type BackdropVariant = "none" | "grain" | "depth" | "contour";
+export type BackdropVariant = "none" | "aurora" | "shader" | "dimensional";
 export type BackdropRegion = "hero" | "customers" | "team" | "demo";
 
 export type BackdropProps = { region: BackdropRegion; children: ReactNode };
 
 const variants: Record<Exclude<BackdropVariant, "none">, ComponentType<BackdropProps>> = {
-  grain: GrainBackdrop,
-  depth: DepthBackdrop,
-  contour: ContourBackdrop,
+  aurora: AuroraBackdrop,
+  shader: ShaderBackdrop,
+  dimensional: DimensionalBackdrop,
 };
 
 export function Backdrop({ variant, region, children }: BackdropProps & { variant: BackdropVariant }) {
