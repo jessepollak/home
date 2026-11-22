@@ -7,19 +7,18 @@ The money-action simulation (`bun run --cwd apps/web sim:money`) runs once a nig
 `scripts/money-sim/nightly.sh` performs these steps:
 
 1. **Update the worktree.** It fetches `origin/main` and detaches a dedicated worktree at it (`~/src/home-worktrees/money-sim-nightly` by default). It creates the worktree when missing, then runs `bun run worktree:bootstrap -- --copy-env`.
-2. **Run the simulation.** It runs `sim:money -- --runs 1000`. The simulation starts its own anvil fork and scratch PostgreSQL and never reads `DATABASE_URL`.
-3. **Replay failures.** It replays every failing seed alone once with `--seed`.
-   - A seed that passes alone is a **flake**, logged locally only.
-   - A seed whose replay stops before any invariant result (fork startup, crash) is a **replay error**, reported apart from failures.
-   - A seed whose completed replay violates an invariant again is a **failure**. A failure on a seed in the known #2292 set that violates nothing but the swap is a **known swap**, but only while #2292 is open. Once #2292 is closed, every swap is reported as a new failure.
-4. **Write the one-line report.** It appends one line to `~/Library/Logs/home-money-sim/report.log`: the `main` SHA, the RESULT line, and the flakes, known swaps, failures and replay errors. Per-run output is kept in `runs/` beside it.
-5. **Report through standing comments.** Every reported kind is one comment from the factory bot account. The first night a kind appears, the comment is posted and notifies; later nights edit it in place with the latest SHA, RESULT and seeds, so nothing repeats nightly.
-   - **Known swap and new swap seeds:** #2292.
-   - **Other failures and replay errors:** the open `chore(money-actions): pay down money-actions debt` issue ([work sizing](work-sizing.md)), counted only when Jesse or the factory bot opened it. With none open, they go to #2292 under their own heading. No issue is ever created.
-   - **The token:** read at post time from the factory's own `~/.config/home-factory/bot-token` (owner-only), and used only for the calls that post or edit. Without it, the comment stays in the local log.
-6. **Alert when the run cannot finish.** Each failed invocation gets its own standing "did not complete" alert, on the same debt issue or #2292: the worktree could not be updated or bootstrapped (`setup`), the simulation ended without a RESULT line (`no-result`), or runs failed but no failing seeds were listed (`seed-list`).
+2. **Run the simulation.** It runs `sim:money -- --runs 1000 --failing-seeds <file>`. The simulation starts its own anvil fork and scratch PostgreSQL and never reads `DATABASE_URL`.
+3. **Check the result.** The night is green only when the simulation exits 0, its RESULT line reads every run as held, and the failing-seed list is empty. A green night appends one line to `~/Library/Logs/home-money-sim/report.log` and posts nothing.
+4. **Replay failures.** It replays every failing seed alone once with `--seed`. A seed **failed again** only when its replay completed and reported an invariant violation. A seed that passes alone is a **flake**; a replay that stops before any invariant result is a **replay harness error**.
+5. **Report the failure.** Any other outcome is a failure and posts one new comment on #2292 (`MONEY_SIM_ISSUE` overrides it):
+   - seeds that violated an invariant, with each replay's outcome
+   - a bootstrap failure, a missing RESULT line, or a nonzero exit, labelled as harness errors
+   - a failing-seed list that is missing, unreadable, or whose count disagrees with RESULT
 
-The agent runs at 02:00. When the Mac sleeps through 02:00, launchd runs the job once on wake. With `--scheduled`, each night slot runs once, and the report line notes nights the Mac missed entirely. A kernel lock (`lockf`) prevents overlapping runs and is released automatically when a run exits or is killed. Manual runs never mark a night as done.
+   The comment lists at most 20 seeds, counts the rest, and gives the replay command. The full list and per-run output stay in `runs/` beside the report log. There is no deduplication: each failing scheduled night posts its own comment.
+6. **Post only as the bot.** Before posting, it asks GitHub who `~/.config/home-factory/bot-token` belongs to, using that token. Unless the answer is `jessepollakj`, it posts nothing, logs why, and exits nonzero. `--no-post` runs the same check and writes the comment to `runs/` instead.
+
+The agent runs at 02:00. When the Mac sleeps through 02:00, launchd runs the job once on wake. With `--scheduled`, each night slot runs once, and the report line and comment note nights the Mac missed entirely. A kernel lock (`lockf`) prevents overlapping runs and is released automatically when a run exits or is killed. Manual runs never mark a night as done.
 
 ## Requirements
 
