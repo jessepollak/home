@@ -16,7 +16,7 @@
 set -euo pipefail
 
 main() {
-  local scheduled=0 runs=1000 post=1
+  local args=("$@") scheduled=0 runs=1000 post=1
   while [ $# -gt 0 ]; do
     case "$1" in
       --scheduled) scheduled=1 ;;
@@ -44,6 +44,14 @@ main() {
   local sha="unknown" result="" stamp_name gap=""
   stamp_name=$(date -u +%Y%m%dT%H%M%SZ)
   mkdir -p "$state/runs"
+  # One run at a time: re-run this script under a kernel lock (lockf(1)). The kernel releases it when the process
+  # exits for any reason, so a killed run or a restart leaves nothing to reclaim and two runs cannot both hold it.
+  if [ -z "${MONEY_SIM_LOCKED:-}" ]; then
+    local lock_status=0
+    MONEY_SIM_LOCKED=1 /usr/bin/lockf -s -t 0 "$state/run.lock" /bin/bash "$0" ${args[@]+"${args[@]}"} || lock_status=$?
+    if [ "$lock_status" = 75 ]; then echo "another run holds $state/run.lock" >&2; exit 0; fi
+    exit "$lock_status"
+  fi
 
   if [ "$scheduled" = 1 ]; then
     # The night slot is the most recent 02:00: before 02:00 it is yesterday's.
@@ -55,19 +63,6 @@ main() {
     if [ -n "$last" ] && [ "$last" != "$yesterday" ]; then gap=" (missed nights after $last)"; fi
   fi
 
-  # The lock is a symlink whose target is the owner's PID: creating it publishes the owner in one atomic step, so
-  # no holder is ever visible without its PID. A lock whose PID is no longer running (a killed run, a restart) is
-  # reclaimed; a lock that is not a PID symlink (an older lock directory) is left alone and reported.
-  if [ -d "$state/lock" ] && [ ! -L "$state/lock" ]; then echo "$state/lock is not a PID lock; remove it to resume" >&2; exit 0; fi
-  if ! ln -s "$$" "$state/lock" 2>/dev/null; then
-    local owner
-    owner=$(readlink "$state/lock" 2>/dev/null || true)
-    case "$owner" in ''|*[!0-9]*) echo "$state/lock is not a PID lock; remove it to resume" >&2; exit 0 ;; esac
-    if kill -0 "$owner" 2>/dev/null; then echo "run $owner holds $state/lock" >&2; exit 0; fi
-    rm -f "$state/lock"
-    ln -s "$$" "$state/lock" 2>/dev/null || { echo "another run took $state/lock" >&2; exit 0; }
-  fi
-  trap '[ "$(readlink "$state/lock" 2>/dev/null)" = "$$" ] && rm -f "$state/lock"' EXIT
   # Only scheduled runs mark their night, so a manual or probe run never suppresses tonight's run.
   if [ "$scheduled" = 1 ]; then echo "$night" > "$state/last-night"; fi
 

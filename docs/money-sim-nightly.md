@@ -19,7 +19,7 @@ The money-action simulation (`bun run --cwd apps/web sim:money`) runs once a nig
    - **The token:** read at post time from the factory's own `~/.config/home-factory/bot-token` (owner-only), and used only for the calls that post or edit. Without it, the comment stays in the local log.
 6. **Alert when the run cannot finish.** Each failed invocation gets its own standing "did not complete" alert, on the same debt issue or #2292: the worktree could not be updated or bootstrapped (`setup`), the simulation ended without a RESULT line (`no-result`), or runs failed but no failing seeds were listed (`seed-list`).
 
-The agent runs at 02:00. When the Mac sleeps through 02:00, launchd runs the job once on wake. With `--scheduled`, each night slot runs once, and the report line notes nights the Mac missed entirely. A lock directory prevents overlapping runs. Manual runs never mark a night as done.
+The agent runs at 02:00. When the Mac sleeps through 02:00, launchd runs the job once on wake. With `--scheduled`, each night slot runs once, and the report line notes nights the Mac missed entirely. A kernel lock (`lockf`) prevents overlapping runs and is released automatically when a run exits or is killed. Manual runs never mark a night as done.
 
 ## Requirements
 
