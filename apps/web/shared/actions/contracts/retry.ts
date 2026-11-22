@@ -9,10 +9,10 @@ export type RetryActionResponse = {
   action: PresentedAction;
 };
 export type RetryActionErrorCode = AuthBoundaryErrorCode | "INVALID_ACTION" | "INVALID_ACTION_RETRY" | "ACTION_NOT_FOUND" | "ACTIONS_UNAVAILABLE" |
-  "ACTION_EXPIRED" | "ACTION_ALREADY_DISPATCHED" | "ACTION_RETRY_CONFLICT" | "CARD_ALLOWANCE_UNAVAILABLE" | "CARD_ALLOWANCE_NOT_READY";
+  "ACTION_EXPIRED" | "ACTION_ALREADY_DISPATCHED" | "ACTION_RETRY_CONFLICT" | "TRADE_STOCK_RESTRICTED" | "CARD_ALLOWANCE_UNAVAILABLE" | "CARD_ALLOWANCE_NOT_READY";
 export const RETRY_ACTION_ERROR_CODES: readonly RetryActionErrorCode[] = [
   ...AUTH_BOUNDARY_ERROR_CODES, "INVALID_ACTION", "INVALID_ACTION_RETRY", "ACTION_NOT_FOUND", "ACTIONS_UNAVAILABLE",
-  "ACTION_EXPIRED", "ACTION_ALREADY_DISPATCHED", "ACTION_RETRY_CONFLICT", "CARD_ALLOWANCE_UNAVAILABLE", "CARD_ALLOWANCE_NOT_READY",
+  "ACTION_EXPIRED", "ACTION_ALREADY_DISPATCHED", "ACTION_RETRY_CONFLICT", "TRADE_STOCK_RESTRICTED", "CARD_ALLOWANCE_UNAVAILABLE", "CARD_ALLOWANCE_NOT_READY",
 ];
 export type RetryActionErrorResponse = { error: { code: RetryActionErrorCode; message: string } };
 
@@ -43,4 +43,3 @@ export function parseRetryActionResponse(value: unknown): RetryActionResponse | 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
