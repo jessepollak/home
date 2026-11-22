@@ -3,6 +3,7 @@ import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ActivityDemo, AddMoneyDemo, BrandDemo, CashOutDemo, SaveDemo, SendDemo } from "./features/demos";
+import { GrowthDemo, ManagementDemo, ReferralDemo } from "./features/operator-demos";
 
 const repo = "https://github.com/jessepollak/home";
 const talkToUs = "https://x.com/jessepollak";
@@ -74,6 +75,15 @@ export default function Page() {
         </Feature>
         <Feature id="brand" title="Your brand" demo={<BrandDemo />}>
           Set the name, description and colours in the admin console, and serve the app on your own domain.
+        </Feature>
+        <Feature id="management" title="Management" demo={<ManagementDemo />}>
+          The admin console has a support inbox, where you answer customers yourself or let an assistant answer first and hand off when a person is needed. It also tracks fee revenue from swaps and walks you through setup. Customer search and the audit log aren&apos;t built yet.
+        </Feature>
+        <Feature id="growth" title="Growth" demo={<GrowthDemo />}>
+          Growth counts the invite links your customers have made and the sign-ups that came through them. That is all it tracks today; there is no reward program yet.
+        </Feature>
+        <Feature id="referrals" title="Referrals" demo={<ReferralDemo />}>
+          Each customer gets a personal invite link in Account to copy or share. A new customer who signs up through it is attributed to that invite, and the count shows in Growth.
         </Feature>
 
         <section aria-labelledby="talk" className="py-10 md:py-14">
