@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { readBoundedRequestText } from "@/server/http/request";
 import { readAccessConfig, type AccessConfig } from "./config";
+import { isAccessLoginRateLimited } from "./rate-limit";
 import { ACCESS_TOKEN_TTL_MS, issueAccessToken } from "./token";
 import { clearCookie, cookie, equalText, requestOrigin } from "@/server/auth/signed-cookie";
 import {
@@ -20,6 +21,7 @@ const MAX_BODY_BYTES = 4_096;
 
 type LoginDependencies = {
   getConfig?: () => AccessConfig;
+  isRateLimited?: (request: Request) => Promise<boolean>;
   now?: () => Date;
 };
 
@@ -91,7 +93,11 @@ export function createAccessLoginHandler(input: LoginDependencies = {}) {
     }
 
     const submitted = readAccessRequest(form);
-    if (!submitted || !equalText(
+    if (!submitted) return errorResponse("INVALID_ACCESS", 401);
+    if (await (input.isRateLimited ?? isAccessLoginRateLimited)(request)) {
+      return errorResponse("ACCESS_UNAVAILABLE", 429);
+    }
+    if (!equalText(
       credentialDigest(submitted.credential),
       credentialDigest(config.credential),
     )) return errorResponse("INVALID_ACCESS", 401);
