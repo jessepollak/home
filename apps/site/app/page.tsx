@@ -23,12 +23,13 @@ const operatorFacts: Fact[] = [
   { term: "Your database and customer data", detail: "Customer records live in your own Postgres. Upstream Home receives no telemetry." },
   { term: "An admin console", detail: "A setup checklist, product and market settings, a support inbox, estimated swap fees and customer invite attribution." },
   { term: "The swap fee, paid to your wallet", detail: "Set a fee on trades and choose the address it is paid to." },
-  { term: "MIT licence", detail: (
+  { term: "Free under the MIT licence", detail: (
       <>
-        The original code is MIT. The Home mark, its fonts and Base marks keep their own terms, so replace the default branding with your own.{" "}
+        No licence fee. The original code is MIT. The Home mark, its fonts and Base marks keep their own terms, so replace the default branding with your own.{" "}
         <a href={`${repo}/blob/main/apps/web/public/home-mark/PROVENANCE.md`}>Mark and font terms</a>
       </>
     ), },
+  { term: "Direct support for the first operator", detail: "The first team to run Home works directly with Jesse Pollak." },
   { term: "Upstream updates", detail: "Merge upstream to take new features and fixes. The deploy guide covers the backup check to run first." },
 ];
 
@@ -162,7 +163,7 @@ export default function Page() {
 
         <Section id="talk" title="Talk to us">
           <p>
-            We are looking for the first team to run Home for its own customers. <a href={talkToUs}>Message @jessepollak on X</a>, or open an issue on{" "}
+            We are looking for the first team to run Home for its own customers. That team works directly with Jesse. <a href={talkToUs}>Message @jessepollak on X</a>, or open an issue on{" "}
             <a href={repo}>GitHub</a>.
           </p>
         </Section>
