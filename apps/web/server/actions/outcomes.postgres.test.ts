@@ -440,6 +440,25 @@ describePostgres("write-once action outcomes with real handlers", () => {
     setObservabilityLogWriterForTests();
   });
 
+  test("a late nonfinal success receipt cannot outrank a concurrently persisted finalized reversion", async () => {
+    const id = await prepared();
+    await store.recordHandle(owner(), id, { providerHandle: userOpHash, transactionHash: hash });
+    const reverted = { transactionHash: hash, blockNumber: "2", blockHash: `0x${"12".repeat(32)}`, outcome: "reverted" as const };
+    const get = createGetActionHandler({ authorize, readReceipt: async () => ({ ...receipt(true), finalized: false }),
+      store: {
+        get: (actionOwner, actionId) => store.get(actionOwner, actionId),
+        recordHandle: (actionOwner, actionId, input) => store.recordHandle(actionOwner, actionId, input),
+        recordOutcome: (actionOwner, actionId, input) => store.recordOutcome(actionOwner, actionId, input),
+        recordReceiptObservation: async (actionOwner, actionId, input) => {
+          await store.recordOutcome(actionOwner, actionId, { outcome: "reverted", source: "chain", settledAt: new Date(blockTimestamp), observedReceipt: reverted });
+          return store.recordReceiptObservation(actionOwner, actionId, input);
+        },
+      },
+    });
+    expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "failed" });
+    expect(await store.get(owner(), id)).toMatchObject({ outcome: "reverted", observed_receipt_outcome: "reverted", observed_receipt_block_hash: reverted.blockHash });
+  });
+
   test("conflicting later evidence cannot overwrite a settled result", async () => {
     const id = await prepared();
     await store.recordOutcome(owner(), id, { outcome: "succeeded", source: "chain", settledAt: new Date(blockTimestamp) });

@@ -548,6 +548,9 @@ export function createRetryActionHandler(dependencies: {
     if (row && tradeExecutionExpired(row, dependencies.now?.() ?? new Date())) {
       return fail("ACTION_EXPIRED", "The trade quote expired. Get a new quote.", 409);
     }
+    if (row?.kind === "trade" && !assertStockTradeConfirmAllowed({ metadata: row.summary.metadata, request })) {
+      return fail("TRADE_STOCK_RESTRICTED", "Stock buys aren't available in this location.", 403);
+    }
     if (row?.confirmed_at && row.kind === "card-allowance") {
       const failure = await checkCardAllowanceSetGate(row, owner, request.signal, dependencies, fail);
       if (failure) return failure;
@@ -563,7 +566,7 @@ export function createRetryActionHandler(dependencies: {
 
 export function createListActionsHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation" | "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
+  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "get" | "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation" | "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
   refreshCashouts?: typeof refreshCashoutProgress;
@@ -572,7 +575,7 @@ export function createListActionsHandler(dependencies: {
   return async function GET(request: Request): Promise<Response> {
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
-    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation">>;
+    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "get" | "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation">>;
     let rows: ActionRow[];
     let retainedRead: Promise<ActionRow[]>;
     let retainedSavingsDepositsUnavailable = false;

@@ -164,7 +164,7 @@ for (const [name, parse] of Object.entries(messageErrorParsers)) {
 for (const [parse, codes] of [
   [parseDeclineActionErrorResponse, ["INVALID_ACTION", "INVALID_ACTION_DECLINE", "ACTION_NOT_FOUND", "ACTIONS_UNAVAILABLE"]],
   [parseRetryActionErrorResponse, ["INVALID_ACTION", "INVALID_ACTION_RETRY", "ACTION_NOT_FOUND", "ACTIONS_UNAVAILABLE",
-    "ACTION_EXPIRED", "ACTION_ALREADY_DISPATCHED", "ACTION_RETRY_CONFLICT", "CARD_ALLOWANCE_UNAVAILABLE", "CARD_ALLOWANCE_NOT_READY"]],
+    "ACTION_EXPIRED", "ACTION_ALREADY_DISPATCHED", "ACTION_RETRY_CONFLICT", "TRADE_STOCK_RESTRICTED", "CARD_ALLOWANCE_UNAVAILABLE", "CARD_ALLOWANCE_NOT_READY"]],
   [parseCountryPreferenceErrorResponse, ["COUNTRY_PREFERENCE_INVALID", "COUNTRY_PREFERENCE_UNAVAILABLE"]],
 ] as const) {
   test.each([...codes])(`accepts ${parse.name} domain error %s`, (code) => {
