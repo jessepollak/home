@@ -488,7 +488,11 @@ async function checkInvariants(input: {
       confirmedSpend += spend(item);
     }
     if (item.status === "failed" && landing?.success) fail("records-match-receipts", `${id.slice(0, 8)} shown failed but succeeded onchain`);
-    if (final && wallet.get(id) && actions.find((a) => a.id === id)?.handlePosted && landing && item.status !== (landing.success ? "confirmed" : "failed")) {
+    // After finality, an action Home can identify (a posted handle, or a lost handle it recovered to an outcome) must
+    // present its receipt's result; only an ambiguous, still-unresolved lost-handle action may read pending or unknown.
+    const simAction = actions.find((a) => a.id === id);
+    const identified = Boolean(simAction?.handlePosted || rows.get(id)?.outcome);
+    if (final && wallet.get(id) && identified && landing && item.status !== (landing.success ? "confirmed" : "failed")) {
       fail("actions-resolve", `${id.slice(0, 8)} still ${String(item.status)} after finality; receipt success=${landing.success}`);
     }
   }
