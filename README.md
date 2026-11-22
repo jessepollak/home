@@ -161,6 +161,8 @@ bun check      # repository gates, test, lint, typecheck, and build
 
 The operator marketing site is `apps/site`, a static one-page Next app: `bun run --cwd apps/site dev` serves it on port 3300, and `bun check` runs its lint, typecheck, Knip and build.
 
+`bun run --cwd apps/web sim:money -- --runs 100` runs the seeded money-action simulation (send, Save, Peer cash-out with injected faults) on a local Base fork; `--seed <n>` replays one run. It needs Foundry's `anvil` and PostgreSQL's `initdb` and `pg_ctl` on `PATH`, plus an archive-capable `BASE_RPC_URL` in `apps/web/.env.local` as the fork upstream. It uses its own scratch database, never `DATABASE_URL`.
+
 `bun build` and `bun check` apply database migrations when `DATABASE_URL` is set, including through `apps/web/.env.local`. Never validate against a serving database: use an isolated local/scratch database or run `DATABASE_URL="" bun check` to override any env-file value. For deployed updates, [back up and rehearse the restore before merging or validating](docs/vercel-deploy.md#update-a-fork).
 
 ## Customize it
