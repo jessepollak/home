@@ -32,6 +32,8 @@ main() {
   local issue="${MONEY_SIM_ISSUE:-}"
   # MONEY_SIM_REF exists only to test an unmerged branch through this entrypoint; nightly runs use origin/main.
   local ref="${MONEY_SIM_REF:-main}"
+  case "$ref" in -*|*..*|*[!A-Za-z0-9._/-]*|'') echo "MONEY_SIM_REF must be a plain branch name" >&2; exit 2 ;; esac
+  case "${MONEY_SIM_ISSUE:-}" in ''|*[!0-9]*) [ -z "${MONEY_SIM_ISSUE:-}" ] || { echo "MONEY_SIM_ISSUE takes an issue number" >&2; exit 2; } ;; esac
   local swap_issue=2292
   local known_swap=" 12 77 109 126 127 216 319 361 573 630 853 952 "
   local bot_token_file="${MONEY_SIM_BOT_TOKEN_FILE:-$HOME/.config/home-money-sim/bot-token}"
@@ -81,7 +83,7 @@ main() {
   local flakes="" swaps="" real=""
   if [ -s "$seeds" ]; then
     while read -r seed; do
-      [ -n "$seed" ] || continue
+      case "$seed" in ''|*[!0-9]*) continue ;; esac
       if (cd "$worktree" && bun run --cwd apps/web sim:money -- --seed "$seed") > "$state/runs/$stamp_name.seed-$seed.txt" 2>&1; then
         flakes="$flakes $seed"
       elif [[ "$known_swap" == *" $seed "* ]]; then
@@ -126,11 +128,16 @@ comment() {
   } > "$body"
   if [ "$post" = 0 ]; then echo "comment not posted (--no-post): $body" >> "$state/report.log"; return; fi
   if [ -z "$target" ]; then echo "comment not posted: MONEY_SIM_ISSUE is unset: $body" >> "$state/report.log"; return; fi
-  if [ ! -r "$bot_token_file" ]; then echo "comment not posted: no factory bot token: $body" >> "$state/report.log"; return; fi
+  if [ ! -f "$bot_token_file" ] || [ ! -O "$bot_token_file" ] || [ -n "$(find "$bot_token_file" -perm -044 -o -perm -040 -o -perm -004)" ]; then
+    echo "comment not posted: no factory bot token readable only by this user: $body" >> "$state/report.log"; return
+  fi
   local login
-  login=$(GH_TOKEN=$(cat "$bot_token_file") gh api user -q .login 2>/dev/null || true)
+  local token
+  token=$(cat "$bot_token_file")
+  login=$(GH_TOKEN="$token" gh api user -q .login 2>/dev/null || true)
   if [ "$login" != "jessepollakj" ]; then echo "comment not posted: token is not the factory bot account: $body" >> "$state/report.log"; return; fi
-  GH_TOKEN=$(cat "$bot_token_file") gh issue comment "$target" --repo jessepollak/home --body-file "$body" >> "$state/report.log" 2>&1
+  GH_TOKEN="$token" gh issue comment "$target" --repo jessepollak/home --body-file "$body" > /dev/null 2>> "$state/report.log" &&
+    echo "comment posted on #$target" >> "$state/report.log"
 }
 
 main "$@"

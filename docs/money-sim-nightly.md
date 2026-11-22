@@ -33,7 +33,7 @@ The agent checks every hour. With `--scheduled`, a run starts only between 01:00
 scripts/money-sim/install-launchd.sh
 ```
 
-This copies `nightly.sh` to `~/.local/share/home-money-sim/`, installs `~/Library/LaunchAgents/ai.j.home-money-sim.plist`, and loads it. Rerun it after changing `nightly.sh` or the plist.
+Prefix it with `MONEY_SIM_ISSUE=<number>` to set the issue for non-swap failures. It copies `nightly.sh` to `~/.local/share/home-money-sim/`, installs `~/Library/LaunchAgents/ai.j.home-money-sim.plist`, and loads it. Rerun it after changing `nightly.sh` or the plist.
 
 To run once now, outside the night window:
 
