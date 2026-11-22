@@ -1,2 +1,12 @@
-# Jesse is the sole approver for main; factory PRs need his review.
-* @jessepollak
+# Jesse approves every change in the risk map; other changes need one approving review.
+/apps/web/server/actions/ @jessepollak
+/apps/web/server/money-actions/ @jessepollak
+/apps/web/server/access/policy.ts @jessepollak
+/apps/web/client/account/cdp-* @jessepollak
+/apps/web/server/db/migrations/ @jessepollak
+/apps/web/server/funding/migrations/ @jessepollak
+/apps/web/server/operator-settings/ @jessepollak
+/apps/web/app/admin/ @jessepollak
+/apps/web/server/account-export/ @jessepollak
+/apps/web/app/api/route-contracts.json @jessepollak
+/.github/ @jessepollak
