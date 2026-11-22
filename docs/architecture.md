@@ -102,6 +102,7 @@ Growing-data queries use selective indexed access and bounded work; add appropri
 | `customers` | record | the Home person, status, first and last seen times, optional country and invite attribution |
 | `account_deletion_requests` | record | queued deletion lifecycle and frozen, identity-free completion receipts, retained until financial-evidence expiry ([Leave Home](account-deletion.md)) |
 | `account_deletion_tombstones` | record | keyed credential HMACs for revocation and receipt-only recovery; no plaintext identity or retained-owner linkage |
+| `home_session_revocations` | record | SHA-256 digests of signed-out `home-session` tokens until each token's own expiry, so a retained cookie stops authorizing on every instance; no owner identity |
 | `account_deletion_audit_expiry` | record | orphaned original customer targets and shared financial expiry that structurally authorize later audit deletion |
 | `invite_codes` | record | one stable invitation code per customer, removed with its owner |
 | `customer_credentials` | record | each provider sign-in subject associated with a customer, with optional sourced email |
