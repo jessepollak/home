@@ -10,9 +10,9 @@
 #
 # Each run detaches a dedicated worktree at the freshly fetched origin/main, runs `sim:money` (which starts its
 # own anvil fork and scratch Postgres and never reads DATABASE_URL), then replays every failing seed alone once.
-# A seed that passes alone is a flake. A seed whose completed replay violates an invariant again is real; a real
-# failure outside the known cash-out swap set (#2292), or a run that could not complete, is posted as the factory
-# bot account only.
+# A seed that passes alone is a flake. A seed whose completed replay violates an invariant again is a failure, and a
+# run that could not complete is an alert; both are posted as the factory bot account only, each kind as one
+# standing comment that later nights edit rather than repeat.
 set -euo pipefail
 
 main() {
@@ -35,13 +35,13 @@ main() {
   local ref="${MONEY_SIM_REF:-main}"
   case "$ref" in -*|*..*|*[!A-Za-z0-9._/-]*|'') echo "MONEY_SIM_REF must be a plain branch name" >&2; exit 2 ;; esac
   local swap_issue=2292
-  # The lead's brief keeps these known #2292 seeds local-only while #2292 is open; any other failure on them is real.
+  # Seeds already known to reproduce #2292. Their swap is reported in one standing comment on #2292, not as new.
   local known_swap=" 12 77 109 126 127 216 319 361 573 630 853 952 "
   # The factory's own bot token, read at post time only; never copied, printed or logged.
   local bot_token_file="$HOME/.config/home-factory/bot-token"
-  local sha="unknown" result="" stamp_name gap="" posted=0
+  local sha="unknown" result="" stamp_name gap=""
   stamp_name=$(date -u +%Y%m%dT%H%M%SZ)
-  mkdir -p "$state/runs" "$state/alerts"
+  mkdir -p "$state/runs"
 
   if [ "$scheduled" = 1 ]; then
     # The night slot is the most recent 02:00: before 02:00 it is yesterday's.
@@ -54,13 +54,11 @@ main() {
   fi
 
   # The lock records its owner's PID, so a lock left by a run that was killed or cut off by a restart is reclaimed.
-  # A lock still without a PID file is being taken right now and counts as held for five minutes.
   if ! mkdir "$state/lock" 2>/dev/null; then
     local owner
     owner=$(cat "$state/lock/pid" 2>/dev/null || true)
     case "$owner" in ''|*[!0-9]*) owner="" ;; esac
     if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then echo "run $owner holds $state/lock" >&2; exit 0; fi
-    if [ -z "$owner" ] && [ -n "$(find "$state/lock" -maxdepth 0 -mmin -5)" ]; then echo "$state/lock is being taken" >&2; exit 0; fi
     rm -rf "$state/lock"
     mkdir "$state/lock" || { echo "could not take $state/lock" >&2; exit 0; }
   fi
@@ -112,26 +110,27 @@ main() {
   local line="$(date -u +%FT%TZ) $ref $sha: $result; flakes:${flakes:- none}; known #$swap_issue swap:${swaps:- none}; real:${real:- none}; replay errors:${broken:- none}$gap"
   echo "$line" >> "$state/report.log"
   echo "$line"
-  [ -z "$real" ] && [ -z "$broken" ] && exit 0
+  [ -z "$real" ] && [ -z "$broken" ] && [ -z "$swaps" ] && exit 0
 
-  # A swap-signature failure goes to #2292. Any other real failure, and any replay that could not run, goes to the
-  # open money-actions debt issue (docs/work-sizing.md); with none open, to #2292 under its own heading.
+  # Every reported kind is one standing bot comment, edited on later nights instead of posted again:
+  #   known-swap   known #2292 seeds that reproduced again                     -> #2292
+  #   new-swap     the #2292 swap on seeds outside the known set               -> #2292
+  #   failure      any other confirmed failure                                 -> money-actions debt issue, else #2292
+  #   replay-error seeds whose replay stopped before any invariant result      -> money-actions debt issue, else #2292
   local swap_new="" other=""
   for seed in $real; do
     if only_swap "$state/runs/$stamp_name.seed-$seed.txt"; then swap_new="$swap_new $seed"
     else other="$other $seed"; fi
   done
-  local debt="" body="$state/runs/$stamp_name.comment-$swap_issue.md" rest="$state/runs/$stamp_name.comment-rest.md"
+  local debt=""
   [ -n "$other$broken" ] && debt=$(debt_issue)
-  : > "$body"
-  : > "$rest"
-  [ -n "$swap_new" ] && section "Cash-out swap (#$swap_issue) on new seeds" "$swap_new" >> "$body"
-  local heading="Non-swap failure"
-  [ -n "$debt" ] || heading="Non-swap failure (no open money-actions debt issue)"
-  [ -n "$other" ] && section "$heading" "$other" >> "$rest"
-  [ -n "$broken" ] && replay_errors "$broken" >> "$rest"
-  if [ -s "$rest" ] && [ -n "$debt" ]; then post "$debt" "$rest"; elif [ -s "$rest" ]; then cat "$rest" >> "$body"; fi
-  [ -s "$body" ] && post "$swap_issue" "$body"
+  local fallback=""
+  [ -n "$debt" ] || fallback=" (no open money-actions debt issue)"
+  [ -n "$swaps" ] && standing "$swap_issue" known-swap "$(section "Known #$swap_issue swap seeds reproduced" "$swaps")"
+  [ -n "$swap_new" ] && standing "$swap_issue" new-swap "$(section "Cash-out swap (#$swap_issue) on new seeds" "$swap_new")"
+  [ -n "$other" ] && standing "${debt:-$swap_issue}" failure "$(section "Non-swap failure$fallback" "$other")"
+  [ -n "$broken" ] && standing "${debt:-$swap_issue}" replay-error "$(replay_errors "$broken")"
+  [ -z "$real" ] && [ -z "$broken" ] && exit 0
   exit 1
 }
 
@@ -145,23 +144,13 @@ prepare_worktree() {
   (cd "$worktree" && bun run worktree:bootstrap -- --copy-env) || return 1
 }
 
-# harness <kind> <detail>: the run could not produce a trustworthy result. Logs locally and alerts once per kind
-# per week, so a broken machine does not repeat the same comment every night.
+# harness <kind> <detail>: the run could not produce a trustworthy result. Logs locally and keeps one standing
+# alert per kind (setup, no-result, seed-list), so a broken machine edits that alert rather than repeating it.
 harness() {
-  local kind="$1" detail="$2"
+  local kind="$1" detail="$2" debt
   echo "$(date -u +%FT%TZ) $ref $sha: run did not complete ($kind): $detail$gap" >> "$state/report.log"
-  local mark="$state/alerts/$kind"
-  if [ -n "$(find "$mark" -mtime -7 2>/dev/null)" ]; then exit 1; fi
-  local body="$state/runs/$stamp_name.comment-harness.md" debt
   debt=$(debt_issue)
-  {
-    echo "### Nightly simulation did not complete"
-    echo
-    echo "The nightly money-action simulation on \`$ref\` at $sha did not produce a trustworthy result: $detail. No invariant result is reported for this night; the next night runs again."
-  } > "$body"
-  posted=0
-  post "${debt:-$swap_issue}" "$body"
-  [ "$posted" = 1 ] && touch "$mark"
+  standing "${debt:-$swap_issue}" "harness-$kind" "$(printf '### Nightly simulation did not complete (%s)\n\nThe nightly money-action simulation on `%s` at %s did not produce a trustworthy result: %s. No invariant result is reported for this night; the next night runs again.\n' "$kind" "$ref" "$sha" "$detail")"
   exit 1
 }
 
@@ -208,21 +197,31 @@ replay_errors() {
   echo
 }
 
-# post <issue> <body file>: posts as the factory bot account only, with the token used for these gh calls alone.
-# It always returns 0 (a refusal is logged, never fatal) and sets posted=1 only when GitHub accepted the comment.
-post() {
-  local target="$1" body="$2" login
-  if [ "$post" = 0 ]; then echo "comment not posted (--no-post) for #$target: $body" >> "$state/report.log"; return 0; fi
+# standing <issue> <key> <markdown>: keeps one bot comment per issue and key. The first night a kind appears it is
+# posted (and notifies); later nights edit that comment in place with the latest SHA, RESULT and seeds.
+# Lookups read with the default gh login; only the calls that post or edit use the factory bot's token.
+standing() {
+  local target="$1" key="$2" text="$3" marker="<!-- money-sim-nightly:$2 -->" id file
+  file="$state/runs/$stamp_name.comment-$target-$key.md"
+  printf '%s\n_Updated %s by the nightly money-action simulation; this comment is edited in place on later nights._\n%s\n' \
+    "$text" "$(date -u +%F)" "$marker" > "$file"
+  if [ "$post" = 0 ]; then echo "comment not posted (--no-post) for #$target ($key): $file" >> "$state/report.log"; return 0; fi
   if [ ! -f "$bot_token_file" ] || [ ! -O "$bot_token_file" ] || [ -n "$(find "$bot_token_file" -perm -044 -o -perm -040 -o -perm -004)" ]; then
-    echo "comment not posted for #$target: no factory bot token readable only by this user" >> "$state/report.log"; return 0
+    echo "comment not posted for #$target ($key): no factory bot token readable only by this user" >> "$state/report.log"; return 0
   fi
-  login=$(GH_TOKEN="$(cat "$bot_token_file")" gh api user -q .login 2>/dev/null || true)
-  if [ "$login" != "jessepollakj" ]; then echo "comment not posted for #$target: token is not the factory bot account" >> "$state/report.log"; return 0; fi
-  if GH_TOKEN="$(cat "$bot_token_file")" gh issue comment "$target" --repo jessepollak/home --body-file "$body" > /dev/null 2>> "$state/report.log"; then
-    echo "comment posted on #$target" >> "$state/report.log"
-    posted=1
+  id=$(gh api "repos/jessepollak/home/issues/$target/comments" --paginate \
+    -q ".[] | select(.user.login == \"jessepollakj\" and (.body | contains(\"$marker\"))) | .id" 2>/dev/null | tail -1 || true)
+  case "$id" in *[!0-9]*) id="" ;; esac
+  if [ -n "$id" ]; then
+    if GH_TOKEN="$(cat "$bot_token_file")" gh api -X PATCH "repos/jessepollak/home/issues/comments/$id" -F "body=@$file" > /dev/null 2>> "$state/report.log"; then
+      echo "standing comment edited on #$target ($key)" >> "$state/report.log"
+    else
+      echo "standing comment not edited on #$target ($key): GitHub refused it" >> "$state/report.log"
+    fi
+  elif GH_TOKEN="$(cat "$bot_token_file")" gh issue comment "$target" --repo jessepollak/home --body-file "$file" > /dev/null 2>> "$state/report.log"; then
+    echo "standing comment posted on #$target ($key)" >> "$state/report.log"
   else
-    echo "comment not posted for #$target: GitHub refused it" >> "$state/report.log"
+    echo "comment not posted for #$target ($key): GitHub refused it" >> "$state/report.log"
   fi
   return 0
 }
