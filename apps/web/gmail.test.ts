@@ -284,14 +284,14 @@ describe("Gmail OAuth bootstrap", () => {
 describe("Gmail polling", () => {
   test("queries a fake Gmail server and never logs the code or tokens", async () => {
     const requests: Array<{ path: string; authorization: string | null }> = [];
-    const fakeGmail = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fakeGmail = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       const url = new URL(request.url);
       requests.push({ path: `${url.pathname}${url.search}`, authorization: request.headers.get("authorization") });
       if (url.pathname === "/token") return Response.json({ access_token: "access-token" });
       if (url.pathname.endsWith("/messages")) return Response.json({ messages: [{ id: "message-1" }] });
       return Response.json(message());
-    };
+    }, { preconnect: fetch.preconnect });
     const output: string[] = [];
     const originalLog = console.log;
     const originalError = console.error;
@@ -301,7 +301,7 @@ describe("Gmail polling", () => {
       const code = await pollGmailOtp(credentials, sender, submittedAt, {
         tokenEndpoint: "https://gmail.test/token",
         apiBaseUrl: "https://gmail.test/gmail/v1",
-        fetchImplementation: fakeGmail as typeof fetch,
+        fetchImplementation: fakeGmail,
         accountEmail: "bot@example.com",
         now: () => submittedAt + 2000,
         wait: async () => undefined,
