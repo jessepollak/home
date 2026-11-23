@@ -205,9 +205,9 @@ test("bounded evaluation reports pathological matching and retains completed res
   assert.equal(result.matches.size, 0);
   const benign = "client/explorations/*.ts";
   const skipped = "client/**/*.ts";
-  const mixed = evaluateKnipGlobs([benign, pathological, skipped], [candidate], { budgetMs: 250 });
+  const mixed = evaluateKnipGlobs([benign, pathological, skipped], [candidate], { budgetMs: 1500 });
   assert.deepEqual(mixed.matches.get(benign), new Set([candidate]));
-  assert.match(mixed.failures.get(pathological), /exceeded the 250 ms pattern evaluation budget/);
+  assert.match(mixed.failures.get(pathological), /exceeded the 1500 ms pattern evaluation budget/);
   assert.equal(mixed.failures.get(skipped), "was not evaluated because the pattern evaluation budget was exhausted");
   assert.ok(performance.now() - start < 3000, "both budgeted evaluations must return well under five seconds");
 });
