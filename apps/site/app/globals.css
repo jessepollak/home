@@ -14,3 +14,7 @@
 [data-demo]:not([data-demo-playing]) [data-slot="status-clock"] {
   display: block;
 }
+
+body {
+  background: transparent;
+}
