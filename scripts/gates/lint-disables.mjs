@@ -6,7 +6,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../..", import.meta.url));
-const baselinePath = fileURLToPath(new URL("./lint-disables-baseline.json", import.meta.url));
 export const BASELINE_PATH = "scripts/gates/lint-disables-baseline.json";
 const directive = /^(?:oxlint|eslint)-disable(?:-line|-next-line)?(?:\s+([\s\S]*))?$/u;
 const ruleName = /^@?[A-Za-z0-9*][A-Za-z0-9*_./-]*$/u;
@@ -20,10 +19,10 @@ export function isLintedSource(file) {
     && local !== ".storybook/static/mockServiceWorker.js" && local !== "next-env.d.ts";
 }
 
-export function repositoryFiles() {
-  return execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
-    .toString().split("\0").filter((file) => isLintedSource(file) && existsSync(path.join(root, file)))
-    .sort().map((file) => ({ path: file, content: readFileSync(path.join(root, file), "utf8") }));
+export function repositoryFiles(cwd = root, env = process.env) {
+  return execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd, env })
+    .toString().split("\0").filter((file) => isLintedSource(file) && existsSync(path.join(cwd, file)))
+    .sort().map((file) => ({ path: file, content: readFileSync(path.join(cwd, file), "utf8") }));
 }
 
 function scriptKindFor(file) {
@@ -91,11 +90,35 @@ function ownCount(counts, rule) {
   return Object.hasOwn(counts ?? {}, rule) ? counts[rule] : 0;
 }
 
-function git(args) {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
-  if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
-  return result.stdout.trim();
+function gitIn(cwd, env) {
+  const run = (args) => {
+    const result = spawnSync("git", args, { cwd, env, encoding: "utf8" });
+    if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
+    return result.stdout.trim();
+  };
+  run.showBlobs = (revisions) => {
+    const result = spawnSync("git", ["cat-file", "--batch"], { cwd, env, input: revisions.map((revision) => `${revision}\n`).join(""), maxBuffer: 256 * 1024 * 1024 });
+    if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git cat-file failed");
+    const blobs = new Map();
+    let offset = 0;
+    for (const revision of revisions) {
+      const end = result.stdout.indexOf(10, offset);
+      const header = /^[0-9a-f]+ (\S+) (\d+)$/u.exec(result.stdout.subarray(offset, end).toString("utf8"));
+      offset = end + 1;
+      if (!header) {
+        blobs.set(revision, null);
+        continue;
+      }
+      const size = Number(header[2]);
+      if (header[1] === "blob") blobs.set(revision, result.stdout.subarray(offset, offset + size).toString("utf8").trim());
+      offset += size + 1;
+    }
+    return blobs;
+  };
+  return run;
 }
+
+const git = gitIn(root, process.env);
 
 export function readBaseBudget(baseRef = "main", baselinePath = BASELINE_PATH, gitRunner = git) {
   const notes = [];
@@ -119,10 +142,15 @@ export function readBaseBudget(baseRef = "main", baselinePath = BASELINE_PATH, g
 
 export function readBaseCounts(base, files, gitRunner = git) {
   const counts = new Map();
+  const blobs = gitRunner.showBlobs?.(files.map((file) => `${base}:${file}`));
   for (const file of files) {
-    let content;
+    let content = blobs?.get(`${base}:${file}`);
+    if (content === null) {
+      counts.set(file, {});
+      continue;
+    }
     try {
-      content = gitRunner(["show", `${base}:${file}`]);
+      content ??= gitRunner(["show", `${base}:${file}`]);
     } catch {
       counts.set(file, {});
       continue;
@@ -245,41 +273,53 @@ export function shrinkBudget({ files, budget }) {
   return { files: result, exceptions };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const shrink = process.argv.length === 3 && process.argv[2] === "--shrink";
-  if (process.argv.length > (shrink ? 3 : 2)) {
-    console.error("usage: node scripts/gates/lint-disables.mjs [--shrink]");
-    process.exitCode = 1;
-  } else {
-    const files = repositoryFiles();
-    const budget = JSON.parse(readFileSync(baselinePath, "utf8"));
-    let reference = null;
-    let baseCounts = null;
-    let baseExceptions = [];
-    let enforceFloor = false;
-    const baseFindings = [];
-    try {
-      const result = readBaseInput(process.env.BASE_REF || "main", { files, budget });
-      reference = result.reference;
-      baseCounts = result.baseCounts;
-      baseExceptions = result.baseExceptions;
-      enforceFloor = result.changeTime;
-      for (const note of result.notes) console.log(note);
-    } catch (error) {
-      baseFindings.push(`Base baseline unavailable or invalid: ${error.message}`);
-    }
-    const before = evaluateDisableBudget({ files, budget, reference, baseCounts, baseExceptions, enforceFloor });
-    if (shrink && !baseFindings.length && !before.invalid.length && !before.raises.length) {
-      const smaller = shrinkBudget({ files, budget });
-      writeFileSync(baselinePath, `${JSON.stringify(smaller, null, 2)}\n`);
-      const after = evaluateDisableBudget({ files, budget: smaller, reference, baseCounts, baseExceptions, enforceFloor });
-      for (const note of after.notes) console.log(note);
-      for (const message of [...baseFindings, ...after.increases, ...after.invalid, ...after.raises]) console.error(message);
-      if (baseFindings.length || hasFatalFindings(after)) process.exitCode = 1;
-    } else {
-      for (const note of before.notes) console.log(note);
-      for (const message of [...baseFindings, ...before.increases, ...before.invalid, ...before.raises]) console.error(message);
-      if (baseFindings.length || hasFatalFindings(before)) process.exitCode = 1;
-    }
+export function runLintDisables({ cwd = root, args = process.argv.slice(2), env = process.env } = {}) {
+  const stdout = [];
+  const stderr = [];
+  const shrink = args.length === 1 && args[0] === "--shrink";
+  if (args.length > (shrink ? 1 : 0)) {
+    stderr.push("usage: node scripts/gates/lint-disables.mjs [--shrink]");
+    return { status: 1, stdout: "", stderr: `${stderr.join("\n")}\n` };
   }
+  const baselinePath = path.join(cwd, BASELINE_PATH);
+  const files = repositoryFiles(cwd, env);
+  const budget = JSON.parse(readFileSync(baselinePath, "utf8"));
+  let reference = null;
+  let baseCounts = null;
+  let baseExceptions = [];
+  let enforceFloor = false;
+  const baseFindings = [];
+  let status = 0;
+  try {
+    const result = readBaseInput(env.BASE_REF || "main", { files, budget, gitRunner: gitIn(cwd, env) });
+    reference = result.reference;
+    baseCounts = result.baseCounts;
+    baseExceptions = result.baseExceptions;
+    enforceFloor = result.changeTime;
+    stdout.push(...result.notes);
+  } catch (error) {
+    baseFindings.push(`Base baseline unavailable or invalid: ${error.message}`);
+  }
+  const before = evaluateDisableBudget({ files, budget, reference, baseCounts, baseExceptions, enforceFloor });
+  if (shrink && !baseFindings.length && !before.invalid.length && !before.raises.length) {
+    const smaller = shrinkBudget({ files, budget });
+    writeFileSync(baselinePath, `${JSON.stringify(smaller, null, 2)}\n`);
+    const after = evaluateDisableBudget({ files, budget: smaller, reference, baseCounts, baseExceptions, enforceFloor });
+    stdout.push(...after.notes);
+    stderr.push(...baseFindings, ...after.increases, ...after.invalid, ...after.raises);
+    if (baseFindings.length || hasFatalFindings(after)) status = 1;
+  } else {
+    stdout.push(...before.notes);
+    stderr.push(...baseFindings, ...before.increases, ...before.invalid, ...before.raises);
+    if (baseFindings.length || hasFatalFindings(before)) status = 1;
+  }
+  const text = (lines) => lines.map((line) => `${line}\n`).join("");
+  return { status, stdout: text(stdout), stderr: text(stderr) };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const result = runLintDisables();
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exitCode = result.status;
 }

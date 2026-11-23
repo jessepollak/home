@@ -18,6 +18,7 @@ import {
   isHomeSessionConfigured,
   readNativeBaseSession,
 } from "@/server/auth/native-base-session";
+import { sessionRevocations, type SessionRevocations } from "@/server/auth/session-revocation";
 
 
 export type SessionPayload = VerifiedAccountSession;
@@ -161,6 +162,7 @@ export type SessionHandlerDependencies = {
   issueCookies?: (session: VerifiedAccountSession, request: Request) => string[];
   verifiedCookies?: (request: Request) => string[];
   assertLive?: typeof assertSessionLive;
+  revocations?: () => SessionRevocations | null;
   onVerifiedSession?: (session: VerifiedAccountSession, context: { request: Request; email: string | null }) => void | Promise<void>;
 };
 
@@ -278,6 +280,7 @@ export function createSessionHandler({
   verifiedCookies,
   onVerifiedSession,
   assertLive = assertSessionLive,
+  revocations = sessionRevocations,
 }: SessionHandlerDependencies) {
   return async function GET(request: Request): Promise<Response> {
     const accountProvider = readAccountProvider(request);
@@ -304,6 +307,7 @@ export function createSessionHandler({
     if (nativeSession.kind === "valid") {
       if (accountProvider === "cdp-embedded") return invalidProviderResponse();
       try {
+        if (await revocations()?.isRevoked(nativeSession.token)) return unauthenticatedResponse();
         await assertLive(nativeSession.session);
         try { await onVerifiedSession?.(nativeSession.session, { request, email: null }); }
         catch (error) { const denied = deletionAuthErrorResponse(error); if (denied) return denied;

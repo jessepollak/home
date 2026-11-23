@@ -1,6 +1,7 @@
 import "server-only";
 
 import { assertSessionLive } from "@/server/account-deletion/tombstone";
+import { sessionRevocations } from "@/server/auth/session-revocation";
 import { serverEnvironment } from "@/server/config/env";
 
 import { type AccountRenderSeed } from "@/shared/account/session-types";
@@ -28,8 +29,11 @@ export async function readRenderSession(
       now,
     );
     if (native.kind === "valid") {
-      try { await assertSessionLive(native.session, now); return { session: native.session, source: "home-session" }; }
-      catch { return null; }
+      try {
+        if (await sessionRevocations()?.isRevoked(native.token)) return null;
+        await assertSessionLive(native.session, now);
+        return { session: native.session, source: "home-session" };
+      } catch { return null; }
     }
   }
 

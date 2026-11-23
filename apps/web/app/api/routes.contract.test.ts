@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 
 const routeGlob = new Bun.Glob("**/route.ts");
 const routePaths = [...routeGlob.scanSync({ cwd: import.meta.dir })].sort();
@@ -29,30 +29,36 @@ const httpVerbs = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] a
 const allowedRouteExports = new Set(["maxDuration", ...httpVerbs]);
 
 type RouteModule = Record<string, unknown>;
+const routeModules = new Map<string, RouteModule>();
+const routeGraphLoadBudgetMs = 30_000;
 
 describe("API route composition", () => {
+  beforeAll(async () => {
+    for (const path of routePaths) routeModules.set(path, await import(`./${path.replace(/\.ts$/, "")}`) as RouteModule);
+  }, routeGraphLoadBudgetMs);
+
   test("classifies every route discovered from the API directory", () => {
     expect(routePaths.length).toBeGreaterThan(0);
     for (const path of publicRoutes) expect(routePaths, path).toContain(path);
     expect([...publicRoutes].length + [...machineRoutes].length + privateRoutes.length).toBe(routePaths.length);
   });
 
-  test("keeps every route module limited to HTTP and route metadata exports", async () => {
+  test("keeps every route module limited to HTTP and route metadata exports", () => {
     for (const path of routePaths) {
-      const route = await loadRoute(path);
+      const route = loadRoute(path);
       expect(Object.keys(route).sort(), path).toEqual(
         Object.keys(route).filter((name) => allowedRouteExports.has(name)).sort(),
       );
     }
   });
 
-  test("gives the balances route a 30 second function budget", async () => {
-    const route = await loadRoute("balances/route.ts");
+  test("gives the balances route a 30 second function budget", () => {
+    const route = loadRoute("balances/route.ts");
     expect(route.maxDuration).toBe(30);
   });
 
   test("keeps the wallet paymaster callback session-free but action-scoped", async () => {
-    const route = await loadRoute("actions/[id]/paymaster/route.ts");
+    const route = loadRoute("actions/[id]/paymaster/route.ts");
     const handler = route.POST as (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>;
     const response = await handler(new Request("https://home.test/api/actions/not-a-uuid/paymaster", { method: "POST", body: "{}" }), { params: Promise.resolve({ id: "not-a-uuid" }) });
     expect(response.status).toBe(400);
@@ -63,7 +69,7 @@ describe("API route composition", () => {
 
   test("keeps every private route authenticated and uncacheable", async () => {
     for (const path of privateRoutes) {
-      const route = await loadRoute(path);
+      const route = loadRoute(path);
       const verbs = httpVerbs.filter((verb) => typeof route[verb] === "function");
       expect(verbs.length, path).toBeGreaterThan(0);
 
@@ -92,8 +98,10 @@ describe("API route composition", () => {
   });
 });
 
-async function loadRoute(path: string): Promise<RouteModule> {
-  return await import(`./${path.replace(/\.ts$/, "")}`) as RouteModule;
+function loadRoute(path: string): RouteModule {
+  const route = routeModules.get(path);
+  if (!route) throw new Error(`Route module was not loaded: ${path}`);
+  return route;
 }
 
 async function invokeRoute(

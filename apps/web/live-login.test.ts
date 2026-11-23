@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 // oxlint-disable-next-line home/no-source-reads -- Login fixtures write only system-temp scratch files.
-import { symlink, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, symlink, utimes, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
 import { checkAccount, liveLogin, loadVerificationEnv } from "./live-login";
@@ -9,6 +9,17 @@ import { privateVerificationPath } from "./verification-paths";
 const repoRoot = resolve(import.meta.dir, "../..");
 const directories: string[] = [];
 afterEach(() => { for (const path of directories.splice(0)) Bun.spawnSync(["rm", "-rf", path]); });
+
+async function scratchDirectory(prefix: string): Promise<string> {
+  const directory = await mkdtemp(resolve(tmpdir(), `${prefix}-`));
+  directories.push(directory);
+  return directory;
+}
+
+async function entryMode(path: string): Promise<string> {
+  const entry = await lstat(path);
+  return `${entry.isDirectory() ? "d" : entry.isFile() ? "-" : "?"}${(entry.mode & 0o777).toString(8)}`;
+}
 
 test("default private paths resolve outside the repository and sibling paths are allowed", () => {
   const directory = privateVerificationPath(resolve(homedir(), ".home-verify"));
@@ -24,8 +35,7 @@ test("refuses env files rooted in the checkout, including relative overrides", a
 });
 
 test("refuses a symlinked home pointing into the checkout", async () => {
-  const directory = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-linked-test-XXXXXX")]).stdout.toString().trim();
-  directories.push(directory);
+  const directory = await scratchDirectory("home-linked-test");
   const home = resolve(directory, "linked-home");
   expect(Bun.spawnSync(["ln", "-s", repoRoot, home]).exitCode).toBe(0);
   await expect(loadVerificationEnv({}, home)).rejects.toThrow("Private verification files must live outside the repository.");
@@ -50,8 +60,7 @@ test("refuses in-repo state before touching the directory or launching a browser
 });
 
 test("refuses in-repo Gmail credentials before creating state or launching a browser", async () => {
-  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-gmail-guard-test-XXXXXX")]).stdout.toString().trim();
-  directories.push(home);
+  const home = await scratchDirectory("home-gmail-guard-test");
   const calls: string[][] = [];
   const command = (args: string[]) => { calls.push(args); return ""; };
   await expect(liveLogin(["--base-url", "https://example.com"], {
@@ -66,8 +75,7 @@ test("git ignores nested private verification directories", () => {
 });
 
 async function login(gated: boolean) {
-  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-login-test-XXXXXX")]).stdout.toString().trim();
-  directories.push(home);
+  const home = await scratchDirectory("home-login-test");
   const calls: Array<{ args: string[]; input?: string }> = [];
   const password = "secret-access-password-796";
   const otp = "847291";
@@ -98,8 +106,8 @@ test("OTP and gated password are passed only via stdin, never argv or output", a
     expect(calls.filter((call) => call.args[0] === "eval" && call.args[1] === "--stdin").map((call) => call.input)).toEqual(gated
       ? [expect.stringContaining(password), expect.stringContaining("bot@example.com"), expect.stringContaining(otp)]
       : [expect.stringContaining("bot@example.com"), expect.stringContaining(otp)]);
-    expect(Bun.spawnSync(["ls", "-ld", path]).stdout.toString()).toStartWith("-rw-------");
-    expect(Bun.spawnSync(["ls", "-ld", resolve(home, ".home-verify")]).stdout.toString()).toStartWith("drwx------");
+    expect(await entryMode(path)).toBe("-600");
+    expect(await entryMode(resolve(home, ".home-verify"))).toBe("d700");
     expect(calls.at(-1)?.args).toEqual(["close"]);
   }
 });
@@ -122,8 +130,7 @@ function fakeLogin(home: string, events: string[], label: string, getOtp: (submi
 }
 
 test("concurrent logins queue before email submit and save distinct states in order", async () => {
-  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-queue-test-XXXXXX")]).stdout.toString().trim();
-  directories.push(home);
+  const home = await scratchDirectory("home-queue-test");
   const events: string[] = [];
   let firstCode!: (code: string) => void;
   let firstSubmitted!: () => void;
@@ -161,8 +168,7 @@ test("concurrent logins queue before email submit and save distinct states in or
   expect(Bun.spawnSync(["test", "-e", resolve(home, ".home-verify/live-login.lock")]).exitCode).not.toBe(0);
 });
 test("removes only marked, owned, regular generated-default states older than 24 hours", async () => {
-  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-prune-test-XXXXXX")]).stdout.toString().trim();
-  directories.push(home);
+  const home = await scratchDirectory("home-prune-test");
   const now = Date.parse("2026-09-21T12:00:00.000Z");
   const stale = await fakeLogin(home, [], "old", async () => "123456", () => now);
   const directory = resolve(home, ".home-verify");
@@ -201,8 +207,7 @@ test("removes only marked, owned, regular generated-default states older than 24
 });
 
 test("rejects explicit sessions using the generated-default name pattern before creating state", async () => {
-  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-reserved-test-XXXXXX")]).stdout.toString().trim();
-  directories.push(home);
+  const home = await scratchDirectory("home-reserved-test");
   await expect(liveLogin(["--session", `home-live-42-${"a".repeat(32)}`, "--base-url", "https://example.com"], {
     home, env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
     command: () => { throw new Error("browser must not launch"); },
@@ -212,8 +217,7 @@ test("rejects explicit sessions using the generated-default name pattern before 
 });
 
 test("releases the email lock when code retrieval or state save fails", async () => {
-  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-failure-test-XXXXXX")]).stdout.toString().trim();
-  directories.push(home);
+  const home = await scratchDirectory("home-failure-test");
   const lock = resolve(home, ".home-verify/live-login.lock");
   await expect(fakeLogin(home, [], "failed", async () => { throw new Error("OTP unavailable"); })).rejects.toThrow("OTP unavailable");
   expect(Bun.spawnSync(["test", "-e", lock]).exitCode).not.toBe(0);
@@ -227,8 +231,7 @@ test("releases the email lock when code retrieval or state save fails", async ()
 });
 
 async function privateEnvFile(contents: string): Promise<{ home: string; path: string }> {
-  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-env-test-XXXXXX")]).stdout.toString().trim();
-  directories.push(home);
+  const home = await scratchDirectory("home-env-test");
   expect(Bun.spawnSync(["mkdir", "-m", "700", resolve(home, ".home-verify")]).exitCode).toBe(0);
   const path = resolve(home, ".home-verify/live.env");
   await Bun.write(path, contents);
@@ -391,8 +394,7 @@ test("refuses symlinks, permissive permissions, and non-allowlisted or malformed
 });
 
 test("defaults to headed browser but preserves a provisioned runner's override", async () => {
-  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-headed-test-XXXXXX")]).stdout.toString().trim();
-  directories.push(home);
+  const home = await scratchDirectory("home-headed-test");
   const observedPath = resolve(home, "headed");
   const browser = resolve(import.meta.dir, "../../node_modules/.bin/agent-browser");
   const original = Bun.spawnSync;
@@ -416,7 +418,7 @@ test("defaults to headed browser but preserves a provisioned runner's override",
         ...(setting === undefined ? {} : { AGENT_BROWSER_HEADED: setting }),
       };
       await expect(liveLogin(["--base-url", "https://example.com"], { home, env })).rejects.toThrow("Browser open failed");
-      expect(original(["cat", observedPath]).stdout.toString()).toBe(expected);
+      expect(await readFile(observedPath, "utf8")).toBe(expected);
     }
   } finally {
     spy.mockRestore();

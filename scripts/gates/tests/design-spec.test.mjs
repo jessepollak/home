@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { evaluateDesignSpec, evaluateDesignSpecReferences, repositoryDesignSpecReferenceFindings } from "../design-spec.mjs";
+import { evaluateDesignSpec, evaluateDesignSpecReferences, repositoryDesignSpecReferenceFindings, runDesignSpec } from "../design-spec.mjs";
 import { storyIdsFromFiles } from "../story-references.mjs";
 
 const cssUrl = new URL("../../../apps/web/app/globals.css", import.meta.url);
@@ -311,13 +311,14 @@ test("the real design spec exactly lists globals.css tokens", async () => {
   assert.deepEqual(evaluateDesignSpec({ css, spec }), clean, "update the design spec token block in the same change as globals.css tokens");
 });
 
-const cli = (...args) => spawnSync(process.execPath, [fileURLToPath(new URL("../design-spec.mjs", import.meta.url)), ...args], {
+const cliProcess = (...args) => spawnSync(process.execPath, [fileURLToPath(new URL("../design-spec.mjs", import.meta.url)), ...args], {
   cwd: fileURLToPath(new URL("../../..", import.meta.url)),
   encoding: "utf8",
 });
+const cli = (...args) => runDesignSpec(args);
 
 test("the CLI defaults to the real repo files and is silent when clean", () => {
-  const result = cli();
+  const result = cliProcess();
   assert.equal(result.status, 0);
   assert.equal(result.stdout, "");
   assert.equal(result.stderr, "");

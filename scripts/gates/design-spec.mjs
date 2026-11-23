@@ -171,22 +171,31 @@ export function repositoryDesignSpecReferenceFindings(repoRoot, spec) {
   })];
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  if (process.argv.length > 4) {
-    console.error("usage: node scripts/gates/design-spec.mjs [cssPath] [specPath]");
-    process.exitCode = 1;
+export function runDesignSpec(args = process.argv.slice(2)) {
+  const stderr = [];
+  let status = 0;
+  if (args.length > 2) {
+    stderr.push("usage: node scripts/gates/design-spec.mjs [cssPath] [specPath]");
+    status = 1;
   } else {
     try {
-      const css = readFileSync(process.argv[2] ?? new URL("../../apps/web/app/globals.css", import.meta.url), "utf8");
-      const spec = readFileSync(process.argv[3] ?? new URL("../../docs/design-system/spec.md", import.meta.url), "utf8");
+      const css = readFileSync(args[0] ?? new URL("../../apps/web/app/globals.css", import.meta.url), "utf8");
+      const spec = readFileSync(args[1] ?? new URL("../../docs/design-system/spec.md", import.meta.url), "utf8");
       const { missing, undeclared, invalid } = evaluateDesignSpec({ css, spec });
       const references = repositoryDesignSpecReferenceFindings(fileURLToPath(new URL("../..", import.meta.url)), spec);
       const findings = [...missing, ...undeclared, ...invalid, ...references];
-      for (const finding of findings) console.error(finding);
-      if (findings.length) process.exitCode = 1;
+      stderr.push(...findings);
+      if (findings.length) status = 1;
     } catch (error) {
-      console.error(`Design spec error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
-      process.exitCode = 1;
+      stderr.push(`Design spec error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+      status = 1;
     }
   }
+  return { status, stdout: "", stderr: stderr.map((line) => `${line}\n`).join("") };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const result = runDesignSpec();
+  process.stderr.write(result.stderr);
+  process.exitCode = result.status;
 }

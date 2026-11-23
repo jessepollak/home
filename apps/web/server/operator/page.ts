@@ -7,6 +7,7 @@ import { HOME_CDP_LIVE_COOKIE, HOME_CDP_SESSION_COOKIE, type RenderCookieStore }
 import { HOME_SESSION_COOKIE, readNativeBaseSessionToken } from "@/server/auth/native-base-session";
 import { decideOperatorAccess, type OperatorDecision } from "./authorize";
 import { readOperatorConfig } from "./config";
+import { sessionRevocations, type SessionRevocations } from "@/server/auth/session-revocation";
 
 export function decideOperatorPageAccess(
   store: RenderCookieStore,
@@ -24,6 +25,17 @@ export function decideOperatorPageAccess(
   return { kind: "unauthenticated" };
 }
 
-export async function readOperatorPageDecision(): Promise<OperatorDecision> {
-  return decideOperatorPageAccess(await cookies());
+export async function readOperatorPageDecision(
+  store?: RenderCookieStore,
+  revocations: () => SessionRevocations | null = sessionRevocations,
+): Promise<OperatorDecision> {
+  const resolved = store ?? await cookies();
+  const decision = decideOperatorPageAccess(resolved);
+  const native = resolved.getAll(HOME_SESSION_COOKIE);
+  if (decision.kind !== "operator" || native.length !== 1 || !native[0]?.value) return decision;
+  try {
+    return await revocations()?.isRevoked(native[0].value) ? { kind: "forbidden" } : decision;
+  } catch {
+    return { kind: "forbidden" };
+  }
 }
