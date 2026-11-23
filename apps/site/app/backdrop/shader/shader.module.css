@@ -56,6 +56,62 @@
   position: relative;
 }
 
+.echo {
+  position: relative;
+  isolation: isolate;
+}
+
+.ribbon,
+.pool {
+  position: absolute;
+  inset-inline: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ribbon {
+  top: 0;
+  height: 4.5rem;
+}
+
+.pool {
+  inset-block: 0;
+}
+
+.ribbonFallback,
+.poolFallback {
+  position: absolute;
+  inset: 0;
+  transition: opacity 900ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-shader-state="live"] .ribbonFallback,
+[data-shader-state="live"] .poolFallback {
+  opacity: 0;
+}
+
+.ribbonFallback {
+  background:
+    radial-gradient(40% 140% at 78% 0%, rgb(87 139 250 / 0.8), transparent 70%),
+    linear-gradient(to bottom, #0a2ea8, rgb(0 82 255 / 0.75) 30%, rgb(87 139 250 / 0.45) 60%, rgb(220 232 255 / 0.4) 80%, transparent);
+}
+
+.poolFallback {
+  background:
+    radial-gradient(40% 70% at 84% 50%, rgb(87 139 250 / 0.7), transparent 70%),
+    radial-gradient(45% 80% at 12% 55%, rgb(46 28 184 / 0.6), transparent 70%),
+    linear-gradient(to bottom, transparent, rgb(220 232 255) 14%, rgb(87 139 250) 26%, #0a2ea8 40%, #030a2f 50%, #0a2ea8 60%, rgb(87 139 250) 74%, rgb(220 232 255) 86%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+}
+
+@media (min-width: 768px) {
+  .ribbon {
+    height: 5.5rem;
+  }
+}
+
 .spill {
   height: 7rem;
 }
@@ -67,7 +123,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .canvas {
+  .canvas,
+  .ribbonFallback,
+  .poolFallback {
     transition: none;
   }
 }

@@ -2,7 +2,7 @@ import type { ComponentType, ReactNode } from "react";
 import { ShaderBackdrop } from "./shader";
 
 export type BackdropVariant = "none" | "shader";
-export type BackdropRegion = "hero" | "customers" | "team" | "demo";
+export type BackdropRegion = "hero" | "customers" | "team" | "demo" | "talk";
 
 export type BackdropProps = { region: BackdropRegion; children: ReactNode };
 

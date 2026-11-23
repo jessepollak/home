@@ -132,6 +132,7 @@ export function OptionB({ backdrop = "none" }: { backdrop?: BackdropVariant }) {
           </section>
         </div>
 
+        <Backdrop variant={backdrop} region="talk">
         <div className="mx-auto max-w-4xl px-5">
           <section aria-labelledby="talk" className="py-10 md:py-14">
             <Card className="gap-0 p-6 md:p-10">
@@ -150,6 +151,7 @@ export function OptionB({ backdrop = "none" }: { backdrop?: BackdropVariant }) {
             </Card>
           </section>
         </div>
+        </Backdrop>
       </main>
 
       <footer className="mx-auto max-w-4xl px-5 pb-10 text-xs text-foreground/70">
