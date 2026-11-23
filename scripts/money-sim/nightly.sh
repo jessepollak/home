@@ -25,6 +25,16 @@ args=("$@")
 
 log() { echo "$(date -u +%FT%TZ) $ref $sha: $*$gap" >> "$state/report.log"; }
 
+# retry <seconds> <command...>: reruns a failing command with doubling waits (5s up to 60s) for about that long.
+retry() {
+  local budget=$1 pause=5 start=$SECONDS; shift
+  until "$@"; do
+    [ $((SECONDS - start + pause)) -le "$budget" ] || return 1
+    sleep "$pause"
+    pause=$((pause * 2)); [ "$pause" -le 60 ] || pause=60
+  done
+}
+
 # fail <comment body>: reports the night's failure as one new bot comment, then exits nonzero.
 fail() {
   local body="$state/runs/$stamp.comment.md" token login
@@ -37,13 +47,13 @@ fail() {
   } > "$body"
   if [ ! -r "$bot_token_file" ]; then log "nothing posted: no factory bot token at $bot_token_file"; exit 1; fi
   token=$(cat "$bot_token_file")
-  login=$(GH_HOST=github.com GH_TOKEN="$token" gh api user --jq .login 2>/dev/null) || login=""
+  login=$(retry 120 env GH_HOST=github.com GH_TOKEN="$token" gh api user --jq .login 2>/dev/null) || login=""
   if [ "$login" != "$bot_login" ]; then log "nothing posted: the bot token is not $bot_login (got '${login:-no answer}')"; exit 1; fi
   if [ "$post" = 0 ]; then log "not posted (--no-post): $body"; exit 1; fi
-  if GH_HOST=github.com GH_TOKEN="$token" gh issue comment "$issue" --repo jessepollak/home --body-file "$body" > /dev/null 2>> "$state/report.log"; then
+  if retry 300 env GH_HOST=github.com GH_TOKEN="$token" gh issue comment "$issue" --repo jessepollak/home --body-file "$body" > /dev/null 2>> "$state/report.log"; then
     log "failure posted on #$issue"
   else
-    log "nothing posted: GitHub refused the comment on #$issue"
+    log "nothing posted: GitHub refused or never answered the comment on #$issue, after retries"
   fi
   exit 1
 }
@@ -82,10 +92,13 @@ if [ "$scheduled" = 1 ]; then
 fi
 
 out="$state/runs/$stamp.txt" seeds="$state/runs/$stamp.failing"
+# A run that fires on wake can start before the network is up: wait up to 10 minutes for GitHub to answer.
+retry 600 git -C "$repo" ls-remote --quiet --exit-code origin "$ref" > "$out.network" 2>&1 ||
+  harness "GitHub was unreachable for 10 minutes (git ls-remote origin)"
 if ! {
-  git -C "$repo" fetch --quiet origin "$ref" &&
+  retry 120 git -C "$repo" fetch --quiet origin "$ref" &&
   { [ -e "$worktree/.git" ] || git -C "$repo" worktree add --quiet --detach "$worktree" "origin/$ref"; } &&
-  git -C "$worktree" fetch --quiet origin "$ref" &&
+  retry 120 git -C "$worktree" fetch --quiet origin "$ref" &&
   git -C "$worktree" checkout --quiet --detach "origin/$ref" &&
   sha=$(git -C "$worktree" rev-parse --short=9 HEAD) &&
   (cd "$worktree" && bun run worktree:bootstrap -- --copy-env)
