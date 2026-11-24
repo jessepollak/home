@@ -13,6 +13,7 @@ import { CurrencyMark, GlyphMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
 import { moneySheetIntent } from "@/client/money-modal";
 import { MoneyTicker } from "@/components/money-ticker";
+import { UnavailableValue } from "@/components/unavailable-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
@@ -504,7 +505,7 @@ export function CashOverview({
               </div>
             ) : failed ? <BalancesCantLoad onRetry={onRetryBalances ?? (() => undefined)} /> : (
               <>
-                {cashValue ? <div className="text-4xl font-semibold tabular-nums"><MoneyTicker align="start" reserveDigits={false} value={cashValue} /></div> : activeSnapshot && !activeSnapshot.quoteCurrency ? <p className="text-sm text-muted-foreground">Choose a country in Account to set how money is shown</p> : null}
+                {cashValue ? <div className="text-4xl font-semibold tabular-nums"><MoneyTicker align="start" reserveDigits={false} value={cashValue} /></div> : activeSnapshot?.quoteCurrency && cashSummary?.value === null ? <UnavailableValue variant="hero" /> : activeSnapshot && !activeSnapshot.quoteCurrency ? <p className="text-sm text-muted-foreground">Choose a country in Account to set how money is shown</p> : null}
                 {pendingValue ? (
                   <p className="flex items-baseline gap-1 text-sm text-muted-foreground tabular-nums" data-pending-cash-out>
                     <span>Pending cash-out</span>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { RegionId } from "@/config/regions";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { homeSummaryStorageKey, readHomeRateLabels, writeHomeRateLabels, syncHomeSummaryCookie, type HomeRateLabels, type HomeRateObservation } from "@/client/query/home-summary-cache";
 import { browserHomeQueryClient, subscribeOwnerQueryBoundary, useHomeQueryClient } from "@/client/query/query-client";
 
@@ -26,11 +26,11 @@ function createStore(identity: string | null, initial: HomeRateLabels) {
   };
 }
 
-export function useHomeRateLabels({ owner, region, cash, borrow, initial = EMPTY_LABELS }: {
-  owner: string | null; region: RegionId; cash: HomeRateObservation; borrow: HomeRateObservation; initial?: HomeRateLabels;
+export function useHomeRateLabels({ owner, region, currency, cash, borrow, initial = EMPTY_LABELS }: {
+  owner: string | null; region: RegionId; currency: FiatCurrencyCode | null; cash: HomeRateObservation; borrow: HomeRateObservation; initial?: HomeRateLabels;
 }): { cash: string | null; borrow: string | null } {
   const client = useHomeQueryClient(browserHomeQueryClient());
-  const identity = owner ? homeSummaryStorageKey(owner, region) : null;
+  const identity = owner ? homeSummaryStorageKey(owner, region, currency) : null;
   const [seedState, setSeedState] = useState({ identity, labels: initial });
   if (seedState.identity !== identity) setSeedState({ identity, labels: EMPTY_LABELS });
   const seed = seedState.identity === identity ? seedState.labels : EMPTY_LABELS;
@@ -39,15 +39,15 @@ export function useHomeRateLabels({ owner, region, cash, borrow, initial = EMPTY
   useLayoutEffect(() => {
     if (!owner) return;
     const cache = storage();
-    store.replace(cache ? { ...seed, ...readHomeRateLabels(cache, owner, region) } : seed);
+    store.replace(cache ? { ...seed, ...readHomeRateLabels(cache, owner, region, currency) } : seed);
     const stopBoundary = subscribeOwnerQueryBoundary(client, (preserved) => { if (preserved !== owner) { store.clear(); } });
     const stopQuery = client.getQueryCache().subscribe((event) => {
       const key: unknown = event.query.queryKey;
       if (!Array.isArray(key)) return;
-      if (event.type === "removed" && key[0] === owner && key[1] === "balances" && key[2] === region) store.clear();
+      if (event.type === "removed" && key[0] === owner && key[1] === "balances" && key[2] === region && key[3] === (currency ?? "none")) store.clear();
     });
     return () => { stopBoundary(); stopQuery(); };
-  }, [client, owner, region, store, seed]);
+  }, [client, owner, region, currency, store, seed]);
   useLayoutEffect(() => {
     if (!owner || !store.active()) return;
     const next = { ...store.read() };
@@ -55,11 +55,11 @@ export function useHomeRateLabels({ owner, region, cash, borrow, initial = EMPTY
     if (!borrow.pending) next.borrow = { value: borrow.value, updatedAt: borrow.updatedAt };
     const cache = storage();
     if (cache) {
-      const persisted = readHomeRateLabels(cache, owner, region);
-      if (JSON.stringify(persisted) !== JSON.stringify(next)) { writeHomeRateLabels(cache, owner, region, next); syncHomeSummaryCookie(cache, owner, region); }
+      const persisted = readHomeRateLabels(cache, owner, region, currency);
+      if (JSON.stringify(persisted) !== JSON.stringify(next)) { writeHomeRateLabels(cache, owner, region, currency, next); syncHomeSummaryCookie(cache, owner, region, currency); }
     }
     store.replace(next);
-  }, [borrow.pending, borrow.updatedAt, borrow.value, cached, cash.pending, cash.updatedAt, cash.value, owner, region, store]);
+  }, [borrow.pending, borrow.updatedAt, borrow.value, cached, cash.pending, cash.updatedAt, cash.value, owner, region, currency, store]);
   if (!owner || !store.active()) return { cash: null, borrow: null };
   return { cash: cash.pending ? cached.cash?.value ?? null : cash.value, borrow: borrow.pending ? cached.borrow?.value ?? null : borrow.value };
 }

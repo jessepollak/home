@@ -116,13 +116,14 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     mode: ValuationMode = "bootstrap",
     signal?: AbortSignal,
     requestStartedAtMs?: number,
+    requestedCurrency?: FiatCurrencyCode | null,
   ): Promise<PriceBalancesResult> {
     const startedStore = nowMs();
     const refreshDeadline = dependencies.refreshWindowMs === undefined
       ? undefined
       : (requestStartedAtMs ?? startedStore) + dependencies.refreshWindowMs - BALANCES_REFRESH_RESERVE_MS;
     const currentTime = now();
-    const quoteCurrency = presentationRegions[region].currency.code;
+    const quoteCurrency = requestedCurrency ?? presentationRegions[region].currency.code;
     const borrowPairs = borrowPricingPairs(read.borrow);
     const pricingHoldings = [
       ...read.holdings,

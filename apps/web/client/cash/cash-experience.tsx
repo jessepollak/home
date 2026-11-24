@@ -19,7 +19,7 @@ import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
 import { browserHomeQueryClient, getHomeQueryClient, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { queryViewState } from "@/client/query/query-view-state";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
-import { usePresentationRegionId } from "@/client/invest/presentation-quote";
+import { usePresentationRegionId, usePresentationCurrency } from "@/client/invest/presentation-quote";
 import { preloadSavingsJourneyStep, SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry, type SavingsJourneyProps } from "@/client/savings/savings-actions";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
@@ -1018,7 +1018,8 @@ export function AuthenticatedCashExperience(props: {
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalancesData(balancesSession, region, account.fetchBalances, {
+  const currency = usePresentationCurrency(region);
+  const balances = useBalancesData(balancesSession, { region, currency }, account.fetchBalances, {
     held: !regionReady,
   });
   const snapshot = balances.snapshot;

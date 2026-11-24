@@ -4,16 +4,21 @@ import { createElement } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import { getHomeQueryClient } from "@/client/query/query-client";
-const { renderHook, cleanup } = await import("@testing-library/react");
+const { renderHook, cleanup, act, waitFor } = await import("@testing-library/react");
 const { useAuthenticatedTransport } = await import("./cdp-authenticated-transport");
 import type { QueryClient } from "@tanstack/react-query";
-import type { BalanceActionMarker } from "@/client/query/after-action";
+import { freshRegionMarker, createBalanceFreshnessState, startBalanceFreshness, resetBalanceFreshness, type BalanceActionMarker } from "@/client/query/after-action";
+import { useBalances, useBalancesData } from "@/client/balances";
+import { resolveDisplayCurrency, type PresentationScope } from "@/shared/account/display-currency";
+import type { BalancesSnapshot } from "@/shared/balances/types";
+import { parseBalancesScope } from "@/client/query/balances-scope";
+import { trustRestoredBalances, trustRestoredBalanceActionMarker } from "@/client/query/restored-cache";
 import { createHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
-import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { balancesSnapshotFixture, buildBalancesSnapshotFixture, ready } from "@/shared/balances/fixtures";
 import { handleRequestShowsBroadcast, qualifyBalancesForUnrecordedHandle } from "./cdp-authenticated-transport";
 
 const ownerKey = "subject\u00000x1111111111111111111111111111111111111111\u00008453\u0000cdp-embedded";
-const balancesKey = ownerQueryKey(ownerKey, "balances", "US");
+const balancesKey = ownerQueryKey(ownerKey, "balances", "US", "USD");
 const markerKey = ownerQueryKey(ownerKey, "balances-action");
 let queryClient: QueryClient;
 
@@ -202,7 +207,7 @@ test.each(["balances", "activity", "actions", "confirm", "handle", "funding"] as
       const response = Response.json({ error: { code: "ACCOUNT_DELETED" } }, { status: 401 });
       if (parseLate) response.json = async () => { parsing = true; return new Promise((resolve) => { finishBody = resolve; }); };
       const hook = renderHook(() => useAuthenticatedTransport({ session: verifiedSession, status: "verified", verification: "server", ownerKey, ownerFence: fence, getAccessToken: async () => "fixture-token", onAccountDeleted: () => { recoveries += 1; }, sessionFetch: async () => new Promise((resolve) => { finish = resolve; }) }));
-      const work = route === "balances" ? hook.result.current.fetchBalances("US") : route === "activity" ? hook.result.current.fetchActivity("") : hook.result.current.fetchAccountResource(route === "funding" ? "/api/funding/orders" : route === "actions" ? "/api/actions" : `/api/actions/action-a/${route}`, { method: route === "actions" ? "GET" : "POST" });
+      const work = route === "balances" ? hook.result.current.fetchBalances({ region: "US", currency: "USD" }) : route === "activity" ? hook.result.current.fetchActivity("") : hook.result.current.fetchAccountResource(route === "funding" ? "/api/funding/orders" : route === "actions" ? "/api/actions" : `/api/actions/action-a/${route}`, { method: route === "actions" ? "GET" : "POST" });
       const failure = work.catch((error: unknown) => error);
       await flushMicrotasks();
       if (parseLate) { finish(response); await flushMicrotasks(); expect(parsing).toBe(true); }
@@ -215,4 +220,128 @@ test.each(["balances", "activity", "actions", "confirm", "handle", "funding"] as
       hook.unmount();
     }
   }
+});
+
+
+test.each([useBalances, useBalancesData])("balance money is partitioned by resolved currency and never crosses owners (%p)", (useBalanceHook) => {
+  queryClient = getHomeQueryClient();
+  const session = { subject: "subject", smartAccountAddress: balancesSnapshotFixture.owner.address, chainId: 8453 as const, accountProvider: "cdp-embedded" };
+  const usd = buildBalancesSnapshotFixture({ registry: { usdc: { balance: ready("2500000") } } });
+  queryClient.setQueryData(balancesKey, usd);
+  const scope: PresentationScope = { region: "US", currency: resolveDisplayCurrency("US", null).currency };
+  const hook = renderHook(({ scope, owner }) => useBalanceHook(owner, scope, async () => { throw new Error("Disabled"); }, { enabled: false }), {
+    initialProps: { scope, owner: session },
+    wrapper: ({ children }) => createElement(QueryClientProvider, { client: queryClient }, children),
+  });
+  expect(hook.result.current.snapshot?.holdings.find((holding) => holding.id === "usdc")?.balance.baseUnits).toBe("2500000");
+  hook.rerender({ scope: { region: "US", currency: resolveDisplayCurrency("US", "USD").currency }, owner: session });
+  expect(queryClient.getQueryCache().findAll({ queryKey: [ownerKey, "balances"] })).toHaveLength(1);
+  expect(hook.result.current.snapshot?.quoteCurrency).toBe("USD");
+  hook.rerender({ scope: { region: "CA", currency: "USD" }, owner: session });
+  expect(hook.result.current.snapshot?.quoteCurrency).toBe("USD");
+  hook.rerender({ scope: { region: "US", currency: "EUR" }, owner: session });
+  expect(hook.result.current.snapshot).toBeNull();
+  expect(hook.result.current.status).toBe("loading");
+  hook.rerender({ scope: { region: "US", currency: "USD" }, owner: { ...session, subject: "different-owner" } });
+  expect(hook.result.current.snapshot).toBeNull();
+  expect(queryClient.getQueryData(balancesKey)).toBe(usd);
+});
+
+test("a currency fetch cannot relabel another currency's snapshot as current money", async () => {
+  queryClient = getHomeQueryClient();
+  const session = { subject: "subject", smartAccountAddress: balancesSnapshotFixture.owner.address, chainId: 8453 as const, accountProvider: "cdp-embedded" };
+  const hook = renderHook(() => useBalances(session, { region: "US", currency: "EUR" }, async () => balancesSnapshotFixture), {
+    wrapper: ({ children }) => createElement(QueryClientProvider, { client: queryClient }, children),
+  });
+  await waitFor(() => expect(hook.result.current.status).toBe("error"));
+  expect(hook.result.current.snapshot).toBeNull();
+  expect(queryClient.getQueryData(ownerQueryKey(ownerKey, "balances", "US", "EUR"))).toBeUndefined();
+});
+
+test("settlement proof consumed for one valuation scope leaves other scopes unconsumed", () => {
+  const marker: BalanceActionMarker = { at: 0, fresh: {}, settledBlock: "35123456" };
+  const usdScope = { region: "US", currency: "USD" } as const;
+  const eurScope = { region: "US", currency: "EUR" } as const;
+  const usd = freshRegionMarker(marker, marker, usdScope, balancesSnapshotFixture);
+  expect(usd?.fresh).toEqual({ "US|USD": true });
+  expect(freshRegionMarker(usd, marker, usdScope, balancesSnapshotFixture)).toBeUndefined();
+  expect(freshRegionMarker(usd, marker, eurScope, buildBalancesSnapshotFixture({ currency: "EUR" }))?.fresh)
+    .toEqual({ "US|USD": true, "US|EUR": true });
+});
+
+test("restored balances reject legacy, unknown and mismatched valuation scopes", () => {
+  const trust = (queryKey: readonly unknown[], snapshot: unknown = balancesSnapshotFixture) => trustRestoredBalances(snapshot, { ownerKey, queryKey });
+  expect(trust(balancesKey)?.data).toEqual(balancesSnapshotFixture);
+  for (const key of [
+    [ownerKey, "balances", "US"], [ownerKey, "balances", "US", "XYZ"], [ownerKey, "balances", "NO", "USD"],
+    [ownerKey, "balances", "US", "none"], [ownerKey, "balances", "US", "USD", "extra"],
+    [ownerKey, "balances", "US", "EUR"], [ownerKey, "balances", "GLOBAL", "USD"],
+  ]) expect(trust(key)).toBeNull();
+  const euroKey = [ownerKey, "balances", "US", "EUR"];
+  const euro = buildBalancesSnapshotFixture({ currency: "EUR" });
+  expect(trust(euroKey, euro)?.data).toEqual(euro);
+  expect(trust(balancesKey, euro)).toBeNull();
+  expect(trust(euroKey, { ...balancesSnapshotFixture, quoteCurrency: "EUR" })).toBeNull();
+  const global = buildBalancesSnapshotFixture({ region: "GLOBAL" });
+  expect(trust([ownerKey, "balances", "GLOBAL", "none"], global)?.data).toEqual(global);
+  for (const key of ["US", "US|XYZ", "GLOBAL|", "US|none", "US|USD|extra", "NO|USD"]) {
+    expect(trustRestoredBalanceActionMarker({ at: 0, fresh: { [key]: true } }, { ownerKey, queryKey: markerKey })).toBeNull();
+  }
+  expect(trustRestoredBalanceActionMarker({ at: 0, fresh: { "US|EUR": true, "GLOBAL|none": true } }, { ownerKey, queryKey: markerKey }))
+    .toEqual({ data: { at: 0, fresh: { "US|EUR": true, "GLOBAL|none": true } } });
+});
+
+test("after-action freshness updates each region/currency cache entry without reviving old keys", async () => {
+  const scopes: PresentationScope[] = [{ region: "US", currency: "USD" }, { region: "US", currency: "EUR" }, { region: "GLOBAL", currency: null }];
+  for (const scope of scopes) queryClient.setQueryData(ownerQueryKey(ownerKey, "balances", scope.region, scope.currency ?? "none"), buildBalancesSnapshotFixture(scope));
+  const legacyKey = ownerQueryKey(ownerKey, "balances", "US");
+  const invalidKey = ownerQueryKey(ownerKey, "balances", "US", "XYZ");
+  queryClient.setQueryData(legacyKey, balancesSnapshotFixture);
+  queryClient.setQueryData(invalidKey, balancesSnapshotFixture);
+  let poll: (() => void) | undefined;
+  const state = createBalanceFreshnessState();
+  await startBalanceFreshness({ actionId: "action-a", session: verifiedSession, queryClient, state,
+    clock: { now: () => 0, setTimer: (callback) => { poll = callback; return callback; }, clearTimer: () => {} },
+    fetchVerifiedResource: async (endpoint, _signal, query) => {
+      if (endpoint === "/api/actions") return { actions: [{ id: "action-a", summary: { amounts: [{ assetId: "usdc" }] } }] };
+      const params = new URLSearchParams(query);
+      const scope = parseBalancesScope(params.get("region"), params.get("currency") ?? "none");
+      if (!scope) throw new Error("Invalid requested valuation scope");
+      return buildBalancesSnapshotFixture({ ...scope, registry: { usdc: { balance: ready("1000000") } } });
+    },
+  });
+  expect(poll).toBeFunction();
+  await act(async () => { poll?.(); await flushMicrotasks(); });
+  await waitFor(() => expect(state.moved.has("action-a")).toBe(true));
+  for (const scope of scopes) {
+    const snapshot = queryClient.getQueryData<BalancesSnapshot>(ownerQueryKey(ownerKey, "balances", scope.region, scope.currency ?? "none"));
+    expect(snapshot?.quoteCurrency).toBe(scope.currency);
+    expect(snapshot?.holdings.find((holding) => holding.id === "usdc")?.balance.baseUnits).toBe("1000000");
+  }
+  expect(queryClient.getQueryData(legacyKey)).toBe(balancesSnapshotFixture);
+  expect(queryClient.getQueryData(invalidKey)).toBe(balancesSnapshotFixture);
+  resetBalanceFreshness(state);
+});
+
+
+test.each([
+  { region: "US", currency: "EUR" }, { region: "GLOBAL", currency: "USD" }, { region: "GLOBAL", currency: null },
+] as const)("authenticated balances retain the requested valuation scope $region/$currency", async (scope) => {
+  queryClient = getHomeQueryClient();
+  const hook = renderHook(() => {
+    const transport = useAuthenticatedTransport({ session: verifiedSession, status: "verified", verification: "server", ownerKey,
+      ownerFence: generationFence(), getAccessToken: async () => "fixture-token", sessionFetch: async (path) => {
+        const url = new URL(String(path), "https://home.invalid");
+        if (url.pathname !== "/api/balances") throw new Error("Unexpected request");
+        const requested = parseBalancesScope(url.searchParams.get("region"), url.searchParams.get("currency") ?? "none");
+        if (!requested) return Response.json({ error: { code: "INVALID_REQUEST" } }, { status: 400 });
+        return Response.json(buildBalancesSnapshotFixture({ ...requested, registry: { usdc: { balance: ready("5000000") } } }));
+      },
+    });
+    return useBalances({ subject: "subject", smartAccountAddress: balancesSnapshotFixture.owner.address, chainId: 8453, accountProvider: "cdp-embedded" }, scope, transport.fetchBalances);
+  });
+  await waitFor(() => expect(hook.result.current.status).toBe("ready"));
+  expect(hook.result.current.snapshot?.region).toBe(scope.region);
+  expect(hook.result.current.snapshot?.quoteCurrency).toBe(scope.currency);
+  expect(hook.result.current.snapshot?.holdings.find((holding) => holding.id === "usdc")?.balance.baseUnits).toBe("5000000");
 });

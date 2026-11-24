@@ -1,4 +1,4 @@
-import type { RegionId } from "@/config/regions";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { OWNER_SESSION_RETENTION_MS } from "@/shared/account/session-types";
 import * as z from "zod/mini";
 import type { HomeBalancesPresentation } from "./present";
@@ -7,11 +7,11 @@ const text = z.string().check(z.maxLength(160));
 const amount = { value: z.nullable(text) };
 const count = z.number().check(z.int(), z.minimum(0), z.maximum(1_000_000));
 const presentationSchema = z.object({
-  status: z.literal("ready"), displayTotal: z.nullable(text), needsCountry: z.optional(z.literal(true)),
+  status: z.literal("ready"), displayTotal: z.nullable(text), needsCountry: z.optional(z.literal(true)), valuationUnavailable: z.optional(z.literal(true)),
   breakdown: z.array(z.object({
     id: z.enum(["borrow", "cash", "pending-cash-out", "investments"]),
     label: z.enum(["Borrow", "Cash", "Pending cash-out", "Investments"]),
-    value: text, weight: z.number().check(z.minimum(0)),
+    value: z.nullable(text), weight: z.number().check(z.minimum(0)),
   })).check(z.maxLength(4)),
   summary: z.object({
     cash: z.object(amount), investments: z.object({ ...amount, assetCount: count, ownedCount: count }),
@@ -25,16 +25,16 @@ const presentationSchema = z.object({
 const rateSchema = z.object({ value: z.nullable(text), updatedAt: z.number() });
 export type HomeRateObservation = { value: string | null; updatedAt: number; pending: boolean };
 export type HomeRateLabels = { cash?: { value: string | null; updatedAt: number }; borrow?: { value: string | null; updatedAt: number } };
-const schema = z.object({ version: z.literal(3), owner: z.string().check(z.maxLength(200)), region: text, updatedAt: z.number(), presentation: presentationSchema, rates: z.optional(z.object({ cash: z.optional(rateSchema), borrow: z.optional(rateSchema) })) });
+const schema = z.object({ version: z.literal(5), currency: z.nullable(text), owner: z.string().check(z.maxLength(200)), region: text, updatedAt: z.number(), presentation: presentationSchema, rates: z.optional(z.object({ cash: z.optional(rateSchema), borrow: z.optional(rateSchema) })) });
 const maxCharacters = 8 * 1024;
 
 export type HomeSummaryRecord = z.infer<typeof schema>;
 export const homeSummaryCookieName = "home.display-summary.v1";
-export function parseHomeSummaryRecord(value: string | undefined, owner: string, region: RegionId, now = Date.now()): HomeSummaryRecord | null {
+export function parseHomeSummaryRecord(value: string | undefined, owner: string, region: RegionId, currency: FiatCurrencyCode | null, now = Date.now()): HomeSummaryRecord | null {
   if (!value || value.length > maxCharacters) return null;
   try {
     const parsed = schema.safeParse(JSON.parse(value));
-    if (!parsed.success || parsed.data.owner !== owner || parsed.data.region !== region ||
+    if (!parsed.success || parsed.data.owner !== owner || parsed.data.region !== region || parsed.data.currency !== currency ||
       !Number.isFinite(parsed.data.updatedAt) || parsed.data.updatedAt <= 0 || parsed.data.updatedAt > now ||
       now - parsed.data.updatedAt > OWNER_SESSION_RETENTION_MS) return null;
     return { ...parsed.data, rates: recentHomeRates(parsed.data.rates, now) };
@@ -55,7 +55,7 @@ export function encodeHomeSummaryCookie(record: HomeSummaryRecord): string | nul
   const value = encodeURIComponent(JSON.stringify(record));
   return value.length <= 3_500 ? value : null;
 }
-export function parseHomeSummaryCookie(value: string | undefined, owner: string, region: RegionId, now = Date.now()): HomeSummaryRecord | null {
+export function parseHomeSummaryCookie(value: string | undefined, owner: string, region: RegionId, currency: FiatCurrencyCode | null, now = Date.now()): HomeSummaryRecord | null {
   if (!value || value.length > 3_500) return null;
-  try { return parseHomeSummaryRecord(value.startsWith("{") ? value : decodeURIComponent(value), owner, region, now); } catch { return null; }
+  try { return parseHomeSummaryRecord(value.startsWith("{") ? value : decodeURIComponent(value), owner, region, currency, now); } catch { return null; }
 }

@@ -59,6 +59,7 @@
     "@tanstack/react-query": "^5.108.1",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.26",
+    "@vercel/firewall": "^1.2.6",
     "@vercel/functions": "^3.11.3",
     "@vercel/otel": "^2.3.0",
     "@vercel/speed-insights": "^2.1.0",

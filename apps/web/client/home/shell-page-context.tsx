@@ -6,7 +6,7 @@ import { parseShellLocation, type ShellLocation } from "@/config/shell-location"
 import type { NestedAppChrome } from "@/components/app-chrome";
 import type { FetchActivity } from "@/client/activity";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { RegionId } from "@/config/regions";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { AssetKey } from "@/shared/balances/types";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
@@ -18,6 +18,7 @@ type ShellPageContextValue = {
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   regionId: RegionId;
+  displayCurrency: FiatCurrencyCode | null;
   regionReady: boolean;
   initialRateLabels?: import("@/shared/balances/home-summary").HomeRateLabels;
   sessionSettling: boolean;

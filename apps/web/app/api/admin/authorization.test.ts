@@ -8,6 +8,8 @@ import { createOperatorApiHandler, createOperatorGrantHandler, operatorGrantRead
 import { decideOperatorPageAccess } from "@/server/operator/page";
 import { readOperatorConfig } from "@/server/operator/config";
 import { createAuditListHandler, createSettingsDomainHandlers, createSettingsListHandler } from "@/server/operator-settings/handlers";
+import { createCustomerDetailHandler, createCustomerSearchHandler } from "@/server/admin-customers/handlers";
+import { parseAdminCustomersErrorResponse } from "@/shared/admin-customers/contract";
 
 const operator = "0x1111111111111111111111111111111111111111" as const;
 const customer = "0x2222222222222222222222222222222222222222" as const;
@@ -153,5 +155,25 @@ test("the grant is issued only to an allowlisted email session with a matching r
   for (const [response, status] of [...denied, [withoutBearer, 401] as const]) {
     expect(response.status).toBe(status);
     expect(response.headers.get("set-cookie")).toBeNull();
+  }
+});
+
+test("customer search and detail authorize before parsing, store, audit or balance access", async () => {
+  const denyDataAccess = () => { throw new Error("customer data accessed before authorization"); };
+  const id = "11111111-1111-4111-8111-111111111111";
+  for (const variant of [
+    { authorize: async () => Response.json({}, { status: 401 }), status: 401, code: "UNAUTHENTICATED" },
+    { authorize: async () => session(customer), status: 403, code: "OPERATOR_FORBIDDEN" },
+  ] as const) {
+    const dependencies = { authorize: variant.authorize, config: () => readOperatorConfig({ HOME_OPERATOR_ADDRESSES: operator }), store: denyDataAccess, audit: denyDataAccess, balances: denyDataAccess };
+    for (const response of [
+      await createCustomerSearchHandler(dependencies)(request("customers", { version: 1, q: ["not", "a", "string"], unknown: true })),
+      await createCustomerDetailHandler(dependencies)(request(`customers/${id}`), { params: Promise.resolve({ id }) }),
+      await createCustomerDetailHandler(dependencies)(request("customers/not-an-id"), { params: Promise.resolve({ id: "not-an-id" }) }),
+    ]) {
+      expect(response.status).toBe(variant.status);
+      expect(response.headers.get("Cache-Control")).toContain("no-store");
+      expect<unknown>(parseAdminCustomersErrorResponse(await response.json())).toEqual({ error: { code: variant.code } });
+    }
   }
 });

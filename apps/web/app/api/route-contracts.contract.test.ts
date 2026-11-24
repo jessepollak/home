@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { inventoryRouteContracts } from "@/tests/helpers/route-contract-inventory";
+import { customerIdContractFindings, inventoryRouteContracts } from "@/tests/helpers/route-contract-inventory";
 import manifest from "./route-contracts.json";
 
 const acceptedGaps = {
@@ -234,4 +234,10 @@ test("exempts only document, redirect, status-only, paymaster callback, and prov
   expect(Object.fromEntries(Object.entries(manifest.appRoutes)
     .filter(([, entry]) => "exempt" in entry)
     .map(([path, entry]) => [path, "exempt" in entry ? entry.exempt.kind : undefined]))).toEqual(appExemptions);
+});
+
+test("only admin route contracts may carry a registry customer ID", () => {
+  const { inspected, offenders } = customerIdContractFindings({ root: join(import.meta.dir, "../.."), manifest });
+  expect(inspected).toBeGreaterThan(20);
+  expect(offenders).toEqual([]);
 });
