@@ -10,7 +10,7 @@
     "knip": "knip --production --no-progress"
   },
   "dependencies": {
-    "lucide-react": "^1.57.0",
+    "lucide-react": "^1.76.0",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"
