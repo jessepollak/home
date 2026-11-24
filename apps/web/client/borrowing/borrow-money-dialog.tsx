@@ -15,7 +15,9 @@ import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
   MoneyConfirmSummary,
-  moneyConfirmFromRow,
+  MoneyAmountSummary,
+  moneyConfirmFacts,
+  type MoneyConfirmFacts,
   MoneyConfirmFooter,
   MoneyModal,
   MoneyModalBody,
@@ -148,6 +150,7 @@ export function BorrowMoneyFlow({
     setAmount((current) => current === "" ? decimalFromBaseUnits(maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ?? "" : current);
   }, [fixedMaximumOperation, maximumRepayBaseUnits, snapshot.market.loanToken.decimals]);
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
+  const confirmFacts = preparedAction ? moneyConfirmFacts(preparedAction) : null;
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [serverExpiredActionId, setServerExpiredActionId] = useState<string | null>(null);
   const [step, setStep] = useState<"amount" | "confirm" | "pending" | "error" | "result">("amount");
@@ -316,7 +319,7 @@ export function BorrowMoneyFlow({
         {step === "amount" ? (
           <>
             {closesWithoutDebt ? (
-              <MoneyConfirmSummary amount={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} lead="Withdraw all collateral" rows={[{ label: "Debt", value: "No debt" }]} />
+              <MoneyAmountSummary amount={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} lead="Withdraw all collateral" rows={[{ label: "Debt", value: "No debt" }]} />
             ) : (
               <MoneyAmountDisplay
                 amount={amount}
@@ -353,7 +356,7 @@ export function BorrowMoneyFlow({
           </>
         ) : null}
 
-        {preparedAction && step !== "amount" && step !== "result" ? <BorrowPreparedReview action={preparedAction} snapshot={snapshot} regionId={regionId} /> : null}
+        {preparedAction && step !== "amount" && step !== "result" ? <BorrowPreparedReview action={preparedAction} facts={confirmFacts} snapshot={snapshot} regionId={regionId} /> : null}
         {error ? <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertTitle>Borrow action unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
         {preparedExpired && !attempted && step === "confirm" && !error ? (
           <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertTitle>Borrow review expired</AlertTitle><AlertDescription>Go back and prepare this action again.</AlertDescription></Alert>
@@ -367,7 +370,7 @@ export function BorrowMoneyFlow({
           onPrimary={() => void prepare()}
         />
       ) : null}
-      {(step === "confirm" || step === "pending") && preparedAction ? <MoneyConfirmFooter action={preparedAction} actionExpired={preparedExpired} submitting={step === "pending"} primaryLabel={attempted ? "Retry" : "Confirm action"} primaryDisabled={preparedExpired && !attempted} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={goBack} /> : null}
+      {(step === "confirm" || step === "pending") && preparedAction ? <MoneyConfirmFooter action={preparedAction} actionExpired={preparedExpired} submitting={step === "pending"} primaryLabel={attempted ? "Retry" : "Confirm action"} primaryDisabled={!confirmFacts || (preparedExpired && !attempted)} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={goBack} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Back" onPrimary={goBack} secondaryLabel="Close" onSecondary={exit} /> : null}
     </MoneyModalStep>
   );
@@ -415,7 +418,7 @@ function borrowReviewAmount(action: PreparedMoneyAction, snapshot: BorrowMarketS
     : action.title;
 }
 
-function BorrowPreparedReview({ action, snapshot, regionId }: { action: PreparedMoneyAction; snapshot: BorrowMarketSnapshot; regionId: RegionId }) {
+function BorrowPreparedReview({ action, facts, snapshot, regionId }: { action: PreparedMoneyAction; facts: MoneyConfirmFacts | null; snapshot: BorrowMarketSnapshot; regionId: RegionId }) {
   const metadata = action.metadata?.product === "borrow" ? action.metadata : null;
   const amount = borrowReviewAmount(action, snapshot);
   const movementRows = action.amounts.map((entry) => {
@@ -429,16 +432,14 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
   return (
     <div className="space-y-3">
       <div className="min-w-0 [&_dd]:wrap-anywhere">
-        <MoneyConfirmSummary action={action}
+        {facts ? <MoneyConfirmSummary facts={facts}
           amount={amount}
           lead={action.title}
           rows={[
-            moneyConfirmFromRow(action.owner),
             ...movementRows,
             { label: "Variable rate", value: formatWadPercent(metadata?.borrowAprWad ?? snapshot.state.borrowAprWad, regionId) },
-            { label: "Network", value: "Base" },
           ]}
-        />
+        /> : null}
       </div>
       {metadata?.projectedHealthFactorWad ? (
         <LiquidationBufferMeter
