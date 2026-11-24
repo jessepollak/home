@@ -64,7 +64,7 @@
     "@vercel/speed-insights": "^2.1.0",
     "@zkp2p/cash": "0.5.3",
     "@zkp2p/sdk": "0.14.1",
-    "ai": "^7.0.118",
+    "ai": "^7.0.181",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "idb-keyval": "^6.3.0",
