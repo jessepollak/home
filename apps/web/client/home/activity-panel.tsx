@@ -23,6 +23,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { useCashOutWithdrawJourney } from "@/client/activity/cash-out-withdraw-journey";
 import { openPanelAfterClose, useOptionalHomeShellRouting, type ActivityDetailReturn } from "./panel-routing";
+import { activitySourceRetention } from "@/client/activity/retained-activity-sources";
 import { ShimmerRows } from "./panel-shared";
 import { useOptionalShellPage } from "./shell-page-context";
 import { cancellationErrorCopy, cancellationNeedsRefetch, useCancelFundingOrder } from "@/client/funding/cancel-order";
@@ -231,6 +232,7 @@ export function ConnectedActivityPanel({
   });
   const refetchActions = actions.refetch;
   const retryActions = useCallback(() => { void refetchActions(); }, [refetchActions]);
+  const sourceRetention = ownerKey ? activitySourceRetention(queryClient, ownerKey, regionId) : undefined;
 
   const withdrawJourney = useCashOutWithdrawJourney({ wallet, ownerKey, onDispatched: () => {
     if (!ownerKey) return;
@@ -352,6 +354,7 @@ export function ConnectedActivityPanel({
       }}
       restoreDetailsRequest={restoreDetailsRequest}
       suspendDetailsRequest={suspendDetailsRequest}
+      sourceRetention={sourceRetention}
       cancelBusy={cancelBusy}
       cancelActionKind={cancelActionKind}
       cancelError={cancelError}
