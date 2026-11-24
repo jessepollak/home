@@ -17,6 +17,7 @@ type Pricer = ReturnType<typeof createBalancesPricer>;
 type Snapshot = NonNullable<CustomerWalletBalance["snapshot"]>;
 
 const REGION = "US";
+const QUOTE_CURRENCY = "USD";
 
 function decimal(value: { atoms: string; scale: number }): string {
   return formatDecimalAmount(BigInt(value.atoms), value.scale);
@@ -51,8 +52,8 @@ export function createSnapshotBalanceReader(store: BalanceSnapshotStore, pricer:
       observedAt: row.observedAt, holdings: row.holdings, coverage: row.coverage,
       enumerationCursor: row.enumerationCursor, borrow: row.borrow,
     };
-    const valued = await pricer(read, REGION, "cached", signal);
-    const snapshot = assembleBalancesSnapshot({ owner: address, region: REGION, read, holdings: valued.holdings, borrow: valued.borrow });
+    const valued = await pricer(read, REGION, "cached", signal, undefined, QUOTE_CURRENCY);
+    const snapshot = assembleBalancesSnapshot({ owner: address, region: REGION, quoteCurrency: QUOTE_CURRENCY, read, holdings: valued.holdings, borrow: valued.borrow });
     const complete = borrowReadCurrent(read) && row.coverage.registry === "complete" && row.coverage.catalog === "complete" &&
       row.holdings.every((holding) => holding.balance.status !== "unavailable") &&
       snapshot.holdings.every((holding) => holding.balance.baseUnits === "0" || holding.value.status === "priced") &&
