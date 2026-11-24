@@ -17,7 +17,6 @@ const operatorErrorResponseSchema = z.object({ error: z.object({ code: operatorE
 export type OperatorSessionResponse = z.output<typeof operatorSessionResponseSchema>;
 export type OperatorErrorResponse = z.output<typeof operatorErrorResponseSchema>;
 
-/** @public parses the administrator session endpoint for future clients */
 export function parseOperatorSessionResponse(value: unknown): OperatorSessionResponse | null {
   const result = operatorSessionResponseSchema.safeParse(value);
   return result.success ? result.data : null;

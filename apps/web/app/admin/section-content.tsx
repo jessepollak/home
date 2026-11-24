@@ -2,13 +2,13 @@ import { ArrowLeft, Inbox } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from "@/components/ui/empty";
-import type { OperatorDecision } from "@/server/operator/authorize";
+import type { OperatorPageDecision } from "@/server/operator/page";
 import { OperatorIdentity } from "./operator-shell";
 
-export function authorizedOperatorAddress(decision: OperatorDecision): `0x${string}` {
+export function authorizedOperatorAddress(decision: OperatorPageDecision): `0x${string}` | null {
   if (decision.kind === "unauthenticated") redirect("/?account=signin");
   if (decision.kind === "forbidden") redirect("/home");
-  return decision.address;
+  return decision.kind === "operator" ? decision.address : null;
 }
 
 export function OperatorEmpty({ children }: { children: React.ReactNode }) {
