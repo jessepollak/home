@@ -313,6 +313,169 @@ export const noUnownedLoading = {
   },
 };
 
+const dismissLabel = /^(?:Cancel|Close|Back|Not now|Maybe later|Dismiss|No thanks|Never mind|Go back)$/iu;
+
+function jsxPropValue(opening, name) {
+  const value = jsxAttribute(opening, name)?.value;
+  return value?.type === "JSXExpressionContainer" ? value.expression : value;
+}
+
+function literalString(node) {
+  const value = sourceValue(node);
+  return typeof value === "string" ? value : undefined;
+}
+
+function buttonVariantCall(node) {
+  if (!node || typeof node !== "object") return null;
+  if (node.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "buttonVariants") return node;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "parent") continue;
+    for (const child of Array.isArray(value) ? value : [value]) {
+      if (child?.type) {
+        const call = buttonVariantCall(child);
+        if (call) return call;
+      }
+    }
+  }
+  return null;
+}
+
+function buttonText(node) {
+  if (node.type === "JSXText") return node.value;
+  if (node.type === "JSXExpressionContainer") {
+    const expression = node.expression;
+    if (expression.type === "JSXEmptyExpression") return "";
+    const value = sourceValue(expression);
+    if (value !== undefined) return typeof value === "string" || typeof value === "number" ? String(value) : "";
+    if (["JSXElement", "JSXFragment"].includes(expression.type)) return buttonText(expression);
+    return null;
+  }
+  if (node.children) {
+    const parts = node.children.map(buttonText);
+    return parts.includes(null) ? null : parts.join("");
+  }
+  return "";
+}
+
+function actionButton(node) {
+  let button = node;
+  let opening = node.openingElement;
+  const name = jsxName(opening.name);
+  if (name === "DrawerClose") {
+    button = jsxPropValue(opening, "render");
+    if (button?.type !== "JSXElement" || jsxName(button.openingElement.name) !== "Button") return null;
+    opening = button.openingElement;
+  } else if (!["Button", "Link", "a"].includes(name)) return null;
+
+  let variant = jsxPropValue(opening, "variant");
+  let size = jsxPropValue(opening, "size");
+  if (["Link", "a"].includes(name)) {
+    const call = opening.attributes.map(buttonVariantCall).find(Boolean);
+    if (!call) return null;
+    const options = call.arguments[0];
+    if (options && options.type !== "ObjectExpression") return null;
+    variant = options?.properties.find((property) => patternKey(property) === "variant")?.value;
+    size = options?.properties.find((property) => patternKey(property) === "size")?.value;
+  }
+  const variantName = variant === undefined ? "default" : literalString(variant);
+  if (!variantName || variantName === "link" || literalString(size)?.startsWith("icon")) return null;
+  const outerText = buttonText(node);
+  const text = name === "DrawerClose" && outerText?.trim() === "" ? buttonText(button) : outerText;
+  if (text !== null && !text.trim()) return null;
+  const dismiss = (text !== null && variantName !== "destructive" && dismissLabel.test(text.replace(/\s+/gu, " ").trim())) || ["ghost", "outline", "secondary"].includes(variantName);
+  return {
+    node,
+    dismiss,
+    affirmative: !dismiss && ["default", "destructive"].includes(variantName),
+  };
+}
+
+export const affirmativeActionFirst = {
+  meta: {
+    type: "problem", schema: [],
+    messages: { rejected: "Put the affirmative action first in an action group; dismiss, cancel or back follows it. See docs/design-system/spec.md#do--dont." },
+  },
+  create(context) {
+    const reported = new Set();
+    function checkChildren(children, affirmativeAfter) {
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        affirmativeAfter = checkSibling(children[index], affirmativeAfter);
+      }
+      return affirmativeAfter;
+    }
+    function checkSibling(node, affirmativeAfter) {
+      if (node.type === "JSXFragment") return checkChildren(node.children, affirmativeAfter);
+      if (node.type === "JSXExpressionContainer") return checkSibling(node.expression, affirmativeAfter);
+      if (node.type === "ConditionalExpression") {
+        const consequent = checkSibling(node.consequent, affirmativeAfter);
+        const alternate = checkSibling(node.alternate, affirmativeAfter);
+        return consequent || alternate;
+      }
+      if (node.type === "LogicalExpression") return checkSibling(node.left, checkSibling(node.right, affirmativeAfter));
+      if (node.type !== "JSXElement") return affirmativeAfter;
+      const button = actionButton(node);
+      if (button?.dismiss && affirmativeAfter && !reported.has(node)) {
+        reported.add(node);
+        context.report({ node, messageId: "rejected" });
+      }
+      return affirmativeAfter || Boolean(button?.affirmative);
+    }
+    function slotAttribute(opening, name) {
+      const attribute = jsxAttribute(opening, name);
+      if (!attribute || opening.attributes.slice(opening.attributes.indexOf(attribute) + 1).some((item) => item.type === "JSXSpreadAttribute")) return null;
+      return attribute;
+    }
+    function slotAction(node) {
+      if (node?.type === "JSXExpressionContainer") return slotAction(node.expression);
+      if (node?.type === "JSXFragment") {
+        const children = node.children.filter((child) => child.type !== "JSXText"
+          && !(child.type === "JSXExpressionContainer" && child.expression.type === "JSXEmptyExpression"));
+        return children.length === 1 ? slotAction(children[0]) : null;
+      }
+      return node?.type === "JSXElement" ? actionButton(node) : null;
+    }
+    function checkLabelOrder(opening) {
+      if (opening.attributes.some((attribute) => attribute.type === "JSXSpreadAttribute")) return;
+      const primary = slotAttribute(opening, "primaryLabel");
+      const secondary = slotAttribute(opening, "secondaryLabel");
+      if (!primary || !secondary || !jsxAttribute(opening, "onSecondary")) return;
+      const handler = jsxPropValue(opening, "onSecondary");
+      if (handler === null || (handler !== undefined && ((handler.type === "Identifier" && handler.name === "undefined") || (handler.type === "Literal" && !handler.value)))) return;
+      const variant = jsxPropValue(opening, "primaryVariant");
+      if (variant !== undefined && literalString(variant) !== "default") return;
+      const primaryText = literalString(jsxPropValue(opening, "primaryLabel"))?.replace(/\s+/gu, " ").trim();
+      const secondaryText = literalString(jsxPropValue(opening, "secondaryLabel"))?.replace(/\s+/gu, " ").trim();
+      if (!primaryText || !secondaryText) return;
+      if (!dismissLabel.test(primaryText) || dismissLabel.test(secondaryText) || reported.has(primary)) return;
+      reported.add(primary);
+      context.report({ node: primary, messageId: "rejected" });
+    }
+    function check(node) {
+      checkChildren(node.children, false);
+      if (node.type !== "JSXElement") return;
+      const name = jsxName(node.openingElement.name);
+      if (name !== "MoneyModalFooter" && name !== "MoneyConfirmFooter") return;
+      checkLabelOrder(node.openingElement);
+      if (name !== "MoneyModalFooter") return;
+      const primary = slotAttribute(node.openingElement, "primary");
+      const secondary = slotAttribute(node.openingElement, "secondary");
+      const note = slotAttribute(node.openingElement, "note");
+      const slots = [note, primary, secondary];
+      let affirmativeAfter = false;
+      for (let index = slots.length - 1; index >= 0; index -= 1) {
+        const action = slotAction(slots[index]?.value);
+        if (action?.dismiss && affirmativeAfter && !reported.has(action.node)) {
+          const node = action.node;
+          reported.add(node);
+          context.report({ node, messageId: "rejected" });
+        }
+        affirmativeAfter ||= Boolean(action?.affirmative);
+      }
+    }
+    return { JSXElement: check, JSXFragment: check };
+  },
+};
+
 export const noTransientMoneyCopy = {
   meta: {
     type: "problem", schema: [],

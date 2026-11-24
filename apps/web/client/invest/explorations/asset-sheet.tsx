@@ -2,7 +2,7 @@
 
 import { useCallback, useId, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { AppDrawer, MoneyModalActions, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
+import { AppDrawer, MoneyModalFooter, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
 import { deferStep } from "@/client/money-modal/deferred-sheet";
 import { TradeActions } from "@/client/trading/trade-actions";
 import { presentInvestAssetMark } from "@/client/asset-mark/presentation";
@@ -95,6 +95,6 @@ function AssetSheetContent({ asset, market, open, opener, details = "body", onCl
       {details === "body" ? <Button variant="outline" size="touch" className="w-full"
         aria-label={`View ${asset.displayName} details`} onClick={onViewDetails}>View details<ChevronRight aria-hidden="true" /></Button> : null}
     </MoneyModalBody>
-    <MoneyModalActions><div className="flow-root -mt-7"><TradeActions asset={asset} layout="sticky" /></div></MoneyModalActions>
+    <MoneyModalFooter primary={<div className="flow-root -mt-7"><TradeActions asset={asset} layout="sticky" /></div>} />
   </AppDrawer>;
 }
