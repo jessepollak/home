@@ -237,7 +237,11 @@ export const BuyReview: Story = {
   args: { view: "review" },
   play: async ({ canvasElement }) => {
     const screen = await enterReview(canvasElement, "buy");
-    await expect(await screen.findByText("Network fee")).toBeVisible();
+    const review = screen.getByRole("dialog", { name: "Confirm" });
+    await expect(review.querySelector('[data-slot="confirm-amount"]')).toHaveTextContent("$1.00");
+    for (const [label, value] of [["From", "0x1111…111111"], ["Network", "Base"], ["Network fee", "Up to 0.02 USDC · ≈ $0.02"], ["Max slippage", "1%"]]) {
+      await expect(within(review).getByText(label, { selector: "dt", exact: true }).nextElementSibling).toHaveTextContent(value);
+    }
     await expect(screen.getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "false");
     await expect(screen.queryByText("Minimum received")).not.toBeInTheDocument();
     await expect(screen.queryByText("DEGEN contract")).not.toBeInTheDocument();

@@ -57,6 +57,23 @@ async function submit(canvasElement: HTMLElement) {
   return dialog;
 }
 
+export const Review: Story = {
+  args: { state: "pending" },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    const review = await screen.findByRole("dialog", { name: "Borrow" });
+    const dialog = within(review);
+    await userEvent.type(dialog.getByRole("textbox", { name: "Amount" }), "1");
+    await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeEnabled();
+    await expect(review.querySelector('[data-slot="confirm-amount"]')).toHaveTextContent("1 USDC");
+    await expect(dialog.getByText("From", { selector: "dt", exact: true }).nextElementSibling?.querySelector("button")).toHaveAttribute("title", action.owner.address);
+    for (const [label, value] of [["Network", "Base"], ["Network fee", "Paid in ETH"]]) {
+      await expect(dialog.getByText(label, { selector: "dt", exact: true }).nextElementSibling).toHaveTextContent(value);
+    }
+  },
+};
+
 export const ExpiredReview: Story = {
   args: { state: "pending", reviewExpired: true },
   play: async ({ canvasElement }) => {
