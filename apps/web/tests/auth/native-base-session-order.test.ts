@@ -81,12 +81,13 @@ describe("native Base authentication after shared DOM setup", () => {
       }),
     );
     const logoutCookies = logoutResponse.headers.getSetCookie();
-    expect(logoutCookies).toHaveLength(4);
+    expect(logoutCookies).toHaveLength(5);
     for (const name of [
       HOME_SESSION_COOKIE,
       HOME_CHALLENGE_COOKIE,
       HOME_CDP_SESSION_COOKIE,
       HOME_CDP_LIVE_COOKIE,
+      "home-operator-grant",
     ]) {
       expect(logoutCookies.some((value) => value.startsWith(`${name}=`)), name).toBe(true);
     }

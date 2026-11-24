@@ -54,6 +54,7 @@ const accountResourcePrefixes = [
   "/api/borrow",
   "/api/cards",
   "/api/funding",
+  "/api/admin/session",
 ] as const;
 
 export function normalizeAccountResourcePath(path: string): string {

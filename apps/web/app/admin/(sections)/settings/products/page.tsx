@@ -8,6 +8,7 @@ import { authorizedOperatorAddress, OperatorSection } from "../../../section-con
 
 export default async function ProductsSettingsPage() {
   const address = authorizedOperatorAddress(await readOperatorPageDecision());
+  if (!address) return null;
   let entry: ProductSettingsEntry | null = null;
   try {
     entry = await readProductSettingsEntryForPage();

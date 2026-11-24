@@ -20,6 +20,7 @@ export const instant = false;
 export default async function MoneyPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   const revenue = await readRevenue();
   return (
     <OperatorSection address={address} heading="Money">

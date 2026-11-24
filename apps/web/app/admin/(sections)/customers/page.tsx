@@ -10,6 +10,7 @@ export const instant = false;
 export default async function CustomersPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   scheduleOperatorRecheck(decision, after, "/admin/customers");
   return <OperatorSection address={address} heading="Customers"><OperatorEmpty>Customer search isn&apos;t available yet.</OperatorEmpty></OperatorSection>;
 }
