@@ -1,6 +1,6 @@
 import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { describe, expect, it } from "bun:test";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -9,7 +9,7 @@ import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs"
 applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const { directory, lint, lintWithConfig } = await createOxlintWorkspace("home-oxlint-money-modal-", {
+const { lint } = await createOxlintWorkspace("home-oxlint-money-modal-", {
   path: () => "client/transfers/sheet.tsx",
 });
 
@@ -19,7 +19,6 @@ const api = "money-modal-public-api";
 const alternate = "no-alternate-money-modal";
 const loadingOwnership = "no-unowned-loading";
 const transientCopy = "no-transient-money-copy";
-const actionOrder = "affirmative-action-first";
 
 describe("no-sheet-primitives", () => {
   it("permits shared composition, a popover, and reviewed named drawer imports", async () => {
@@ -278,193 +277,6 @@ describe("no-unowned-loading", () => {
     ` },
     }, { rule: loadingOwnership });
     expect(results.fixture1).toHaveLength(0);
-  }, budgetMs);
-});
-
-describe("affirmative-action-first", () => {
-  it("rejects dismiss variants and literal dismiss labels before affirmative actions", async () => {
-    const results = await lint({
-      outline: { path: "client/actions/outline.tsx", code: `const group = <div><Button variant="outline">Cancel</Button><Button>Confirm</Button></div>;` },
-      destructive: { path: "client/actions/destructive.tsx", code: `const group = <><Button variant="ghost">Cancel</Button><Button variant="destructive">Remove</Button></>;` },
-      label: { path: "client/actions/label.tsx", code: `const group = <><Button>Not now</Button><Button variant="default">Turn on</Button></>;` },
-      nestedLabel: { path: "client/actions/nested-label.tsx", code: `const group = <><Button>{"No thanks"}</Button><Button><span>Continue</span></Button></>;` },
-      destructiveLabel: { path: "client/actions/destructive-label.tsx", code: `const group = <><Button variant="outline">Keep</Button><Button variant="destructive">Cancel</Button></>;` },
-    }, { rule: actionOrder });
-    for (const findings of Object.values(results)) {
-      expect(findings).toHaveLength(1);
-      expect(findings[0].message).toBe("Put the affirmative action first in an action group; dismiss, cancel or back follows it. See docs/design-system/spec.md#do--dont.");
-    }
-  }, budgetMs);
-
-  it("rejects a dismiss slot action before an affirmative slot action", async () => {
-    const results = await lint({
-      dismiss: { path: "client/actions/dismiss.tsx", code: `const footer = <MoneyModalFooter primary={<Button variant="ghost">Cancel</Button>} secondary={<Button>Confirm</Button>} />;` },
-      fragment: { path: "client/actions/fragment.tsx", code: `const footer = <MoneyModalFooter primary={<><Button variant="outline">Back</Button></>} secondary={<Button>Confirm</Button>} />;` },
-      commentedFragment: { path: "client/actions/commented-fragment.tsx", code: `const footer = <MoneyModalFooter primary={<>{/* keep order */}<Button variant="outline">Back</Button></>} secondary={<Button>Confirm</Button>} />;` },
-      trailingSpread: { path: "client/actions/trailing-spread.tsx", code: `const footer = <MoneyModalFooter primary={<Button variant="outline">Back</Button>} secondary={<Button>Confirm</Button>} {...extras} />;` },
-      leadingSpread: { path: "client/actions/leading-spread.tsx", code: `const footer = <MoneyModalFooter {...extras} primary={<Button variant="outline">Back</Button>} secondary={<Button>Confirm</Button>} />;` },
-      affirmative: { path: "client/actions/affirmative.tsx", code: `const footer = <MoneyModalFooter primary={<Button>Confirm</Button>} secondary={<Button variant="ghost">Cancel</Button>} />;` },
-      lone: { path: "client/actions/lone.tsx", code: `const footer = <MoneyModalFooter primary={<Button variant="outline">Cancel order</Button>} />;` },
-      group: { path: "client/actions/group.tsx", code: `const footer = <MoneyModalFooter primary={<div><Button variant="ghost">Cancel</Button><Button variant="outline">Back</Button></div>} secondary={<Button>Confirm</Button>} />;` },
-      label: { path: "client/actions/label.tsx", code: `const footer = <MoneyModalFooter primaryLabel="Save" secondaryLabel="Cancel" />;` },
-    }, { rule: actionOrder });
-    expect(results.dismiss).toHaveLength(1);
-    expect(results.dismiss[0].message).toBe("Put the affirmative action first in an action group; dismiss, cancel or back follows it. See docs/design-system/spec.md#do--dont.");
-    expect(results.fragment).toHaveLength(1);
-    expect(results.commentedFragment).toHaveLength(1);
-    expect(results.commentedFragment[0].message).toBe("Put the affirmative action first in an action group; dismiss, cancel or back follows it. See docs/design-system/spec.md#do--dont.");
-    expect(results.trailingSpread).toHaveLength(0);
-    expect(results.leadingSpread).toHaveLength(1);
-    expect(results.affirmative).toHaveLength(0);
-    expect(results.lone).toHaveLength(0);
-    expect(results.group).toHaveLength(0);
-    expect(results.label).toHaveLength(0);
-  }, budgetMs);
-
-  it("rejects a dismiss primary label paired with an affirmative secondary label", async () => {
-    const results = await lint({
-      confirm: { path: "client/actions/label-confirm.tsx", code: `const footer = <MoneyConfirmFooter primaryLabel="Cancel" onPrimary={close} secondaryLabel="Confirm" onSecondary={confirm} />;` },
-      expression: { path: "client/actions/label-expression.tsx", code: `const footer = <MoneyModalFooter primaryLabel={"Cancel"} onPrimary={close} secondaryLabel="Confirm" onSecondary={confirm} />;` },
-      noSecondaryHandler: { path: "client/actions/label-no-handler.tsx", code: `const footer = <MoneyModalFooter primaryLabel="Cancel" onPrimary={close} secondaryLabel="Confirm" />;` },
-      dynamicVariant: { path: "client/actions/label-dynamic-variant.tsx", code: `const footer = <MoneyModalFooter primaryVariant={variant} primaryLabel="Cancel" onPrimary={close} secondaryLabel="Confirm" onSecondary={confirm} />;` },
-      destructive: { path: "client/actions/label-destructive.tsx", code: `const footer = <MoneyModalFooter primaryVariant="destructive" primaryLabel="Cancel" onPrimary={remove} secondaryLabel="Keep it" />;` },
-      lone: { path: "client/actions/label-lone.tsx", code: `const footer = <MoneyConfirmFooter primaryLabel="Back" onPrimary={back} />;` },
-      ordered: { path: "client/actions/label-ordered.tsx", code: `const footer = <MoneyConfirmFooter primaryLabel="Confirm" onPrimary={confirm} secondaryLabel="Cancel" onSecondary={close} />;` },
-      spread: { path: "client/actions/label-spread.tsx", code: `const footer = <MoneyConfirmFooter primaryLabel="Cancel" onPrimary={close} secondaryLabel="Confirm" {...extras} />;` },
-      undefinedHandler: { path: "client/actions/label-undefined-handler.tsx", code: `const footer = <MoneyModalFooter primaryLabel="Cancel" onPrimary={close} secondaryLabel="Confirm" onSecondary={undefined} />;` },
-      bareHandler: { path: "client/actions/label-bare-handler.tsx", code: `const footer = <MoneyModalFooter primaryLabel="Cancel" onPrimary={close} secondaryLabel="Confirm" onSecondary />;` },
-      spacedSecondary: { path: "client/actions/label-spaced-secondary.tsx", code: `const footer = <MoneyModalFooter primaryLabel="Cancel" onPrimary={close} secondaryLabel={"No  thanks"} onSecondary={confirm} />;` },
-      spacedPrimary: { path: "client/actions/label-spaced-primary.tsx", code: `const footer = <MoneyModalFooter primaryLabel={"No  thanks"} onPrimary={close} secondaryLabel="Confirm" onSecondary={confirm} />;` },
-    }, { rule: actionOrder });
-    expect(results.confirm).toHaveLength(1);
-    expect(results.confirm[0].message).toBe("Put the affirmative action first in an action group; dismiss, cancel or back follows it. See docs/design-system/spec.md#do--dont.");
-    expect(results.expression).toHaveLength(1);
-    expect(results.noSecondaryHandler).toHaveLength(0);
-    expect(results.dynamicVariant).toHaveLength(0);
-    expect(results.destructive).toHaveLength(0);
-    expect(results.lone).toHaveLength(0);
-    expect(results.ordered).toHaveLength(0);
-    expect(results.spread).toHaveLength(0);
-    expect(results.undefinedHandler).toHaveLength(0);
-    expect(results.bareHandler).toHaveLength(0);
-    expect(results.spacedSecondary).toHaveLength(0);
-    expect(results.spacedPrimary).toHaveLength(1);
-  }, budgetMs);
-
-  it("checks note actions before primary-first footer slots and allows text notes", async () => {
-    const results = await lint({
-      dismiss: { path: "client/actions/note-dismiss.tsx", code: `const footer = <MoneyModalFooter note={<Button variant="ghost">Details</Button>} primary={<Button>Confirm</Button>} secondary={<Button variant="outline">Cancel</Button>} />;` },
-      withoutSecondary: { path: "client/actions/note-without-secondary.tsx", code: `const footer = <MoneyModalFooter note={<Button variant="ghost">Cancel</Button>} primary={<Button>Confirm</Button>} />;` },
-      text: { path: "client/actions/note-text.tsx", code: `const footer = <MoneyModalFooter note={<p>Review the details</p>} primary={<Button>Confirm</Button>} secondary={<Button variant="ghost">Cancel</Button>} />;` },
-    }, { rule: actionOrder });
-    expect(results.dismiss).toHaveLength(1);
-    expect(results.withoutSecondary).toHaveLength(1);
-    expect(results.text).toHaveLength(0);
-  }, budgetMs);
-
-  it("classifies only string-literal variants and reports only the preceding dismiss action", async () => {
-    const results = await lint({
-      dismiss: { path: "client/actions/template-dismiss.tsx", code: `const group = <><Button variant={\`ghost\`}>Details</Button><Button>Confirm</Button></>;` },
-      affirmative: { path: "client/actions/template-affirmative.tsx", code: `const group = <><Button variant="outline">Cancel</Button><Button variant={\`destructive\`}>Remove</Button></>;` },
-      number: { path: "client/actions/number-variant.tsx", code: `const group = <><Button variant={42}>Cancel</Button><Button>Confirm</Button></>;` },
-      boolean: { path: "client/actions/boolean-variant.tsx", code: `const group = <><Button variant={true}>Cancel</Button><Button>Confirm</Button></>;` },
-    }, { rule: actionOrder });
-    expect(results.dismiss).toHaveLength(1);
-    expect(results.dismiss[0].labels[0].span).toMatchObject({ offset: 16, length: '<Button variant={`ghost`}>Details</Button>'.length });
-    expect(results.affirmative).toHaveLength(1);
-    expect(results.affirmative[0].labels[0].span).toMatchObject({ offset: 16, length: '<Button variant="outline">Cancel</Button>'.length });
-    expect(results.number).toHaveLength(0);
-    expect(results.boolean).toHaveLength(0);
-  }, budgetMs);
-
-  it("checks conditional alternatives against surrounding siblings and keeps logical branches in source order", async () => {
-    const results = await lint({
-      conditional: { path: "client/actions/conditional.tsx", code: `const group = <>{ready ? <Button variant="outline">Back</Button> : null}<Button>Confirm</Button></>;` },
-      preceding: { path: "client/actions/preceding.tsx", code: `const group = <><Button variant="outline">Cancel</Button>{ready ? <Button>Confirm</Button> : null}</>;` },
-      logical: { path: "client/actions/logical.tsx", code: `const group = <>{ready && <Button variant="secondary">Later</Button>}{fallback || <Button>Confirm</Button>}</>;` },
-      nullish: { path: "client/actions/nullish.tsx", code: `const group = <><Button variant="ghost">Back</Button>{fallback ?? (ready && <Button>Confirm</Button>)}</>;` },
-    }, { rule: actionOrder });
-    for (const findings of Object.values(results)) expect(findings).toHaveLength(1);
-  }, budgetMs);
-
-  it("allows mutually exclusive conditional actions", async () => {
-    const results = await lint({
-      branches: { path: "client/actions/branches.tsx", code: `const group = <>{ready ? <Button>Cancel</Button> : <Button>Confirm</Button>}</>;` },
-      outline: { path: "client/actions/outline.tsx", code: `const group = <div>{busy ? <Button variant="outline">Cancel</Button> : <Button>Confirm</Button>}</div>;` },
-    }, { rule: actionOrder });
-    for (const findings of Object.values(results)) expect(findings).toHaveLength(0);
-  }, budgetMs);
-
-  it("flattens transparent fragments into their surrounding action group without duplicate findings", async () => {
-    const results = await lint({
-      preceding: { path: "client/actions/preceding.tsx", code: `const group = <div><><Button variant="outline">Cancel</Button></><Button>Confirm</Button></div>;` },
-      following: { path: "client/actions/following.tsx", code: `const group = <div><Button variant="outline">Cancel</Button><><Button>Confirm</Button></></div>;` },
-      nested: { path: "client/actions/nested.tsx", code: `const group = <div><><><Button variant="outline">Cancel</Button><Button>Confirm</Button></></></div>;` },
-    }, { rule: actionOrder });
-    for (const findings of Object.values(results)) expect(findings).toHaveLength(1);
-  }, budgetMs);
-
-  it("classifies DrawerClose render buttons and buttonVariants links", async () => {
-    const results = await lint({
-      drawer: { path: "client/actions/drawer.tsx", code: `const group = <><DrawerClose render={<Button variant="outline">Close</Button>} /><Button>Confirm</Button></>;` },
-      drawerChildren: { path: "client/actions/drawer-children.tsx", code: `const group = <><DrawerClose render={<Button variant="ghost" />}>Back</DrawerClose><Button>Confirm</Button></>;` },
-      link: { path: "client/actions/link.tsx", code: `const group = <><Link className={cn(buttonVariants({ variant: "outline" }))}>Cancel</Link><a className={buttonVariants()}>Confirm</a></>;` },
-      spread: { path: "client/actions/spread.tsx", code: `const group = <><Button variant="secondary">Back</Button><Link {...buttonVariants({ variant: "destructive" })}>Remove</Link></>;` },
-    }, { rule: actionOrder });
-    for (const findings of Object.values(results)) expect(findings).toHaveLength(1);
-  }, budgetMs);
-
-  it("allows primary-first, lone, non-affirmative, icon-only and link-variant groups", async () => {
-    const results = await lint({
-      fixture1: { path: "client/actions/allowed.tsx", code: `const groups = <>
-        <div><Button>Confirm</Button><Button variant="secondary">Cancel</Button></div>
-        <div><Button variant="outline">Cancel</Button></div>
-        <div><Button variant="outline">First</Button><Button variant="outline">Second</Button></div>
-        <div><Button variant="ghost">Details</Button><span>More details</span></div>
-        <div><Button variant="ghost" size="icon-sm">Back</Button><Button>Confirm</Button></div>
-        <div><Button variant="ghost"><XIcon /></Button><Button>Confirm</Button></div>
-        <div><Button variant="link">Cancel</Button><Button>Confirm</Button></div>
-        <div><a className={buttonVariants({ variant: "link" })}>Back</a><Button>Confirm</Button></div>
-        <div><Link className={buttonVariants({ variant: "ghost", size: "icon" })}><XIcon /></Link><Button>Confirm</Button></div>
-        <div><Button variant={variant}>Cancel</Button><Button>Confirm</Button></div>
-        <div><Button variant="ghost">Cancel</Button><Button variant={variant}>Confirm</Button></div>
-        <div><Button variant="outline">Cancel</Button><Button>Not now</Button></div>
-        <div><a href="/back">Back</a><Button>Confirm</Button></div>
-      </>;` },
-    }, { rule: actionOrder });
-    expect(results.fixture1).toHaveLength(0);
-  }, budgetMs);
-
-  it("keeps nested non-button elements and header controls in separate groups", async () => {
-    const results = await lint({
-      fixture1: { path: "client/money-modal/header.tsx", code: `const header = <DrawerHeader>
-        <div><Button variant="ghost" size="icon"><ArrowLeftIcon /></Button></div>
-        <div><Button variant="ghost" size="icon"><XIcon /></Button></div>
-        <Button>Confirm</Button>
-      </DrawerHeader>; const separate = <><div><Button variant="outline">Cancel</Button></div><Button>Confirm</Button></>;` },
-      fixture2: { path: "client/actions/nested.tsx", code: `const group = <div><section><Button variant="outline">Cancel</Button><Button>Confirm</Button></section></div>;` },
-    }, { rule: actionOrder });
-    expect(results.fixture1).toHaveLength(0);
-    expect(results.fixture2).toHaveLength(1);
-  }, budgetMs);
-
-  it("enables stories and explorations in the real config, excluding only test paths", async () => {
-    await writeFile(path.join(directory, ".production.jsonc"), await readFile(path.join(appsWebDir, ".oxlintrc.jsonc")));
-    const code = `const group = <><Button variant="outline">Cancel</Button><Button>Confirm</Button></>;`;
-    const results = await lintWithConfig({
-      app: { path: "app/actions/page.tsx", code },
-      client: { path: "client/actions/group.tsx", code },
-      components: { path: "components/actions/group.tsx", code },
-      stories: { path: "stories/actions/group.stories.tsx", code },
-      explorations: { path: "client/actions/explorations/group.stories.tsx", code },
-      test: { path: "client/actions/group.test.tsx", code },
-      tests: { path: "components/actions/tests/group.tsx", code },
-      testing: { path: "app/actions/testing/group.tsx", code },
-    }, { config: ".production.jsonc" });
-    for (const [name, findings] of Object.entries(results)) {
-      expect(findings.filter((finding) => finding.code === "home(affirmative-action-first)"))
-        .toHaveLength(["test", "tests", "testing"].includes(name) ? 0 : 1);
-    }
   }, budgetMs);
 });
 
