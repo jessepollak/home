@@ -33,7 +33,7 @@ const brandKeys = ["displayName", "description", "primaryColor", "backgroundColo
 
 export function parseBrandUrl(value: unknown): string | null | undefined {
   if (value === null || value === "") return null;
-  if (typeof value !== "string" || value.length > BRAND_URL_MAX || value !== value.trim() || /\s/.test(value) || forbiddenText.test(value)) return undefined;
+  if (typeof value !== "string" || !value.startsWith("https://") || value.length > BRAND_URL_MAX || value !== value.trim() || /\s/.test(value) || forbiddenText.test(value)) return undefined;
   try {
     const parsed = new URL(value);
     return parsed.protocol === "https:" && parsed.hostname !== "" && !parsed.username && !parsed.password ? value : undefined;

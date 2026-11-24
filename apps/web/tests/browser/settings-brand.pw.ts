@@ -189,7 +189,7 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
 
 const logoPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
 
-test("logo, terms and privacy accept https only, and a logo that fails to load falls back to the name", { tag: "@smoke" }, async ({ page, context }) => {
+test("logo, terms and privacy accept https only, and a logo that fails to load falls back to the Home mark", { tag: "@smoke" }, async ({ page, context }) => {
   test.setTimeout(90_000);
   await setSession(context, admin);
   await page.route("https://brand.test/**", (route) => new URL(route.request().url()).pathname === "/logo.png"
@@ -215,7 +215,9 @@ test("logo, terms and privacy accept https only, and a logo that fails to load f
   expect(saved).toMatchObject({ revision: before.revision + 1, value: { ...before.value, logoUrl: "https://brand.test/logo.png", termsUrl: "https://brand.test/terms", privacyUrl: "https://brand.test/privacy" } });
 
   await page.goto("/access");
-  await expect(page.getByRole("img", { name: saved.value.displayName, exact: true })).toHaveAttribute("src", "https://brand.test/logo.png");
+  await expect(page.getByText(saved.value.displayName, { exact: true })).toBeVisible();
+  await page.goto("/");
+  await expect(page.locator('[data-home-mark="logo"]').getByRole("img", { name: saved.value.displayName, exact: true }).first()).toHaveAttribute("src", "https://brand.test/logo.png");
 
   await page.goto("/admin/settings/brand");
   await expectOperatorReady(page);
@@ -225,7 +227,7 @@ test("logo, terms and privacy accept https only, and a logo that fails to load f
   expect((await save(page, admin, saved.revision)).status()).toBe(200);
   expect((await readBrand(context)).value).toEqual({ ...before.value, logoUrl: "https://brand.test/missing.png", termsUrl: null, privacyUrl: null });
 
-  await page.goto("/access");
-  await expect(page.getByText(saved.value.displayName, { exact: true })).toBeVisible();
-  await expect(page.getByRole("img", { name: saved.value.displayName, exact: true })).toHaveCount(0);
+  await page.goto("/");
+  await expect(page.locator('[data-home-mark=""]').first()).toBeVisible();
+  await expect(page.locator('[data-home-mark="logo"]')).toHaveCount(0);
 });
