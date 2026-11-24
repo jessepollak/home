@@ -17,6 +17,16 @@ For performance acceptance on phones, use [device performance profiling](device-
 3. Run Rung 0 before the first edit and after the last edit. Run required Rungs 1–3 on a provisioned runner; never substitute a fixture result for a live rung or treat a Reach as confirmation authority.
 4. In the collapsed PR-body Evidence section record `Verified: <surface> rung <n>` with safe evidence, or `Not verified: <surface> rung <n> — <reason>` naming the blocker. Keep the existing `## Verification` surface rows and evidence pointers there; keep `## Preview` visible for labeled media only. Update the affected surface file in the same PR if the live UI differs from it.
 
+### Country and display currency
+
+Map Account preference changes to [`account-settings`](../.agents/skills/browser-iteration/surfaces/account-settings.md) and valuation/cache changes to [`home-panel`](../.agents/skills/browser-iteration/surfaces/home-panel.md), plus Activity and Invest when their valuation paths change. Country owns regional options and formatting locale; Display currency owns valuation. Keep native/transaction denominations and country-dependent funding discovery in the same verification walk.
+
+`bun run --cwd apps/web test:browser-regression display-currency.pw.ts` exercises the browser-owned preference controls, account persistence/reload and fresh-context boundary, the Home → Activity → Invest/Cash journey, delayed preference reads, failed writes/retry, and 320×568 / 390×844 picker geometry. Its stateful fake account implements the v2 preference API's omitted-field preservation and per-field adopt-only-if-unset semantics; balances fixtures select exact valuations through the `currency` query parameter without changing native holdings. The signed-out blocked-storage scenario requires a reachable Account preference entry; a missing entry is a blocker, not proof that browser storage works. Fixture coverage does not establish real database persistence or live FX/provider behavior.
+
+Playwright-rung: persisted-state / dispatch / geometry
+
+These assertions depend on browser reload/context storage, cross-page currency propagation and popup/document geometry; lower-rung resolver tests alone cannot establish them. Record observed failures explicitly instead of treating a fixture run as live or complete acceptance.
+
 ## Pinned browser and sessions
 
 ```sh

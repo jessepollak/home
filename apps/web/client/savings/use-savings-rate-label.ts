@@ -3,6 +3,7 @@
 import type { HomeRateObservation } from "@/client/query/home-summary-cache";
 import { useCallback, useMemo } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
+import { usePresentationCurrency } from "@/client/invest/presentation-quote";
 import { useBalances } from "@/client/balances";
 import { useNow } from "@/client/time/use-now";
 import type { RegionId } from "@/config/regions";
@@ -27,6 +28,7 @@ const BASE_USDC_ASSET = {
 } as const;
 
 export function useSavingsRateLabel(regionId: RegionId, regionReady = true, offering: ProductOffering): HomeRateObservation {
+  const currency = usePresentationCurrency(regionId);
   const account = useAccountWallet();
   const session = account.verification ? account.session : null;
   const balancesSession = session?.smartAccount
@@ -37,7 +39,7 @@ export function useSavingsRateLabel(regionId: RegionId, regionReady = true, offe
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalances(balancesSession, regionId, account.fetchBalances, {
+  const balances = useBalances(balancesSession, { region: regionId, currency }, account.fetchBalances, {
     enabled: account.verification === "server" && regionReady,
   });
   const positions = useVaultPositions(balances.snapshot);

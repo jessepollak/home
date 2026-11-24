@@ -728,7 +728,7 @@ describe("owner generation fence", () => {
   test("pre-initialization error preserves the seed and fences it on settlement", () => {
     const seededSession = session("cdp-embedded");
     const queryClient = getHomeQueryClient();
-    const queryKey = ownerQueryKey(dataOwnerKey(seededSession), "balances", "US");
+    const queryKey = ownerQueryKey(dataOwnerKey(seededSession), "balances", "US", "USD");
     const seededBalances = { version: BALANCES_VERSION, holdings: [] };
     queryClient.setQueryData(queryKey, seededBalances);
     const cacheAtInitializedCommit: unknown[] = [];
@@ -991,7 +991,7 @@ describe("owner generation fence", () => {
       );
       const view = render(owner(activeSdk));
       await waitFor(() => expect(currentClient().status).toBe("verified"));
-      queryClient.setQueryData(ownerQueryKey(dataOwnerKey, "balances", "US"), {
+      queryClient.setQueryData(ownerQueryKey(dataOwnerKey, "balances", "US", "USD"), {
         version: BALANCES_VERSION,
         holdings: [{ id: "usdc", balance: { status: "ready", baseUnits: "1000000" } }],
       });
@@ -1180,7 +1180,7 @@ test.each([false, true])("stale recovery callback cannot clear current owner cac
   const generation = hook.result.current.fence.capture();
   act(() => { hook.rerender({ owner: OWNER_B }); });
   if (backToA) act(() => { hook.rerender({ owner: OWNER_A }); });
-  const cacheKey = ownerQueryKey(backToA ? OWNER_A : OWNER_B, "balances", "US");
+  const cacheKey = ownerQueryKey(backToA ? OWNER_A : OWNER_B, "balances", "US", "USD");
   getHomeQueryClient().setQueryData(cacheKey, { private: "current-owner" });
   window.localStorage.setItem("home.private-sentinel", "keep");
   await act(async () => { oldRevoked(async () => deletionReceipt, () => hook.result.current.fence.isCurrent(generation)); });
@@ -1202,6 +1202,7 @@ test("Account privacy controls use the verified credential, not wallet availabil
   const active = { ...session("cdp-embedded"), smartAccount: null };
   const fetchAccountResource = async () => ({ error: { code: "ACCOUNT_DELETION_NOT_FOUND", message: "No request" } });
   const settings = (verified: boolean) => <AccountSettings regionId="US" onRegionChange={() => {}} resolutionSource="persisted" preferenceMessage="" isPreferenceReady
+    displayCurrency={{ currency: "USD", source: "country-default", withdrawn: null }} onDisplayCurrencyChange={() => {}} displayCurrencyMessage="" displayCurrencyWriteFailed={false} onRetryDisplayCurrencyWrite={() => {}}
     accountAddress={null} accountOwnerKey={null} accountSessionOwnerKey={credentialOwnerKey({ session: active, status: verified ? "verified" : "validating", verification: verified ? "server" : "provisional" })}
     fetchAccountResource={fetchAccountResource} showSmallBalances={false} onShowSmallBalancesChange={() => {}} appearancePreference="light" onAppearancePreferenceChange={() => true} onSignOut={() => {}} />;
   const view = render(settings(false));
@@ -1541,7 +1542,7 @@ test.each(["fetch", "body"])("receipt recovery bounds stalled %s, aborts and ena
     return { ...recovery, ...transport };
   });
   try {
-    await act(async () => { await hook.result.current.fetchBalances("US").catch(() => {}); });
+    await act(async () => { await hook.result.current.fetchBalances({ region: "US", currency: "USD" }).catch(() => {}); });
     expect(reads).toBe(1);
     expect(receiptSignal?.aborted).toBe(false);
     await act(async () => { deadline.fire(); });

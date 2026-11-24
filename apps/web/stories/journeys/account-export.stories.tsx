@@ -42,6 +42,11 @@ function AccountExportJourney({ scenario = "idle" }: { scenario?: Scenario }) {
         </div>
       ) : null}
       <AccountSettings
+        displayCurrency={{ currency: "USD", source: "country-default", withdrawn: null }}
+        onDisplayCurrencyChange={() => {}}
+        displayCurrencyMessage=""
+        displayCurrencyWriteFailed={false}
+        onRetryDisplayCurrencyWrite={() => {}}
         regionId="US"
         onRegionChange={() => {}}
         resolutionSource="persisted"

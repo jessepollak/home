@@ -21,7 +21,7 @@ import { TransferActions } from "@/client/transfers";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { RegionId } from "@/config/regions";
+import { presentationRegions, type FiatCurrencyCode, type RegionId } from "@/config/regions";
 import { ConnectedActivityPanel, useActivityReturnInvalidation } from "./activity-panel";
 import { HomeOverview, HomeSectionHeading } from "./home-overview";
 import type { HomeAssetBalancesPresentation } from "./home-types";
@@ -47,6 +47,7 @@ export function HomePanel({
   initialTransferFlow = null,
   initialSendActionId = null,
   regionId,
+  currency,
   regionReady = true,
   onDetailsOpenChange,
 }: {
@@ -67,6 +68,7 @@ export function HomePanel({
   initialTransferFlow?: "send" | "cash-out" | null;
   initialSendActionId?: string | null;
   regionId: RegionId;
+  currency?: FiatCurrencyCode | null;
   regionReady?: boolean;
   onDetailsOpenChange?: (open: boolean) => void;
 }) {
@@ -94,7 +96,7 @@ export function HomePanel({
   const knownDisplay = assetBalances?.status === "ready";
   const rates = useHomeRateLabels({
     owner: knownDisplay && (regionReady || initialRateLabels !== undefined) && wallet.verification && wallet.session?.smartAccount ? dataOwnerKey(wallet.session) : null,
-    region: regionId, cash: !regionReady && initialRateLabels !== undefined ? { ...cashRate, pending: true } : cashRate, borrow: borrowRate, initial: initialRateLabels,
+    region: regionId, currency: currency === undefined ? presentationRegions[regionId].currency.code : currency, cash: !regionReady && initialRateLabels !== undefined ? { ...cashRate, pending: true } : cashRate, borrow: borrowRate, initial: initialRateLabels,
   });
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const fundingPromptRef = useRef<HTMLButtonElement>(null);
@@ -137,7 +139,7 @@ export function HomePanel({
             regionId={regionId}
             regionReady={regionReady}
           />
-          <PresentationRegionProvider regionId={regionId}>
+          <PresentationRegionProvider regionId={regionId} currency={currency}>
             <TransferActions
               sendOffered={offering.products.send === "on"}
               initialFlow={initialTransferFlow}
@@ -164,6 +166,7 @@ export function HomePanel({
           fetchActivity={fetchActivity}
           fetchOperations={fetchOperations}
           regionId={regionId}
+          currency={currency}
           emptyAction={addMoneyPrompt}
           onDetailsOpenChange={onDetailsOpenChange}
           suppressDetailReturn={suppressDetailReturn}

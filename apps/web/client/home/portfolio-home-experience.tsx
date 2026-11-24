@@ -69,7 +69,6 @@ export function PortfolioHomeExperience({
   const provisionalPreference = account.status === "validating" && account.verification === "provisional" &&
     Boolean(account.session?.smartAccount);
   const livePreferenceIdentity = accountReady || provisionalPreference ? countryPreferenceOwnerKey(account) : null;
-  const preferenceIdentity = accountReady ? livePreferenceIdentity : null;
   const readOwner = account.status === "signed-out" ? null : account.ownerKey;
   const seedApplies = accountPreference !== null && account.status !== "signed-out" && (!account.session ||
     (account.session.accountProvider === accountPreference.accountProvider &&
@@ -82,10 +81,11 @@ export function PortfolioHomeExperience({
     owner: string | null;
     identity: string | null;
     regionId: CountryCode | null;
+    displayCurrency: string | null;
     status: "pending" | "settled" | "provisional-failed";
-  }>({ owner: readOwner, identity: null, regionId: null, status: "pending" });
+  }>({ owner: readOwner, identity: null, regionId: null, displayCurrency: null, status: "pending" });
   if (preferenceState.owner !== readOwner) {
-    setPreferenceState({ owner: readOwner, identity: null, regionId: null, status: "pending" });
+    setPreferenceState({ owner: readOwner, identity: null, regionId: null, displayCurrency: null, status: "pending" });
   }
   const fetchedPreference = preferenceState.owner === readOwner && preferenceState.identity === livePreferenceIdentity
     ? preferenceState : null;
@@ -109,17 +109,17 @@ export function PortfolioHomeExperience({
         .then((value) => {
           const response = parseCountryPreferenceReadResponse(value);
           if (!response) throw new Error("Invalid country preference response");
-          if (active) setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: response.regionId, status: "settled" });
+          if (active) setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: response.regionId, displayCurrency: response.displayCurrency, status: "settled" });
         })
         .catch(() => {
           if (!active) return;
           if (provisionalRead) {
-            setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: null, status: "provisional-failed" });
+            setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: null, displayCurrency: null, status: "provisional-failed" });
             return;
           }
           const delay = preferenceReadRetryDelays[attempt];
           if (delay === undefined) {
-            setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: null, status: "settled" });
+            setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: null, displayCurrency: null, status: "settled" });
           } else {
             retryTimer = setTimeout(() => attemptRead(attempt + 1), delay);
           }
@@ -129,15 +129,25 @@ export function PortfolioHomeExperience({
     return () => { active = false; controller.abort(); clearTimeout(retryTimer); };
   }, [hasSeed, fetchedPreference?.status, livePreferenceIdentity, readOwner, verifiedFallback]);
   const preferenceReadSettled = hasSeed || fetchedPreference?.status === "settled";
-  const accountPreferencePending = Boolean(preferenceIdentity && !preferenceReadSettled);
+  const accountPreferencePending = Boolean(livePreferenceIdentity && !preferenceReadSettled);
   const writeAccountPreference = useCallback(async (regionId: CountryCode, adopt: boolean) => {
     const body: CountryPreferenceRequest = { version: COUNTRY_PREFERENCE_VERSION, regionId, adopt };
     const value = await fetchAccountResource("/api/account/country-preference", { method: "PUT", body });
     const response = parseCountryPreferenceResponse(value);
     if (!response) throw new Error("Invalid country preference response");
+    if (!response.regionId) throw new Error("Country preference missing");
     return response.regionId;
   }, [fetchAccountResource]);
+  const writeAccountDisplayCurrency = useCallback(async (displayCurrency: import("@/shared/account/display-currency").DisplayCurrencyChoice, adopt: boolean) => {
+    const body: CountryPreferenceRequest = { version: COUNTRY_PREFERENCE_VERSION, displayCurrency, adopt };
+    const value = await fetchAccountResource("/api/account/country-preference", { method: "PUT", body });
+    const response = parseCountryPreferenceResponse(value);
+    if (!response) throw new Error("Invalid display currency preference response");
+    return response.displayCurrency;
+  }, [fetchAccountResource]);
   const region = useHomeRegion({
+    accountDisplayCurrency: hasSeed ? accountPreference?.displayCurrency ?? null : fetchedPreference?.displayCurrency ?? null,
+    writeAccountDisplayCurrency,
     detectedCountry,
     accountPreference: hasSeed ? seedPreference : preferenceReadSettled ? fetchedPreference?.regionId ?? null : null,
     accountIdentity: livePreferenceIdentity,
@@ -149,6 +159,7 @@ export function PortfolioHomeExperience({
     writeAccountPreference,
     offer: regionOffer,
   });
+  const currency = region.displayCurrency.currency;
   const session = account.verification && account.session?.smartAccount
     ? {
         subject: account.session.user.subject,
@@ -158,21 +169,18 @@ export function PortfolioHomeExperience({
       }
     : null;
   const provisionalBalances = account.verification === "provisional" && account.status === "validating";
-  const deviceCountryReady = accountPreference === null && region.isPreferenceReady &&
-    region.resolutionSource === "persisted";
   const regionMatchesPreference = fetchedPreference?.status !== "settled" || fetchedPreference.regionId === null ||
     region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer) || region.resolutionSource === "explicit";
   const regionReady = region.isPreferenceReady && regionMatchesPreference && !accountPreferencePending;
   const provisionalPreferenceReady = provisionalPreference && fetchedPreference?.status === "settled" &&
     region.isPreferenceReady && (fetchedPreference.regionId === null || region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer));
-  const provisionalRegionReady = hasSeed ||
-    (deviceCountryReady && fetchedPreference?.status !== "settled") || provisionalPreferenceReady;
+  const provisionalRegionReady = hasSeed || provisionalPreferenceReady;
   const suppressBalances = (account.verification === "server" && !regionReady) ||
     (provisionalBalances && !provisionalRegionReady);
   const paintCachedWhileHeld = (hasSeed && seedPreference !== null && presentedRegionId(seedPreference, regionOffer) === region.regionId) ||
     (fetchedPreference?.status === "settled" && fetchedPreference.regionId !== null &&
       presentedRegionId(fetchedPreference.regionId, regionOffer) === region.regionId) || region.resolutionSource === "explicit";
-  const balances = useBalances(session, region.regionId, account.fetchBalances, {
+  const balances = useBalances(session, { region: region.regionId, currency }, account.fetchBalances, {
     enabled: (account.verification === "server" && regionReady) ||
       (provisionalBalances && provisionalRegionReady),
     provisional: provisionalBalances,
@@ -198,7 +206,7 @@ export function PortfolioHomeExperience({
     { pendingCashout },
   ), [balanceStatus, snapshot, pendingCashout]);
   const cachedHomeBalances = useHomeSummary({ initialSummary: initialHomeSummary, owner: session ? dataOwnerKey(session) : null,
-    region: region.regionId, enabled: !suppressBalances || paintCachedWhileHeld,
+    region: region.regionId, currency, enabled: !suppressBalances || paintCachedWhileHeld,
     presentation: homeBalances, updatedAt: balances.observation.dataUpdatedAt, pending: pendingCashout?.state === "loading" });
   const assetBalances = useMemo(() => ({ ...cachedHomeBalances,
     ...(revalidating ? { revalidating } : {}),
@@ -216,8 +224,8 @@ export function PortfolioHomeExperience({
     return (key: string) => snapshot !== null && selectOwnedInvestment(snapshot, key as AssetKey) !== null;
   }, [balances.snapshot]);
 
-  const renderSearchContent = useCallback((props: ShellSearchContentProps) => <PresentationRegionProvider regionId={region.regionId}>
-    <PricedAssetSearch {...props} discover={discover} investVisibility={investVisibility} /></PresentationRegionProvider>, [region.regionId, discover, investVisibility]);
+  const renderSearchContent = useCallback((props: ShellSearchContentProps) => <PresentationRegionProvider regionId={region.regionId} currency={currency}>
+    <PricedAssetSearch {...props} discover={discover} investVisibility={investVisibility} /></PresentationRegionProvider>, [region.regionId, currency, discover, investVisibility]);
   const renderCashContent = useCallback((props: { view: "cash" | "savings"; onOpenSavings: () => void }) => (
     <AuthenticatedCashExperience view={props.view} onOpenSavings={props.onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />
   ), [regionReady, pendingCashout]);
@@ -225,12 +233,13 @@ export function PortfolioHomeExperience({
     <InvestmentsExperience {...props} balances={balances} discover={discover} />
   ), [balances, discover]);
   return (
+    <PresentationRegionProvider regionId={region.regionId} currency={currency}>
     <VaultPositionsProvider snapshot={snapshot}>
     <ProductOfferingProvider value={productOffering}>
     <DashboardShell
       region={region}
       regionReady={regionReady}
-      initialRateLabels={initialHomeSummary && initialHomeSummary.owner === (session ? dataOwnerKey(session) : null) && initialHomeSummary.region === region.regionId ? initialHomeSummary.rates : undefined}
+      initialRateLabels={initialHomeSummary && initialHomeSummary.owner === (session ? dataOwnerKey(session) : null) && initialHomeSummary.region === region.regionId && initialHomeSummary.currency === currency ? initialHomeSummary.rates : undefined}
       cardsEnabled={cardsEnabled}
       investContent={<RoutedInvestExperience discover={discover} investVisibility={investVisibility} />}
       searchContent={productOffering.products.invest === "on" && getVisibleShelves(discover.memeAssets, investVisibility ?? INVEST_SETTINGS_DEFAULTS).length > 0
@@ -249,5 +258,6 @@ export function PortfolioHomeExperience({
     >{children}</DashboardShell>
     </ProductOfferingProvider>
     </VaultPositionsProvider>
+    </PresentationRegionProvider>
   );
 }

@@ -15,6 +15,8 @@ const offering = resolveProductOffering({ kind: "deployment" });
 const region: DashboardShellProps["region"] = {
   regionId: "US", resolutionSource: "persisted", isPreferenceReady: true, preferenceMessage: "",
   selectRegion: () => {}, offeredCountries: ["US"],
+  displayCurrency: { currency: "USD", source: "country-default", withdrawn: null },
+  selectDisplayCurrency: () => {}, displayCurrencyMessage: "", displayCurrencyWriteFailed: false, retryDisplayCurrencyWrite: () => {},
 };
 
 export const compositionWallet: AccountWalletClient = { ...wallet, fetchBalances: createAssetDetailClient().fetchBalances };

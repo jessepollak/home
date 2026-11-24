@@ -31,7 +31,7 @@ import {
 } from "@/client/query/after-action";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { ResourceFailure } from "@/client/account/resource-failure";
-import type { RegionId } from "@/config/regions";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { presentationMoneyMetadata } from "@/shared/formatting";
 import { ownerInfiniteQuery, ownerQuery } from "@/client/query/query-options";
 import { retainActivityPage } from "./retained-activity";
@@ -166,7 +166,7 @@ function activityQueryOptions(input: {
   session: VerifiedAccountSession | null;
   ownerKey: string;
   windowEnd: string;
-  currency: ReturnType<typeof presentationMoneyMetadata>["currency"];
+  currency: FiatCurrencyCode;
   fetchActivity: FetchActivity;
   queryClient: QueryClient;
   previousPages?: readonly ActivityPage[];
@@ -280,6 +280,7 @@ export async function refreshLatestActivity(input: {
   ownerKey: string;
   session: VerifiedAccountSession;
   regionId: RegionId;
+  currency?: FiatCurrencyCode | null;
   fetchActivity: FetchActivity;
   isCurrent: () => boolean;
   onPrefetchKey: (key: QueryKey | null) => void;
@@ -288,7 +289,7 @@ export async function refreshLatestActivity(input: {
   if (!isCurrent()) return "skipped";
   const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
   const windowEnd = queryClient.getQueryData<string>(windowKey) ?? initialActivityWindowEnd();
-  const currency = presentationMoneyMetadata(regionId).currency;
+  const currency = input.currency === undefined ? presentationMoneyMetadata(regionId).currency : input.currency ?? "USD";
   const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, currency, "all");
   const current = queryClient.getQueryData<RetainedActivityData>(currentKey);
   const currentPages = current?.pages ?? [];
@@ -346,7 +347,7 @@ export async function refreshLatestActivity(input: {
       const data = queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey);
       if (data?.pages.some((page) => page.currency === currency && page.onchainStatus !== "unavailable")) {
         activityWindowController(queryClient, ownerKey).recordNewerCards({
-          to: partialFirstPage.window.to, cards: partialFirstPage.cards,
+          to: partialFirstPage.window.to, currency, cards: partialFirstPage.cards,
         });
         return "cards";
       }
@@ -360,12 +361,13 @@ export async function refreshLatestActivity(input: {
 type ActivityAdvanceInputs = {
   session: VerifiedAccountSession | null;
   regionId: RegionId;
+  currency?: FiatCurrencyCode | null;
   fetchActivity: FetchActivity;
 };
 
 type ActivityAdvanceInputsBox = { current: ActivityAdvanceInputs };
 type ActivityLatestFailure = { windowEnd: string; currency: string } | null;
-type ActivityNewerCards = { to: string; cards: NonNullable<ActivityPage["cards"]>; windowQuery: Query };
+type ActivityNewerCards = { to: string; currency: FiatCurrencyCode; cards: NonNullable<ActivityPage["cards"]>; windowQuery: Query };
 type ActivityLatestState = { failure: ActivityLatestFailure; busy: boolean; newerCards: ActivityNewerCards | null };
 type ActivityRunToken = { epoch: number };
 type ActivityRefreshWaiter = {
@@ -412,7 +414,7 @@ class ActivityWindowController {
       queryKey: ownerQueryKey(this.ownerKey, activityWindowScope), exact: true,
     });
     if (!windowQuery) return;
-    if (this.newerCards?.windowQuery === windowQuery && Date.parse(this.newerCards.to) >= Date.parse(snapshot.to)) return;
+    if (this.newerCards?.windowQuery === windowQuery && this.newerCards.currency === snapshot.currency && Date.parse(this.newerCards.to) >= Date.parse(snapshot.to)) return;
     this.newerCards = { ...snapshot, windowQuery };
     this.publish();
   }
@@ -471,7 +473,7 @@ class ActivityWindowController {
 
   currentCurrency() {
     const inputs = this.latestInputs();
-    return inputs ? presentationMoneyMetadata(inputs.regionId).currency : null;
+    return inputs ? inputs.currency === undefined ? presentationMoneyMetadata(inputs.regionId).currency : inputs.currency ?? "USD" : null;
   }
 
   request = (): number => {
@@ -509,7 +511,7 @@ class ActivityWindowController {
       try {
         const inputs = this.latestInputs();
         if (inputs?.session && activityOwnerKey(inputs.session) === this.ownerKey) {
-          runCurrency = presentationMoneyMetadata(inputs.regionId).currency;
+          runCurrency = inputs.currency === undefined ? presentationMoneyMetadata(inputs.regionId).currency : inputs.currency ?? "USD";
           attemptedWindow = this.queryClient.getQueryData<string>(ownerQueryKey(this.ownerKey, activityWindowScope)) ?? initialActivityWindowEnd();
           let timedOut = false;
           let inputsChanged = false;
@@ -612,17 +614,19 @@ export type ActivityRetrySchedules = {
   scheduleContinuationRetry?: RetrySchedule;
 };
 
+export type ActivityOptions = ActivityRetrySchedules & { currency?: FiatCurrencyCode | null };
+
 export function useActivity(
   session: VerifiedAccountSession | null,
   fetchActivity: FetchActivity,
   regionId: RegionId = "GLOBAL",
-  schedules: ActivityRetrySchedules = {},
+  options: ActivityOptions = {},
 ): UseActivityResult {
   const {
     scheduleValuationRetry = scheduleRetryTimeout,
     scheduleContinuationRetry = scheduleRetryTimeout,
-  } = schedules;
-  const currency = presentationMoneyMetadata(regionId).currency;
+  } = options;
+  const currency = options.currency === undefined ? presentationMoneyMetadata(regionId).currency : options.currency ?? "USD";
   const validSession = isVerifiedActivitySession(session) ? session : null;
   const ownerKey = validSession ? activityOwnerKey(validSession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
@@ -663,16 +667,16 @@ export function useActivity(
   );
   const shownPage = useMemo<ActivityPage | null>(() => {
     const snapshot = state.newerCards;
-    if (!mergedPage || !snapshot || snapshot.windowQuery !== activityWindowQuery ||
+    if (!mergedPage || !snapshot || snapshot.currency !== currency || snapshot.windowQuery !== activityWindowQuery ||
       Date.parse(snapshot.to) <= Date.parse(mergedPage.window.to)) return mergedPage;
     return retainActivityPage({ ...mergedPage, cards: snapshot.cards }, mergedPage);
-  }, [mergedPage, state.newerCards, activityWindowQuery]);
+  }, [mergedPage, state.newerCards, activityWindowQuery, currency]);
   const latestUnavailable = Boolean(ownerKey && state.failure?.windowEnd === windowEnd && state.failure.currency === currency);
   const latestBusy = Boolean(ownerKey && state.busy);
   const observerId = useRef(Symbol());
-  const advanceInputRef = useRef({ session: validSession, regionId, fetchActivity });
+  const advanceInputRef = useRef({ session: validSession, regionId, currency, fetchActivity });
   useEffect(() => {
-    advanceInputRef.current = { session: validSession, regionId, fetchActivity };
+    advanceInputRef.current = { session: validSession, regionId, currency, fetchActivity };
     controller?.updateObserver(observerId.current, advanceInputRef);
   });
   const canAdvance = validSession !== null;

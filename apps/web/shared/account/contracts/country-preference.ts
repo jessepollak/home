@@ -1,9 +1,10 @@
 import * as z from "zod/mini";
 import { AUTH_BOUNDARY_ERROR_CODES, type AuthBoundaryErrorCode } from "./auth-boundary";
 import { normalizeCountryCode, type CountryCode } from "@/config/regions";
+import { COUNTRY_DEFAULT_CURRENCY, isCurrencyShape, isOfferedDisplayCurrency, type DisplayCurrencyChoice } from "@/shared/account/display-currency";
 import type { AccountProvider } from "@/shared/account/session-types";
 
-export const COUNTRY_PREFERENCE_VERSION = 1 as const;
+export const COUNTRY_PREFERENCE_VERSION = 2 as const;
 
 export type CountryPreferenceErrorCode = AuthBoundaryErrorCode | "COUNTRY_PREFERENCE_INVALID" | "COUNTRY_PREFERENCE_UNAVAILABLE";
 export const COUNTRY_PREFERENCE_ERROR_CODES: readonly CountryPreferenceErrorCode[] = [
@@ -26,29 +27,34 @@ export type CountryPreferenceSeed = {
   accountProvider: AccountProvider;
   subject: string;
   regionId: CountryCode | null;
+  displayCurrency: string | null;
 };
 
 const countryCodeSchema = z.pipe(
   z.string(),
   z.pipe(z.transform((value: string) => normalizeCountryCode(value)), z.custom<CountryCode>((value) => value !== null)),
 );
+const displayCurrencyChoiceSchema = z.custom<DisplayCurrencyChoice>((value) =>
+  value === COUNTRY_DEFAULT_CURRENCY || isOfferedDisplayCurrency(value));
+const storedDisplayCurrencySchema = z.nullable(z.custom<string>((value) =>
+  value === COUNTRY_DEFAULT_CURRENCY || isCurrencyShape(value)));
 const countryPreferenceRequestSchema = z.pipe(z.object({
   version: z.literal(COUNTRY_PREFERENCE_VERSION),
-  regionId: countryCodeSchema,
+  regionId: z.optional(countryCodeSchema),
+  displayCurrency: z.optional(displayCurrencyChoiceSchema),
   adopt: z.optional(z.boolean()),
-}), z.transform((value) => ({
+}).check(z.refine((value) => value.regionId !== undefined || value.displayCurrency !== undefined)), z.transform((value) => ({
   version: value.version,
-  regionId: value.regionId,
+  ...(value.regionId === undefined ? {} : { regionId: value.regionId }),
+  ...(value.displayCurrency === undefined ? {} : { displayCurrency: value.displayCurrency }),
   ...(value.adopt === undefined ? {} : { adopt: value.adopt }),
 })));
 const countryPreferenceResponseSchema = z.object({
   version: z.literal(COUNTRY_PREFERENCE_VERSION),
-  regionId: countryCodeSchema,
-});
-const countryPreferenceReadResponseSchema = z.object({
-  version: z.literal(COUNTRY_PREFERENCE_VERSION),
   regionId: z.nullable(countryCodeSchema),
+  displayCurrency: storedDisplayCurrencySchema,
 });
+const countryPreferenceReadResponseSchema = countryPreferenceResponseSchema;
 
 export type CountryPreferenceRequest = z.output<typeof countryPreferenceRequestSchema>;
 export type CountryPreferenceResponse = z.output<typeof countryPreferenceResponseSchema>;
