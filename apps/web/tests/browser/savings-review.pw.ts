@@ -22,11 +22,12 @@ for (const operation of ["deposit", "withdraw"] as const) {
     await expect(from).toHaveAttribute("title", "0x1111111111111111111111111111111111111111");
     await expect(from).toHaveText("0x1111…111111");
     await expect(reviewRow(page, dialog, "Vault")).toHaveText("Gauntlet USDC Prime");
-    await expect(reviewRow(page, dialog, "Network")).toHaveText("Base (8453)");
+    await expect(reviewRow(page, dialog, "Network")).toHaveText("Base");
     await expect(reviewRow(page, dialog, "Rate")).toHaveText("3.50% APY at last update");
     await expect(reviewRow(page, dialog, "Vault fee")).toHaveText("10.00%");
     await expect(reviewRow(page, dialog, "Amount")).toHaveText("$0.10");
     await expect(reviewRow(page, dialog, "Network fee")).toHaveText("Up to 0.02 USDC · ≈ $0.02");
+    if (operation === "deposit") await expect(reviewRow(page, dialog, "Max slippage")).toHaveText("0.1%");
     await expect(dialog.getByRole("button", { name: `${operation === "deposit" ? "Deposit" : "Withdraw"} $0.10` }))
       .toHaveAttribute("data-money-action-id", savingsFixtureActionIds[operation]);
   });

@@ -419,11 +419,16 @@ export const SpendingNotSet: Story = {
   args: { spending: { status: "ready", response: { ...spendingReady.response, allowanceBaseUnits: "0", availableBaseUnits: "0" } } },
   play: async ({ canvasElement }) => {
     await userEvent.click(within(canvasElement).getByRole("button", { name: "Set limit" }));
-    const dialog = within(await within(document.body).findByRole("dialog"));
+    const review = await within(document.body).findByRole("dialog");
+    const dialog = within(review);
     await userEvent.type(dialog.getByRole("textbox"), "25");
     await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await waitForReady(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
     await expect(dialog.getByText("Card purchases from Cash")).toBeVisible();
+    await expect(review.querySelector('[data-slot="confirm-amount"]')).toHaveTextContent("$25.00");
+    for (const [label, value] of [["From", "0x1111…111111"], ["Network", "Base"], ["Network fee", "Paid in ETH"]]) {
+      await expect(dialog.getByText(label, { selector: "dt", exact: true }).nextElementSibling).toHaveTextContent(value);
+    }
     await expect(dialog.getByRole("button", { name: "Set limit" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
   },
 };
