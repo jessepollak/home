@@ -20,8 +20,8 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "knip": "^6.41.0",
-    "oxlint": "^1.88.0",
+    "knip": "^6.46.1",
+    "oxlint": "^1.94.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

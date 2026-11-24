@@ -108,7 +108,6 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
       Math.min(focusedIndex + 1, renderedItems.length - 1), Math.max(focusedIndex - 1, 0)]),
       ...(anchored === undefined ? [] : [anchored])])].sort((a, b) => a - b);
   }, [focusedIndex, indexByKey, renderedItems]);
-  // oxlint-disable-next-line react/incompatible-library -- The virtualizer owns scroll updates and rendered ranges.
   const virtualizer = useVirtualizer<HTMLElement, HTMLLIElement>({
     count: renderedItems.length,
     getScrollElement: () => host as HTMLElement | null,

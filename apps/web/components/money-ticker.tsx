@@ -130,18 +130,20 @@ export function MoneyTicker({
   const parts = splitMoneyTickerValue(value);
   const characters = Array.from(parts.numeric);
   const starts = wrap ? [0, ...groupedIntegerBreakpoints(parts.numeric)] : [0];
-  const unwrappedUnit = { characters, prefix: parts.prefix, suffix: parts.suffix, key: "unit-0" };
+  const unwrappedUnit = { characters, start: 0, prefix: parts.prefix, suffix: parts.suffix, key: "unit-0" };
   const units = wrap ? starts.map((start, index) => ({
     characters: characters.slice(start, starts[index + 1] ?? characters.length),
+    start,
     prefix: index === 0 ? parts.prefix : "",
     suffix: "",
     key: `unit-${starts.length - index}`,
   })) : [unwrappedUnit];
   const separatedSuffix = wrap && parts.suffix.startsWith(" ");
   if (wrap && parts.suffix) {
-    units.push({ characters: [], prefix: "", suffix: parts.suffix, key: "unit-suffix" });
+    units.push({ characters: [], start: characters.length, prefix: "", suffix: parts.suffix, key: "unit-suffix" });
   }
   const digitCount = characters.filter(isAsciiDigit).length;
+  const digitPositions = characters.map((_, index) => digitCount - characters.slice(0, index).filter(isAsciiDigit).length);
   const characterCount = Array.from(value).length;
   const [reservedCharacters, setReservedCharacters] = useState(characterCount);
   const reservesWidth = align === "end" && reserveDigits && !wrap;
@@ -150,7 +152,6 @@ export function MoneyTicker({
     setReservedCharacters(characterCount);
   }
 
-  let digitIndex = 0;
   const tickerStyle = {
     ...style,
     minInlineSize: reservesWidth ? `${reservedCharacters}ch` : undefined,
@@ -172,8 +173,7 @@ export function MoneyTicker({
             );
           }
 
-          const positionFromRight = digitCount - digitIndex;
-          digitIndex += 1;
+          const positionFromRight = digitPositions[unit.start + index];
           if (staticDigits || !animationsEnabled) {
             return (
               <span
