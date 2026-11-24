@@ -1,9 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { DehydratedState } from "@tanstack/react-query";
 import { installApiFixtures, json, RECIPIENT, seedSignedInSession } from "./fixtures/api";
 import { requestBackgroundRevalidation } from "./fixtures/background-revalidation";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { expectNavigation } from "./fixtures/navigation-budget";
+import { activityOrdersFixture } from "./feature-map/fixtures";
+import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "./fixtures/owner-cache";
+import { decodeOwnerCache } from "../../client/query/owner-cache-codec";
+import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 
 const wallet = sessionBody.smartAccount.address;
 const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -686,4 +691,201 @@ test("an owner switch drops retained transfers and card purchases", async ({ pag
   await expect(feed.getByText("No activity yet", { exact: true })).toBeVisible();
   await expect(rows).toHaveCount(0);
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(0);
+});
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function listLength(value: unknown): number | null {
+  return Array.isArray(value) ? value.length : null;
+}
+
+function persistedActivityQueries(persisted: unknown): Array<[number, number | null, number | null]> {
+  if (!isObject(persisted) || !isObject(persisted.clientState) || !Array.isArray(persisted.clientState.queries)) return [];
+  return persisted.clientState.queries.flatMap((query: unknown) => {
+    if (!isObject(query) || !Array.isArray(query.queryKey) || query.queryKey[1] !== "activity" ||
+      !isObject(query.state) || !isObject(query.state.data)) return [];
+    const { pages, retainedPage } = query.state.data;
+    const pageList: unknown[] = Array.isArray(pages) ? pages : [];
+    const first = pageList[0];
+    return [[
+      pageList.reduce<number>((total, page) => total + (isObject(page) ? listLength(page.transfers) ?? 0 : 0), 0),
+      isObject(retainedPage) ? listLength(retainedPage.transfers) : null,
+      isObject(first) && isObject(first.cards) ? listLength(first.cards.rows) : null,
+    ]];
+  });
+}
+
+test("a panel mounted after a shorter orders read shows the rows the first panel kept", async ({ page }) => {
+  await setup(page);
+  const createdAt = new Date(FIXED_NOW - 5 * 60_000).toISOString();
+  const action = (id: string, title: string) => ({
+    id,
+    provider: "cdp-embedded",
+    kind: "send",
+    summary: { title, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }], warnings: [], expiresAt: createdAt },
+    status: "confirmed",
+    createdAt,
+    confirmedAt: createdAt,
+    owner: { subject: sessionBody.user.subject, address: wallet, chainId: 8453, accountProvider: sessionBody.accountProvider },
+  });
+  const allOrders = activityOrdersFixture();
+  let shorter = false;
+  let shorterOrderReads = 0;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [
+    action("11111111-1111-4111-8111-111111111112", "Fixture send"),
+    action("11111111-1111-4111-8111-111111111113", "Second send"),
+  ] }));
+  await page.route("**/api/activity/orders", (route) => {
+    if (shorter) shorterOrderReads += 1;
+    return json(route, { ...allOrders, orders: shorter ? allOrders.orders.slice(0, 1) : allOrders.orders });
+  });
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    return url.pathname === "/api/activity" ? json(route, activityResponse(url, false)) : route.fallback();
+  });
+  const activity = page.locator("#navigation-panel [data-activity-sources]");
+  const items = activity.getByRole("button", { name: /^(Add money|Cash out|Received|Sent|Fixture send|Second send|Fixture Coffee)/ });
+  await page.goto("/activity");
+  await expect(items).toHaveCount(11);
+  const before = await items.allTextContents();
+  shorter = true;
+  await expect.poll(async () => {
+    await page.clock.runFor(1_000);
+    return shorterOrderReads;
+  }, { timeout: 30_000 }).toBeGreaterThan(0);
+  await expect(items).toHaveText(before);
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).click();
+  await expectNavigation(page, /\/home$/);
+  await expect(items).toHaveText(before);
+});
+
+test("a full reload restores the Activity rows shown before a shorter read, and an owner switch drops them", async ({ page }) => {
+  const { feed, rows } = await setup(page);
+  let reads = 0;
+  let revalidating = false;
+  let unavailable = false;
+  let switched = false;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    reads += 1;
+    if (unavailable && !switched) return route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "ACTIVITY_UPSTREAM", message: "Recent Base activity could not be loaded." } }),
+    });
+    const response = activityResponse(url, false, revalidating);
+    const to = Date.parse(url.searchParams.get("to") ?? "");
+    const template = response.cards.rows[0];
+    if (!revalidating && template) response.cards.rows.push(...Array.from({ length: 49 }, (_, index) => ({
+      ...template,
+      id: `11111111-1111-4111-8111-${(200 + index).toString().padStart(12, "0")}`,
+      merchantName: `Bulk Card ${index}`,
+      createdAt: new Date(to - (40 + index) * 60_000).toISOString(),
+      updatedAt: new Date(to - (40 + index) * 60_000).toISOString(),
+    })));
+    if (switched) response.walletAddress = "0x3333333333333333333333333333333333333333";
+    if (revalidating || switched) {
+      response.transfers = switched ? [] : response.transfers.slice(0, 1);
+      response.cards.rows = switched ? [] : response.cards.rows.filter((row) => row.merchantName === freshMerchant);
+    }
+    return json(route, response);
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  const before = await rows.allTextContents();
+  revalidating = true;
+  await page.clock.fastForward(11_000);
+  await requestBackgroundRevalidation(page, () => reads, 1);
+  await expect.poll(async () => {
+    await page.clock.runFor(500);
+    return reads;
+  }).toBeGreaterThanOrEqual(2);
+  await expect(rows).toHaveText(before);
+  let previous: string | null = null;
+  const expected = [1, 3, 1];
+  await expect.poll(async () => {
+    const value = await readIndexedOwnerCache(page);
+    const persisted: unknown = value ? JSON.parse(await decodeOwnerCache(value)) : null;
+    const shown = JSON.stringify(persistedActivityQueries(persisted));
+    const settled = shown === previous && shown.includes(JSON.stringify(expected));
+    previous = shown;
+    return settled;
+  }, { intervals: [ownerQueryPersistThrottleMs + 100] }).toBe(true);
+  unavailable = true;
+  await page.reload();
+  await expect(rows).toHaveText(before);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  switched = true;
+  await page.route("**/api/activity/orders", (route) => json(route, {
+    version: 1, owner: { subject: "playwright-smoke-second-subject", accountProvider: sessionBody.accountProvider }, orders: [],
+  }));
+  await page.route("**/api/session", (route) => json(route, { ...sessionBody, user: { subject: "playwright-smoke-second-subject" },
+    smartAccount: { ...sessionBody.smartAccount, address: "0x3333333333333333333333333333333333333333" } }));
+  await page.evaluate(() => window.dispatchEvent(new Event("home:playwright-smoke:owner-switch")));
+  await expect(feed.getByText("No activity yet", { exact: true })).toBeVisible();
+  await expect(rows).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(0);
+});
+
+test("a full reload restores retained transfers and cards from an onchain-unavailable display page but rejects another owner or currency", async ({ page }) => {
+  const { feed, rows } = await setup(page);
+  let unavailable = false;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    return unavailable ? route.abort() : json(route, activityResponse(url, false, true));
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  const before = await rows.allTextContents();
+  let previous: string | null = null;
+  await expect.poll(async () => {
+    const value = await readIndexedOwnerCache(page);
+    const persisted: unknown = value ? JSON.parse(await decodeOwnerCache(value)) : null;
+    const shown = JSON.stringify(persistedActivityQueries(persisted));
+    const settled = shown === previous && shown.includes(JSON.stringify([3, 3, 2]));
+    previous = shown;
+    return settled;
+  }, { intervals: [ownerQueryPersistThrottleMs + 100] }).toBe(true);
+  const value = await readIndexedOwnerCache(page);
+  if (!value) throw new Error("Persisted owner cache is missing");
+  const baseline: { clientState: DehydratedState } = JSON.parse(await decodeOwnerCache(value));
+  unavailable = true;
+  for (const variant of ["retained", "wrong owner", "wrong currency"] as const) {
+    await test.step(variant, async () => {
+      const persisted = structuredClone(baseline);
+      const query = persisted.clientState.queries.find((query) => query.queryKey[1] === "activity");
+      const to = query?.queryKey[2];
+      if (!query || typeof to !== "string") throw new Error("Persisted Activity query is missing");
+      const url = new URL(`/api/activity?to=${encodeURIComponent(to)}`, "http://localhost");
+      const partial = activityResponse(url, true);
+      partial.cards.rows = [];
+      const retained = { ...activityResponse(url, true, true), transfers: activityResponse(url, false).transfers };
+      if (variant === "wrong owner") retained.walletAddress = RECIPIENT;
+      if (variant === "wrong currency") retained.currency = "EUR";
+      query.state.data = { pages: [partial], pageParams: [null], retainedPage: retained };
+      const current = await readIndexedOwnerCache(page);
+      if (!current) throw new Error("Persisted owner cache is missing");
+      await replaceIndexedOwnerCache(page, current, JSON.stringify(persisted));
+      await page.reload();
+      if (variant === "retained") {
+        await expect(rows).toHaveText(before);
+        await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
+        await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+        await expect(feed.getByText("End of activity", { exact: true })).toHaveCount(0);
+        await expect(feed.getByRole("alert")).toHaveCount(0);
+        await expect(feed.getByText(warning)).toHaveCount(0);
+      } else {
+        await expect(feed.getByRole("alert")).toContainText("Activity is temporarily unavailable.");
+        await expect(rows).toHaveCount(0);
+        await expect(feed.getByRole("button", { name: new RegExp(`^(${merchant}|${freshMerchant})`) })).toHaveCount(0);
+      }
+    });
+  }
 });
