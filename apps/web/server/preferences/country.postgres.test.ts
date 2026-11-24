@@ -25,7 +25,7 @@ let admin: Bun.SQL, sql: SqlExecutor, store: CountryPreferenceStore;
     await admin.begin(async (tx) => {
       await tx.unsafe(`SET LOCAL search_path TO ${schema}`);
       for (const migration of await readAllMigrationSql()) await tx.unsafe(migration);
-      await tx.unsafe(await readMigrationSql("025_display_currency.sql"));
+      await tx.unsafe(await readMigrationSql("027_display_currency.sql"));
     });
     sql = createPostgresSqlExecutor(url, { poolFactory: (config) => new Pool({ ...config, options: `-c search_path=${schema}` }) });
     store = new CountryPreferenceStore(sql, new CustomerResolver(sql));
