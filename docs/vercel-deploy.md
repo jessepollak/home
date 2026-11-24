@@ -4,8 +4,8 @@ Follow this path to launch your own instance, finish Admin setup, and maintain i
 
 ## Launch
 
-1. **Fork Home on GitHub.** A fork keeps the upstream relationship for later updates. The [README deploy button](../README.md#deploy-your-own) instead copies Home into a new repository and sets Root Directory; it neither provisions a database nor sets the Install Command.
-2. In Vercel, choose **Add New → Project**, import your fork, and apply these settings. Check the Install Command even if you used the button.
+1. **Fork Home on GitHub.** A fork keeps the upstream relationship for later updates. The [README deploy button](../README.md#deploy-your-own) instead copies Home into a new repository and sets Root Directory; it does not provision a database.
+2. In Vercel, choose **Add New → Project**, import your fork, and apply these settings. `apps/web/vercel.json` sets the Install Command: it deletes the `node_modules` trees Vercel restores from the build cache before installing, because an incremental install over a cached tree can link mismatched copies of the same package and fail the type check.
 
    If you cannot fork (for example, you own the upstream repository) or do not want Git integration, create the project from the CLI instead: `vercel project add <project>`, run `vercel link --project <project>` at the repository root, apply the same settings in Project Settings, and deploy a clean checkout with `vercel deploy --prod`. The CLI records the checkout's Git commit and branch in the deployment's metadata. After deploying, confirm **Admin → Overview → Running version** shows the commit; if it says **Build metadata is absent**, record the commit from `vercel inspect` instead. Deploy later updates the same way, from the merged checkout.
 
@@ -13,7 +13,7 @@ Follow this path to launch your own instance, finish Admin setup, and maintain i
    | --- | --- |
    | Root Directory | `apps/web` |
    | Framework preset | Next.js |
-   | Install Command | `bun install --frozen-lockfile` |
+   | Install Command | Leave unset: `apps/web/vercel.json` runs a clean `bun install --frozen-lockfile` |
    | Build Command | `bun run build` |
    | Node.js | 22+ |
    | Fluid compute | Enabled (Project Settings → Functions) |
@@ -164,7 +164,7 @@ Storybook must use a separate Vercel project (for example, `<project>-storybook`
 | Owner and source | Same Vercel team as the Home project; this repository or your fork |
 | Root Directory | `apps/web` |
 | Framework preset | Other |
-| Install Command | `bun install --frozen-lockfile` |
+| Install Command | Leave unset: `apps/web/vercel.json` runs a clean `bun install --frozen-lockfile` |
 | Build Command | `bun run build-storybook` |
 | Output Directory | `storybook-static` |
 | Production Branch | `main` |
