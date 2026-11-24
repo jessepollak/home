@@ -162,28 +162,28 @@ function listeningPort(port: number | undefined): number {
 test("proxy probe reuses a matching toolkit", async () => {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ toolkit: "current", files: [] }) });
   try {
-    expect(await probeProxy(listeningPort(server.port), "current", 200)).toBe("reuse");
+    expect(await probeProxy(listeningPort(server.port), "current")).toBe("reuse");
   } finally { await server.stop(true); }
 });
 
 test("proxy probe rejects a mismatched toolkit", async () => {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ toolkit: "other", files: [] }) });
   try {
-    await expect(probeProxy(listeningPort(server.port), "current", 200)).rejects.toThrow("different checkout or build");
+    await expect(probeProxy(listeningPort(server.port), "current")).rejects.toThrow("different checkout or build");
   } finally { await server.stop(true); }
 });
 
 test("proxy probe rejects a non-JSON successful response", async () => {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("not JSON") });
   try {
-    await expect(probeProxy(listeningPort(server.port), "current", 200)).rejects.toThrow("isn't a current device-profile proxy");
+    await expect(probeProxy(listeningPort(server.port), "current")).rejects.toThrow("isn't a current device-profile proxy");
   } finally { await server.stop(true); }
 });
 
 test("proxy probe treats an unavailable service as absent", async () => {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("unavailable", { status: 503 }) });
   try {
-    expect(await probeProxy(listeningPort(server.port), "current", 200)).toBe("absent");
+    expect(await probeProxy(listeningPort(server.port), "current")).toBe("absent");
   } finally { await server.stop(true); }
 });
 
@@ -192,7 +192,7 @@ test("proxy probe treats a closed port as absent", async () => {
   try {
     const port = listeningPort(server.port);
     await server.stop(true);
-    expect(await probeProxy(port, "current", 200)).toBe("absent");
+    expect(await probeProxy(port, "current")).toBe("absent");
   } finally { await server.stop(true); }
 });
 
@@ -205,7 +205,7 @@ test("proxy probe reports a stalled successful body as a read failure, not a non
     })),
   });
   try {
-    const error = await probeProxy(listeningPort(server.port), "current", 200).catch((error: unknown) => error);
+    const error = await probeProxy(listeningPort(server.port), "current").catch((error: unknown) => error);
     expect(error).toBeInstanceOf(Error);
     expect(String(error)).toContain(`Reading the device-profile proxy status on port ${server.port} failed:`);
     expect(String(error)).not.toContain("isn't a current device-profile proxy");

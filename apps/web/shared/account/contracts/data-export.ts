@@ -87,6 +87,10 @@ export function parseAccountExportErrorResponse(value: unknown): AccountExportEr
   return isAccountExportErrorCode(code) && typeof message === "string" ? { error: { code, message } } : null;
 }
 
+export function isAccountExportAuthBoundaryCode(value: unknown): value is Extract<AccountExportErrorCode, (typeof AUTH_BOUNDARY_ERROR_CODES)[number]> {
+  return AUTH_BOUNDARY_ERROR_CODES.some((code) => code === value);
+}
+
 function isAccountExportErrorCode(value: unknown): value is AccountExportErrorCode {
   return ACCOUNT_EXPORT_ERROR_CODES.some((code) => code === value);
 }

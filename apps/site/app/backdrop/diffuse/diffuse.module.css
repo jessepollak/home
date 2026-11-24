@@ -1,0 +1,139 @@
+.field {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: -1;
+  height: 100lvh;
+  overflow: hidden;
+  pointer-events: none;
+  background: oklch(0.985 0.004 250);
+  contain: strict;
+}
+
+.depth,
+.tone {
+  position: absolute;
+  inset: -12% -12%;
+  will-change: transform;
+}
+
+.tone {
+  inset: -8% -8%;
+  opacity: 0.35;
+  will-change: opacity;
+}
+
+.bloom {
+  position: absolute;
+  display: block;
+  width: var(--size);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--tint), color-mix(in srgb, var(--tint) 55%, transparent) 38%, color-mix(in srgb, var(--tint) 18%, transparent) 68%, transparent);
+  animation: drift var(--cycle) var(--ease-standard, cubic-bezier(0.45, 0, 0.55, 1)) var(--delay) infinite alternate;
+  will-change: transform;
+}
+
+.blueWide {
+  --size: 78vmax;
+  --tint: rgb(0 82 255 / 0.2);
+  --cycle: 46s;
+  --delay: -12s;
+  --dx: 6vmax;
+  --dy: 4vmax;
+  left: 38%;
+  top: -14%;
+}
+
+.blueHigh {
+  --size: 52vmax;
+  --tint: rgb(87 139 250 / 0.26);
+  --cycle: 38s;
+  --delay: -20s;
+  --dx: -5vmax;
+  --dy: 6vmax;
+  left: -8%;
+  top: 4%;
+}
+
+.pinkHigh {
+  --size: 46vmax;
+  --tint: rgb(244 160 205 / 0.34);
+  --cycle: 52s;
+  --delay: -6s;
+  --dx: -7vmax;
+  --dy: -4vmax;
+  left: 62%;
+  top: 34%;
+}
+
+.greenMid {
+  --size: 50vmax;
+  --tint: rgb(92 222 172 / 0.3);
+  --cycle: 44s;
+  --delay: -30s;
+  --dx: 8vmax;
+  --dy: -5vmax;
+  left: 6%;
+  top: 46%;
+}
+
+.greenLow {
+  --size: 64vmax;
+  --tint: rgb(108 226 186 / 0.24);
+  --cycle: 58s;
+  --delay: -18s;
+  --dx: -6vmax;
+  --dy: -3vmax;
+  left: 48%;
+  top: 62%;
+}
+
+.pinkLow {
+  --size: 60vmax;
+  --tint: rgb(246 170 210 / 0.32);
+  --cycle: 50s;
+  --delay: -26s;
+  --dx: 5vmax;
+  --dy: -6vmax;
+  left: -6%;
+  top: 30%;
+}
+
+.greenDeep {
+  --size: 54vmax;
+  --tint: rgb(100 220 178 / 0.28);
+  --cycle: 42s;
+  --delay: -4s;
+  --dx: -6vmax;
+  --dy: 5vmax;
+  left: 56%;
+  top: 4%;
+}
+
+.veil {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 50% 50%, transparent 40%, rgb(255 255 255 / 0.25));
+}
+
+.field[data-paused] .bloom {
+  animation-play-state: paused;
+}
+
+@keyframes drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(calc(var(--dx) * 0.4), var(--dy), 0) scale(1.06);
+  }
+  100% {
+    transform: translate3d(var(--dx), calc(var(--dy) * -0.3), 0) scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bloom {
+    animation: none;
+  }
+}

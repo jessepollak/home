@@ -1,0 +1,29 @@
+{
+  "name": "@home/site",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 3300",
+    "build": "next build",
+    "lint": "oxlint --react-plugin --jsx-a11y-plugin --nextjs-plugin --import-plugin -D correctness -D suspicious -A react/react-in-jsx-scope -A import/no-unassigned-import --ignore-pattern next-env.d.ts --deny-warnings --report-unused-disable-directives --disable-nested-config .",
+    "typecheck": "next typegen && tsc --noEmit",
+    "knip": "knip --production --no-progress"
+  },
+  "dependencies": {
+    "lucide-react": "^1.57.0",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "knip": "^6.41.0",
+    "oxlint": "^1.88.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "packageManager": "bun@1.4.4"
+}

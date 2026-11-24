@@ -7,7 +7,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { createCdpWebhookHandler } from "@/server/balances/webhook";
 import { settleOpenActionsForAccounts } from "./follow-through";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { ActionsStore } from "./store";
 import type { MoneyActionOwner } from "@/shared/money-actions/types";
@@ -81,7 +81,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   beforeEach(async () => {
     const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
     setSystemTime(clock.rows[0]!.instant);
@@ -240,11 +240,13 @@ describePostgres("write-once action outcomes with real handlers", () => {
     expect(await store.get(secondOwner, triggered)).toMatchObject({ transaction_hash: hash, outcome: "succeeded" });
   });
 
-  test("system follow-up queries select only recent identifiable open rows", async () => {
+  test("system follow-up queries select recent open rows a handle, hash or undeclined committed call can identify", async () => {
     const recent = await prepared();
     const settled = await prepared();
     const old = await prepared();
     const unidentified = await prepared();
+    const declined = await prepared();
+    const staleUnidentified = await prepared();
     const unconfirmed = randomUUID();
     await store.insert({ id: unconfirmed, owner: owner(), kind: "send",
       summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
@@ -255,11 +257,13 @@ describePostgres("write-once action outcomes with real handlers", () => {
     await store.recordOutcome(owner(), settled, { outcome: "not_submitted", source: "wallet", settledAt: null });
     await store.recordHandle(owner(), old, { providerHandle: userOpHash });
     await sql.query("UPDATE actions SET confirmed_at = now() - interval '40 days' WHERE id = $1", [old]);
+    await store.recordDecline(owner(), declined, 0);
+    await sql.query("UPDATE actions SET confirmed_at = now() - interval '25 hours' WHERE id = $1", [staleUnidentified]);
     const since = new Date(Date.now() - 7 * 86_400_000);
-    expect((await store.listOpenByAccounts([address.toUpperCase()], since, 1)).map((row) => row.id)).toEqual([recent]);
-    expect((await store.listOpenForFollowUp(since, 10)).map((row) => row.id)).toEqual([recent]);
-    expect((await store.listOpenForFollowUp(since, 1)).map((row) => row.id)).toEqual([recent]);
-    expect(unidentified).toBeDefined();
+    const expected = [recent, unidentified].sort();
+    expect((await store.listOpenByAccounts([address.toUpperCase()], since, 10)).map((row) => row.id).sort()).toEqual(expected);
+    expect((await store.listOpenForFollowUp(since, 10)).map((row) => row.id).sort()).toEqual(expected);
+    expect(await store.listOpenForFollowUp(since, 1)).toHaveLength(1);
   });
 
   test("duplicate handle, hash, decline and chain reports preserve every column", async () => {
@@ -434,6 +438,25 @@ describePostgres("write-once action outcomes with real handlers", () => {
     expect((await store.get(owner(), id))?.outcome).toBe("succeeded");
     expect(events).toContainEqual(expect.objectContaining({ kind: "action-outcome", code: "OUTCOME_CONFLICT", outcome: "conflict" }));
     setObservabilityLogWriterForTests();
+  });
+
+  test("a late nonfinal success receipt cannot outrank a concurrently persisted finalized reversion", async () => {
+    const id = await prepared();
+    await store.recordHandle(owner(), id, { providerHandle: userOpHash, transactionHash: hash });
+    const reverted = { transactionHash: hash, blockNumber: "2", blockHash: `0x${"12".repeat(32)}`, outcome: "reverted" as const };
+    const get = createGetActionHandler({ authorize, readReceipt: async () => ({ ...receipt(true), finalized: false }),
+      store: {
+        get: (actionOwner, actionId) => store.get(actionOwner, actionId),
+        recordHandle: (actionOwner, actionId, input) => store.recordHandle(actionOwner, actionId, input),
+        recordOutcome: (actionOwner, actionId, input) => store.recordOutcome(actionOwner, actionId, input),
+        recordReceiptObservation: async (actionOwner, actionId, input) => {
+          await store.recordOutcome(actionOwner, actionId, { outcome: "reverted", source: "chain", settledAt: new Date(blockTimestamp), observedReceipt: reverted });
+          return store.recordReceiptObservation(actionOwner, actionId, input);
+        },
+      },
+    });
+    expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "failed" });
+    expect(await store.get(owner(), id)).toMatchObject({ outcome: "reverted", observed_receipt_outcome: "reverted", observed_receipt_block_hash: reverted.blockHash });
   });
 
   test("conflicting later evidence cannot overwrite a settled result", async () => {

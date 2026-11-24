@@ -7,6 +7,7 @@ import { issueInviteCookie } from "@/server/invites/cookie";
 import { inviteVerifiedCookies, verifiedInviteCode } from "@/server/invites/consumption";
 import { parseNativeBaseChallenge, type NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
+import { createSessionHandler } from "@/server/cdp/session";
 import {
   HOME_CHALLENGE_COOKIE,
   HOME_SESSION_COOKIE,
@@ -423,9 +424,33 @@ describe("native Base authentication handlers", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     const cookies = response.headers.getSetCookie();
-    expect(cookies).toHaveLength(4);
+    expect(cookies.map((value) => value.split("=")[0]).sort()).toEqual(["home-auth-challenge", "home-cdp-live", "home-cdp-session", "home-operator-grant", "home-session"]);
     expect(cookies.every((value) => value.includes("Max-Age=0"))).toBe(true);
     expect(cookies.some((value) => value.startsWith("home-access="))).toBe(false);
+  });
+
+  test("sign-out and session reads fail closed when revocation storage is unavailable", async () => {
+    const { nonce, verify } = handlers();
+    const issued = await challenge(nonce);
+    const sessionCookie = cookieValue(await verify(post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie)), HOME_SESSION_COOKIE);
+    const unavailable = () => ({
+      isRevoked: async () => { throw new Error("database unavailable"); },
+      revoke: async () => { throw new Error("database unavailable"); },
+    });
+    const logout = createNativeBaseLogoutHandler({ sessionSecret: SECRET, now: () => START, revocations: unavailable });
+    const failed = await logout(logoutRequest({ Origin: ORIGIN, "Sec-Fetch-Site": "same-origin", Cookie: sessionCookie }));
+    expect(failed.status).toBe(503);
+    expect(failed.headers.getSetCookie()).toEqual([]);
+    const read = createSessionHandler({
+      getValidator: async () => { throw new Error("unused"); },
+      baseAccountEnabled: true,
+      homeSessionSecret: SECRET,
+      assertLive: async () => {},
+      revocations: unavailable,
+    });
+    const response = await read(new Request(`${ORIGIN}/api/session`, { headers: { Cookie: sessionCookie, "X-Home-Account-Provider": "base-account" } }));
+    expect(response.status).toBe(503);
+    expect(await readJson(response)).toMatchObject({ error: { code: "AUTH_UNAVAILABLE" } });
   });
 
   test("reads only valid signed Base sessions and rejects cookie tampering", async () => {

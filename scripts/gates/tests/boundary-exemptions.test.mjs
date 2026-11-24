@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { checkBoundaryExemptions } from "../boundary-exemptions.mjs";
+import { checkBoundaryExemptions, runBoundaryExemptions } from "../boundary-exemptions.mjs";
 import { EXEMPTIONS_PATH, evaluateBoundaryExemptions, readBoundaryBase } from "../exploration-boundary.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
@@ -78,9 +78,10 @@ function createMirror(t) {
   git(["init", "--initial-branch=main"]);
   git(["config", "user.name", "Fixture"]);
   git(["config", "user.email", "fixture@example.invalid"]);
-  const cli = (base) => spawnSync(process.execPath, ["scripts/gates/boundary-exemptions.mjs"], {
+  const cliProcess = (base) => spawnSync(process.execPath, ["scripts/gates/boundary-exemptions.mjs"], {
     cwd: directory, env: { ...gitFixtureEnv(), BASE_REF: base }, encoding: "utf8",
   });
+  const cli = (base) => runBoundaryExemptions({ cwd: directory, env: { ...gitFixtureEnv(), BASE_REF: base } });
   const write = (file, content) => {
     mkdirSync(`${directory}/${file}`.replace(/\/[^/]*$/u, ""), { recursive: true });
     writeFileSync(`${directory}/${file}`, content);
@@ -92,7 +93,7 @@ function createMirror(t) {
     git(["commit", "-m", message]);
     return git(["rev-parse", "HEAD"]);
   };
-  return { cli, commit, git, remove, write, writeEntries };
+  return { cli, cliProcess, commit, git, remove, write, writeEntries };
 }
 
 test("concurrent removals under one directory entry merge green in either order while a reactivation still fails", (t) => {
@@ -163,11 +164,11 @@ test("removing the last file of a directory in one change is a note until its en
 });
 
 test("an unresolvable base fails loudly", (t) => {
-  const { cli, commit, write, writeEntries } = createMirror(t);
+  const { cliProcess, commit, write, writeEntries } = createMirror(t);
   write("apps/web/probe/a.ts", "export const a = 1;\n");
   writeEntries([entry]);
   commit("initial fixture");
-  const result = cli("not-a-real-base-ref");
+  const result = cliProcess("not-a-real-base-ref");
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Could not read the exploration boundary baseline at origin\/not-a-real-base-ref/u);
 });

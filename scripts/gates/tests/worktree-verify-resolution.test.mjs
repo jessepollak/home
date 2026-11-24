@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { resolutionReport } from "../../worktree/verify-resolution.mjs";
+import { main, resolutionReport } from "../../worktree/verify-resolution.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../../worktree/verify-resolution.mjs", import.meta.url));
@@ -15,10 +15,16 @@ function gitCommand(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8", env: gitFixtureEnv(), stdio: ["ignore", "pipe", "pipe"] });
 }
 
-function fixture(t, { remote = false, rebase = true, dir = "repo" } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "home-resolution-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const cwd = join(root, dir);
+const templates = new Map();
+after(() => {
+  for (const { root } of templates.values()) rmSync(root, { recursive: true, force: true });
+});
+
+function template({ remote, rebase }) {
+  const key = `${remote}:${rebase}`;
+  if (templates.has(key)) return templates.get(key);
+  const root = mkdtempSync(join(tmpdir(), "home-resolution-template-"));
+  const cwd = join(root, "repo");
   mkdirSync(cwd);
   const git = (args) => gitCommand(args, cwd);
   const write = (path, content) => {
@@ -59,13 +65,38 @@ function fixture(t, { remote = false, rebase = true, dir = "repo" } = {}) {
   else git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
   git(["checkout", "topic"]);
   if (rebase) git(["rebase", "origin/main"]);
+  const built = { root, oldBase, oldHead };
+  templates.set(key, built);
+  return built;
+}
+
+function fixture(t, { remote = false, rebase = true, dir = "repo" } = {}) {
+  const { root: source, oldBase, oldHead } = template({ remote, rebase });
+  const root = mkdtempSync(join(tmpdir(), "home-resolution-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const cwd = join(root, dir);
+  cpSync(join(source, "repo"), cwd, { recursive: true, preserveTimestamps: true });
+  if (remote) {
+    cpSync(join(source, "origin.git"), join(root, "origin.git"), { recursive: true });
+    const config = join(cwd, ".git", "config");
+    writeFileSync(config, readFileSync(config, "utf8").replace(join(source, "origin.git"), join(root, "origin.git")));
+  }
+  const git = (args) => gitCommand(args, cwd);
+  const write = (path, content) => {
+    mkdirSync(dirname(join(cwd, path)), { recursive: true });
+    writeFileSync(join(cwd, path), content);
+  };
+  const commit = (message) => {
+    git(["add", "-A"]);
+    git(["commit", "-m", message]);
+  };
   return {
     cwd, git, write, commit, oldBase, oldHead,
     report: (options = {}) => resolutionReport({ cwd, prHead: "pr-original", git: gitCommand, ...options }),
   };
 }
 
-function cli(cwd, args = []) {
+function cliProcess(cwd, args = []) {
   try {
     const stdout = execFileSync(process.execPath, [SCRIPT, ...args], {
       cwd, encoding: "utf8", env: gitFixtureEnv(), stdio: ["ignore", "pipe", "pipe"],
@@ -75,6 +106,13 @@ function cli(cwd, args = []) {
     if (typeof error.status !== "number") throw error;
     return { status: error.status, stdout: error.stdout, stderr: error.stderr };
   }
+}
+
+function cli(cwd, args = []) {
+  let stdout = "";
+  let stderr = "";
+  const status = main(args, { cwd, env: gitFixtureEnv(), log: (line) => { stdout += `${line}\n`; }, error: (line) => { stderr += `${line}\n`; } });
+  return { status, stdout, stderr };
 }
 
 test("detects a committed pre-rebase sweep and passes once main's files are restored", (t) => {
@@ -93,7 +131,7 @@ test("detects a committed pre-rebase sweep and passes once main's files are rest
   assert.deepEqual(report.prFiles, ["pr.txt"]);
   assert.deepEqual(report.headFiles, [...swept, "pr.txt"]);
   assert.deepEqual(report.unexpected, swept);
-  const failure = cli(f.cwd, ["--pr-head", "pr-original"]);
+  const failure = cliProcess(f.cwd, ["--pr-head", "pr-original"]);
   assert.equal(failure.status, 1);
   assert.equal(failure.stdout, "");
   assert.deepEqual(failure.stderr.trim().split("\n"), [

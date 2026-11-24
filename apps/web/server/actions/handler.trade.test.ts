@@ -1,6 +1,7 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { parseHandleActionErrorResponse, parseHandleActionResponse } from "@/shared/actions/contracts/handle";
+import { parseRetryActionErrorResponse } from "@/shared/actions/contracts/retry";
 import { parseAddress, requireAddress } from "@/shared/chain/hex";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
@@ -941,6 +942,27 @@ describe("trade retry deadline", () => {
     expect(response.status).toBe(409);
     expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
     expect(retries).toBe(0);
+  });
+  test.each([
+    ["denies a stock buy", BASE_USDC_ADDRESS, stockAssets[0].contractAddress, 403],
+    ["permits a stock sell to USDC", stockAssets[0].contractAddress, BASE_USDC_ADDRESS, 200],
+  ] as const)("%s retry from a request without a trusted country", async (_label, fromAddress, toAddress, status) => {
+    const row = retryRow(String(Date.parse("2026-09-25T12:03:00.000Z") / 1000));
+    row.summary.metadata = Object.assign({}, row.summary.metadata, { fromAsset: { address: fromAddress }, toAsset: { address: toAddress } });
+    let retries = 0;
+    const handler = createRetryActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      store: { get: async () => row, beginRetry: async () => { retries += 1; return { row, conflict: false, dispatched: false }; } },
+    });
+    const response = await handler(retryRequest(), context);
+    expect(response.status).toBe(status);
+    if (status === 403) {
+      expect(parseRetryActionErrorResponse(await readJson(response))).toEqual({ error: { code: "TRADE_STOCK_RESTRICTED", message: "Stock buys aren't available in this location." } });
+      expect(retries).toBe(0);
+    } else {
+      expect(retries).toBe(1);
+    }
   });
   test.each(["trade", "send"] as const)("allows an unexpired %s retry", async (kind) => {
     const row = retryRow(String(Date.parse("2026-09-25T12:01:31.000Z") / 1000));

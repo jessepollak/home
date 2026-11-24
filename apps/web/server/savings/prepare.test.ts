@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { decodeFunctionData } from "viem";
+import { isRecord } from "@/shared/guards";
 import {
   bundler3Abi,
   generalAdapter1Abi,
@@ -18,7 +19,8 @@ import { setActionsStoreForTests, type ActionsStore } from "@/server/actions/sto
 import { CoinbaseSmartAccountBatchSimulationError } from "@/server/chain/coinbase-smart-account";
 import { issueMoneyAction } from "@/server/money-actions/issue";
 import { SavingsActionError, calculateSaveDepositShareBound, createPrepareSavingsAction } from "./prepare";
-import { SavingsActionRpcError } from "./rpc";
+import { SavingsActionRpcError, createSavingsActionStateReader } from "./rpc";
+import { createPrepareActionHandler } from "@/server/actions/prepare";
 import type {
   SavingsActionBatchSimulator,
   SavingsActionState,
@@ -488,8 +490,40 @@ describe("Morpho savings action preparation", () => {
     })).rejects.toMatchObject({
       name: "SavingsActionError",
       reason: "rpc",
-      message: "Base RPC rejected a savings state read: execution reverted",
-    } satisfies Partial<SavingsActionError>);
+      message: "Current onchain savings state could not be read.",
+      cause: { message: "Base RPC rejected a savings state read: execution reverted" },
+    });
+  });
+
+  test("a savings state-read failure returns fixed text without the provider's RPC message", async () => {
+    const marker = "PROVIDER-MARKER-2108";
+    const handler = createPrepareActionHandler({
+      authorize: async () => Response.json(session),
+      prepareSavings: createPrepareSavingsAction({
+        simulateBatch: simulateSuccessfully,
+        retryDelayMs: 0,
+        sleep: async () => {},
+        readState: createSavingsActionStateReader({
+          rpcUrl: "https://base-rpc.test",
+          retryDelayMs: 0,
+          sleep: async () => {},
+          fetchImpl: Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
+            const body: unknown = JSON.parse(String(init?.body));
+            const reply = (call: unknown) => ({ jsonrpc: "2.0", id: isRecord(call) ? call.id : null,
+              error: { code: -32000, message: `execution reverted: ${marker}` } });
+            return Response.json(Array.isArray(body) ? body.map(reply) : reply(body));
+          }, { preconnect: fetch.preconnect }),
+        }),
+      }),
+    });
+    const response = await handler(new Request("https://home.test/api/actions/prepare", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "savings-withdraw", params: { vaultAddress: VAULT, amountBaseUnits: "1000000" } }),
+    }));
+    expect(response.status).toBe(502);
+    const text = await response.text();
+    expect(text).not.toContain(marker);
+    expect(JSON.parse(text)).toEqual({ error: { code: "SAVINGS_ACTION_RPC", message: "Savings couldn't read the current vault state. Try again shortly." } });
   });
 
   test("simulates only the bounded deposit call when the adapter allowance is sufficient", async () => {

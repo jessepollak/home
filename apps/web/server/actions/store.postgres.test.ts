@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { ActionsStore, actionOwnerKey } from "./store";
+import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { RETAINED_SAVINGS_DEPOSITS_LIMIT } from "@/shared/actions/contracts/list";
 
@@ -45,7 +46,7 @@ describePostgres("actions schema and store", () => {
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
     store = new ActionsStore(sql);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   beforeEach(async () => {
     const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
     setSystemTime(clock.rows[0]!.instant);
@@ -439,5 +440,89 @@ describePostgres("actions schema and store", () => {
     expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([recent, withdrawal, old].sort());
     await store.updateCashoutProgress(owner, old, { state: "delivered", filledAtomic: "2000000", returnedAtomic: "0", remainingAtomic: "0", withdrawable: false, settled: true }, "2026-09-12T12:02:00.000Z", null);
     expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([recent, withdrawal].sort());
+  });
+  describe("claiming a discovered user operation for a confirmed action with no handle", () => {
+    const op = (n: string) => ({ userOperationHash: `0x${n.repeat(32)}`, transactionHash: `0x${n.slice(0, 1)}f${"0".repeat(62)}` });
+    const sendCalls = (data: `0x${string}`): MoneyActionCall[] => [{ to: owner.address, data, value: "0" }];
+    const confirmedSend = async (rowOwner: MoneyActionOwner = owner, rowCalls: MoneyActionCall[] = calls) => {
+      const id = randomUUID();
+      await store.insert({ id, owner: rowOwner, kind: "send", summary, pending: { calls: rowCalls }, createdAt: "2026-09-12T10:00:00.000Z" });
+      await store.confirm(rowOwner, id);
+      return id;
+    };
+
+    test("claims the single unclaimed match and leaves a CDP handle that a late wallet post can repeat", async () => {
+      const id = await confirmedSend();
+      const claimed = await store.claimDiscoveredOperation(owner, id, { matches: [op("a1")], recordProviderHandle: true });
+      expect(claimed).toMatchObject({ provider_handle: op("a1").userOperationHash, transaction_hash: op("a1").transactionHash });
+      expect((await store.recordHandle(owner, id, { providerHandle: op("a1").userOperationHash }))?.provider_handle).toBe(op("a1").userOperationHash);
+      expect(await store.claimDiscoveredOperation(owner, id, { matches: [op("a1")], recordProviderHandle: true })).toBeNull();
+    });
+
+    test("a Base Account claim records only the transaction so the wallet's call id can still arrive", async () => {
+      const id = await confirmedSend(baseOwner);
+      expect(await store.claimDiscoveredOperation(baseOwner, id, { matches: [op("b2")], recordProviderHandle: false }))
+        .toMatchObject({ provider_handle: null, transaction_hash: op("b2").transactionHash });
+      expect((await store.recordHandle(baseOwner, id, { providerHandle: "wallet-call-id" }))?.provider_handle).toBe("wallet-call-id");
+    });
+
+    test("never claims an operation or transaction another action of the account already holds", async () => {
+      const holder = await confirmedSend(owner, sendCalls("0xabcd"));
+      await store.recordHandle(owner, holder, { providerHandle: op("c3").userOperationHash });
+      const txHolder = await confirmedSend(otherOwner, sendCalls("0xbeef"));
+      await store.recordHandle(otherOwner, txHolder, { transactionHash: op("d4").transactionHash });
+      const id = await confirmedSend();
+      expect(await store.claimDiscoveredOperation(owner, id, { matches: [op("c3")], recordProviderHandle: true })).toBeNull();
+      expect(await store.claimDiscoveredOperation(owner, id, { matches: [op("d4")], recordProviderHandle: true })).toBeNull();
+      expect((await store.get(owner, id))?.transaction_hash).toBeNull();
+    });
+
+    test("a CDP action's own handle claims only its operation, not a different one bundled in the same transaction", async () => {
+      const bundled = await confirmedSend(owner, sendCalls("0xabcd"));
+      await store.recordHandle(owner, bundled, { providerHandle: op("a2").userOperationHash, transactionHash: op("b3").transactionHash });
+      const id = await confirmedSend();
+      expect(await store.claimDiscoveredOperation(owner, id, { matches: [{ ...op("c4"), transactionHash: op("b3").transactionHash }], recordProviderHandle: true }))
+        .toMatchObject({ provider_handle: op("c4").userOperationHash, transaction_hash: op("b3").transactionHash });
+    });
+
+    test("leaves identical-calldata twins open until each one's own evidence decides", async () => {
+      const lost = await confirmedSend();
+      const twin = await confirmedSend();
+      expect(await store.claimDiscoveredOperation(owner, lost, { matches: [op("e5")], recordProviderHandle: true })).toBeNull();
+      await store.recordHandle(owner, twin, { providerHandle: op("e5").userOperationHash });
+      expect(await store.claimDiscoveredOperation(owner, lost, { matches: [op("e5"), op("f6")], recordProviderHandle: true }))
+        .toMatchObject({ transaction_hash: op("f6").transactionHash });
+    });
+
+    test("a twin confirmed more than a day earlier that holds only a wallet batch id still keeps the claim open", async () => {
+      const older = await confirmedSend(baseOwner);
+      await store.recordHandle(baseOwner, older, { providerHandle: "wallet-call-id" });
+      await sql.query("UPDATE actions SET confirmed_at = now() - interval '25 hours' WHERE id = $1", [older]);
+      const id = await confirmedSend(baseOwner);
+      expect(await store.claimDiscoveredOperation(baseOwner, id, { matches: [op("e7")], recordProviderHandle: false })).toBeNull();
+    });
+
+    test("an aborted row deadline releases a claim waiting on the account lock", async () => {
+      const id = await confirmedSend();
+      await admin.begin(async (holder) => {
+        await holder.unsafe(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`action-discovery:${owner.address.toLowerCase()}`]);
+        const deadline = new AbortController();
+        const claim = store.claimDiscoveredOperation(owner, id, { matches: [op("f8")], recordProviderHandle: true }, { signal: deadline.signal });
+        deadline.abort();
+        await expect(claim).rejects.toThrow();
+      });
+      expect((await store.get(owner, id))?.transaction_hash).toBeNull();
+    });
+
+    test("refuses ambiguous matches, a declined action and a settled action", async () => {
+      const id = await confirmedSend();
+      expect(await store.claimDiscoveredOperation(owner, id, { matches: [op("a7"), op("b8")], recordProviderHandle: true })).toBeNull();
+      const declined = await confirmedSend(owner, sendCalls("0xdead"));
+      await store.recordDecline(owner, declined, 0);
+      expect(await store.claimDiscoveredOperation(owner, declined, { matches: [op("c9")], recordProviderHandle: true })).toBeNull();
+      const settled = await confirmedSend(owner, sendCalls("0xfeed"));
+      await store.recordOutcome(owner, settled, { outcome: "not_submitted", source: "wallet", settledAt: null });
+      expect(await store.claimDiscoveredOperation(owner, settled, { matches: [op("d0")], recordProviderHandle: true })).toBeNull();
+    });
   });
 });

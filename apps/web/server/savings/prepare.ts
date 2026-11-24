@@ -490,10 +490,10 @@ function mapReadStateError(error: unknown): SavingsActionError {
         { cause: error },
       );
     }
-    return new SavingsActionError("rpc", error.message, { cause: error });
+    return new SavingsActionError("rpc", "Current onchain savings state could not be read.", { cause: error });
   }
   if (error instanceof SavingsActionAbiError) {
-    return new SavingsActionError("rpc", error.message, { cause: error });
+    return new SavingsActionError("rpc", "Current onchain savings state could not be read.", { cause: error });
   }
   return new SavingsActionError(
     "unavailable",

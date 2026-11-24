@@ -33,6 +33,7 @@ export const instant = false;
 export default async function SettingsPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   let regionEntry: SettingsEntry<RegionSettings>["settings"] | null = null;
   let investEntry: SettingsEntry<InvestSettings>["settings"] | null = null;
   const database = Boolean(process.env.DATABASE_URL?.trim());

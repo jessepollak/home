@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { BASELINE_PATH, baseBudgetCandidates, countDisables, evaluateDisableBudget, hasFatalFindings, isLintedSource, readBaseBudget, readBaseCounts, readBaseInput, repositoryFiles, shrinkBudget } from "../lint-disables.mjs";
+import { BASELINE_PATH, baseBudgetCandidates, countDisables, evaluateDisableBudget, hasFatalFindings, isLintedSource, readBaseBudget, readBaseCounts, readBaseInput, repositoryFiles, runLintDisables, shrinkBudget } from "../lint-disables.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
 const budget = JSON.parse(readFileSync(new URL("../lint-disables-baseline.json", import.meta.url), "utf8"));
@@ -17,19 +17,22 @@ const fixture = (content = initial) => [{ path, content }];
 const fixtureBudget = { files: { [path]: { "home/a": 1 } }, exceptions: [] };
 const exception = { path, rule: "home/b", count: 1, issue: "#1250", reason: "Reviewed rule exception" };
 
+let mirrorTemplate;
+after(() => mirrorTemplate && rmSync(mirrorTemplate, { recursive: true, force: true }));
+
 function createMirror(t) {
   const directory = mkdtempSync(`${tmpdir()}/home-lint-disables-`);
-  const root = fileURLToPath(new URL("../../..", import.meta.url));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  mkdirSync(`${directory}/scripts/gates`, { recursive: true });
-  mkdirSync(`${directory}/apps/web/shared`, { recursive: true });
-  copyFileSync(`${root}/scripts/gates/lint-disables.mjs`, `${directory}/scripts/gates/lint-disables.mjs`);
-  writeFileSync(`${directory}/apps/web/package.json`, "{}\n");
-  symlinkSync(`${root}/apps/web/node_modules`, `${directory}/apps/web/node_modules`, "dir");
   const git = (args) => execFileSync("git", args, { cwd: directory, env: gitFixtureEnv(), encoding: "utf8" }).trim();
-  git(["init", "--initial-branch=main"]);
-  git(["config", "user.name", "Fixture"]);
-  git(["config", "user.email", "fixture@example.invalid"]);
+  if (!mirrorTemplate) {
+    mirrorTemplate = mkdtempSync(`${tmpdir()}/home-lint-disables-template-`);
+    mkdirSync(`${mirrorTemplate}/scripts/gates`, { recursive: true });
+    mkdirSync(`${mirrorTemplate}/apps/web/shared`, { recursive: true });
+    writeFileSync(`${mirrorTemplate}/apps/web/package.json`, "{}\n");
+    execFileSync("git", ["init", "--quiet", "--initial-branch=main"], { cwd: mirrorTemplate, env: gitFixtureEnv() });
+    writeFileSync(`${mirrorTemplate}/.git/config`, `${readFileSync(`${mirrorTemplate}/.git/config`, "utf8")}[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n`);
+  }
+  cpSync(mirrorTemplate, directory, { recursive: true });
   return { directory, git };
 }
 
@@ -395,11 +398,7 @@ test("concurrent removals merge safely in either order without admitting re-adds
       git(["commit", "-m", message]);
       return git(["rev-parse", "HEAD"]);
     };
-    const cli = (base, args = []) => spawnSync(process.execPath, ["scripts/gates/lint-disables.mjs", ...args], {
-      cwd: directory,
-      env: { ...gitFixtureEnv(), BASE_REF: base },
-      encoding: "utf8",
-    });
+    const cli = (base, args = []) => runLintDisables({ cwd: directory, args, env: { ...gitFixtureEnv(), BASE_REF: base } });
     writeFixture(lines);
     writeBudget(2);
     const m0 = commit("initial fixture");
@@ -455,11 +454,7 @@ test("concurrent removals with an inherited exception merge safely in either ord
       git(["commit", "-m", message]);
       return git(["rev-parse", "HEAD"]);
     };
-    const cli = (base, args = []) => spawnSync(process.execPath, ["scripts/gates/lint-disables.mjs", ...args], {
-      cwd: directory,
-      env: { ...gitFixtureEnv(), BASE_REF: base },
-      encoding: "utf8",
-    });
+    const cli = (base, args = []) => runLintDisables({ cwd: directory, args, env: { ...gitFixtureEnv(), BASE_REF: base } });
     writeFixture(lines);
     writeFileSync(`${directory}/${BASELINE_PATH}`, `${JSON.stringify({ files: { [fixturePath]: { "home/a": 1 } }, exceptions: [reviewed] }, null, 2)}\n`);
     const m0 = commit("initial fixture with exception");
@@ -504,7 +499,7 @@ test("an exception cleanup and a baseline shrink merge safely in either order", 
       git(["commit", "-m", message]);
       return git(["rev-parse", "HEAD"]);
     };
-    const cli = (base, args = []) => spawnSync(process.execPath, ["scripts/gates/lint-disables.mjs", ...args], { cwd: directory, env: { ...gitFixtureEnv(), BASE_REF: base }, encoding: "utf8" });
+    const cli = (base, args = []) => runLintDisables({ cwd: directory, args, env: { ...gitFixtureEnv(), BASE_REF: base } });
     writeFixture(lines);
     writeBaseline(covered);
     const m0 = commit("initial fixture with a covered exception");
@@ -556,7 +551,7 @@ test("an addition and a removal merge safely in either order", (t) => {
       git(["commit", "-m", message]);
       return git(["rev-parse", "HEAD"]);
     };
-    const cli = (base, args = []) => spawnSync(process.execPath, ["scripts/gates/lint-disables.mjs", ...args], { cwd: directory, env: { ...gitFixtureEnv(), BASE_REF: base }, encoding: "utf8" });
+    const cli = (base, args = []) => runLintDisables({ cwd: directory, args, env: { ...gitFixtureEnv(), BASE_REF: base } });
     writeFixture(lines);
     writeBaseline({ files: { [fixturePath]: { "home/a": 2 } }, exceptions: [] });
     const m0 = commit("initial fixture");
