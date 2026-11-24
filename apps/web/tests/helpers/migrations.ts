@@ -9,6 +9,8 @@ const MIGRATION_DIRS = [
   resolve(import.meta.dir, "../../server/funding/migrations"),
 ] as const;
 
+export const MIGRATION_BOOTSTRAP_TIMEOUT_MS = 30_000;
+
 export async function readMigrationSql(name: string): Promise<string> {
   for (const dir of MIGRATION_DIRS) {
     try {

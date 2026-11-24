@@ -62,8 +62,8 @@ function parsePositiveInteger(value, name) {
   return Number(value);
 }
 
-function runCli(args) {
-  const branches = JSON.parse(readFileSync(0, "utf8"));
+export function runCli(args, input = () => readFileSync(0, "utf8")) {
+  const branches = JSON.parse(input());
   if (args.length === 1 && args[0] === "eligible") return eligiblePreviews(branches);
   if (args.length === 1 && args[0] === "collect") return collectBranches(branches);
   if (args.length === 7 && args[0] === "plan" && args[1] === "--cap" && args[3] === "--headroom" && args[5] === "--stale") {

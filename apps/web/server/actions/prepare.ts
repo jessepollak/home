@@ -94,9 +94,9 @@ export function createPrepareActionHandler(dependencies: {
           case "rate-limited":
             return fail("SAVINGS_ACTION_RATE_LIMITED", error.message, 429);
           case "rpc":
-            return fail("SAVINGS_ACTION_RPC", error.message, 502);
+            return fail("SAVINGS_ACTION_RPC", "Savings couldn't read the current vault state. Try again shortly.", 502);
           default:
-            return fail("SAVINGS_ACTION_UNAVAILABLE", error.message, 502);
+            return fail("SAVINGS_ACTION_UNAVAILABLE", "Savings is unavailable right now. Try again shortly.", 502);
         }
       }
       if (error instanceof BorrowPreparationError) {

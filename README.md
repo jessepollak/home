@@ -112,14 +112,14 @@ In progress: tokenized stock trading, card programs (provider foundations only),
 
 The button copies Home into a new repository and sets Root Directory to `apps/web`. It does not provision a database or set the Install Command. It asks only for `HOME_SESSION_SECRET`; add `HOME_OPERATOR_ADDRESSES` after you know your Base smart-account address, as the guide explains. For a fork that keeps upstream updates, fork Home on GitHub, then use Vercel **Add New → Project** to import your fork with the [launch settings](docs/vercel-deploy.md#launch).
 
-Follow that guide through database provisioning, first-run Admin setup, and [updates, backups, and recovery](docs/vercel-deploy.md#update-backup-and-recovery). A completed setup is not production or real-money authorization.
+Before you deploy, read [provider readiness](docs/provider-readiness.md) for the accounts to open, which approvals take time, and what each costs. Follow that guide through database provisioning, first-run Admin setup, and [updates, backups, and recovery](docs/vercel-deploy.md#update-backup-and-recovery). Run a tagged release once one is published (until then, track `main`): [releases](docs/releases.md) explains versions and upgrades, and the [changelog](CHANGELOG.md) lists what each one contains. A completed setup is not production or real-money authorization.
 
 ## Get started
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) **1.3.12**, pinned by `packageManager`.
-- Node.js **22.13 or newer**.
+- [Bun](https://bun.sh/) **1.4.4**, pinned by `packageManager`.
+- Node.js **22.23.4+, 24.22.1+, or 26.12.1+** on the corresponding supported release line (CVE-2026-111497).
 
 ### Install and run
 
@@ -158,6 +158,10 @@ bun typecheck  # generated route types and strict TypeScript
 bun build      # production build
 bun check      # repository gates, test, lint, typecheck, and build
 ```
+
+The operator marketing site is `apps/site`, a static one-page Next app built from Home's own components and theme in `apps/web` (its `@/*` alias points there): `bun run --cwd apps/site dev` serves it on port 3300, and `bun check` runs its lint, typecheck, Knip and build.
+
+`bun run --cwd apps/web sim:money -- --runs 100` runs the seeded money-action simulation (send, Save, Peer cash-out with injected faults) on a local Base fork; `--seed <n>` replays one run. It needs Foundry's `anvil` and PostgreSQL's `initdb` and `pg_ctl` on `PATH`, plus an archive-capable `BASE_RPC_URL` in `apps/web/.env.local` as the fork upstream. It uses its own scratch database, never `DATABASE_URL`.
 
 `bun build` and `bun check` apply database migrations when `DATABASE_URL` is set, including through `apps/web/.env.local`. Never validate against a serving database: use an isolated local/scratch database or run `DATABASE_URL="" bun check` to override any env-file value. For deployed updates, [back up and rehearse the restore before merging or validating](docs/vercel-deploy.md#update-a-fork).
 

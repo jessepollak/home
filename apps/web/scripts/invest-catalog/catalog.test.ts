@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import stocks from "../../config/invest-sources/base-stocks.json";
 import wrapped from "../../config/invest-sources/coinbase-wrapped.json";
+import curated from "../../config/invest-sources/curated-catalog.json";
 import { calendarState, catalogExitCode, diffCatalog, parseBaseStockRoster, parseBaseIntegrationDoc, parseChainlinkFeedDirectory, parseCoinbaseWrappedIssuerPage, type ParsedSources } from "./catalog";
 
 import rosterFixture from "./fixtures/roster.html" with { type: "text" };
@@ -15,11 +16,16 @@ const parse = (sources: [string | null, string | null, string | null, string | n
   integration: sources[1] === null ? null : parseBaseIntegrationDoc(sources[1]),
   feedDirectory: sources[2] === null ? null : parseChainlinkFeedDirectory(sources[2]),
   issuer: sources[3] === null ? null : parseCoinbaseWrappedIssuerPage(sources[3]),
+  curated: {
+    projects: Object.fromEntries(curated.memes.map((meme) => [meme.id, { status: "ok", value: true }])),
+    memeMarket: { status: "ok", value: curated.memes.map((meme) => ({ contract: meme.contract, marketCapUsd: meme.marketCapUsd, baseLiquidityUsd: meme.baseLiquidityUsd })) },
+    majorMarket: { status: "ok", value: curated.majors.map((major) => ({ id: major.coingeckoId, marketCapUsd: major.underlyingMarketCapUsd })) },
+  },
 });
 const baseline: [string, string, string, string] = [roster, integration, directory, issuer];
 const address = "0x1111111111111111111111111111111111111111";
 
-const today = "2026-09-28";
+const today = "2026-10-21";
 for (const { name, modify, expectedCode, source, field } of [
   { name: "in sync", modify: (rows: typeof baseline) => rows, expectedCode: 0, source: "roster", field: "status" },
   { name: "addition", modify: (rows: typeof baseline) => [`${rows[0]}<a aria-label="View NFLXc on BaseScan" href="https://basescan.org/token/${address}"></a>`, rows[1], rows[2], rows[3]], expectedCode: 1, source: "roster", field: "additions" },
@@ -33,7 +39,7 @@ for (const { name, modify, expectedCode, source, field } of [
     const frozenStock = JSON.stringify(stocks);
     const frozenWrapped = JSON.stringify(wrapped);
     const inputs = modify(baseline) as [string | null, string | null, string | null, string | null];
-    const report = diffCatalog(stocks, wrapped, parse(inputs), today);
+    const report = diffCatalog(stocks, wrapped, curated, parse(inputs), today);
     expect(catalogExitCode(report)).toBe(expectedCode);
     expect(JSON.stringify(stocks)).toBe(frozenStock);
     expect(JSON.stringify(wrapped)).toBe(frozenWrapped);
@@ -49,7 +55,7 @@ for (const { name, modify, expectedCode, source, field } of [
   });
 }
 test("onchain failures and mismatches have distinct exit states", () => {
-  const report = diffCatalog(stocks, wrapped, parse(baseline), today);
+  const report = diffCatalog(stocks, wrapped, curated, parse(baseline), today);
   expect(catalogExitCode({ ...report, onchain: { status: "unavailable", block: null, identityChanges: [] } })).toBe(2);
   expect(catalogExitCode({ ...report, onchain: { status: "ok", block: "51886274", identityChanges: [{ key: "NVDAc", field: "decimals", expected: 8, actual: 18 }] } })).toBe(1);
 });
@@ -63,7 +69,7 @@ test("calendar coverage is reported and gates the drift check", () => {
   expect(calendarState(calendar, "2028-09-01")).toEqual({ status: "ok", coversThrough: "2028-12-31", daysRemaining: 121 });
   expect(calendarState(calendar, "2028-10-01").status).toBe("expiring");
   expect(calendarState(calendar, "2029-01-01").status).toBe("expired");
-  const report = diffCatalog(stocks, wrapped, parse(baseline), "2026-09-28");
+  const report = diffCatalog(stocks, wrapped, curated, parse(baseline), today);
   expect(catalogExitCode(report)).toBe(0);
   expect(catalogExitCode({ ...report, calendar: calendarState(calendar, "2029-01-01") })).toBe(1);
 });

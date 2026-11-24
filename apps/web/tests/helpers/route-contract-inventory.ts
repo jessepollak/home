@@ -268,6 +268,7 @@ function inspect(source: string, path: string) {
 }
 
 const routeGroupPattern = /^\(.+\)$/;
+const inspections = new Map<string, { source: string; info: ReturnType<typeof inspect> }>();
 
 function routeSegments(path: string): string[] {
   return path.replace(/(?:^|\/)route\.(?:ts|tsx|js|jsx)$/, "").split("/").filter(Boolean).filter((part) => !routeGroupPattern.test(part));
@@ -322,14 +323,23 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
   const sourceInfo = (path: string) => {
     let result = inspected.get(path);
     if (!result) {
-      result = inspect(readFileSync(join(root, path), "utf8"), path);
+      const source = readFileSync(join(root, path), "utf8");
+      const key = `${root}\u0000${path}`;
+      const previous = inspections.get(key);
+      result = previous?.source === source ? previous.info : inspect(source, path);
+      inspections.set(key, { source, info: result });
       inspected.set(path, result);
     }
     return result;
   };
+  const resolved = new Map<string, string | undefined>();
   const resolveModule = (path: string, specifier: string): string | undefined => {
     if (!specifier.startsWith("@/") && !specifier.startsWith(".")) return undefined;
     const target = specifier.startsWith("@/") ? resolve(root, specifier.slice(2)) : resolve(root, dirname(path), specifier);
+    if (!resolved.has(target)) resolved.set(target, resolveTarget(target));
+    return resolved.get(target);
+  };
+  const resolveTarget = (target: string): string | undefined => {
     for (const candidate of [target, `${target}.ts`, `${target}.tsx`, `${target}.js`, `${target}.jsx`,
       join(target, "index.ts"), join(target, "index.tsx"), join(target, "index.js"), join(target, "index.jsx")]) {
       if (statSync(candidate, { throwIfNoEntry: false })?.isFile()) return relative(root, candidate).replaceAll("\\", "/");

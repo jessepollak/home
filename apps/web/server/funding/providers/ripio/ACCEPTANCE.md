@@ -40,7 +40,7 @@ Use role labels in evidence, not personal names.
 
 ## Prerequisites
 
-- [ ] Repository clone with Bun (1.3.12) and Docker.
+- [ ] Repository clone with Bun (1.4.4) and Docker.
 - [ ] Environment variables configured by name — values are never recorded: `HOME_SESSION_SECRET` (at least 32 characters), `FUNDING_QUOTE_SECRET` (at least 32 characters), local `DATABASE_URL`, and the matching Ripio country variables `RIPIO_CLIENT_ID_AR` / `RIPIO_CLIENT_SECRET_AR` / `RIPIO_WEBHOOK_SECRET_AR` (and the `_BR` / `_CO` variants for the countries in scope).
 - [ ] `BASE_RPC_URL` recommended, so receipt checks — the Base reads behind `received` — use a reliable endpoint instead of the public fallback.
 - [ ] Observability prerequisite [#520](https://github.com/jessepollak/home/issues/520) merged, or applied to the local branch, before live Phase 2; deployed only before hosted Phase 5 (blocking).

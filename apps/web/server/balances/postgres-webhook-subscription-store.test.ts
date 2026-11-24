@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import { readAllMigrationSql } from "@/tests/helpers/migrations";
+import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
 import { PostgresWebhookSubscriptionStore } from "./webhook-subscription-store";
 import { webhookSubscriptionStoreContract } from "./webhook-subscription-store.contract";
 
@@ -23,7 +23,7 @@ describePostgres("Postgres webhook subscription production contract", () => {
     await client.unsafe(`SET search_path TO ${schema}`);
     for (const migration of await readAllMigrationSql()) await client.unsafe(migration);
     executor = bunExecutor(client);
-  });
+  }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   afterAll(async () => {
     await client?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     await client?.close();

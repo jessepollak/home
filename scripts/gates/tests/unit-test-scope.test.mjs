@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { CATEGORY_IDS, MANIFEST_PATH, checkUnitTestScope, run, unitTestCases } from "../unit-test-scope.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
@@ -13,18 +13,34 @@ const scope = { pattern: "server/actions/**", category: "action-lifecycle" };
 const grandfather = { path: residue, reason: "Existing query plumbing suite." };
 const manifest = () => ({ categories: Object.fromEntries(CATEGORY_IDS.map((id) => [id, "Protected policy category."])), scopes: [{ ...scope }], grandfathered: [{ ...grandfather }] });
 
-function fixture(t, paths = [protectedFile, residue], contents = {}) {
-  const root = mkdtempSync(join(tmpdir(), "unit-scope-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+const templates = new Map();
+after(() => {
+  for (const template of templates.values()) rmSync(template, { recursive: true, force: true });
+});
+
+function template(paths, contents) {
+  const key = JSON.stringify([paths, contents]);
+  if (templates.has(key)) return templates.get(key);
+  const root = mkdtempSync(join(tmpdir(), "unit-scope-template-"));
+  templates.set(key, root);
   const git = (...args) => execFileSync("git", args, { cwd: root, env: gitFixtureEnv(), stdio: "pipe" });
   const write = (path, content) => { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), content); };
   git("init", "-q");
   for (const path of paths) write(`apps/web/${path}`, contents[path] ?? "export {};\n");
-  const save = (value) => write(MANIFEST_PATH, JSON.stringify(value));
-  save(manifest());
+  write(MANIFEST_PATH, JSON.stringify(manifest()));
   git("add", ".");
   git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "initial");
   git("update-ref", "refs/remotes/origin/main", "HEAD");
+  return root;
+}
+
+function fixture(t, paths = [protectedFile, residue], contents = {}) {
+  const root = mkdtempSync(join(tmpdir(), "unit-scope-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  cpSync(template(paths, contents), root, { recursive: true, preserveTimestamps: true });
+  const git = (...args) => execFileSync("git", args, { cwd: root, env: gitFixtureEnv(), stdio: "pipe" });
+  const write = (path, content) => { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), content); };
+  const save = (value) => write(MANIFEST_PATH, JSON.stringify(value));
   return { root, git, write, save, check: () => checkUnitTestScope({ root, baseRef: "main" }) };
 }
 

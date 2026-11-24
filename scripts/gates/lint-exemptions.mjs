@@ -125,8 +125,8 @@ export function shrinkExemptions({ config, baseline }) {
     .map(({ glob, rule, reason }) => ({ glob, rule, reason })).sort(compareEntries);
 }
 
-export function readExemptionInput() {
-  const baselineText = readFileSync(path.join(root, EXEMPTIONS_BASELINE_PATH), "utf8");
+export function readExemptionInput({ cwd = root } = {}) {
+  const baselineText = readFileSync(path.join(cwd, EXEMPTIONS_BASELINE_PATH), "utf8");
   let baseline;
   try {
     baseline = JSON.parse(baselineText);
@@ -134,25 +134,27 @@ export function readExemptionInput() {
     baseline = baselineText;
   }
   return {
-    config: readFileSync(path.join(root, configPath), "utf8"),
+    config: readFileSync(path.join(cwd, configPath), "utf8"),
     baseline,
-    configPaths: execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root })
+    configPaths: execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd })
       .toString().split("\0").filter(Boolean),
   };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const shrink = process.argv.length === 3 && process.argv[2] === "--shrink";
-  if (process.argv.length > (shrink ? 3 : 2)) {
-    console.error("usage: node scripts/gates/lint-exemptions.mjs [--shrink]");
-    process.exitCode = 1;
+export function runLintExemptions({ cwd = root, args = process.argv.slice(2) } = {}) {
+  const shrink = args.length === 1 && args[0] === "--shrink";
+  const stderr = [];
+  let status = 0;
+  if (args.length > (shrink ? 1 : 0)) {
+    stderr.push("usage: node scripts/gates/lint-exemptions.mjs [--shrink]");
+    status = 1;
   } else {
     try {
-      const input = readExemptionInput();
+      const input = readExemptionInput({ cwd });
       let findings = evaluateExemptions(input);
       if (shrink && !findings.invalid.length) {
         input.baseline = shrinkExemptions(input);
-        const baselineFile = path.join(root, EXEMPTIONS_BASELINE_PATH);
+        const baselineFile = path.join(cwd, EXEMPTIONS_BASELINE_PATH);
         const temporaryFile = `${baselineFile}.tmp-${process.pid}-${randomUUID()}`;
         try {
           writeFileSync(temporaryFile, `${JSON.stringify(input.baseline, null, 2)}\n`, { flag: "wx" });
@@ -166,11 +168,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
         findings = evaluateExemptions(input);
       }
       const messages = [...findings.unlisted, ...findings.stale, ...findings.invalid];
-      for (const message of messages) console.error(message);
-      if (messages.length) process.exitCode = 1;
+      stderr.push(...messages);
+      if (messages.length) status = 1;
     } catch (error) {
-      console.error(`lint-exemptions: could not read or write gate input: ${error.message}`);
-      process.exitCode = 1;
+      stderr.push(`lint-exemptions: could not read or write gate input: ${error.message}`);
+      status = 1;
     }
   }
+  return { status, stdout: "", stderr: stderr.map((line) => `${line}\n`).join("") };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const result = runLintExemptions();
+  process.stderr.write(result.stderr);
+  process.exitCode = result.status;
 }

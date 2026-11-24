@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { caughtByPrBodyFindings, prBodyDetectors } from "../caught-by-pr-body.mjs";
+import { caughtByPrBodyFindings, prBodyDetectors, runCaughtByPrBody } from "../caught-by-pr-body.mjs";
 
 const title = "fix(home): repair state";
 
@@ -60,9 +60,9 @@ test("the template hint is ignored until a fix PR author adds a detector", () =>
 });
 
 test("CLI accepts a fix and a non-fix body, rejects missing or conflicting detectors and extra arguments", () => {
-  const run = (prTitle, body, args = []) => spawnSync(process.execPath, ["scripts/gates/caught-by-pr-body.mjs", ...args], {
-    encoding: "utf8", env: { ...process.env, PR_TITLE: prTitle, PR_BODY: body },
-  });
+  const run = (prTitle, body, args = []) => args.length
+    ? spawnSync(process.execPath, ["scripts/gates/caught-by-pr-body.mjs", ...args], { encoding: "utf8", env: { ...process.env, PR_TITLE: prTitle, PR_BODY: body } })
+    : { ...runCaughtByPrBody({ args, env: { ...process.env, PR_TITLE: prTitle, PR_BODY: body } }), stderr: "" };
   const pass = run(title, "Caught-by: lint");
   assert.equal(pass.status, 0);
   assert.match(pass.stdout, /Caught-by PR body gate passed/);

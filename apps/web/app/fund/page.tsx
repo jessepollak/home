@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { brandedPageTitle } from "@/server/operator-settings/brand";
 import { firstQueryValue } from "@/config/shell-location";
 
-export const metadata: Metadata = {
-  title: "Add money · Home",
-  description: "Fund your verified Home Base account.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: await brandedPageTitle("Add money") };
+}
 
 export const instant = false;
 

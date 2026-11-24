@@ -12,6 +12,10 @@
     "reason": "Development and verification scripts run outside the production application."
   },
   {
+    "path": "sim",
+    "reason": "The money-action fork simulation runs locally against a scratch database and an anvil fork, never in the production application."
+  },
+  {
     "path": "stories",
     "reason": "Workshop stories and design explorations are non-production review surfaces."
   },

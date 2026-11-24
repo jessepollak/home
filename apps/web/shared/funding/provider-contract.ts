@@ -67,8 +67,11 @@ export type FundingProviderManifest = {
   }>;
 };
 
+export type ConnectionCheckOutcome = "connected" | "rejected" | "unreachable" | "inconclusive";
+
 export type FundingProvider = {
   manifest: FundingProviderManifest;
+  checkConnection?(ctx: ProviderContext): Promise<ConnectionCheckOutcome>;
   onramp?: FundingOnrampProvider;
   offramp?: FundingOfframpProvider;
 };
@@ -233,6 +236,7 @@ export type ProviderRequestResult<T> =
   | { ok: false; kind: "aborted" | "timeout" | "transport" | "oversized" | "invalid" };
 
 export type ProviderContext = {
+  signal?: AbortSignal;
   binding: {
     region: CountryCode;
     direction: FundingDirection;

@@ -6,11 +6,14 @@ import { emitServerEvent } from "@/server/observability/log";
 import { composeDeadline } from "@/server/http/deadline";
 import { actionOwnerKey, getActionsStore, ownerFromActionKey, type ActionRow, type ActionsStore } from "./store";
 import type { TransferReceiptStatus } from "./receipt";
+import { createUserOperationCallDataLookup, type UserOperationCallDataResolution } from "./user-operation-log";
+import type { MoneyActionOwner } from "@/shared/money-actions/types";
 
 export type FollowActionDeps = {
   store?: Pick<ActionsStore, "get" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore,
-    "recordReceiptObservation" | "clearReceiptObservation" | "listOpenByAccounts" | "listOpenForFollowUp">>;
+    "recordReceiptObservation" | "clearReceiptObservation" | "listOpenByAccounts" | "listOpenForFollowUp" | "claimDiscoveredOperation">>;
   resolveHandle?: ActionHandleResolver;
+  findUserOperations?: (row: ActionRow, signal?: AbortSignal) => Promise<UserOperationCallDataResolution>;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   now?: () => number;
 };
@@ -23,6 +26,9 @@ type LoopOptions = FollowOptions & {
 
 const FOLLOW_CONCURRENCY = 4;
 const FOLLOW_ROW_BUDGET_MS = 15_000;
+const DISCOVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+let defaultUserOperationLookup: ReturnType<typeof createUserOperationCallDataLookup> | null = null;
 
 export async function followAction(row: ActionRow, options: FollowOptions): Promise<ActionRow> {
   return (await followActionStep(row, options)).row;
@@ -42,12 +48,45 @@ async function followActionStep(row: ActionRow, options: FollowOptions): Promise
     throw error;
   }
   if (!current || current.outcome || current.owner_key !== row.owner_key || options.signal.aborted) return { row: current ?? row, receiptPersisted: false };
-  const reconciled = !current.transaction_hash && current.provider_handle && current.provider_handle !== current.id
-    ? await reconcileRow({ row: current, owner, store, resolveHandle: options.deps?.resolveHandle ?? getDefaultActionHandleResolver(),
-      signal: options.signal, route: options.route })
+  const discovered = isDiscoveryCandidate(current, (options.deps?.now ?? Date.now)())
+    ? await discoverRow(current, owner, store, options)
     : current;
+  if (options.signal.aborted) return { row: discovered, receiptPersisted: false };
+  const reconciled = !discovered.transaction_hash && discovered.provider_handle && discovered.provider_handle !== discovered.id
+    ? await reconcileRow({ row: discovered, owner, store, resolveHandle: options.deps?.resolveHandle ?? getDefaultActionHandleResolver(),
+      signal: options.signal, route: options.route })
+    : discovered;
   if (options.signal.aborted) return { row: reconciled, receiptPersisted: false };
   return await settleRow(reconciled, owner, store, options.deps?.readReceipt, options.signal, options.route);
+}
+
+function isDiscoveryCandidate(row: ActionRow, nowMs: number): boolean {
+  const confirmedAt = row.confirmed_at === null ? Number.NaN : new Date(row.confirmed_at).getTime();
+  return (row.provider === "cdp-embedded" || row.provider === "base-account") && row.outcome === null &&
+    row.provider_handle === null && row.transaction_hash === null && row.declined_reported_at === null &&
+    typeof row.confirmed_call_data_hash === "string" && row.account_address !== null &&
+    Number.isFinite(confirmedAt) && nowMs - confirmedAt <= DISCOVERY_MAX_AGE_MS;
+}
+
+async function discoverRow(row: ActionRow, owner: MoneyActionOwner, store: FollowStore, options: FollowOptions): Promise<ActionRow> {
+  if (!store.claimDiscoveredOperation) return row;
+  const startedAt = Date.now();
+  const observe = (code: string, outcome: "ok" | "skipped" | "unavailable") => emitServerEvent("action-reconcile", {
+    route: options.route, code, outcome, provider: row.provider, owner, durationMs: Date.now() - startedAt,
+  });
+  try {
+    defaultUserOperationLookup ??= createUserOperationCallDataLookup();
+    const found = await (options.deps?.findUserOperations ?? defaultUserOperationLookup)(row, options.signal);
+    if (found.status !== "complete" || options.signal.aborted) return row;
+    const claimed = await store.claimDiscoveredOperation(owner, row.id, {
+      matches: found.matches, recordProviderHandle: row.provider === "cdp-embedded",
+    }, { signal: options.signal });
+    observe(claimed ? "CALL_DATA_MATCH" : "CALL_DATA_MATCH_UNCLAIMED", claimed ? "ok" : "skipped");
+    return claimed ?? row;
+  } catch {
+    if (!options.signal.aborted) observe("CALL_DATA_MATCH_UNAVAILABLE", "unavailable");
+    return row;
+  }
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {

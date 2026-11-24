@@ -87,6 +87,15 @@ async function recordRowOutcome(
   }
 }
 
+async function currentRow(store: Partial<Pick<ActionsStore, "get">>, owner: MoneyActionOwner, row: ActionRow, route: string, startedAt: number): Promise<ActionRow> {
+  try {
+    return (await store.get?.(owner, row.id)) ?? row;
+  } catch {
+    emitOutcomeEvent(route, row, owner, "OBSERVATION_UNAVAILABLE", "unavailable", startedAt);
+    return row;
+  }
+}
+
 function attributeReceipt(row: ActionRow, owner: MoneyActionOwner, receipt: Extract<TransferReceiptStatus, { status: "confirmed" }>): ActionOutcome | null {
   const account = (row.account_address ?? owner.address).toLowerCase();
   let candidates = receipt.userOperations.filter((operation) => operation.sender.toLowerCase() === account);
@@ -111,7 +120,7 @@ function observedReceiptStatus(row: ActionRow): ActionReceiptState | null {
 
 export async function settleRow(
   row: ActionRow, owner: MoneyActionOwner,
-  store: Pick<ActionsStore, "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>,
+  store: Pick<ActionsStore, "recordOutcome"> & Partial<Pick<ActionsStore, "get" | "recordReceiptObservation" | "clearReceiptObservation">>,
   readReceipt: ((hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>) | undefined,
   signal: AbortSignal, route: string,
 ): Promise<{ row: ActionRow; receipt: ActionReceiptState | null; receiptPersisted: boolean }> {
@@ -131,6 +140,10 @@ export async function settleRow(
       } catch {
         emitOutcomeEvent(route, row, owner, "OBSERVATION_UNAVAILABLE", "unavailable", startedAt);
       }
+      if (cleared === null) {
+        const current = await currentRow(store, owner, row, route, startedAt);
+        if (current.outcome) return { row: current, receipt: null, receiptPersisted: false };
+      }
       return {
         row: cleared ?? { ...row, observed_receipt_transaction_hash: null, observed_receipt_block_number: null,
           observed_receipt_block_hash: null, observed_receipt_outcome: null, observed_at: null },
@@ -147,19 +160,23 @@ export async function settleRow(
     if (row.observed_receipt_block_hash?.toLowerCase() !== receipt.blockHash.toLowerCase() || row.observed_receipt_outcome !== observedOutcome ||
       row.observed_receipt_block_number !== receipt.blockNumber ||
       row.observed_receipt_transaction_hash?.toLowerCase() !== receipt.transactionHash.toLowerCase()) {
+      let recorded: ActionRow | null | undefined;
       try {
-        row = await store.recordReceiptObservation?.(owner, row.id, {
+        recorded = await store.recordReceiptObservation?.(owner, row.id, {
           transactionHash: receipt.transactionHash, blockNumber: receipt.blockNumber,
           blockHash: receipt.blockHash, outcome: observedOutcome,
-        }) ?? row;
+        });
       } catch {
         emitOutcomeEvent(route, row, owner, "OBSERVATION_UNAVAILABLE", "unavailable", startedAt);
       }
+      row = recorded === null ? await currentRow(store, owner, row, route, startedAt) : recorded ?? row;
+      if (row.outcome) return { row, receipt: null, receiptPersisted: false };
     }
     if (receipt.finalized) row = await recordRowOutcome(store, row, owner, outcome, "chain", new Date(receipt.blockTimestamp), route, startedAt, {
       transactionHash: receipt.transactionHash, blockNumber: receipt.blockNumber,
       blockHash: receipt.blockHash, outcome: observedOutcome,
     });
+    if (row.outcome && row.outcome !== outcome) return { row, receipt: null, receiptPersisted: false };
     const receiptPersisted = row.observed_receipt_block_hash?.toLowerCase() === receipt.blockHash.toLowerCase() &&
       row.observed_receipt_outcome === observedOutcome && row.observed_receipt_block_number === receipt.blockNumber &&
       row.observed_receipt_transaction_hash?.toLowerCase() === receipt.transactionHash.toLowerCase();
