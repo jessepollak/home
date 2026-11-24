@@ -24,6 +24,7 @@ import { NATIVE_BASE_VERIFY_VERSION, parseNativeBaseSession } from "@/shared/acc
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
 import { sessionRevocations, type SessionRevocations } from "@/server/auth/session-revocation";
 import { HOME_CDP_LIVE_COOKIE, HOME_CDP_SESSION_COOKIE } from "@/server/auth/cdp-render-session";
+import { HOME_OPERATOR_GRANT_COOKIE } from "@/server/operator/email-grant";
 import {
   clearCookie,
   cookie,
@@ -402,6 +403,7 @@ export function createNativeBaseLogoutHandler(input: NativeBaseLogoutDependencie
       clearCookie(HOME_SESSION_COOKIE, request),
       clearCookie(HOME_CDP_SESSION_COOKIE, request),
       clearCookie(HOME_CDP_LIVE_COOKIE, request),
+      clearCookie(HOME_OPERATOR_GRANT_COOKIE, request),
     ]);
   };
 }

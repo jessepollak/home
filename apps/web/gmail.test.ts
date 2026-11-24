@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 // oxlint-disable-next-line home/no-source-reads -- Lock fixtures use only system-temp scratch files.
-import { mkdir, symlink, unlink, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, symlink, unlink, utimes, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { acquireGmailOtpLock, callbackDecision, completeGmailAuthorization, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailCredentialsPath, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, readGmailCredentials, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
@@ -13,7 +13,6 @@ const credentials: Required<GmailCredentials> = {
 const submittedAt = Date.parse("2026-09-21T12:00:00.000Z");
 const sender = defaultOtpSender;
 const lockNow = Date.parse("2026-09-21T12:00:00.000Z");
-const servers: Array<{ stop(closeActiveConnections?: boolean): void }> = [];
 
 function message(overrides: Partial<GmailMessage> = {}): GmailMessage {
   return {
@@ -25,15 +24,16 @@ function message(overrides: Partial<GmailMessage> = {}): GmailMessage {
   };
 }
 
-afterEach(() => {
-  for (const server of servers.splice(0)) server.stop(true);
-});
-
 async function lockFixture(): Promise<{ directory: string; path: string; metadata: string }> {
-  const directory = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-otp-lock-test-XXXXXX")]).stdout.toString().trim();
+  const directory = await mkdtemp(resolve(tmpdir(), "home-otp-lock-test-"));
   const path = resolve(directory, "live-login.lock");
   const metadata = resolve(path, "owner.json");
   return { directory, path, metadata };
+}
+
+async function entryMode(path: string): Promise<string> {
+  const entry = await lstat(path);
+  return `${entry.isDirectory() ? "d" : entry.isFile() ? "-" : "?"}${(entry.mode & 0o777).toString(8)}`;
 }
 
 async function seedLock(path: string, metadata: string, owner: { pid: number; host: string; startedAt: number; token: string }) {
@@ -50,8 +50,8 @@ describe("Gmail OTP lock", () => {
       await seedLock(path, metadata, { pid: process.pid, host: hostname(), startedAt: now - 9 * 60_000, token: "old" });
       expect(Bun.spawnSync(["touch", "-t", "202001010000.00", path]).exitCode).toBe(0);
       const release = await acquireGmailOtpLock(directory, { now: () => now, sleep: async () => { throw new Error("should not wait"); } });
-      expect(Bun.spawnSync(["ls", "-ld", path]).stdout.toString()).toStartWith("drwx------");
-      expect(Bun.spawnSync(["ls", "-ld", metadata]).stdout.toString()).toStartWith("-rw-------");
+      expect(await entryMode(path)).toBe("d700");
+      expect(await entryMode(metadata)).toBe("-600");
       await release();
       expect(Bun.spawnSync(["test", "-e", path]).exitCode).not.toBe(0);
     } finally { Bun.spawnSync(["rm", "-rf", directory]); }
@@ -229,7 +229,7 @@ describe("Gmail account configuration", () => {
   });
 
   test("does not expose a credential path or malformed JSON in read errors", async () => {
-    const directory = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-gmail-test-XXXXXX")]).stdout.toString().trim();
+    const directory = await mkdtemp(resolve(tmpdir(), "home-gmail-test-"));
     try {
       const path = resolve(directory, "private-credential-path.json");
       const missingError = await readGmailCredentials(path).catch((error: unknown) => String(error));
@@ -284,18 +284,14 @@ describe("Gmail OAuth bootstrap", () => {
 describe("Gmail polling", () => {
   test("queries a fake Gmail server and never logs the code or tokens", async () => {
     const requests: Array<{ path: string; authorization: string | null }> = [];
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        requests.push({ path: `${url.pathname}${url.search}`, authorization: request.headers.get("authorization") });
-        if (url.pathname === "/token") return Response.json({ access_token: "access-token" });
-        if (url.pathname.endsWith("/messages")) return Response.json({ messages: [{ id: "message-1" }] });
-        return Response.json(message());
-      },
-    });
-    servers.push(server);
+    const fakeGmail = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      const url = new URL(request.url);
+      requests.push({ path: `${url.pathname}${url.search}`, authorization: request.headers.get("authorization") });
+      if (url.pathname === "/token") return Response.json({ access_token: "access-token" });
+      if (url.pathname.endsWith("/messages")) return Response.json({ messages: [{ id: "message-1" }] });
+      return Response.json(message());
+    }, { preconnect: fetch.preconnect });
     const output: string[] = [];
     const originalLog = console.log;
     const originalError = console.error;
@@ -303,8 +299,9 @@ describe("Gmail polling", () => {
     console.error = (...values) => output.push(values.join(" "));
     try {
       const code = await pollGmailOtp(credentials, sender, submittedAt, {
-        tokenEndpoint: `http://127.0.0.1:${server.port}/token`,
-        apiBaseUrl: `http://127.0.0.1:${server.port}/gmail/v1`,
+        tokenEndpoint: "https://gmail.test/token",
+        apiBaseUrl: "https://gmail.test/gmail/v1",
+        fetchImplementation: fakeGmail,
         accountEmail: "bot@example.com",
         now: () => submittedAt + 2000,
         wait: async () => undefined,
