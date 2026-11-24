@@ -8,6 +8,6 @@ Checked 1440×900 and 390×844, before and after, for three states: no brand sav
 - Default and unreadable: the console shows `Home`, the same name customer pages use, instead of lowercase `home`.
 - global-error is unchanged and keeps the default on purpose.
 
-Nothing jumps and nothing overflows at either width. The captures are in #2323's Preview table.
+Nothing overflows at either width. When the drawer is open, the extra name line makes it 28 px taller: it grows upward, and the nav inside stays pixel-identical. The captures are in #2323's Preview table.
 
 Not seen on production: signed out, production `/admin` stops at the access-password gate, and no authorized operator session was available for a read-only look at the console after the merge.
