@@ -13,9 +13,9 @@ Fail when the resolved head changes a file the PR never touched.
   --allow <path>   Allow an intentional adaptation outside the PR patch (repeatable)
   --help          Show this help`;
 
-function gitCommand(args, cwd) {
+function gitCommand(args, cwd, env = process.env) {
   try {
-    return execFileSync("git", args, { cwd, encoding: "utf8" });
+    return execFileSync("git", args, { cwd, env, encoding: "utf8" });
   } catch (error) {
     const detail = error.stderr ? `: ${String(error.stderr).trim()}` : "";
     throw Object.assign(new Error(`Git command failed: git ${args.join(" ")}${detail}`), { status: error.status });
@@ -99,25 +99,22 @@ export function resolutionReport({ cwd = process.cwd(), prHead, base = "origin/m
   return { prHead, base, oldBase, prFiles, headFiles, allowed, unexpected };
 }
 
-export function main(argv, { cwd = process.cwd(), log = console.log, error = console.error } = {}) {
-  const options = { cwd, allow: [] };
+export function main(argv, { cwd = process.cwd(), log = console.log, error = console.error, env = process.env } = {}) {
+  const options = { cwd, allow: [], git: (args, directory) => gitCommand(args, directory, env) };
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index];
     if (flag === "--help") {
       log(USAGE);
-      process.exitCode = 0;
-      return;
+      return 0;
     }
     if (!["--pr-head", "--base", "--allow"].includes(flag)) {
       error(`Unknown argument: ${flag}\n${USAGE}`);
-      process.exitCode = 2;
-      return;
+      return 2;
     }
     const value = argv[++index];
     if (!value || value.startsWith("--")) {
       error(`Missing value for ${flag}\n${USAGE}`);
-      process.exitCode = 2;
-      return;
+      return 2;
     }
     if (flag === "--allow") options.allow.push(value);
     else options[flag === "--base" ? "base" : "prHead"] = value;
@@ -128,16 +125,15 @@ export function main(argv, { cwd = process.cwd(), log = console.log, error = con
     if (report.unexpected.length > 0) {
       for (const path of report.unexpected) error(path);
       error(`Restore tracked files from ${report.base} (git restore --source=${report.base} --staged --worktree -- <path>) and delete untracked additions, unless this resolution intentionally adapted the file, in which case rerun with --allow <path>.`);
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     const count = report.headFiles.length;
     log(`Resolution changes only the PR's own files (${count} file${count === 1 ? "" : "s"}).`);
-    process.exitCode = 0;
+    return 0;
   } catch (failure) {
     error(failure.message);
-    process.exitCode = 2;
+    return 2;
   }
 }
 
-if (executedAsScript(import.meta.url)) main(process.argv.slice(2));
+if (executedAsScript(import.meta.url)) process.exitCode = main(process.argv.slice(2));

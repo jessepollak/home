@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { prClosingLinkFindings } from "../pr-closing-link.mjs";
+import { prClosingLinkFindings, runPrClosingLink } from "../pr-closing-link.mjs";
 
 const title = "ops(gates): update metadata";
 
@@ -95,9 +95,9 @@ test("template hint does not satisfy the check without an issue number or reason
 });
 
 test("CLI accepts a link or reason and rejects a missing one and extra arguments", () => {
-  const run = (prTitle, body, args = []) => spawnSync(process.execPath, ["scripts/gates/pr-closing-link.mjs", ...args], {
-    encoding: "utf8", env: { ...process.env, PR_TITLE: prTitle, PR_BODY: body },
-  });
+  const run = (prTitle, body, args = []) => args.length
+    ? spawnSync(process.execPath, ["scripts/gates/pr-closing-link.mjs", ...args], { encoding: "utf8", env: { ...process.env, PR_TITLE: prTitle, PR_BODY: body } })
+    : { ...runPrClosingLink({ args, env: { ...process.env, PR_TITLE: prTitle, PR_BODY: body } }), stderr: "" };
   for (const body of ["Closes #123", "No issue: operator change"]) {
     const pass = run(title, body);
     assert.equal(pass.status, 0);

@@ -1,9 +1,11 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 import { parseOperatorErrorResponse } from "@/shared/operator/contract";
 import { parseOperatorSettingsErrorResponse } from "@/shared/operator-settings/contract";
-import { createOperatorApiHandler } from "@/server/operator/api";
+import { issueCdpRenderHint } from "@/server/auth/cdp-render-session";
+import { createOperatorApiHandler, createOperatorGrantHandler, operatorGrantReader } from "@/server/operator/api";
+import { decideOperatorPageAccess } from "@/server/operator/page";
 import { readOperatorConfig } from "@/server/operator/config";
 import { createAuditListHandler, createSettingsDomainHandlers, createSettingsListHandler } from "@/server/operator-settings/handlers";
 
@@ -46,5 +48,110 @@ test("operator authorization precedes malformed-body parsing and settings or aud
     const fallback = await createOperatorApiHandler(false, variant.authorize, dependencies.config)(request("unknown"));
     expect(fallback.status).toBe(variant.status);
     expect<unknown>(parseOperatorErrorResponse(await fallback.json())).toEqual({ error: { code: variant.code } });
+  }
+});
+
+const SECRET = "operator-email-grant-test-secret-32-bytes!";
+const ORIGIN = "https://home.test";
+const now = new Date("2026-03-01T12:00:00.000Z");
+const env = { HOME_SESSION_SECRET: SECRET, HOME_OPERATOR_ADDRESSES: operator };
+const grantConfig = () => readOperatorConfig(env);
+const previousSecret = process.env.HOME_SESSION_SECRET;
+
+beforeEach(() => { process.env.HOME_SESSION_SECRET = SECRET; });
+afterEach(() => {
+  if (previousSecret === undefined) delete process.env.HOME_SESSION_SECRET;
+  else process.env.HOME_SESSION_SECRET = previousSecret;
+});
+
+const emailSession = (address: `0x${string}`, subject = "email-operator"): VerifiedAccountSession => ({
+  user: { subject },
+  smartAccount: { address, chainId: BASE_CHAIN_ID },
+  accountProvider: "cdp-embedded",
+});
+
+function pairs(setCookies: string[]): string {
+  return setCookies.map((value) => value.split(";")[0]).join("; ");
+}
+
+function hint(session: VerifiedAccountSession, at = now): string {
+  return pairs(issueCdpRenderHint(SECRET, session, new Request(ORIGIN), at));
+}
+
+function cookieStore(cookieHeader: string) {
+  return {
+    getAll(name: string) {
+      return cookieHeader.split(";").map((part) => part.trim()).filter((part) => part.startsWith(`${name}=`))
+        .map((part) => ({ value: part.slice(name.length + 1) }));
+    },
+  };
+}
+
+async function mint(cookieHeader: string, verified: VerifiedAccountSession | Response, at = now, headers: Record<string, string> = {}) {
+  const handler = createOperatorGrantHandler(async () => verified, grantConfig, () => SECRET, () => at);
+  return handler(new Request(`${ORIGIN}/api/admin/session`, {
+    method: "POST",
+    headers: { cookie: cookieHeader, authorization: "Bearer a.b.c", ...headers },
+  }));
+}
+
+async function grantCookie(cookieHeader: string, session = emailSession(operator), at = now): Promise<string> {
+  const response = await mint(cookieHeader, session, at);
+  expect(response.status).toBe(200);
+  const setCookie = response.headers.get("set-cookie");
+  if (!setCookie) throw new Error("grant was not issued");
+  expect(setCookie).toContain("HttpOnly");
+  expect(setCookie).toContain("Max-Age=900");
+  return setCookie.split(";")[0];
+}
+
+const rejectBearer = async () => { throw new Error("cookie-only request reached the bearer authorizer"); };
+
+test("a bearer-verified allowlisted email session opens Admin pages and APIs only with its render hint", async () => {
+  const hinted = hint(emailSession(operator));
+  expect(decideOperatorPageAccess(cookieStore(hinted), env, now)).toEqual({ kind: "verify-email" });
+
+  const granted = `${hinted}; ${await grantCookie(hinted)}`;
+  expect(decideOperatorPageAccess(cookieStore(granted), env, now)).toEqual({ kind: "operator", address: operator, provider: "cdp-embedded" });
+  const api = await createOperatorApiHandler(true, rejectBearer, grantConfig, operatorGrantReader(() => now))(new Request(`${ORIGIN}/api/admin/session`, { headers: { cookie: granted } }));
+  expect(api.status).toBe(200);
+  expect(await api.json()).toEqual({ version: 1, operator: { address: operator } });
+
+  const grantOnly = granted.split("; ").filter((part) => part.startsWith("home-operator-grant=")).join("; ");
+  expect(decideOperatorPageAccess(cookieStore(grantOnly), env, now)).toEqual({ kind: "unauthenticated" });
+  const withoutLive = granted.split("; ").filter((part) => !part.startsWith("home-cdp-live=")).join("; ");
+  expect(decideOperatorPageAccess(cookieStore(withoutLive), env, now)).toEqual({ kind: "forbidden" });
+  const otherUser = `${hint(emailSession(operator, "other-email-user"))}; ${grantOnly}`;
+  expect(decideOperatorPageAccess(cookieStore(otherUser), env, now)).toEqual({ kind: "verify-email" });
+  expect(decideOperatorPageAccess(cookieStore(granted), { ...env, HOME_OPERATOR_ADDRESSES: customer }, now)).toEqual({ kind: "forbidden" });
+  expect(decideOperatorPageAccess(cookieStore(granted), env, new Date(now.getTime() + 15 * 60_000))).toEqual({ kind: "verify-email" });
+  const tampered = granted.replace(/(home-operator-grant=v1\.)([A-Za-z0-9_-])/, (_, prefix: string, first: string) => `${prefix}${first === "A" ? "B" : "A"}`);
+  expect(decideOperatorPageAccess(cookieStore(tampered), env, now)).toEqual({ kind: "verify-email" });
+});
+
+test("a render hint alone never authorizes the admin API", async () => {
+  const response = await createOperatorApiHandler(true, async () => Response.json({}, { status: 401 }), grantConfig)(
+    new Request(`${ORIGIN}/api/admin/session`, { headers: { cookie: hint(emailSession(operator)) } }),
+  );
+  expect(response.status).toBe(401);
+});
+
+test("the grant is issued only to an allowlisted email session with a matching render hint", async () => {
+  const hinted = hint(emailSession(operator));
+  const denied = [
+    [await mint(hint(emailSession(customer)), emailSession(customer)), 403],
+    [await mint("", emailSession(operator)), 401],
+    [await mint(hint(emailSession(operator, "other-email-user")), emailSession(operator)), 401],
+    [await mint(hinted, { ...emailSession(operator), accountProvider: "base-account" }), 401],
+    [await mint(hinted, Response.json({}, { status: 401 })), 401],
+    [await mint(hinted, Response.json({}, { status: 503 })), 503],
+    [await mint(`${hinted}; home-session=v1.x.y`, emailSession(operator)), 401],
+  ] as const;
+  const withoutBearer = await createOperatorGrantHandler(async () => emailSession(operator), grantConfig, () => SECRET, () => now)(
+    new Request(`${ORIGIN}/api/admin/session`, { method: "POST", headers: { cookie: hinted } }),
+  );
+  for (const [response, status] of [...denied, [withoutBearer, 401] as const]) {
+    expect(response.status).toBe(status);
+    expect(response.headers.get("set-cookie")).toBeNull();
   }
 });

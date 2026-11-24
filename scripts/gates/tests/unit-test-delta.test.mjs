@@ -136,9 +136,9 @@ test("the CLI always exits zero for a missing base, unavailable corpus, or unwri
     [fixture, "main", ""],
     [repo, "main", fixture],
   ]) {
-    const result = spawnSync(process.execPath, [cli], {
-      cwd, encoding: "utf8", env: { ...gitFixtureEnv(), BASE_REF: base, GITHUB_STEP_SUMMARY: stepSummary },
-    });
+    let stdout = "";
+    const status = run({ cwd, env: { ...gitFixtureEnv(), BASE_REF: base, GITHUB_STEP_SUMMARY: stepSummary }, stdout: { write: (value) => { stdout += value; } } });
+    const result = { status, stdout, stderr: "" };
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Unit-test delta: .*\(informational\)/);
     if (base === "missing-ref") assert.equal(readFileSync(stepSummary, "utf8"), result.stdout);

@@ -326,7 +326,7 @@ describe("durable receipt follow-through", () => {
   ] as const)("unfinalized receipt retries nondurable $observation writes (success=$success)", async (scenario) => {
     const fixture = followFixture(scenario);
     const result = await followActionUntilSettled(fixture.initial, fixture.loopOptions);
-    expect(fixture.calls).toEqual({ get: 4, receipt: 4, observation: scenario.observation === "missing" ? 0 : 4, outcome: 0, clear: 0 });
+    expect(fixture.calls).toEqual({ get: scenario.observation === "null" ? 8 : 4, receipt: 4, observation: scenario.observation === "missing" ? 0 : 4, outcome: 0, clear: 0 });
     expect(fixture.sleeps).toEqual([2_000, 3_000, 4_000, 5_000]);
     expect(fixture.persisted().observed_receipt_block_number).toBeNull();
     expect(result.observed_receipt_block_number).toBe("105");
@@ -344,7 +344,7 @@ describe("durable receipt follow-through", () => {
   ] as const)("finalized receipt retries observation=$observation/outcome=$outcome", async (scenario) => {
     const fixture = followFixture({ ...scenario, finalized: true });
     const result = await followActionUntilSettled(fixture.initial, fixture.loopOptions);
-    expect(fixture.calls.get).toBe(4);
+    expect(fixture.calls.get).toBe(scenario.observation === "null" ? 8 : 4);
     expect(fixture.calls.receipt).toBe(4);
     expect(fixture.calls.outcome).toBe(4);
     expect(result.outcome).toBeNull();
@@ -365,7 +365,7 @@ describe("durable receipt follow-through", () => {
   test.each(["throws", "null", "missing"] as const)("durable outcome stops when the observation writer %s", async (observation) => {
     const fixture = followFixture({ finalized: true, observation });
     const result = await followActionUntilSettled(fixture.initial, fixture.loopOptions);
-    expect(fixture.calls.get).toBe(1);
+    expect(fixture.calls.get).toBe(observation === "null" ? 2 : 1);
     expect(fixture.calls.receipt).toBe(1);
     expect(fixture.calls.outcome).toBe(1);
     expect(fixture.sleeps).toEqual([]);
@@ -392,7 +392,7 @@ describe("durable receipt follow-through", () => {
       fixture.advance(ms);
       fixture.recover();
     } });
-    expect(fixture.calls).toEqual({ get: 2, receipt: 2, observation: 2, outcome: 2, clear: 0 });
+    expect(fixture.calls).toEqual({ get: 3, receipt: 2, observation: 2, outcome: 2, clear: 0 });
     expect(result.observed_receipt_block_number).toBe("105");
     expect(result.outcome).toBe(success ? "succeeded" : "reverted");
   });
@@ -447,7 +447,7 @@ describe("durable receipt follow-through", () => {
       return null;
     };
     const result = await followActionUntilSettled(fixture.initial, fixture.loopOptions);
-    expect(fixture.calls.get).toBe(4);
+    expect(fixture.calls.get).toBe(clear === "null" ? 8 : 4);
     expect(fixture.calls.clear).toBe(clear === "ok" ? 1 : 4);
     expect(result.observed_receipt_block_number).toBeNull();
     expect(fixture.persisted().observed_receipt_block_number).toBe(clear === "ok" ? null : "105");

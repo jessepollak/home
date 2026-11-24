@@ -6,12 +6,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { checkApiRoutes, prerenderedApiRoutes, readPrerenderManifest, routesWithoutDynamicSignal } from "../api-routes-dynamic.mjs";
+import { checkApiRoutes, prerenderedApiRoutes, runApiRoutesDynamic, readPrerenderManifest, routesWithoutDynamicSignal } from "../api-routes-dynamic.mjs";
 
 const cli = fileURLToPath(new URL("../api-routes-dynamic.mjs", import.meta.url));
 const fixture = fileURLToPath(new URL("./fixtures/prerender-manifest.json", import.meta.url));
 const emptyManifest = { version: 4, routes: {}, dynamicRoutes: {}, notFoundRoutes: [] };
-const runCli = (dir) => spawnSync(process.execPath, [cli, dir], { encoding: "utf8" });
+const runCli = (dir) => runApiRoutesDynamic([dir]);
 const source = (content, file = "route.ts") => ({ path: `apps/web/app/api/test/${file}`, content });
 
 async function withBuildDir(run) {
@@ -40,7 +40,7 @@ test("a seeded static API response fails the build-output check and CLI with gui
       ...emptyManifest, routes: { "/api/savings/vaults": { routeType: "route" } },
     }));
     assert.deepEqual((await checkApiRoutes(dir)).prerendered, ["/api/savings/vaults"]);
-    const result = runCli(dir);
+    const result = await runCli(dir);
     assert.equal(result.status, 1);
     assert.equal(result.stderr, staticRouteLine("/api/savings/vaults", dir));
     assert.equal(result.stdout, "");
@@ -58,7 +58,7 @@ test("a factory-bound GET passes the source half but still fails when its route 
     const result = await checkApiRoutes(dir);
     assert.deepEqual(result.prerendered, ["/api/balances"]);
     assert.deepEqual(result.staticSources, []);
-    const command = runCli(dir);
+    const command = await runCli(dir);
     assert.equal(command.status, 1);
     assert.equal(command.stderr, staticRouteLine("/api/balances", dir));
     assert.equal(command.stdout, "");
@@ -86,7 +86,7 @@ test("the real build manifest shape and repository route sources pass both halve
     assert.ok(result.apiRouteCount > 0);
     assert.deepEqual(result.prerendered, []);
     assert.deepEqual(result.staticSources, []);
-    const command = runCli(dir);
+    const command = await runCli(dir);
     assert.equal(command.status, 0);
     assert.equal(command.stderr, "");
     assert.equal(command.stdout, `API routes stay dynamic: ${result.apiRouteCount} route handlers, 0 prerendered.\n`);
@@ -98,7 +98,7 @@ test("a missing prerender manifest fails closed in the reader, check and CLI", a
     const message = `No prerender manifest in ${dir}; run bun run build first.`;
     await assert.rejects(readPrerenderManifest(dir), { message });
     await assert.rejects(checkApiRoutes(dir), { message });
-    const result = runCli(dir);
+    const result = await runCli(dir);
     assert.equal(result.status, 1);
     assert.equal(result.stderr, `${message}\n`);
   });
@@ -114,7 +114,7 @@ test("invalid manifest JSON fails closed with the parser error and CLI exit code
     const message = `Unreadable prerender manifest at ${path.join(dir, "prerender-manifest.json")}: ${parserMessage}`;
     await assert.rejects(readPrerenderManifest(dir), { message });
     await assert.rejects(checkApiRoutes(dir), { message });
-    const result = runCli(dir);
+    const result = await runCli(dir);
     assert.equal(result.status, 1);
     assert.equal(result.stderr, `${message}\n`);
   });
@@ -134,7 +134,7 @@ test("unrecognized manifest shapes fail closed instead of silently skipping rout
       await writeFile(path.join(dir, "prerender-manifest.json"), JSON.stringify(manifest));
       await assert.rejects(readPrerenderManifest(dir), { message });
       await assert.rejects(checkApiRoutes(dir), { message });
-      const result = runCli(dir);
+      const result = await runCli(dir);
       assert.equal(result.status, 1);
       assert.equal(result.stderr, `${message}\n`);
     }

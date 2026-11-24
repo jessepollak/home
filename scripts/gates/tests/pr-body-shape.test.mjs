@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { prBodyShapeFindings } from "../pr-body-shape.mjs";
+import { prBodyShapeFindings, runPrBodyShape } from "../pr-body-shape.mjs";
 
 const title = "feat(home): change behavior";
 const labels = ["Before", "After", "Who notices", "Your call", "Risk"];
@@ -428,9 +428,9 @@ test("does not consume a second title line after a same-line title", () => {
 });
 
 test("CLI prints its markdown summary and exits non-zero for findings or extra arguments", () => {
-  const run = (prTitle, prBody, args = []) => spawnSync(process.execPath, ["scripts/gates/pr-body-shape.mjs", ...args], {
-    encoding: "utf8", env: { ...process.env, PR_TITLE: prTitle, PR_BODY: prBody },
-  });
+  const run = (prTitle, prBody, args = []) => args.length
+    ? spawnSync(process.execPath, ["scripts/gates/pr-body-shape.mjs", ...args], { encoding: "utf8", env: { ...process.env, PR_TITLE: prTitle, PR_BODY: prBody } })
+    : { ...runPrBodyShape({ args, env: { ...process.env, PR_TITLE: prTitle, PR_BODY: prBody } }), stderr: "" };
   const pass = run(title, body);
   assert.equal(pass.status, 0);
   assert.equal(pass.stdout, "## PR body shape\nPR body shape gate passed.\n");

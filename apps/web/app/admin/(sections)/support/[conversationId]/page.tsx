@@ -7,6 +7,7 @@ export const instant = false;
 export default async function SupportConversationPage({ params }: { params: Promise<{ conversationId: string }> }) {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   const { conversationId } = await params;
   return <OperatorSection address={address} heading="Support"><OperatorSupportInbox conversationId={conversationId} /></OperatorSection>;
 }

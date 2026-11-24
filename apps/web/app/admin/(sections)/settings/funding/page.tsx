@@ -8,6 +8,7 @@ export const instant = false;
 export default async function FundingSettingsPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   const view = await readFundingOfferingView().catch(() => null);
   return (
     <OperatorSection address={address} heading="Money in and out" parent={{ href: "/admin/settings", label: "Settings" }}>

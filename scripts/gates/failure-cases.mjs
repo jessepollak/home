@@ -88,17 +88,26 @@ export function failureCasesFindings(body) {
   return failureCasesReport(body).findings;
 }
 
-function main() {
-  if (process.argv.length !== 2) throw new Error("Usage: node scripts/gates/failure-cases.mjs");
-  const { findings, value } = failureCasesReport(process.env.PR_BODY || "");
-  console.log("## Failure cases");
+const text = (lines) => lines.map((line) => `${line}\n`).join("");
+
+export function runFailureCases({ args = process.argv.slice(2), env = process.env } = {}) {
+  const stdout = [];
+  if (args.length !== 0) throw new Error("Usage: node scripts/gates/failure-cases.mjs");
+  const { findings, value } = failureCasesReport(env.PR_BODY || "");
+  stdout.push("## Failure cases");
   if (findings.length === 0) {
-    console.log(`Failure-cases: ${value}.`);
-    console.log("Failure-cases gate passed.");
-    return;
+    stdout.push(`Failure-cases: ${value}.`);
+    stdout.push("Failure-cases gate passed.");
+    return { status: 0, stdout: text(stdout) };
   }
-  for (const finding of findings) console.log(`- ${finding}`);
-  process.exitCode = 1;
+  for (const finding of findings) stdout.push(`- ${finding}`);
+  return { status: 1, stdout: text(stdout) };
+}
+
+function main() {
+  const result = runFailureCases();
+  process.stdout.write(result.stdout);
+  process.exitCode = result.status;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main();

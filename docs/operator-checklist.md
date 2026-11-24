@@ -1,10 +1,10 @@
 # Operator checklist
 
-Each operator sets these values for their own instance; this checklist lists what to set and where, never the values themselves.
+Each operator sets these values for their own instance; this checklist lists what to set and where, never the values themselves. Before you start, [provider readiness](provider-readiness.md) lists each provider account to open, its approval, lead time, and cost.
 
 ## First run
 
-Follow the [guided Vercel launch](vercel-deploy.md#launch), then sign in with Base Account and open **Admin → Overview → Setup**. The checklist recomputes required and optional checks when you reload after changing hosting settings and redeploying. Required setup completion is not production or real-money authorization.
+Follow the [guided Vercel launch](vercel-deploy.md#launch), then sign in with the allowlisted account (Base Account or email) and open **Admin → Overview → Setup**. The checklist recomputes required and optional checks when you reload after changing hosting settings and redeploying. Required setup completion is not production or real-money authorization.
 
 ## Updates and recovery
 

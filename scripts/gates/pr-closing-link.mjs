@@ -17,16 +17,25 @@ export function prClosingLinkFindings(title, body) {
     : ["An implementation PR body must have a visible Closes #<n>, Fixes #<n>, or Resolves #<n> line, or No issue: <reason>."];
 }
 
-function main() {
-  if (process.argv.length !== 2) throw new Error("Usage: node scripts/gates/pr-closing-link.mjs");
-  const findings = prClosingLinkFindings(process.env.PR_TITLE || "", process.env.PR_BODY || "");
-  console.log("## PR closing link");
+const text = (lines) => lines.map((line) => `${line}\n`).join("");
+
+export function runPrClosingLink({ args = process.argv.slice(2), env = process.env } = {}) {
+  const stdout = [];
+  if (args.length !== 0) throw new Error("Usage: node scripts/gates/pr-closing-link.mjs");
+  const findings = prClosingLinkFindings(env.PR_TITLE || "", env.PR_BODY || "");
+  stdout.push("## PR closing link");
   if (findings.length === 0) {
-    console.log("PR closing link gate passed.");
-    return;
+    stdout.push("PR closing link gate passed.");
+    return { status: 0, stdout: text(stdout) };
   }
-  for (const finding of findings) console.log(`- ${finding}`);
-  process.exitCode = 1;
+  for (const finding of findings) stdout.push(`- ${finding}`);
+  return { status: 1, stdout: text(stdout) };
+}
+
+function main() {
+  const result = runPrClosingLink();
+  process.stdout.write(result.stdout);
+  process.exitCode = result.status;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main();

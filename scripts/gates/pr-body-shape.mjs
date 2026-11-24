@@ -385,19 +385,28 @@ export function prBodyShapeFindings(title, body) {
   return findings;
 }
 
-function main() {
-  if (process.argv.length !== 2) throw new Error("Usage: node scripts/gates/pr-body-shape.mjs");
-  const findings = prBodyShapeFindings(process.env.PR_TITLE || "", process.env.PR_BODY || "");
-  console.log("## PR body shape");
+const text = (lines) => lines.map((line) => `${line}\n`).join("");
+
+export function runPrBodyShape({ args = process.argv.slice(2), env = process.env } = {}) {
+  const stdout = [];
+  if (args.length !== 0) throw new Error("Usage: node scripts/gates/pr-body-shape.mjs");
+  const findings = prBodyShapeFindings(env.PR_TITLE || "", env.PR_BODY || "");
+  stdout.push("## PR body shape");
   if (findings.length === 0) {
-    console.log("PR body shape gate passed.");
-    return;
+    stdout.push("PR body shape gate passed.");
+    return { status: 0, stdout: text(stdout) };
   }
-  for (const finding of findings) console.log(`- ${finding}`);
+  for (const finding of findings) stdout.push(`- ${finding}`);
   if (findings.some((finding) => finding.startsWith("## Preview"))) {
-    console.log('Preview media: a GitHub attachment (github.com/user-attachments/assets or user-images.githubusercontent.com) or an existing repository-relative file; a row without media needs the exact phrase "Preview unchanged" plus a reason.');
+    stdout.push('Preview media: a GitHub attachment (github.com/user-attachments/assets or user-images.githubusercontent.com) or an existing repository-relative file; a row without media needs the exact phrase "Preview unchanged" plus a reason.');
   }
-  process.exitCode = 1;
+  return { status: 1, stdout: text(stdout) };
+}
+
+function main() {
+  const result = runPrBodyShape();
+  process.stdout.write(result.stdout);
+  process.exitCode = result.status;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main();

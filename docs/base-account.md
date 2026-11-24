@@ -38,7 +38,7 @@ The challenge remains intentionally stateless. Single-use is enforced by the bro
 
 A Bearer-validated CDP profile can create only a `cdp-embedded` email session. Requests whose explicit or restored CDP profile resolves to `base-account` receive `403 BASE_ACCOUNT_DISABLED`; Home never derives a Base Account session from a CDP token.
 
-A Base Account address change, chain change, or provider disconnect invalidation advances the owner-generation fence, clears private client state, clears the native Base server session through `POST /api/auth/base/logout`, and lands signed out; during connection, signing, or verification the connector also fails closed. The logout request requires the same origin and clears `home-session`, `home-auth-challenge`, `home-cdp-session`, and `home-cdp-live`.
+A Base Account address change, chain change, or provider disconnect invalidation advances the owner-generation fence, clears private client state, clears the native Base server session through `POST /api/auth/base/logout`, and lands signed out; during connection, signing, or verification the connector also fails closed. The logout request requires the same origin and clears `home-session`, `home-auth-challenge`, `home-cdp-session`, and `home-cdp-live`. With a database configured, it first records a digest of the request's valid `home-session` token in `home_session_revocations` until that token's expiry, so a copy of the cookie retained elsewhere gets `401 UNAUTHENTICATED` from `/api/session` and every owner route, no render seed, and no `/admin` access, on every instance. Other sessions of the same owner, such as another device, keep working. If the revocation cannot be written, logout returns `503 AUTH_UNAVAILABLE` and clears nothing, so retrying can still revoke; a failed revocation lookup on a session read also returns `503 AUTH_UNAVAILABLE`. Each logout deletes up to 100 already-expired revocations. Without a database (fixture sessions), logout only clears cookies.
 
 ## Email from Base Account
 
@@ -53,7 +53,7 @@ This requires `DATABASE_URL`; without it the step is not offered and sign-in is 
 
 ## CDP render hint
 
-A successful Bearer-validated email session with a Base smart account also receives a seven-day render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The readable half also conservatively keeps client restore pending until CDP initializes, but it has no API authority by itself; private API routes still require a fresh CDP access token. Server Components read a valid Home session first and then the complete hint pair, so a signed-in visit to `/` redirects before rendering to `/home` while `/?account=signin` remains a loop-breaking sign-in destination. Invalid, expired, duplicate, or half-present cookies produce neither a redirect identity nor a render seed.
+A successful Bearer-validated email session with a Base smart account also receives a seven-day render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The readable half also conservatively keeps client restore pending until CDP initializes, but it has no API authority by itself; private API routes still require a fresh CDP access token. Admin is the one bounded exception: after `POST /api/admin/session` verifies a fresh token for an allowlisted address, it issues a 15-minute `home-operator-grant` cookie that admin pages and `/api/admin/*` accept only together with the matching hint pair ([architecture](architecture.md#boundaries)). Server Components read a valid Home session first and then the complete hint pair, so a signed-in visit to `/` redirects before rendering to `/home` while `/?account=signin` remains a loop-breaking sign-in destination. Invalid, expired, duplicate, or half-present cookies produce neither a redirect identity nor a render seed.
 
 ## Operator setup
 
@@ -77,7 +77,7 @@ No automated agent should perform this smoke because it opens a real wallet and 
 8. Confirm subsequent private API requests carry `X-Home-Account-Provider: base-account` and scope data to that verified address.
 9. Reload `/` and confirm the server redirects to `/home`. Open `/?account=signin` and confirm it still renders the sign-in sheet.
 10. Change account or chain during a second attempt and confirm the flow fails closed.
-11. Sign out and confirm private details disappear, all four Home cookies are cleared, and reloading remains signed out.
+11. Sign out and confirm private details disappear, all five Home cookies (including `home-operator-grant`) are cleared, and reloading remains signed out.
 
 ## History
 

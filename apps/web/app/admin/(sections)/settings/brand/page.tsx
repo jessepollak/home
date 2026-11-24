@@ -26,6 +26,7 @@ async function readBrandForEditor(): Promise<BrandSettingsState | "no-database" 
 export default async function BrandSettingsPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   const entry = await readBrandForEditor();
   return (
     <OperatorSection address={address} heading="Brand" parent={{ href: "/admin/settings", label: "Settings" }}>
