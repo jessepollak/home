@@ -3,12 +3,23 @@
 import { createContext, useContext } from "react";
 import { BRAND_COPY_FALLBACK_NAME } from "@/shared/operator-branding/theme";
 
-const BrandNameContext = createContext<string>(BRAND_COPY_FALLBACK_NAME);
+type BrandContextValue = { name: string; logoUrl: string | null; termsUrl: string | null; privacyUrl: string | null };
 
-export function BrandNameProvider({ name, children }: { name: string; children: React.ReactNode }) {
-  return <BrandNameContext.Provider value={name}>{children}</BrandNameContext.Provider>;
+const BrandContext = createContext<BrandContextValue>({ name: BRAND_COPY_FALLBACK_NAME, logoUrl: null, termsUrl: null, privacyUrl: null });
+
+export function BrandProvider({ children, ...value }: BrandContextValue & { children: React.ReactNode }) {
+  return <BrandContext.Provider value={value}>{children}</BrandContext.Provider>;
 }
 
 export function useBrandName(): string {
-  return useContext(BrandNameContext);
+  return useContext(BrandContext).name;
+}
+
+export function useBrandLogoUrl(): string | null {
+  return useContext(BrandContext).logoUrl;
+}
+
+export function useBrandLinks(): { termsUrl: string | null; privacyUrl: string | null } {
+  const { termsUrl, privacyUrl } = useContext(BrandContext);
+  return { termsUrl, privacyUrl };
 }

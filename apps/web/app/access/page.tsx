@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { resolveBrand } from "@/server/operator-settings/brand";
 import { Button } from "@/components/ui/button";
+import { BrandLogo } from "@/components/brand-logo";
 import { AccessForm } from "./access-form";
 import { readAccessConfig } from "@/server/access/config";
 import { readAccessToken } from "@/server/access/token";
@@ -34,7 +35,12 @@ export default async function AccessPage({
     <main className="grid min-h-dvh place-items-center px-6 py-12">
       <section className="grid w-full max-w-sm gap-6" aria-labelledby="access-heading">
         <div className="grid gap-2">
-          <p className="text-sm font-semibold">{brandSettings.displayName}</p>
+          <BrandLogo
+            src={brandSettings.logoUrl}
+            alt={brandSettings.displayName}
+            className="h-8 w-auto max-w-40 justify-self-start object-contain"
+            fallback={<p className="text-sm font-semibold">{brandSettings.displayName}</p>}
+          />
           <h1 id="access-heading" className="text-2xl font-semibold tracking-tight">
             {hasAccess ? "Access granted" : config.kind === "misconfigured" ? "Access unavailable" : "Enter access password"}
           </h1>

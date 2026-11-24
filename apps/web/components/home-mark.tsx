@@ -8,7 +8,8 @@ import {
   type ComponentPropsWithoutRef,
   type MouseEventHandler,
 } from "react";
-import { useBrandName } from "@/client/brand/brand-name";
+import { useBrandLogoUrl, useBrandName } from "@/client/brand/brand-name";
+import { BrandLogoImage, useBrandLogoImage } from "@/components/brand-logo";
 import { BRAND_COPY_FALLBACK_NAME } from "@/shared/operator-branding/theme";
 import { Button } from "@/components/ui/button";
 import styles from "./home-mark.module.css";
@@ -121,14 +122,21 @@ export function HomeMark(props: HomeMarkProps) {
   const brandName = useBrandName();
   const markLabel = brandName === BRAND_COPY_FALLBACK_NAME ? BRAND_COPY_FALLBACK_NAME : `${brandName} home`;
   const { className, compact = false, "aria-label": ariaLabel, ...controlProps } = props;
-  const controlClass = className ? `${styles.control} ${className}` : styles.control;
-  const artwork = <>
+  const logoUrl = useBrandLogoUrl();
+  const logo = useBrandLogoImage(logoUrl);
+  const showLogo = logo.shown && logoUrl !== null;
+  const baseControlClass = showLogo ? styles.logoControl : styles.control;
+  const controlClass = className ? `${baseControlClass} ${className}` : baseControlClass;
+  const artwork = showLogo ? (
+    <BrandLogoImage imageProps={logo.imageProps} className={styles.logo} src={logoUrl} alt={brandName} />
+  ) : <>
     <span className={styles.mobileSquare} aria-hidden="true" />
     {desktop ? <MarkArtwork interactive={!compact} /> : null}
   </>;
+  const rootClass = showLogo ? styles.logoRoot : styles.root;
 
   return (
-    <span className={compact ? `${styles.root} ${styles.compact}` : styles.root} data-home-mark="">
+    <span className={compact ? `${rootClass} ${styles.compact}` : rootClass} data-home-mark={showLogo ? "logo" : ""}>
       {"href" in controlProps && controlProps.href !== undefined ? (
         <a {...controlProps} className={controlClass} aria-label={ariaLabel ?? markLabel}>
           {artwork}
