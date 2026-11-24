@@ -55,6 +55,7 @@ function SetupSteps({ steps, optional = false }: { steps: SetupStep[]; optional?
 export default async function AdminPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   scheduleOperatorRecheck(decision, after, "/admin");
   const setup = await readOperatorSetup();
   return (

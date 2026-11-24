@@ -8,6 +8,7 @@ export const instant = false;
 export default async function SupportPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   return (
     <OperatorSection address={address} heading="Support">
       <OperatorSupportInbox />

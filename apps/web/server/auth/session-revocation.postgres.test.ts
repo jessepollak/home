@@ -93,7 +93,7 @@ function sessionRequest(value: string): Request {
       const readerRevocations = createSessionRevocations(reader);
       const page = (value: string) => readOperatorPageDecision({ getAll: (name) => name === "home-session" ? [{ value }] : [] }, () => readerRevocations);
       expect(await page(signedOut)).toEqual({ kind: "forbidden" });
-      expect(await page(control)).toEqual({ kind: "operator", address: ADDRESS });
+      expect(await page(control)).toEqual({ kind: "operator", address: ADDRESS, provider: "base-account" });
     } finally {
       for (const [name, value] of [["HOME_SESSION_SECRET", previous.secret], ["HOME_OPERATOR_ADDRESSES", previous.operators]] as const) {
         if (value === undefined) delete process.env[name]; else process.env[name] = value;

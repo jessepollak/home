@@ -53,7 +53,7 @@ This requires `DATABASE_URL`; without it the step is not offered and sign-in is 
 
 ## CDP render hint
 
-A successful Bearer-validated email session with a Base smart account also receives a seven-day render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The readable half also conservatively keeps client restore pending until CDP initializes, but it has no API authority by itself; private API routes still require a fresh CDP access token. Server Components read a valid Home session first and then the complete hint pair, so a signed-in visit to `/` redirects before rendering to `/home` while `/?account=signin` remains a loop-breaking sign-in destination. Invalid, expired, duplicate, or half-present cookies produce neither a redirect identity nor a render seed.
+A successful Bearer-validated email session with a Base smart account also receives a seven-day render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The readable half also conservatively keeps client restore pending until CDP initializes, but it has no API authority by itself; private API routes still require a fresh CDP access token. Admin is the one bounded exception: after `POST /api/admin/session` verifies a fresh token for an allowlisted address, it issues a 15-minute `home-operator-grant` cookie that admin pages and `/api/admin/*` accept only together with the matching hint pair ([architecture](architecture.md#boundaries)). Server Components read a valid Home session first and then the complete hint pair, so a signed-in visit to `/` redirects before rendering to `/home` while `/?account=signin` remains a loop-breaking sign-in destination. Invalid, expired, duplicate, or half-present cookies produce neither a redirect identity nor a render seed.
 
 ## Operator setup
 
@@ -77,7 +77,7 @@ No automated agent should perform this smoke because it opens a real wallet and 
 8. Confirm subsequent private API requests carry `X-Home-Account-Provider: base-account` and scope data to that verified address.
 9. Reload `/` and confirm the server redirects to `/home`. Open `/?account=signin` and confirm it still renders the sign-in sheet.
 10. Change account or chain during a second attempt and confirm the flow fails closed.
-11. Sign out and confirm private details disappear, all four Home cookies are cleared, and reloading remains signed out.
+11. Sign out and confirm private details disappear, all five Home cookies (including `home-operator-grant`) are cleared, and reloading remains signed out.
 
 ## History
 

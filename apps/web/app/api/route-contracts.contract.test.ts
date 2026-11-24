@@ -70,7 +70,6 @@ const clientReasonRoutes = [
   "actions/trade-pending/route.ts",
   "admin/[...path]/route.ts",
   "admin/audit/route.ts",
-  "admin/session/route.ts",
   "admin/settings/route.ts",
 ];
 

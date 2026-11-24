@@ -32,3 +32,11 @@ export function cdpRenderSessionCookies(session: { user: { subject: string }; sm
   return [{ name: "home-cdp-session", value: `${input}.${createHmac("sha256", Buffer.from(secret)).update(input).digest("base64url")}` },
     { name: "home-cdp-live", value: nonce }];
 }
+
+export function operatorGrantCookie(session: { user: { subject: string }; smartAccount: { address: string } }, issuedAt: number): { name: string; value: string } {
+  const encoded = Buffer.from(JSON.stringify({ version: 1, subject: session.user.subject, address: session.smartAccount.address,
+    issuedAt: new Date(issuedAt).toISOString(), expiresAt: new Date(issuedAt + 15 * 60_000).toISOString(),
+  })).toString("base64url");
+  const input = `v1.${encoded}`;
+  return { name: "home-operator-grant", value: `${input}.${createHmac("sha256", Buffer.from(secret)).update(input).digest("base64url")}` };
+}

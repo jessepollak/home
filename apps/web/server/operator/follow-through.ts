@@ -2,7 +2,6 @@ import "server-only";
 
 import { recheckOpenActions } from "@/server/actions/follow-through";
 import { emitServerEvent } from "@/server/observability/log";
-import type { OperatorDecision } from "./authorize";
 
 const RECHECK_INTERVAL_MS = 30_000;
 const RECHECK_DEADLINE_MS = 20_000;
@@ -10,7 +9,7 @@ const RECHECK_LIMIT = 10;
 let lastStartedAt = Number.NEGATIVE_INFINITY;
 
 export function scheduleOperatorRecheck(
-  decision: OperatorDecision,
+  decision: { kind: string },
   schedule: (task: () => Promise<void>) => void,
   route: "/admin" | "/admin/customers",
   deps?: { now?: () => number; recheck?: typeof recheckOpenActions },
