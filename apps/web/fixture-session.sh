@@ -117,7 +117,7 @@ stage_fixture_session() {
     browser_diagnostic launch 30000 "$status"
     return 1
   fi
-  env -i HOME="$HOME" PATH="$PATH" HOME_FIXTURE_PREPARE="$prepare" bun -e 'import {fixtureRoutes} from "./tests/browser/feature-map/fixtures.ts"; import {operatorSupportFixtureRoutes} from "./tests/browser/feature-map/operator-support-fixture.ts"; const activityWindowEnd = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString(); console.log(JSON.stringify([...fixtureRoutes({activityWindowEnd, prepare: process.env.HOME_FIXTURE_PREPARE as "send" | "savings-deposit" | "savings-withdraw"}), ...operatorSupportFixtureRoutes()].map(([pattern, body]) => ["network", "route", pattern, "--body", JSON.stringify(body)])));' > "$routes" || return 1
+  env -i HOME="$HOME" PATH="$PATH" HOME_FIXTURE_PREPARE="$prepare" bun -e 'import {fixtureRoutes} from "./tests/browser/feature-map/fixtures.ts"; import {operatorSupportFixtureRoutes} from "./tests/browser/feature-map/operator-support-fixture.ts"; import {adminCustomerFixtureRoutes} from "./tests/browser/feature-map/admin-customers-fixture.ts"; const activityWindowEnd = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString(); console.log(JSON.stringify([...fixtureRoutes({activityWindowEnd, prepare: process.env.HOME_FIXTURE_PREPARE as "send" | "savings-deposit" | "savings-withdraw"}), ...operatorSupportFixtureRoutes(), ...adminCustomerFixtureRoutes()].map(([pattern, body]) => ["network", "route", pattern, "--body", JSON.stringify(body)])));' > "$routes" || return 1
   browser_step 'fixture route install' 30000 batch --bail < "$routes" || return "$?"
   browser_step 'fixture navigation' 30000 open "http://127.0.0.1:${HOME_FIXTURE_PORT:-3199}/home" || return "$?"
 }
