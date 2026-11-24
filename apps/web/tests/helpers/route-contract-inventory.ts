@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 
@@ -1234,4 +1234,23 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
     }
   }
   return violations.sort((a, b) => a.path.localeCompare(b.path) || a.code.localeCompare(b.code) || a.detail.localeCompare(b.detail));
+}
+
+type CustomerIdRoutes = Record<string, { contracts?: string[]; methods?: Record<string, { contracts?: string[] }> } | { exempt: unknown }>;
+
+export function customerIdContractFindings({ root, manifest }: { root: string; manifest: { routes: CustomerIdRoutes } }): { inspected: number; offenders: string[] } {
+  const pending = Object.entries(manifest.routes).flatMap(([path, entry]) => path.startsWith("admin/") || "exempt" in entry ? [] :
+    [...(entry.contracts ?? []), ...Object.values(entry.methods ?? {}).flatMap((method) => method.contracts ?? [])]);
+  const seen = new Set<string>();
+  const offenders: string[] = [];
+  for (let file = pending.pop(); file !== undefined; file = pending.pop()) {
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const source = readFileSync(join(root, file), "utf8");
+    if (/\bcustomer_?[iI]d\b/.test(source) || file.startsWith("shared/admin-customers/")) offenders.push(file);
+    for (const [, target] of source.matchAll(/from\s+["']@\/(shared\/[^"']+)["']/g)) {
+      for (const candidate of [`${target}.ts`, `${target}/index.ts`]) if (existsSync(join(root, candidate))) pending.push(candidate);
+    }
+  }
+  return { inspected: seen.size, offenders };
 }

@@ -107,7 +107,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     expect(api.headers()["cache-control"]).toContain("private");
     expect(api.headers()["cache-control"]).toContain("no-store");
     const sections = [
-      ["Customers", "Customer search isn't available yet.", "/admin/customers"],
+      ["Customers", "Customer search needs a database.", "/admin/customers"],
       ["Support", "Support inbox is unavailable.", "/admin/support"],
       ["Growth", "Invite data isn't available.", "/admin/growth"],
       ["Money", "Fee revenue is unavailable. Try again later.", "/admin/money"],

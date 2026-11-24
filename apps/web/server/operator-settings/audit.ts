@@ -27,6 +27,16 @@ export class AdminAuditLog {
         AND occurred_at > now() - make_interval(secs => $4))`, [input.actor, input.customerId, input.purpose, input.repeatWithinSeconds]);
   }
 
+  async recordCustomerReads(input: { actor: `0x${string}`; customerIds: readonly string[]; purpose: string }): Promise<void> {
+    if (input.purpose.length < 1 || input.purpose.length > 200 || input.purpose !== input.purpose.trim()) throw new OperatorSettingsValidationError("Invalid customer read");
+    const ids = [...new Set(input.customerIds)];
+    if (!ids.length) return;
+    if (ids.some((id) => id.length < 1 || id.length > 200)) throw new OperatorSettingsValidationError("Invalid customer read");
+    const result = await this.sql.query(`INSERT INTO admin_audit_log (actor, action, target_kind, target_id, purpose)
+      SELECT $1, 'customer.read', 'customer', listed.id, $3 FROM unnest($2::text[]) AS listed(id)`, [input.actor, ids, input.purpose]);
+    if (result.rowCount !== ids.length) throw new Error("Customer read could not be audited");
+  }
+
   async recordSupportConversationReads(input: { actor: `0x${string}`; conversationIds: string[]; repeatWithinSeconds: number }): Promise<void> {
     if (!Number.isSafeInteger(input.repeatWithinSeconds) || input.repeatWithinSeconds < 1) throw new OperatorSettingsValidationError("Invalid customer read");
     if (!input.conversationIds.length) return;

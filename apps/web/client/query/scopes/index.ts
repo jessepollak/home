@@ -1,5 +1,7 @@
 import { actionResultObservation } from "./action-result-observation";
 import { actions } from "./actions";
+import { adminCustomerDetail } from "./admin-customer-detail";
+import { adminCustomerSearch } from "./admin-customer-search";
 import { activity } from "./activity";
 import { activityOrders } from "./activity-orders";
 import { activityWindow } from "./activity-window";
@@ -35,6 +37,8 @@ import { transfersRecipientName } from "./transfers-recipient-name";
 export const queryScopes = {
   "action-result-observation": actionResultObservation,
   actions,
+  "admin-customer-detail": adminCustomerDetail,
+  "admin-customer-search": adminCustomerSearch,
   activity,
   "activity-orders": activityOrders,
   "activity-window": activityWindow,
