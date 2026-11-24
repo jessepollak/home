@@ -10,7 +10,7 @@ import { useAccountDeletionCompletion } from "./account-deletion-recovery";
 import { useAccountExport } from "@/client/account/use-account-export";
 import { useInviteLink } from "@/client/account/use-invite-link";
 import { Button } from "@/components/ui/button";
-import { useBrandName } from "@/client/brand/brand-name";
+import { useBrandLinks, useBrandName } from "@/client/brand/brand-name";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Item,
@@ -155,6 +155,7 @@ export function AccountSettings({
   const leaving = Boolean(accountSessionOwnerKey && leavingOwner === accountSessionOwnerKey);
   useLayoutEffect(() => { if (leaving) leaveRegion.current?.focus(); }, [leaving]);
   const brandName = useBrandName();
+  const brandLinks = useBrandLinks();
   const [appearanceMessage, setAppearanceMessage] = useState("");
   const support = useOptionalSupport();
   const region = presentationRegions[regionId];
@@ -446,6 +447,21 @@ export function AccountSettings({
         </h2>
         <Card>
           <CardContent>
+            {brandLinks.termsUrl || brandLinks.privacyUrl ? (
+              <p className="mb-2 text-sm text-muted-foreground">
+                {brandLinks.termsUrl ? (
+                  <a className="font-medium text-primary" href={brandLinks.termsUrl} target="_blank" rel="noreferrer">
+                    Terms of service
+                  </a>
+                ) : null}
+                {brandLinks.termsUrl && brandLinks.privacyUrl ? " · " : null}
+                {brandLinks.privacyUrl ? (
+                  <a className="font-medium text-primary" href={brandLinks.privacyUrl} target="_blank" rel="noreferrer">
+                    Privacy policy
+                  </a>
+                ) : null}
+              </p>
+            ) : null}
             <p className="text-sm text-muted-foreground">
               Features and providers vary by country.{" "}
               <a className="font-medium text-primary" href="https://terms.ripio.com/" target="_blank" rel="noreferrer">

@@ -15,22 +15,34 @@ import { readJson } from "@/shared/http/read-json";
 import {
   BRAND_DEFAULTS,
   BRAND_SETTINGS_DOMAIN,
+  BRAND_URL_FIELDS,
+  BRAND_URL_MAX,
   brandSettingsPutRequest,
   parseBrandSettings,
+  parseBrandUrl,
   parseBrandSettingsResponse,
   type BrandSettings,
   type BrandSettingsResponse,
 } from "@/shared/operator-branding/contract";
 import { brandCopyName, deriveBrandTheme } from "@/shared/operator-branding/theme";
+import { BrandLogo } from "@/components/brand-logo";
 import { parseOperatorSettingsErrorResponse, type OperatorSettingsErrorCode } from "@/shared/operator-settings/contract";
 
 export type BrandSettingsState = BrandSettingsResponse["settings"];
 
 type Draft = { [Key in keyof BrandSettings]: string };
+type UrlField = (typeof BRAND_URL_FIELDS)[number];
 type Blocked = { kind: "conflict"; latest: BrandSettingsState } | { kind: "operator" } | null;
 
 const NAME_MAX = 40;
 const DESCRIPTION_MAX = 160;
+const FIELDS = ["displayName", "description", "primaryColor", "backgroundColor", ...BRAND_URL_FIELDS] as const;
+const URL_LABELS: Record<UrlField, string> = { logoUrl: "Logo URL", termsUrl: "Terms URL", privacyUrl: "Privacy URL" };
+const URL_HELP: Record<UrlField, string> = {
+  logoUrl: "An https image shown in the header and on sign-in in place of the Home mark. Leave empty to keep the mark.",
+  termsUrl: "Linked from Account → Disclosures & terms. Leave empty to hide.",
+  privacyUrl: "Linked from Account → Disclosures & terms. Leave empty to hide.",
+};
 
 const saveErrors: Record<OperatorSettingsErrorCode, string> = {
   UNAUTHENTICATED: "Your session ended. Sign in again, then save.",
@@ -45,7 +57,12 @@ const saveErrors: Record<OperatorSettingsErrorCode, string> = {
 };
 
 function draftFrom(value: BrandSettings): Draft {
-  return { ...value };
+  return { ...value, logoUrl: value.logoUrl ?? "", termsUrl: value.termsUrl ?? "", privacyUrl: value.privacyUrl ?? "" };
+}
+
+function normalizeUrl(text: string): string | null {
+  const trimmed = text.trim();
+  return trimmed === "" ? null : trimmed;
 }
 
 function normalizeColor(text: string): string {
@@ -59,7 +76,16 @@ function candidate(draft: Draft) {
     description: draft.description.trim(),
     primaryColor: normalizeColor(draft.primaryColor),
     backgroundColor: normalizeColor(draft.backgroundColor),
+    logoUrl: normalizeUrl(draft.logoUrl),
+    termsUrl: normalizeUrl(draft.termsUrl),
+    privacyUrl: normalizeUrl(draft.privacyUrl),
   };
+}
+
+function urlError(value: string | null): string | null {
+  if (value === null || parseBrandUrl(value) !== undefined) return null;
+  if (value.length > BRAND_URL_MAX) return `Use ${BRAND_URL_MAX} characters or fewer.`;
+  return "Enter a full https:// address, or leave it empty.";
 }
 
 function validate(draft: Draft) {
@@ -74,18 +100,26 @@ function validate(draft: Draft) {
       : parseBrandSettings({ ...BRAND_DEFAULTS, description: next.description }) === null ? "Remove control or text-direction characters." : null;
   const primaryColor = parseBrandSettings({ ...BRAND_DEFAULTS, primaryColor: next.primaryColor }) === null ? "Enter a color like #0052ff." : null;
   const backgroundColor = parseBrandSettings({ ...BRAND_DEFAULTS, backgroundColor: next.backgroundColor }) === null ? "Enter a color like #ffffff." : null;
-  const value = displayName || description || primaryColor || backgroundColor ? null : parseBrandSettings(next);
-  return { errors: { displayName, description, primaryColor, backgroundColor }, value };
+  const logoUrl = urlError(next.logoUrl);
+  const termsUrl = urlError(next.termsUrl);
+  const privacyUrl = urlError(next.privacyUrl);
+  const errors = { displayName, description, primaryColor, backgroundColor, logoUrl, termsUrl, privacyUrl };
+  const value = FIELDS.some((field) => errors[field]) ? null : parseBrandSettings(next);
+  return { errors, value };
 }
 
 function canonicalField(field: keyof BrandSettings, value: string): string {
   return field === "primaryColor" || field === "backgroundColor" ? normalizeColor(value) : value.trim();
 }
 
+function sameField(field: keyof BrandSettings, draft: Draft, value: BrandSettings): boolean {
+  return canonicalField(field, draft[field]) === canonicalField(field, draftFrom(value)[field]);
+}
+
 const SAVE_TIMEOUT_MS = 15_000;
 
 function sameBrand(a: BrandSettings, b: BrandSettings): boolean {
-  return a.displayName === b.displayName && a.description === b.description && a.primaryColor === b.primaryColor && a.backgroundColor === b.backgroundColor;
+  return FIELDS.every((field) => a[field] === b[field]);
 }
 
 function sourceLine(settings: BrandSettingsState): string {
@@ -154,7 +188,12 @@ function BrandPreview({ settings }: { settings: BrandSettings }) {
   };
   return (
     <div role="group" aria-label="Customer preview" data-brand-preview="" style={style} className="grid gap-4 rounded-xl border border-border bg-background p-4 text-foreground">
-      <p className="wrap-anywhere text-sm font-semibold">{brandCopyName(settings.displayName)}</p>
+      <BrandLogo
+        src={settings.logoUrl}
+        alt={brandCopyName(settings.displayName)}
+        className="h-8 w-auto max-w-40 object-contain"
+        fallback={<p className="wrap-anywhere text-sm font-semibold">{brandCopyName(settings.displayName)}</p>}
+      />
       <div className="grid gap-1 rounded-lg border border-border bg-card p-4 text-card-foreground">
         <p className="wrap-anywhere font-medium">Sign in to {brandCopyName(settings.displayName)}</p>
         <p className="wrap-anywhere text-sm text-muted-foreground">{settings.description}</p>
@@ -186,11 +225,14 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
     description: result.errors.description ? baseline.value.description : preview.description,
     primaryColor: result.errors.primaryColor ? baseline.value.primaryColor : preview.primaryColor,
     backgroundColor: result.errors.backgroundColor ? baseline.value.backgroundColor : preview.backgroundColor,
+    logoUrl: result.errors.logoUrl ? baseline.value.logoUrl : preview.logoUrl,
+    termsUrl: result.errors.termsUrl ? baseline.value.termsUrl : preview.termsUrl,
+    privacyUrl: result.errors.privacyUrl ? baseline.value.privacyUrl : preview.privacyUrl,
   }) ?? baseline.value;
   const theme = deriveBrandTheme(previewable);
   const dirty = !result.value || !sameBrand(result.value, baseline.value);
   const locked = saving;
-  const shown = touched ? result.errors : { displayName: null, description: null, primaryColor: null, backgroundColor: null };
+  const shown = touched ? result.errors : { displayName: null, description: null, primaryColor: null, backgroundColor: null, logoUrl: null, termsUrl: null, privacyUrl: null };
 
   const incomingKey = `${initial.revision}:${initial.updatedAt ?? ""}`;
   const [seenKey, setSeenKey] = useState(incomingKey);
@@ -212,8 +254,9 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
     if (keepDraft) {
       setDraft((current) => {
         const merged = { ...current };
-        for (const field of ["displayName", "description", "primaryColor", "backgroundColor"] as const) {
-          if (canonicalField(field, current[field]) === baseline.value[field]) merged[field] = state.value[field];
+        const latest = draftFrom(state.value);
+        for (const field of FIELDS) {
+          if (sameField(field, current, baseline.value)) merged[field] = latest[field];
         }
         return merged;
       });
@@ -274,7 +317,7 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
     setTouched(true);
     setStatus("");
     if (!result.value) {
-      const first = (["displayName", "description", "primaryColor", "backgroundColor"] as const).find((field) => result.errors[field]);
+      const first = FIELDS.find((field) => result.errors[field]);
       if (first === "displayName") nameRef.current?.focus();
       else if (first) document.getElementById(`${id}-${first}${first.endsWith("Color") ? "-text" : ""}`)?.focus();
       return;
@@ -299,7 +342,7 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
       <Card>
         <CardHeader>
           <CardTitle><h2 id={`${id}-title`}>Brand</h2></CardTitle>
-          <CardDescription>Customers see the name, description and colors below on their next page load. Artwork, fonts and dark mode stay the same.</CardDescription>
+          <CardDescription>Customers see the name, description, colors, logo and links below on their next page load. Fonts and dark mode stay the same.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
           <div className="grid gap-2" aria-label="Current brand">
@@ -365,6 +408,28 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
                 : "A light page tint. Cards and dark mode stay the same."}
               onChange={(value) => edit("backgroundColor", value)}
             />
+            {BRAND_URL_FIELDS.map((field) => (
+              <Field key={field} data-invalid={shown[field] ? true : undefined}>
+                <FieldLabel htmlFor={`${id}-${field}`}>{URL_LABELS[field]}</FieldLabel>
+                <Input
+                  id={`${id}-${field}`}
+                  className="h-11"
+                  type="url"
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="https://"
+                  value={draft[field]}
+                  readOnly={locked}
+                  aria-invalid={shown[field] ? true : undefined}
+                  aria-describedby={`${id}-${field}-help${shown[field] ? ` ${id}-${field}-error` : ""}`}
+                  onChange={(event) => edit(field, event.target.value)}
+                  onBlur={() => setTouched(true)}
+                />
+                <FieldDescription id={`${id}-${field}-help`}>{URL_HELP[field]}</FieldDescription>
+                {shown[field] ? <FieldError id={`${id}-${field}-error`}>{shown[field]}</FieldError> : null}
+              </Field>
+            ))}
           </FieldGroup>
           <div className="grid gap-2">
             <h3 className="text-sm font-medium">Preview</h3>
@@ -383,6 +448,9 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
                   <li><strong>Description</strong> — {blocked.latest.value.description}</li>
                   <li><strong>Primary color</strong> — {blocked.latest.value.primaryColor}</li>
                   <li><strong>Background color</strong> — {blocked.latest.value.backgroundColor}</li>
+                  {BRAND_URL_FIELDS.map((field) => (
+                    <li key={field}><strong>{URL_LABELS[field]}</strong> — {blocked.latest.value[field] ?? "Not set"}</li>
+                  ))}
                 </ul>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button type="button" size="touch" variant="outline" onClick={() => adopt(blocked.latest, false)}>Use latest values</Button>

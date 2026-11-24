@@ -186,3 +186,48 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     await setSession(context, admin);
   });
 });
+
+const logoPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
+
+test("logo, terms and privacy accept https only, and a logo that fails to load falls back to the Home mark", { tag: "@smoke" }, async ({ page, context }) => {
+  test.setTimeout(90_000);
+  await setSession(context, admin);
+  await page.route("https://brand.test/**", (route) => new URL(route.request().url()).pathname === "/logo.png"
+    ? route.fulfill({ status: 200, contentType: "image/png", body: logoPng })
+    : route.abort());
+  const puts: string[] = [];
+  page.on("request", (request) => { if (new URL(request.url()).pathname === settingsPath && request.method() === "PUT") puts.push(request.url()); });
+  await page.goto("/admin/settings/brand");
+  await expectOperatorReady(page);
+  const before = await readBrand(context);
+
+  await page.getByLabel("Logo URL", { exact: true }).fill("http://brand.test/logo.png");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Enter a full https:// address, or leave it empty.", { exact: true })).toBeVisible();
+  expect(puts).toHaveLength(0);
+
+  await page.getByLabel("Logo URL", { exact: true }).fill("https://brand.test/logo.png");
+  await page.getByLabel("Terms URL", { exact: true }).fill("https://brand.test/terms");
+  await page.getByLabel("Privacy URL", { exact: true }).fill("https://brand.test/privacy");
+  await expect(page.getByRole("group", { name: "Customer preview" }).getByRole("img", { name: before.value.displayName === "home" ? "Home" : before.value.displayName })).toBeVisible();
+  expect((await save(page, admin, before.revision)).status()).toBe(200);
+  const saved = await readBrand(context);
+  expect(saved).toMatchObject({ revision: before.revision + 1, value: { ...before.value, logoUrl: "https://brand.test/logo.png", termsUrl: "https://brand.test/terms", privacyUrl: "https://brand.test/privacy" } });
+
+  await page.goto("/access");
+  await expect(page.getByText(saved.value.displayName, { exact: true })).toBeVisible();
+  await page.goto("/");
+  await expect(page.locator('[data-home-mark="logo"]').getByRole("img", { name: saved.value.displayName, exact: true }).first()).toHaveAttribute("src", "https://brand.test/logo.png");
+
+  await page.goto("/admin/settings/brand");
+  await expectOperatorReady(page);
+  await page.getByLabel("Logo URL", { exact: true }).fill("https://brand.test/missing.png");
+  await page.getByLabel("Terms URL", { exact: true }).fill("");
+  await page.getByLabel("Privacy URL", { exact: true }).fill("  ");
+  expect((await save(page, admin, saved.revision)).status()).toBe(200);
+  expect((await readBrand(context)).value).toEqual({ ...before.value, logoUrl: "https://brand.test/missing.png", termsUrl: null, privacyUrl: null });
+
+  await page.goto("/");
+  await expect(page.locator('[data-home-mark=""]').first()).toBeVisible();
+  await expect(page.locator('[data-home-mark="logo"]')).toHaveCount(0);
+});

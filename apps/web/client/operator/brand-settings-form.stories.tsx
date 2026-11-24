@@ -9,7 +9,7 @@ const operator = "0x2222222222222222222222222222222222222222" as const;
 
 const defaults: BrandSettingsState = { value: BRAND_DEFAULTS, revision: 0, source: "default", updatedAt: null, updatedBy: null };
 const stored: BrandSettingsState = {
-  value: { displayName: "Acme Money", description: "Money for Acme customers.", primaryColor: "#0b6b3a", backgroundColor: "#f5f8f2" },
+  value: { displayName: "Acme Money", description: "Money for Acme customers.", primaryColor: "#0b6b3a", backgroundColor: "#f5f8f2", logoUrl: null, termsUrl: null, privacyUrl: null },
   revision: 3,
   source: "stored",
   updatedAt: "2026-09-24T12:00:00.000Z",

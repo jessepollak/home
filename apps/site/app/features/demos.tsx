@@ -298,6 +298,9 @@ const operatorBrand: BrandSettings = {
   description: "Money for the harbour towns.",
   primaryColor: "#0b6e4f",
   backgroundColor: "#f1f7f3",
+  logoUrl: null,
+  termsUrl: null,
+  privacyUrl: null,
 };
 
 function brandStyle(settings: BrandSettings): CSSProperties {
