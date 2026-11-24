@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { accessErrorCode, accessSuccessDestination } from "@/shared/access/contract";
 import { createAccessLoginHandler, createAccessLogoutHandler } from "./handlers";
+import { isAccessLoginRateLimited } from "./rate-limit";
 
 const CREDENTIAL = "a".repeat(8);
 const SIGNING_SECRET = "b".repeat(32);
@@ -75,6 +76,36 @@ describe("access login", () => {
     const outage = await unavailable(request(body(CREDENTIAL)));
     expect(outage.status).toBe(503);
     expect(accessErrorCode(await outage.json())).toBe("ACCESS_UNAVAILABLE");
+  });
+
+  test.each([body(CREDENTIAL), body("wrong")])("rate-limits before comparing the credential", async (formBody) => {
+    const limited = createAccessLoginHandler({
+      getConfig: () => ({ kind: "enabled", credential: CREDENTIAL, signingSecret: SIGNING_SECRET }),
+      isRateLimited: (request) => isAccessLoginRateLimited(request, {
+        environment: () => ({ VERCEL: "1" }),
+        check: async () => ({ rateLimited: true }),
+      }),
+      now: () => new Date("2026-09-18T12:00:00.000Z"),
+    });
+    const response = await limited(request(formBody));
+    expect(response.status).toBe(429);
+    expect(response.headers.has("set-cookie")).toBe(false);
+    expect(response.headers.get("cache-control")).toContain("private");
+    expect(accessErrorCode(await response.json())).toBe("ACCESS_UNAVAILABLE");
+  });
+
+  test("treats a firewall deny as a limited submission", async () => {
+    const denied = createAccessLoginHandler({
+      getConfig: () => ({ kind: "enabled", credential: CREDENTIAL, signingSecret: SIGNING_SECRET }),
+      isRateLimited: (request) => isAccessLoginRateLimited(request, {
+        environment: () => ({ VERCEL: "1" }),
+        check: async () => ({ rateLimited: true, error: "blocked" }),
+      }),
+    });
+    const response = await denied(request(body(CREDENTIAL)));
+    expect(response.status).toBe(429);
+    expect(response.headers.has("set-cookie")).toBe(false);
+    expect(accessErrorCode(await response.json())).toBe("ACCESS_UNAVAILABLE");
   });
 
   test("rejects an extra form field without setting a cookie", async () => {
