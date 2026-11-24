@@ -122,7 +122,7 @@ export const Deposit: Story = {
       .find((node) => node.textContent === "$25.00");
     await expect(amountRow).toBeVisible();
     await expect(within(confirmDialog).getByText("Spark USDC Vault")).toBeVisible();
-    await expect(within(confirmDialog).getByText("Base (8453)")).toBeVisible();
+    await expect(within(confirmDialog).getByText("Base", { exact: true })).toBeVisible();
     await expect(
       within(confirmDialog).getByRole("button", { name: "Deposit $25.00" }),
     ).toBeVisible();

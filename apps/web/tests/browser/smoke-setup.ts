@@ -3,6 +3,10 @@ import { homeSessionToken } from "./fixtures/session";
 
 // Compile only cold navigation targets, serially, before browser workers race
 // over the dev bundler. This time counts toward the smoke global/job budgets.
+// Measured cold compiles take single-digit seconds. Each request gets its own 60s
+// cap, so a slow restored-cache compile reports a duration instead of landing on
+// Playwright's 30s default; the global and job budgets remain the outer gates.
+const warmUpTimeoutMs = 60_000;
 export default async function smokeSetup(config: FullConfig) {
   const baseURL = config.projects[0]?.use.baseURL;
   const cookieKey = ["HOME", "PLAYWRIGHT", "ACCESS", "COOKIE"].join("_");
@@ -17,7 +21,7 @@ export default async function smokeSetup(config: FullConfig) {
   try {
     for (const path of ["/admin", "/admin/settings/funding", "/cash/savings"]) {
       const started = performance.now();
-      const response = await context.get(path, { maxRedirects: 0 });
+      const response = await context.get(path, { maxRedirects: 0, timeout: warmUpTimeoutMs });
       if (response.status() !== 200) throw new Error(`Smoke compile ${path}: HTTP ${response.status()}`);
       await response.dispose();
       console.log(`Smoke compile ${path}: ${Math.round(performance.now() - started)}ms`);
