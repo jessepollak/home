@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSelectedLayoutSegments } from "next/navigati
 import { ArrowLeft, Menu } from "lucide-react";
 import { AddressText } from "@/components/address-text";
 import { Button } from "@/components/ui/button";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { RailNav, RailNavItem } from "@/components/ui/rail-nav";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -233,7 +233,7 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
         </header>
         <Drawer open={menuOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={(open) => { if (!open) restoreFocusTarget()?.focus(); }}>
           <DrawerContent aria-label="Sections" finalFocus={restoreFocusTarget}>
-            <DrawerHeader><DrawerTitle>Sections</DrawerTitle></DrawerHeader>
+            <DrawerHeader><DrawerTitle>Sections</DrawerTitle><DrawerDescription>{brandName}</DrawerDescription></DrawerHeader>
             <div className="overflow-y-auto px-3 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               <SectionLinks pathname={pathname} sectionRoute={sectionRoute} onNavigate={navigateFromMenu} supportUnread={supportUnread ?? 0} />
               <Separator className="my-3" />

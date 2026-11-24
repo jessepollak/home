@@ -7,7 +7,7 @@ export const sheetHostExceptions = [
   },
   {
     file: "app/admin/operator-shell.tsx",
-    imports: ["Drawer", "DrawerContent", "DrawerHeader", "DrawerTitle"],
+    imports: ["Drawer", "DrawerContent", "DrawerDescription", "DrawerHeader", "DrawerTitle"],
     owner: "operator console",
     reason: "non-money operator navigation drawer",
   },
