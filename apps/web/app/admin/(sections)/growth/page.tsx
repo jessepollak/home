@@ -8,6 +8,7 @@ export const instant = false;
 export default async function GrowthPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   const stats = await readInviteStats().catch(() => null);
   return (
     <OperatorSection address={address} heading="Growth">

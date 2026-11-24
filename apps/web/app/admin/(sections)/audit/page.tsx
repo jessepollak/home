@@ -6,5 +6,6 @@ export const instant = false;
 export default async function AuditPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
+  if (!address) return null;
   return <OperatorSection address={address} heading="Audit log"><OperatorEmpty>Admin activity isn&apos;t recorded yet.</OperatorEmpty></OperatorSection>;
 }

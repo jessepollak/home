@@ -424,7 +424,7 @@ describe("native Base authentication handlers", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     const cookies = response.headers.getSetCookie();
-    expect(cookies).toHaveLength(4);
+    expect(cookies.map((value) => value.split("=")[0]).sort()).toEqual(["home-auth-challenge", "home-cdp-live", "home-cdp-session", "home-operator-grant", "home-session"]);
     expect(cookies.every((value) => value.includes("Max-Age=0"))).toBe(true);
     expect(cookies.some((value) => value.startsWith("home-access="))).toBe(false);
   });
