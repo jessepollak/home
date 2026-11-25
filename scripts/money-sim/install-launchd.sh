@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Installs (or with --uninstall removes) the nightly money-action simulation launchd agent for the current user.
+# Run it on the always-on studio Mac, from a login shell so the tool PATH resolves.
 # See docs/money-sim-nightly.md.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -30,4 +31,4 @@ install -m 755 "$here/nightly.sh" "$share/nightly.sh"
 sed -e "s#__HOME__#$HOME#g" -e "s#__PATH__#$agent_path#g" "$here/$label.plist" > "$agent"
 plutil -lint "$agent" >/dev/null
 launchctl bootstrap "$domain" "$agent"
-echo "installed $label: runs each night once, from 02:00 or the first hourly firing after it while the Mac is fully awake"
+echo "installed $label: runs each night once, from 02:00 or the first hourly firing after it that gets past bootstrap"

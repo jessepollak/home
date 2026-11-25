@@ -3,9 +3,9 @@
 #
 #   nightly.sh [--scheduled] [--runs N] [--no-post]
 #
-# --scheduled  launchd mode: runs once per night slot (02:00 local). launchd fires at 02:00 and hourly; a firing in a
-#              dark wake (the Mac woke for maintenance with the display off) exits quietly and leaves the night
-#              to the next firing while fully awake. A firing after the night's run started does nothing.
+# --scheduled  launchd mode: runs once per night slot (02:00 local). launchd fires at 02:00 and hourly; a firing that
+#              hits a network or bootstrap error leaves the night to the next one. A firing after the night's run
+#              started does nothing.
 # --runs N     seeds to run (default 1000).
 # --no-post    never post; write the would-be comment to the local log instead (the bot identity is still checked).
 #
@@ -63,13 +63,6 @@ fail() {
 # harness <what>: the run could not produce a trustworthy result. Logged locally only; nothing is posted.
 harness() { log "harness error: $1"; echo "harness error: $1" >&2; exit 1; }
 
-# wake_state: "awake" in a full wake, "dark" in a dark wake. A dark wake runs without graphics capability.
-wake_state() {
-  case "$(pmset -g systemstate 2>/dev/null | grep -m1 'Capabilities')" in
-    *Graphics*) echo awake ;;
-    *) echo dark ;;
-  esac
-}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -97,7 +90,6 @@ if [ "$scheduled" = 1 ]; then
   if [ $((10#$(date +%H))) -lt 2 ]; then night=$(date -v-1d +%F); else night=$(date +%F); fi
   last=$(cat "$state/last-night" 2>/dev/null || true)
   [ "$last" = "$night" ] && exit 0
-  if [ "$(wake_state)" = dark ]; then echo "$stamp: dark wake, leaving $night to a later firing"; exit 0; fi
   if [ -n "$last" ] && [ "$last" != "$(date -j -v-1d -f %F "$night" +%F)" ]; then gap=" (missed nights after $last)"; fi
 fi
 # Hold the Mac awake (idle sleep, and system sleep on AC power) until this run exits.
