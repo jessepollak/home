@@ -29,6 +29,10 @@ done
 mkdir -p "$share" "$HOME/Library/Logs/home-money-sim" "$(dirname "$agent")"
 install -m 755 "$here/nightly.sh" "$share/nightly.sh"
 sed -e "s#__HOME__#$HOME#g" -e "s#__PATH__#$agent_path#g" "$here/$label.plist" > "$agent"
+# A TLS-inspecting network needs its CA bundle in the agent too, or bun install fails with SELF_SIGNED_CERT_IN_CHAIN.
+for var in NODE_EXTRA_CA_CERTS SSL_CERT_FILE; do
+  if [ -n "${!var:-}" ]; then plutil -insert "EnvironmentVariables.$var" -string "${!var}" "$agent"; fi
+done
 plutil -lint "$agent" >/dev/null
 launchctl bootstrap "$domain" "$agent"
 echo "installed $label: runs each night once, from 02:00 or the first hourly firing after it that gets past bootstrap"

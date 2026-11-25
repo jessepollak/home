@@ -37,7 +37,7 @@ On the studio Mac, from a login shell so `bun`, `anvil` and the PostgreSQL binar
 zsh -lc ~/src/home/scripts/money-sim/install-launchd.sh
 ```
 
-It copies `nightly.sh` to `~/.local/share/home-money-sim/`, installs `~/Library/LaunchAgents/ai.j.home-money-sim.plist`, and loads it. Rerun it after changing `nightly.sh` or the plist. Check it with `launchctl list | grep home-money-sim`.
+It copies `nightly.sh` to `~/.local/share/home-money-sim/`, installs `~/Library/LaunchAgents/ai.j.home-money-sim.plist`, and loads it. The agent gets the install shell's `PATH`, plus `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE` when set, so `bun install` trusts a TLS-inspecting network's CA bundle. Rerun it after changing `nightly.sh` or the plist. Check it with `launchctl list | grep home-money-sim`.
 
 To run once now, outside the night window:
 
