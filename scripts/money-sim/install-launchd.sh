@@ -30,4 +30,4 @@ install -m 755 "$here/nightly.sh" "$share/nightly.sh"
 sed -e "s#__HOME__#$HOME#g" -e "s#__PATH__#$agent_path#g" "$here/$label.plist" > "$agent"
 plutil -lint "$agent" >/dev/null
 launchctl bootstrap "$domain" "$agent"
-echo "installed $label: runs at 02:00 nightly, or once on wake when the Mac slept through it"
+echo "installed $label: runs each night once, from 02:00 or the first hourly firing after it while the Mac is fully awake"

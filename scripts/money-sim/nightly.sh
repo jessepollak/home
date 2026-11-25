@@ -3,12 +3,14 @@
 #
 #   nightly.sh [--scheduled] [--runs N] [--no-post]
 #
-# --scheduled  launchd mode: runs once per night slot (02:00 local). launchd fires a slot missed during sleep once on
-#              wake, so a late run still covers that night; a second firing in the same slot does nothing.
+# --scheduled  launchd mode: runs once per night slot (02:00 local). launchd fires at 02:00 and hourly; a firing in a
+#              dark wake (the Mac woke for maintenance with the display off) exits quietly and leaves the night
+#              to the next firing while fully awake. A firing after the night's run started does nothing.
 # --runs N     seeds to run (default 1000).
 # --no-post    never post; write the would-be comment to the local log instead (the bot identity is still checked).
 #
-# A green night posts nothing. Any failure posts one new comment from the factory bot account on the tracking issue.
+# A green night posts nothing. A simulation failure posts one new comment from the factory bot account on the tracking
+# issue. A harness error (network, bootstrap, unreadable output) is logged to report.log only.
 set -euo pipefail
 
 repo="${MONEY_SIM_REPO:-$HOME/src/home}"
@@ -58,8 +60,16 @@ fail() {
   exit 1
 }
 
-# harness <what>: the run could not produce a trustworthy result.
-harness() { log "harness error: $1"; fail "**Harness error, not an invariant result:** $1."; }
+# harness <what>: the run could not produce a trustworthy result. Logged locally only; nothing is posted.
+harness() { log "harness error: $1"; echo "harness error: $1" >&2; exit 1; }
+
+# wake_state: "awake" in a full wake, "dark" in a dark wake. A dark wake runs without graphics capability.
+wake_state() {
+  case "$(pmset -g systemstate 2>/dev/null | grep -m1 'Capabilities')" in
+    *Graphics*) echo awake ;;
+    *) echo dark ;;
+  esac
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -87,9 +97,11 @@ if [ "$scheduled" = 1 ]; then
   if [ $((10#$(date +%H))) -lt 2 ]; then night=$(date -v-1d +%F); else night=$(date +%F); fi
   last=$(cat "$state/last-night" 2>/dev/null || true)
   [ "$last" = "$night" ] && exit 0
+  if [ "$(wake_state)" = dark ]; then echo "$stamp: dark wake, leaving $night to a later firing"; exit 0; fi
   if [ -n "$last" ] && [ "$last" != "$(date -j -v-1d -f %F "$night" +%F)" ]; then gap=" (missed nights after $last)"; fi
-  echo "$night" > "$state/last-night"
 fi
+# Hold the Mac awake (idle sleep, and system sleep on AC power) until this run exits.
+caffeinate -i -s -w $$ &
 
 out="$state/runs/$stamp.txt" seeds="$state/runs/$stamp.failing"
 # A run that fires on wake can start before the network is up: wait up to 10 minutes for GitHub to answer.
@@ -101,10 +113,12 @@ if ! {
   retry 120 git -C "$worktree" fetch --quiet origin "$ref" &&
   git -C "$worktree" checkout --quiet --detach "origin/$ref" &&
   sha=$(git -C "$worktree" rev-parse --short=9 HEAD) &&
-  (cd "$worktree" && bun run worktree:bootstrap -- --copy-env)
+  retry 300 bash -c 'cd "$1" && bun run worktree:bootstrap -- --copy-env' _ "$worktree"
 } > "$out.setup" 2>&1; then
   harness "bootstrap failed: the worktree could not be updated to origin/$ref or bootstrapped"
 fi
+# The night is done once its simulation starts; a network or bootstrap error leaves it to the next firing.
+[ "$scheduled" = 0 ] || echo "$night" > "$state/last-night"
 
 (cd "$worktree" && bun run --cwd apps/web sim:money -- --runs "$runs" --failing-seeds "$seeds" < /dev/null) > "$out" 2>&1 || exit_status=$?
 result=$(grep -m1 '^RESULT' "$out" | sed 's/^RESULT *//' || true)
@@ -143,6 +157,8 @@ while read -r seed tag; do
 done < "$seeds"
 
 log "$result; batch crashes $crashed; replays failed again $again, passed $flakes, harness errors $errors; seeds in $out.replays"
+# Only an invariant violation is a simulation result; a night whose failed runs all crashed is a harness error.
+[ "$crashed" -lt "$listed" ] || [ "$again" -gt 0 ] || harness "all $listed failed runs crashed before any invariant result"
 more=$((listed - shown))
 fail "$((total - held)) runs failed in the batch: $((listed - crashed)) violated an invariant, $crashed crashed before any invariant result (harness errors). Replayed alone: $again failed again, $flakes passed, $errors stopped before any invariant result (harness errors).
 
