@@ -59,6 +59,7 @@ const products = process.env.HOME_PLAYWRIGHT_PRODUCTS === "1";
 if (products && !process.env.DATABASE_URL) throw new Error("Run Products coverage with test:browser-products.");
 const regression = process.env.HOME_PLAYWRIGHT_REGRESSION === "1";
 const productionNavigation = process.env.HOME_PLAYWRIGHT_PRODUCTION === "1";
+const smoke = !products && !regression && !productionNavigation;
 const executablePath = cachedChromiumExecutable();
 const fixturePort = resolveFixturePort(process.env.HOME_FIXTURE_PORT);
 process.env.HOME_FIXTURE_PORT = fixturePort;
@@ -92,13 +93,13 @@ process.env["HOME_ACCESS_PASSWORD"] = accessCredential;
 process.env.HOME_ACCESS_SIGNING_SECRET = accessSigningSecret;
 
 export default defineConfig({
-  globalSetup: products ? undefined : regression ? "./tests/browser/global-setup.ts" : productionNavigation ? undefined : "./tests/browser/smoke-setup.ts",
+  globalSetup: regression ? "./tests/browser/global-setup.ts" : smoke ? "./tests/browser/smoke-setup.ts" : undefined,
   testDir: "./tests/browser",
   testMatch: products ? ["products-settings.pw.ts", "settings-brand.pw.ts"] : "**/*.pw.ts",
   testIgnore: products ? [] : ["**/products-settings.pw.ts", "**/settings-brand.pw.ts"],
-  fullyParallel: !products && !regression && !productionNavigation,
+  fullyParallel: smoke,
   workers: products || regression || productionNavigation ? 1 : 2,
-  globalTimeout: products ? 300_000 : !regression && !productionNavigation && process.env.CI ? 90_000 : undefined,
+  globalTimeout: products ? 300_000 : smoke && process.env.CI ? 90_000 : undefined,
   ...browserSmokeCiPolicy(Boolean(process.env.CI), { rejectRetryOnlyPass: products || regression }),
   ...(products ? { outputDir: "test-results/products", reporter: [["list"], ["json", { outputFile: "test-results/products.json" }]] } satisfies Parameters<typeof defineConfig>[0] : {}),
   ...(productionNavigation ? {
@@ -110,7 +111,8 @@ export default defineConfig({
     ...(productionNavigation
       ? { command: `./node_modules/.bin/next build && ./node_modules/.bin/next start --hostname 127.0.0.1 --port ${fixturePort}`, timeout: 900_000 }
       : { command: `bun run dev -- --port ${fixturePort}` }),
-    url: fixtureBaseUrl,
+    ...(smoke ? { wait: { stdout: /\bReady in\b/ } } : { url: fixtureBaseUrl }),
+    stdout: process.env.CI ? "pipe" : "ignore",
     reuseExistingServer: false,
     env: {
       ...process.env,
