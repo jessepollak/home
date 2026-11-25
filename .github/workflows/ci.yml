@@ -287,6 +287,7 @@ jobs:
 
   browser-smoke:
     name: Chromium smoke
+    needs: browser-smoke-cache
     runs-on: ubuntu-latest
     timeout-minutes: 4
     env:
@@ -381,7 +382,6 @@ jobs:
 
   browser-smoke-cache:
     name: Chromium smoke cache
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -393,6 +393,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
