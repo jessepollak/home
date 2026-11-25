@@ -737,3 +737,5 @@ export function getActionsStore(): ActionsStore {
 export function setActionsStoreForTests(store: ActionsStore | null): void {
   runtimeStore = store;
 }
+
+export const smokeCacheProbe7 = 7;

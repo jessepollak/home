@@ -16,3 +16,5 @@ export async function readBoundedWebhookBody(
   if (result.kind === "empty") return new Uint8Array();
   return result.kind === "ok" ? result.bytes : null;
 }
+
+export const smokeCacheProbe45 = 45;

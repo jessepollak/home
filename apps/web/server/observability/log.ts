@@ -128,3 +128,5 @@ export function observeSafely(report: () => unknown): void {
     return;
   }
 }
+
+export const smokeCacheProbe3 = 3;

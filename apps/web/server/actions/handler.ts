@@ -795,3 +795,5 @@ function isPendingTradeConfirmation(pending: PendingAction): pending is PendingA
     Number.isSafeInteger(pending.swapCallIndex),
   );
 }
+
+export const smokeCacheProbe29 = 29;

@@ -350,3 +350,5 @@ export function createSessionHandler({
     }
   };
 }
+
+export const smokeCacheProbe35 = 35;

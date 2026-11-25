@@ -22,3 +22,5 @@ export const fundingUserTokenProviders: ReadonlyMap<string, ProviderUserTokenCre
 export function getFundingProvider(id: string): FundingProvider | undefined {
   return fundingProviders.find((provider) => provider.manifest.id === id);
 }
+
+export const smokeCacheProbe22 = 22;

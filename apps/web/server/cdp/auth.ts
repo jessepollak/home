@@ -58,3 +58,5 @@ export async function signCdpRequest({
   if (/\s/.test(token)) throw new CdpAuthError("malformed-token", "whitespace");
   return { token, authorization: `Bearer ${token}` };
 }
+
+export const smokeCacheProbe36 = 36;

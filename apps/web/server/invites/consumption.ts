@@ -20,3 +20,5 @@ export function recordVerifiedCustomer(
   const operation = () => write(inviteCode);
   return recordNow(operation);
 }
+
+export const smokeCacheProbe42 = 42;

@@ -116,3 +116,5 @@ export async function readRegionOfferForRender(read: () => Promise<RegionPolicy>
     ? { offered: policy.offered, defaultRegion: policy.defaultRegion }
     : { offered: [], defaultRegion: "GLOBAL" };
 }
+
+export const smokeCacheProbe28 = 28;

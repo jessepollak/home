@@ -109,3 +109,5 @@ export function getCdpAccessTokenValidator(): Promise<AccessTokenValidator> {
 
   return defaultValidatorPromise;
 }
+
+export const smokeCacheProbe48 = 48;

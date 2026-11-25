@@ -67,3 +67,5 @@ function readProductsOnce(store: Pick<OperatorSettingsStore, "read">, timeoutMs:
   }
   return pendingRead;
 }
+
+export const smokeCacheProbe40 = 40;

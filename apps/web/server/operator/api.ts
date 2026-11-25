@@ -89,3 +89,5 @@ export function createOperatorGrantHandler(
     return response;
   };
 }
+
+export const smokeCacheProbe30 = 30;

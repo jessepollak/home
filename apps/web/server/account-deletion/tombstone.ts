@@ -54,3 +54,5 @@ export async function assertCredentialLive(sql: SqlExecutor, session: VerifiedAc
 export async function assertSessionLive(session: VerifiedAccountSession, now = new Date()): Promise<void> {
   if (readDatabaseUrl()) await assertCredentialLive(getSqlExecutor(), session, now);
 }
+
+export const smokeCacheProbe25 = 25;

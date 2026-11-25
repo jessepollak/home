@@ -275,3 +275,5 @@ function formatRecoveryTime(availableAt: string): string {
   if (!Number.isFinite(time.getTime())) return availableAt;
   return formatPresentationDate(time, { style: "date-time-zone", timeZone: "UTC" });
 }
+
+export const smokeCacheProbe44 = 44;

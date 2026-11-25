@@ -111,3 +111,5 @@ export async function readJsonBody(
     return { kind: "malformed" };
   }
 }
+
+export const smokeCacheProbe8 = 8;

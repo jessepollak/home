@@ -23,3 +23,5 @@ export function readOperatorConfig(
   }
   return { kind: "configured", addresses };
 }
+
+export const smokeCacheProbe27 = 27;

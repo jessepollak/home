@@ -56,3 +56,5 @@ export function fundingRequestOrigin(request: Request): string {
     return url.origin;
   }
 }
+
+export const smokeCacheProbe46 = 46;

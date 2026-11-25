@@ -918,3 +918,5 @@ function allowedValue<const T extends readonly string[]>(
     ? (value as T[number])
     : fallback;
 }
+
+export const smokeCacheProbe21 = 21;

@@ -13,3 +13,5 @@ export function moneyActionOwner(session: VerifiedAccountSession): MoneyActionOw
       }
     : null;
 }
+
+export const smokeCacheProbe41 = 41;

@@ -259,3 +259,5 @@ function postgresIdentifier(value: string): string {
   if (!/^[a-z][a-z0-9_]{0,62}$/.test(value)) throw new Error("unsafe PostgreSQL schema identifier");
   return `"${value}"`;
 }
+
+export const smokeCacheProbe1 = 1;

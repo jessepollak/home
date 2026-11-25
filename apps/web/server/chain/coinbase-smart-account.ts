@@ -422,3 +422,5 @@ function uintWord(value: bigint): string {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+export const smokeCacheProbe20 = 20;

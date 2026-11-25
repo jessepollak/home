@@ -31,3 +31,5 @@ export function withPrivateHeaders(response: Response): Response {
   );
   return new Response(response.body, { status: response.status, headers });
 }
+
+export const smokeCacheProbe5 = 5;

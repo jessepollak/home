@@ -52,3 +52,5 @@ export const readVercelEnvironment = envGetter("VERCEL_ENV", z.string().optional
 export const readVercelDeploymentId = envGetter("VERCEL_DEPLOYMENT_ID", z.string().optional(), () => undefined);
 export const readCdpPaymasterUrl = envGetter("CDP_PAYMASTER_URL", optionalCredential, () => undefined);
 export const readBaseAccountStatusRpcUrl = envGetter("BASE_ACCOUNT_STATUS_RPC_URL", optionalCredential, () => undefined);
+
+export const smokeCacheProbe2 = 2;

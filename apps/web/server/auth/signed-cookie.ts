@@ -73,3 +73,5 @@ export function cookie(
 export function clearCookie(name: string, request: Request): string {
   return cookie(name, "", request, 0);
 }
+
+export const smokeCacheProbe12 = 12;

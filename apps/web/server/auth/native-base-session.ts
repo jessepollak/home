@@ -407,3 +407,5 @@ export function createNativeBaseLogoutHandler(input: NativeBaseLogoutDependencie
     ]);
   };
 }
+
+export const smokeCacheProbe16 = 16;

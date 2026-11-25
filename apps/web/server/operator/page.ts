@@ -62,3 +62,5 @@ export async function readOperatorPageDecision(
 function withProvider(decision: OperatorDecision, provider: "base-account" | "cdp-embedded"): OperatorPageDecision {
   return decision.kind === "operator" ? { ...decision, provider } : decision;
 }
+
+export const smokeCacheProbe13 = 13;

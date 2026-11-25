@@ -68,3 +68,5 @@ export function openSecret(keyring: SecretKeyring, envelope: string, aad: Secret
     return { ok: true, plaintext: Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8") };
   } catch { return { ok: false, reason: "unreadable" }; }
 }
+
+export const smokeCacheProbe9 = 9;

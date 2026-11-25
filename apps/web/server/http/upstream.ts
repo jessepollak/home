@@ -333,3 +333,5 @@ export async function upstreamRequest(
     return fail(deadline.interruptionKind() ?? "transport", { cause: error });
   }
 }
+
+export const smokeCacheProbe10 = 10;

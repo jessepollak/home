@@ -21,3 +21,5 @@ export function deletionAuthErrorResponse(error: unknown): Response | null {
   if (error instanceof AccountDeletionAuthUnavailable) return privateJson({ error: { code: "AUTH_UNAVAILABLE", message: "Authentication is temporarily unavailable." } } satisfies AuthBoundaryErrorResponse, 503);
   return null;
 }
+
+export const smokeCacheProbe11 = 11;

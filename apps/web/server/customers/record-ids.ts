@@ -11,3 +11,5 @@ export async function recordCustomerIds(sql: SqlExecutor, owner: Owner, at: Date
   const result = await new CustomerResolver(sql).resolveCustomerInTransaction(sql, session, at, "activity");
   return { customerId: result.id, credentialId: result.credentialId, walletId: result.walletId };
 }
+
+export const smokeCacheProbe47 = 47;

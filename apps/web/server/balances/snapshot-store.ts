@@ -171,3 +171,5 @@ function timestamp(value: unknown): string {
 function parseJson<T>(value: unknown): T {
   return typeof value === "string" ? JSON.parse(value) as T : value as T;
 }
+
+export const smokeCacheProbe24 = 24;

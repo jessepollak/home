@@ -175,3 +175,5 @@ export async function readFundingOfferingView(): Promise<FundingOfferingView> {
     throw new FundingOfferingUnavailableError("Funding offering is unavailable.");
   }
 }
+
+export const smokeCacheProbe43 = 43;

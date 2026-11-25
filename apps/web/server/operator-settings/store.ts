@@ -78,3 +78,5 @@ export class OperatorSettingsStore {
     }
   }
 }
+
+export const smokeCacheProbe33 = 33;

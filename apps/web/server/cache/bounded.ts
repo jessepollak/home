@@ -125,3 +125,5 @@ export function createBoundedCache<V extends NonNullable<unknown>>({
     },
   };
 }
+
+export const smokeCacheProbe18 = 18;

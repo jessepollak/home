@@ -42,3 +42,5 @@ export async function readRenderSession(
   try { await assertSessionLive(cdp, now); return { session: cdp, source: "cdp-hint" }; }
   catch { return null; }
 }
+
+export const smokeCacheProbe37 = 37;

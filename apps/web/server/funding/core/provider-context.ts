@@ -293,3 +293,5 @@ function requestUrl(input: RequestInfo | URL): URL {
     });
   }
 }
+
+export const smokeCacheProbe31 = 31;

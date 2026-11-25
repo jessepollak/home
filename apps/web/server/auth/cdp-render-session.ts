@@ -106,3 +106,5 @@ function secretBuffer(secret: string | undefined): Buffer | null {
   if (!value || Buffer.byteLength(value, "utf8") < 32) return null;
   return Buffer.from(value, "utf8");
 }
+
+export const smokeCacheProbe26 = 26;

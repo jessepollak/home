@@ -213,3 +213,5 @@ export async function deferCustomerRecord(operation: (resolver: CustomerResolver
     await recordCustomer(operation, false);
   }
 }
+
+export const smokeCacheProbe15 = 15;

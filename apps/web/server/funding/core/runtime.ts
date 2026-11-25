@@ -80,3 +80,5 @@ export function getFundingCore(): FundingCore {
   });
   return core;
 }
+
+export const smokeCacheProbe23 = 23;

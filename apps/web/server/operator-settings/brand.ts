@@ -54,3 +54,5 @@ export async function brandedPageTitle(destination: string): Promise<{ absolute:
   const { settings } = await resolveBrand();
   return { absolute: `${destination} · ${brandCopyName(settings.displayName)}` };
 }
+
+export const smokeCacheProbe17 = 17;

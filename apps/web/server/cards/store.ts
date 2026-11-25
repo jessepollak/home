@@ -30,3 +30,5 @@ export function createCardEventStore(sql: Pick<SqlExecutor, "query">) {
     },
   };
 }
+
+export const smokeCacheProbe32 = 32;

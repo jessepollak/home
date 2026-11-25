@@ -12,3 +12,5 @@ export function composeDeadline(parent: AbortSignal | undefined, timeoutMs: numb
   const timeout = AbortSignal.timeout(timeoutMs);
   return parent ? composeSignals([parent, timeout]) : timeout;
 }
+
+export const smokeCacheProbe14 = 14;

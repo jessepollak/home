@@ -15,3 +15,5 @@ export function readRequestIsoCountry(headers: Pick<Headers, "get">): string | n
 export function readRequestCountry(headers: Pick<Headers, "get">): CountryCode | null {
   return normalizeCountryCode(headers.get(requestCountryHeader));
 }
+
+export const smokeCacheProbe38 = 38;

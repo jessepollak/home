@@ -510,3 +510,5 @@ export function createOperatorSupportReadHandler(deps: Dependencies = {}) {
     return await access.store.readOperator(id, parsed.lastMessageId) ? noContent() : fail("/api/admin/support/conversations/[id]/read", "NOT_FOUND", 404);
   });
 }
+
+export const smokeCacheProbe19 = 19;
