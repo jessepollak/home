@@ -143,7 +143,12 @@ export function MoneyTicker({
     units.push({ characters: [], start: characters.length, prefix: "", suffix: parts.suffix, key: "unit-suffix" });
   }
   const digitCount = characters.filter(isAsciiDigit).length;
-  const digitPositions = characters.map((_, index) => digitCount - characters.slice(0, index).filter(isAsciiDigit).length);
+  const digitPositions: number[] = [];
+  let digitsRemaining = digitCount;
+  for (const character of characters) {
+    digitPositions.push(digitsRemaining);
+    if (isAsciiDigit(character)) digitsRemaining -= 1;
+  }
   const characterCount = Array.from(value).length;
   const [reservedCharacters, setReservedCharacters] = useState(characterCount);
   const reservesWidth = align === "end" && reserveDigits && !wrap;
