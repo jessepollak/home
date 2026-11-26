@@ -437,7 +437,7 @@ function DashboardShellBody({
     ? () => leaveRoute(shellParentHref)
     : investChrome?.nested?.onBack ?? (() => router.push("/invest"));
   const homeStatus = isVerified && !isAccountSettingsOpen ? headerStatus({
-    interruption, country: activeNavigation === "home" ? homeCountryStatus(paintedAssetBalances) : null,
+    interruption, country: activeNavigation === "home" || activeNavigation === cashPanelId || activeNavigation === investmentsPanelId ? homeCountryStatus(paintedAssetBalances) : null,
   }) : null;
 
   return <HomeShellRoutingProvider value={routingValue}><ShellPageProvider value={pageValue}>
