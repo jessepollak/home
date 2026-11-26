@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { GIT } from "./git-command.mjs";
 
 export const FENCED_LAYERS = ["app", "client", "components", "config", "lib", "server", "shared", "types"];
 export const BOUNDARY_RULE = "home/no-exploration-imports";
@@ -49,7 +50,7 @@ const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 export function boundaryGit(cwd = repositoryRoot, env = process.env) {
   return (args) => {
-    const result = spawnSync("git", args, { cwd, env, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+    const result = spawnSync(GIT, args, { cwd, env, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
     if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
     return result.stdout;
   };

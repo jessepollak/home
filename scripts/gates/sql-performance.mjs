@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { visibleMarkdownLines } from "./failure-cases.mjs";
 import { resolveBaseRef } from "./playwright-rung.mjs";
+import { GIT } from "./git-command.mjs";
 
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 
@@ -37,7 +38,7 @@ export function sqlPerformanceReport(changes, body) {
 }
 
 function git(args) {
-  return execFileSync("git", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  return execFileSync(GIT, args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
 }
 
 export function changedSqlCandidates(base) {

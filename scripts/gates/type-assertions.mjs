@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { isPreclassifiedRootFile } from "./exploration-boundary.mjs";
 import { loadRootEntryExemptions } from "./root-entries.mjs";
+import { GIT } from "./git-command.mjs";
 
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -42,7 +43,7 @@ export function isTestOrStoryTypeScript(file) {
 }
 
 export function repositoryFiles(scope = isProductionTypeScript) {
-  return execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
+  return execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
     .toString().split("\0").filter((file) => scope(file) && existsSync(path.join(root, file)))
     .sort().map((file) => ({ path: file, content: readFileSync(path.join(root, file), "utf8") }));
 }
@@ -106,7 +107,7 @@ function cachedCounts(file, content) {
 }
 
 function runGit(args, { cwd = root } = {}) {
-  return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 });
+  return execFileSync(GIT, args, { cwd, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 });
 }
 
 function canResolve(args, cwd, gitRunner) {

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { evaluateBoundaryExemptions, existingBoundaryPaths, isPreclassifiedRootFile, readBoundaryBase, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
 import { NON_PRODUCTION_ROOT_FILES, assertionDebtReport, assertionExceptions, changedProductionTypeScript, changedScopedTypeScript, countAssertions, evaluateAssertionDelta, isProductionTypeScript, isTestOrStoryTypeScript, mergeBaseRevision, resolveBaseRevision } from "../type-assertions.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
+import { GIT } from "../git-command.mjs";
 
 const file = "apps/web/shared/ratchet-fixture.ts";
 const original = "export const value = input as string;";
@@ -87,7 +88,7 @@ function classifyRootFile(file) {
 
 test("every root-level JS-family entry point has exactly one reasoned classification", () => {
   const root = fileURLToPath(new URL("../../..", import.meta.url));
-  const paths = existingBoundaryPaths(execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root, env: gitFixtureEnv() })
+  const paths = existingBoundaryPaths(execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root, env: gitFixtureEnv() })
     .toString().split("\0").filter(Boolean).map((entry) => path.join(root, entry)))
     .map((entry) => path.relative(path.join(root, "apps/web"), entry).split(path.sep).join("/"));
   const rootFiles = rootSourceFiles(paths);
@@ -348,7 +349,7 @@ test("real git includes non-ASCII production additions and rename destinations",
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   const env = gitFixtureEnv();
-  const gitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const gitRunner = (args, options = {}) => execFileSync(GIT, args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   const git = (...args) => gitRunner(args);
   const source = "apps/web/shared/source.ts";
   const added = "apps/web/shared/café.ts";
@@ -377,7 +378,7 @@ test("real git compares changed test TypeScript only in its own scope", (t) => {
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-tests-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   const env = gitFixtureEnv();
-  const gitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const gitRunner = (args, options = {}) => execFileSync(GIT, args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   const git = (...args) => gitRunner(args);
   const testFile = "apps/web/client/example.test.ts";
   const baseContent = "const seeded = value;";
@@ -402,7 +403,7 @@ test("real git debt report enforces test and story increases with rename and exc
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-report-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   const env = gitFixtureEnv();
-  const realGitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const realGitRunner = (args, options = {}) => execFileSync(GIT, args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   const git = (...args) => realGitRunner(args);
   const testFile = "apps/web/client/example.test.ts";
   const storyFile = "apps/web/stories/journeys/example.stories.tsx";
@@ -454,7 +455,7 @@ test("real git reads base exceptions padded beyond 1 MiB without re-granting inh
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-large-base-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   const env = gitFixtureEnv();
-  const realGitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 });
+  const realGitRunner = (args, options = {}) => execFileSync(GIT, args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 });
   const git = (...args) => realGitRunner(args);
   const testFile = "apps/web/client/inherited.test.ts";
   const productionExceptions = "scripts/gates/type-assertions-exceptions.json";
@@ -495,7 +496,7 @@ test("real git fails closed when the base tree lists an exceptions file with a m
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-missing-blob-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   const env = gitFixtureEnv();
-  const git = (...args) => execFileSync("git", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const git = (...args) => execFileSync(GIT, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   const testFile = "apps/web/client/inherited.test.ts";
   const productionExceptions = "scripts/gates/type-assertions-exceptions.json";
   const testExceptions = "scripts/gates/type-assertions-test-exceptions.json";
@@ -628,7 +629,7 @@ test("neither TypeScript budget adds assertion debt relative to the base revisio
 
 test("the report command prints the current debt inventory as JSON", () => {
   const root = fileURLToPath(new URL("../../..", import.meta.url));
-  const report = JSON.parse(execFileSync("node", ["scripts/gates/type-assertions.mjs", "--report"], { cwd: root, encoding: "utf8" }));
+  const report = JSON.parse(execFileSync(process.execPath, ["scripts/gates/type-assertions.mjs", "--report"], { cwd: root, encoding: "utf8" }));
   assert.deepEqual(Object.keys(report), ["production", "testAndStory"]);
   for (const [key, scope, exceptionsFile] of [
     ["production", isProductionTypeScript, "type-assertions-exceptions.json"],

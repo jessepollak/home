@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { GIT } from "./git-command.mjs";
 
 export const scannedRoots = ["apps/web/live-login.ts", "apps/web/live-login.test.ts", "apps/web/fixture-session.sh", "apps/web/gmail.ts", "apps/web/gmail.test.ts", "docs", ".agents"];
 
@@ -24,7 +25,7 @@ export function personalEmailFindings(entries) {
 }
 
 export function repositoryEntries(root) {
-  const paths = execFileSync("git", ["ls-files", "--", ...scannedRoots], { cwd: root, encoding: "utf8" })
+  const paths = execFileSync(GIT, ["ls-files", "--", ...scannedRoots], { cwd: root, encoding: "utf8" })
     .split("\n")
     .filter(Boolean);
   return paths.map((path) => ({ path, content: readFileSync(resolve(root, path), "utf8") }));

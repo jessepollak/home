@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { evaluateKnipGlobs, knipGlobBudgetMs } from "./knip-glob.mjs";
 import { explorationOnlyPaths, importGraph, nonProduction, readWebSources, ts, webRoot } from "./knip-source.mjs";
+import { GIT } from "./git-command.mjs";
 
 const allowedKeys = new Set(["$schema", "ignoreExportsUsedInFile", "vitest", "entry", "ignore"]);
 const baselineKinds = new Set(["exploration-only", "test-support", "cli-entry", "structural-contract"]);
@@ -161,7 +162,7 @@ export function evaluateKnipExemptions({ config, baseline, files, packageJson = 
 }
 
 export function readKnipExemptionInput() {
-  const configPaths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: path.join(webRoot, "../..") })
+  const configPaths = execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: path.join(webRoot, "../..") })
     .toString().split("\0").filter(Boolean).map((file) => file.slice("apps/web/".length)).filter((file) => existsSync(path.join(webRoot, file)));
   return {
     config: readFileSync(path.join(webRoot, "knip.json"), "utf8"),

@@ -7,6 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildRuntimeReport, mergeJunitReports, parseJunit, readBaseAllowlist, validateAllowlist } from "../test-runtime.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
+import { GIT } from "../git-command.mjs";
 
 const checkedIn = JSON.parse(readFileSync(fileURLToPath(new URL("../test-runtime-allowlist.json", import.meta.url)), "utf8"));
 const empty = { tests: [], files: [], testFiles: [] };
@@ -395,11 +396,11 @@ test("CLI compares a custom allowlist path against the same path at the base", (
   };
   const allowlist = join(dir, "custom", "allowlist.json");
   const entry = (maxSeconds) => ({ ...empty, tests: [{ file, test: "slow", maxSeconds, reason: "measured slow test" }] });
-  run("git", ["init", "--quiet", "--initial-branch=main"]);
+  run(GIT, ["init", "--quiet", "--initial-branch=main"]);
   run("mkdir", ["custom"]);
   writeFileSync(allowlist, JSON.stringify(entry(8)));
-  run("git", ["add", "custom/allowlist.json"]);
-  run("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "base"]);
+  run(GIT, ["add", "custom/allowlist.json"]);
+  run(GIT, ["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "base"]);
   writeFileSync(allowlist, JSON.stringify(entry(9)));
   const junitFile = join(dir, "junit.xml");
   writeFileSync(junitFile, junit(testcase("slow", 6)));
@@ -419,7 +420,7 @@ test("CLI keeps the selected allowlist path when the working tree replaces it wi
   const allowlist = join(dir, "custom", "allowlist.json");
   const entry = (maxSeconds) => ({ ...empty, tests: [{ file, test: "slow", maxSeconds, reason: "measured slow test" }] });
   const git = (args) => {
-    const result = spawnSync("git", args, { cwd: dir, encoding: "utf8", env: gitFixtureEnv() });
+    const result = spawnSync(GIT, args, { cwd: dir, encoding: "utf8", env: gitFixtureEnv() });
     assert.equal(result.status, 0, result.stdout + result.stderr);
   };
   git(["init", "--quiet", "--initial-branch=main"]);

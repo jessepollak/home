@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GIT } from "./git-command.mjs";
 
 export const TEST_SECONDS = 5;
 export const FILE_SECONDS = 30;
@@ -246,7 +247,7 @@ export function renderRuntimeReport(report) {
 }
 
 function git(args) {
-  const result = spawnSync("git", args, { encoding: "utf8" });
+  const result = spawnSync(GIT, args, { encoding: "utf8" });
   if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
   return result.stdout.trim();
 }

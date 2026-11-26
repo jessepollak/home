@@ -8,11 +8,12 @@ import { fileURLToPath } from "node:url";
 
 import { main, resolutionReport } from "../../worktree/verify-resolution.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
+import { GIT } from "../git-command.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../../worktree/verify-resolution.mjs", import.meta.url));
 
 function gitCommand(args, cwd) {
-  return execFileSync("git", args, { cwd, encoding: "utf8", env: gitFixtureEnv(), stdio: ["ignore", "pipe", "pipe"] });
+  return execFileSync(GIT, args, { cwd, encoding: "utf8", env: gitFixtureEnv(), stdio: ["ignore", "pipe", "pipe"] });
 }
 
 const templates = new Map();
