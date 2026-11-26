@@ -49,6 +49,55 @@ function bindingNames(name: ts.BindingName): string[] {
     : name.elements.flatMap((element) => ts.isOmittedExpression(element) ? [] : bindingNames(element.name));
 }
 
+const varDeclarationIndexes = new WeakMap<ts.Node, Map<string, ts.VariableDeclaration[]>>();
+function varDeclarations(scope: ts.Node): Map<string, ts.VariableDeclaration[]> {
+  let index = varDeclarationIndexes.get(scope);
+  if (index) return index;
+  const declarations = new Map<string, ts.VariableDeclaration[]>();
+  const collect = (current: ts.Node) => {
+    if (ts.isFunctionLike(current) || ts.isClassDeclaration(current) || ts.isClassExpression(current)) return;
+    if (ts.isVariableDeclarationList(current) && (current.flags & ts.NodeFlags.BlockScoped) === 0) {
+      for (const declaration of current.declarations) {
+        for (const name of new Set(bindingNames(declaration.name))) {
+          const named = declarations.get(name);
+          if (named) named.push(declaration);
+          else declarations.set(name, [declaration]);
+        }
+      }
+    }
+    ts.forEachChild(current, collect);
+  };
+  collect(scope);
+  index = declarations;
+  varDeclarationIndexes.set(scope, index);
+  return index;
+}
+
+type StatementBinding = { statement: ts.Statement; declaration?: ts.VariableDeclaration };
+const statementBindingIndexes = new WeakMap<ts.Node, { first: Map<string, StatementBinding>; implementations: Map<string, ts.FunctionDeclaration> }>();
+function statementBindings(scope: ts.Block | ts.CaseBlock | ts.SourceFile) {
+  let index = statementBindingIndexes.get(scope);
+  if (index) return index;
+  const first = new Map<string, StatementBinding>();
+  const implementations = new Map<string, ts.FunctionDeclaration>();
+  const statements = ts.isCaseBlock(scope) ? scope.clauses.flatMap((clause) => [...clause.statements]) : scope.statements;
+  for (const statement of statements) {
+    if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+      if (!first.has(statement.name.text)) first.set(statement.name.text, { statement });
+      if (ts.isFunctionDeclaration(statement) && statement.body && !implementations.has(statement.name.text)) implementations.set(statement.name.text, statement);
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      for (const name of bindingNames(declaration.name)) if (!first.has(name)) first.set(name, { statement, declaration });
+    }
+  }
+  index = { first, implementations };
+  statementBindingIndexes.set(scope, index);
+  return index;
+}
+
+const functionBindingSets = new WeakMap<ts.Node, Set<string>>();
+
 function inspect(source: string, path: string) {
   const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, path.endsWith(".tsx") ? ts.ScriptKind.TSX : path.endsWith(".jsx") ? ts.ScriptKind.JSX : path.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS);
   const modules: { specifier: string; runtime: boolean }[] = [];
@@ -458,15 +507,7 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
       return undefined;
     };
     const varBinding = (body: ts.Node, name: string): { node?: ts.Node } => {
-      const declarations: ts.VariableDeclaration[] = [];
-      const collect = (current: ts.Node) => {
-        if (ts.isFunctionLike(current) || ts.isClassDeclaration(current) || ts.isClassExpression(current)) return;
-        if (ts.isVariableDeclarationList(current) && (current.flags & ts.NodeFlags.BlockScoped) === 0) {
-          declarations.push(...current.declarations.filter((declaration) => bindingNames(declaration.name).includes(name)));
-        }
-        ts.forEachChild(current, collect);
-      };
-      collect(body);
+      const declarations = varDeclarations(body).get(name) ?? [];
       const declaration = declarations.length === 1 ? declarations[0] : undefined;
       return declaration && ts.isIdentifier(declaration.name) && declaration.initializer ? { node: declaration.initializer } : {};
     };
@@ -476,12 +517,6 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
         while (owner && !ts.isFunctionLike(owner) && !ts.isSourceFile(owner)) owner = owner.parent;
         return owner && ts.isSourceFile(owner) ? varBinding(owner, name)
           : owner && ts.isFunctionLike(owner) && "body" in owner && owner.body ? varBinding(owner.body, name) : {};
-      };
-      const hasVarBinding = (current: ts.Node): boolean => {
-        if (ts.isFunctionLike(current) || ts.isClassDeclaration(current) || ts.isClassExpression(current)) return false;
-        if (ts.isVariableDeclarationList(current) && (current.flags & ts.NodeFlags.BlockScoped) === 0 &&
-          current.declarations.some((declaration) => bindingNames(declaration.name).includes(name))) return true;
-        return ts.forEachChild(current, hasVarBinding) ?? false;
       };
       for (let child = node, parent = node.parent; parent; child = parent, parent = parent.parent) {
         if (ts.isFunctionLike(parent)) {
@@ -502,21 +537,19 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
           }
         }
         if (!ts.isBlock(parent) && !ts.isCaseBlock(parent) && !ts.isSourceFile(parent)) continue;
-        const statements = ts.isCaseBlock(parent) ? parent.clauses.flatMap((clause) => [...clause.statements]) : parent.statements;
-        for (const statement of statements) {
-          if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) {
-            const implementation = statements.find((candidate) => ts.isFunctionDeclaration(candidate) && candidate.name?.text === name && candidate.body);
+        const bindings = statementBindings(parent);
+        const binding = bindings.first.get(name);
+        if (binding) {
+          const { statement, declaration } = binding;
+          if (ts.isFunctionDeclaration(statement)) {
+            const implementation = bindings.implementations.get(name);
             return implementation ? { node: implementation } : {};
           }
-          if (ts.isClassDeclaration(statement) && statement.name?.text === name) return {};
-          if (!ts.isVariableStatement(statement)) continue;
-          for (const declaration of statement.declarationList.declarations) {
-            if (!bindingNames(declaration.name).includes(name)) continue;
-            if ((statement.declarationList.flags & ts.NodeFlags.BlockScoped) === 0) return owningVarBinding(parent);
-            return { node: ts.isIdentifier(declaration.name) ? declaration.initializer : undefined };
-          }
+          if (ts.isClassDeclaration(statement) || !ts.isVariableStatement(statement) || !declaration) return {};
+          if ((statement.declarationList.flags & ts.NodeFlags.BlockScoped) === 0) return owningVarBinding(parent);
+          return { node: ts.isIdentifier(declaration.name) ? declaration.initializer : undefined };
         }
-        if (ts.isSourceFile(parent) && hasVarBinding(parent)) return varBinding(parent, name);
+        if (ts.isSourceFile(parent) && varDeclarations(parent).has(name)) return varBinding(parent, name);
       }
       return undefined;
     };
@@ -667,6 +700,8 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
       return names;
     };
     const functionBindings = (node: ts.FunctionLikeDeclaration): Set<string> => {
+      const cached = functionBindingSets.get(node);
+      if (cached) return cached;
       const names = new Set(node.parameters.flatMap((parameter) => bindingNames(parameter.name)));
       if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) && node.name) names.add(node.name.text);
       const collect = (child: ts.Node) => {
@@ -677,6 +712,7 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
         ts.forEachChild(child, collect);
       };
       ts.forEachChild(node, collect);
+      functionBindingSets.set(node, names);
       return names;
     };
     const scan = (node: ts.Node, module: string, followImportedCalls = module === path, eager = false, invoked = true) => {
