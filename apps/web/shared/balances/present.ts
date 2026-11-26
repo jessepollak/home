@@ -9,6 +9,7 @@ formatWadPercent,
 presentationCurrencyName,
 } from "@/shared/formatting";
 import { pricePendingCashout,type PendingCashoutEstimate } from "./pending-cashout";
+import { hasUnavailableFx } from "./totals";
 import {
 selectBalanceTotals,
 selectBorrowPositions,
@@ -136,14 +137,15 @@ export function presentHomeBalances(
   }
 
   const net = selectBalanceTotals(state.snapshot).net;
-  const valuationUnavailable = Object.values(unavailableValuations(state.snapshot)).some(Boolean);
   const pending = pendingCashout?.state === "escrow" && BigInt(pendingCashout.baseUnits) > BigInt(0)
     ? pricePendingCashout(state.snapshot, pendingCashout) : null;
   const pendingValue = pending && pending !== "unpriced" && BigInt(pending.atoms) > BigInt(0) ? pending : null;
+  const pendingUnavailable = pending === "unpriced" && state.snapshot.quoteCurrency !== null;
+  const valuationUnavailable = net.status === "partial" || pendingUnavailable;
   const noCurrency = net.status === "no-quote-currency";
   const combined = net.value && pendingValue ? signedNetWithPending(net.value, net.negative, pendingValue) : null;
   const summary = presentHomeSummary(state.snapshot);
-  const breakdown = presentBreakdown(state.snapshot, pendingValue);
+  const breakdown = presentBreakdown(state.snapshot, pendingValue, pendingUnavailable);
 
   return {
     status: "ready",
@@ -158,11 +160,12 @@ export function presentHomeBalances(
   };
 }
 
-export function presentPendingCashout(snapshot: BalancesSnapshot, escrow: PendingCashoutEstimate): { value: string | null } | null {
+export function presentPendingCashout(snapshot: BalancesSnapshot, escrow: PendingCashoutEstimate): { value: string | null; valuationUnavailable?: true } | null {
   if (escrow?.state === "indeterminate") return { value: null };
   if (escrow?.state !== "escrow" || BigInt(escrow.baseUnits) === BigInt(0)) return null;
   const amount = pricePendingCashout(snapshot, escrow);
-  return amount === "unpriced" || BigInt(amount.atoms) === BigInt(0) || !snapshot.quoteCurrency
+  if (amount === "unpriced") return snapshot.quoteCurrency ? { value: null, valuationUnavailable: true } : null;
+  return BigInt(amount.atoms) === BigInt(0) || !snapshot.quoteCurrency
     ? null : { value: formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region) };
 }
 
@@ -241,7 +244,6 @@ function presentHomeSummary(
   snapshot: BalancesSnapshot,
 ): HomeMoneySummary {
   const totals = selectBalanceTotals(snapshot);
-  const unavailable = unavailableValuations(snapshot);
   const assetKeys = new Set<string>();
   const owned = new Map<string, boolean>();
   for (const holding of selectInvestmentHoldings(snapshot)) {
@@ -257,9 +259,9 @@ function presentHomeSummary(
     owned.set(collateral.key, true);
   }
   return {
-    cash: summaryAmount(totals.cash, snapshot.region, unavailable.cash),
+    cash: summaryAmount(totals.cash, snapshot.region),
     investments: {
-      ...summaryAmount(totals.investments, snapshot.region, unavailable.investments),
+      ...summaryAmount(totals.investments, snapshot.region),
       assetCount: assetKeys.size,
       ownedCount: [...owned.values()].filter(Boolean).length,
     },
@@ -281,7 +283,7 @@ function presentBorrowSummary(
   const rate = weightedBorrowAprWad(owing);
   return {
     kind: "position",
-    ...summaryAmount(total, snapshot.region, unavailableValuations(snapshot).borrow),
+    ...summaryAmount(total, snapshot.region),
     rate: rate === null ? null : `${formatWadPercent(rate, snapshot.region)} APR`,
     debts: owing.map((position) => ({ marketId: position.marketId, baseUnits: position.debt.balance.baseUnits })),
   };
@@ -312,9 +314,8 @@ function borrowDebtWeights(positions: readonly BorrowPosition[]): bigint[] {
   );
 }
 
-function summaryAmount(total: BalancesTotal, region: RegionId, unavailable = false): HomeSummaryAmount {
+function summaryAmount(total: BalancesTotal, region: RegionId): HomeSummaryAmount {
   if (
-    !unavailable &&
     total.status === "complete" &&
     total.value &&
     total.currency
@@ -326,10 +327,9 @@ function summaryAmount(total: BalancesTotal, region: RegionId, unavailable = fal
   return { value: null };
 }
 
-function presentBreakdown(snapshot: BalancesSnapshot, pending: ExactDecimal | null): MoneyBreakdownItem[] {
+function presentBreakdown(snapshot: BalancesSnapshot, pending: ExactDecimal | null, pendingUnavailable: boolean): MoneyBreakdownItem[] {
   if (!snapshot.quoteCurrency) return [];
   const totals = selectBalanceTotals(snapshot);
-  const unavailable = unavailableValuations(snapshot);
   const hasDebt = selectBorrowPositions(snapshot).some((position) =>
     BigInt(position.debt.balance.baseUnits) > BigInt(0)
   );
@@ -338,15 +338,16 @@ function presentBreakdown(snapshot: BalancesSnapshot, pending: ExactDecimal | nu
     label: MoneyBreakdownItem["label"];
     total: BalancesTotal;
     sign: "" | "−";
-    unavailable?: boolean;
   }> = [
     ...(hasDebt
-      ? [{ id: "borrow" as const, label: "Borrow" as const, total: totals.borrow, unavailable: unavailable.borrow, sign: "−" as const }]
+      ? [{ id: "borrow" as const, label: "Borrow" as const, total: totals.borrow, sign: "−" as const }]
       : []),
-    { id: "cash", label: "Cash", total: totals.cash, unavailable: unavailable.cash, sign: "" },
+    { id: "cash", label: "Cash", total: totals.cash, sign: "" },
     ...(pending && snapshot.quoteCurrency ? [{ id: "pending-cash-out" as const, label: "Pending cash-out" as const,
       total: { value: pending, currency: snapshot.quoteCurrency, status: "complete" as const }, sign: "" as const }] : []),
-    { id: "investments", label: "Investments", total: totals.investments, unavailable: unavailable.investments, sign: "" },
+    ...(pendingUnavailable && snapshot.quoteCurrency ? [{ id: "pending-cash-out" as const, label: "Pending cash-out" as const,
+      total: { value: { atoms: "0", scale: 0 }, currency: snapshot.quoteCurrency, status: "partial" as const }, sign: "" as const }] : []),
+    { id: "investments", label: "Investments", total: totals.investments, sign: "" },
   ];
   const scale = entries.reduce((maximum, { total }) => Math.max(maximum, total.value?.scale ?? 0), 0);
   const magnitudes = entries.map(({ total }) =>
@@ -355,7 +356,7 @@ function presentBreakdown(snapshot: BalancesSnapshot, pending: ExactDecimal | nu
       : BigInt(0)
   );
   const sum = magnitudes.reduce((total, value) => total + value, BigInt(0));
-  const hasUnavailable = entries.some((entry) => entry.unavailable);
+  const hasUnavailable = entries.some((entry) => entry.total.status === "partial");
   if (sum <= BigInt(0) && !hasUnavailable) return [];
   return entries.flatMap((entry, index) => {
     const { total } = entry;
@@ -363,7 +364,7 @@ function presentBreakdown(snapshot: BalancesSnapshot, pending: ExactDecimal | nu
     return [{
       id: entry.id,
       label: entry.label,
-      value: entry.unavailable ? null : `${entry.sign}${formatPresentationFiat(total.value, total.currency, 2, snapshot.region)}`,
+      value: total.status === "partial" ? null : `${entry.sign}${formatPresentationFiat(total.value, total.currency, 2, snapshot.region)}`,
       weight: hasUnavailable ? 0 : Number((magnitudes[index]! * BigInt(2_000) + sum) / (sum * BigInt(2))),
     }];
   });
@@ -488,23 +489,9 @@ function compareRows(left: BalanceRowModel, right: BalanceRowModel): number {
 }
 
 export function presentInvestmentTotal(snapshot: BalancesSnapshot): HomeSummaryAmount {
-  return summaryAmount(selectBalanceTotals(snapshot).investments, snapshot.region, unavailableValuations(snapshot).investments);
+  return summaryAmount(selectBalanceTotals(snapshot).investments, snapshot.region);
 }
 
 export function presentCashTotal(snapshot: BalancesSnapshot): HomeSummaryAmount {
-  return summaryAmount(selectBalanceTotals(snapshot).cash, snapshot.region, unavailableValuations(snapshot).cash);
-}
-
-function hasUnavailableFx(contribution: Pick<Holding, "balance" | "value">): boolean {
-  return BigInt(contribution.balance.baseUnits) > BigInt(0) &&
-    contribution.value.status === "unpriced" && contribution.value.reason === "fx-unavailable";
-}
-
-function unavailableValuations(snapshot: BalancesSnapshot): { cash: boolean; investments: boolean; borrow: boolean } {
-  return {
-    cash: snapshot.holdings.some((holding) => (holding.cashCurrency !== null || holding.kind === "vault-share") && hasUnavailableFx(holding)),
-    investments: snapshot.holdings.some((holding) => holding.cashCurrency === null && holding.kind !== "vault-share" && hasUnavailableFx(holding)) ||
-      snapshot.borrow.positions.some((position) => hasUnavailableFx(position.collateral)),
-    borrow: snapshot.borrow.positions.some((position) => hasUnavailableFx(position.debt)),
-  };
+  return summaryAmount(selectBalanceTotals(snapshot).cash, snapshot.region);
 }

@@ -184,9 +184,10 @@ test("unavailable requested FX never falls back to USD or changes native cash va
   }
   expect(snapshot.holdings.find(({ id }) => id === "usdc")?.cashValue).toMatchObject({ status: "priced", currency: "USD" });
   expect(snapshot.holdings.find(({ id }) => id === localBrl.id)?.cashValue).toMatchObject({ status: "priced", currency: "BRL" });
-  const excludedTotal = { status: "complete", currency: "EUR", value: { atoms: "0", scale: 18 } } as const;
-  expect(snapshot.total).toEqual(excludedTotal);
-  expect(snapshot.totals).toEqual({ cash: excludedTotal, investments: excludedTotal, borrow: excludedTotal, net: { ...excludedTotal, negative: false } });
+  const partialTotal = { status: "partial", currency: "EUR", value: { atoms: "0", scale: 18 } } as const;
+  const emptyDebt = { ...partialTotal, status: "complete" } as const;
+  expect(snapshot.total).toEqual(partialTotal);
+  expect(snapshot.totals).toEqual({ cash: partialTotal, investments: partialTotal, borrow: emptyDebt, net: { ...partialTotal, negative: false } });
   expect(parseBalancesSnapshot(snapshot, { subject: "fixture", smartAccountAddress: snapshot.owner.address, chainId: 8453 }, "BR", "EUR")).toEqual(snapshot);
 });
 

@@ -1017,6 +1017,25 @@ export const PendingCashoutNoneGb: Story = { args: pendingCashoutArgs("none", pe
 export const PendingCashoutWaitingGb: Story = { args: pendingCashoutArgs("waiting", pendingGbSnapshot), play: expectPendingCashout("£80.00", "£40.00") };
 export const PendingCashoutPartiallyPaidGb: Story = { args: pendingCashoutArgs("partial", pendingGbSnapshot), play: expectPendingCashout("£80.00", "£16.00") };
 export const PendingCashoutReturnedGb: Story = { args: pendingCashoutArgs("returned", pendingGbSnapshot), play: expectPendingCashout("£80.00", null) };
+const pendingRateUnavailableSnapshot = buildBalancesSnapshotFixture({ region: "BR", currency: "BRL", registry: {
+  usdc: { balance: ready("0"), value: { status: "unpriced", reason: "fx-unavailable" }, cashValue: { status: "unpriced", reason: "fx-unavailable" } },
+} });
+function expectPendingCashoutRateUnavailable() {
+  return async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const hero = within(canvasElement).getByLabelText("Cash balance");
+    await expect(within(hero).getByText("Value unavailable")).toBeVisible();
+    await expect(hero).not.toHaveTextContent(/R\$\s?0,00/);
+    const line = hero.querySelector<HTMLElement>("[data-pending-cash-out]");
+    if (!line) throw new Error("Pending cash-out line is missing");
+    await expect(line).toHaveTextContent(/^Pending cash-out\s*$/);
+    await expect(within(line).queryByRole("img")).toBeNull();
+  };
+}
+export const PendingCashoutRateUnavailable: Story = {
+  args: { snapshot: pendingRateUnavailableSnapshot, regionId: pendingRateUnavailableSnapshot.region,
+    pendingCashout: selectPendingCashoutEscrow(pendingCashoutOperations("waiting", pendingRateUnavailableSnapshot), pendingRateUnavailableSnapshot) },
+  play: expectPendingCashoutRateUnavailable(),
+};
 export const EmptyWallet: Story = { args: EmptyNux.args, play: EmptyNux.play };
 
 export const CantLoad: Story = { args: { snapshot: null, balanceStatus: "failed" }, play: async ({ canvasElement }) => {

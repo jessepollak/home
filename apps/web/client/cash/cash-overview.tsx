@@ -456,10 +456,13 @@ export function CashOverview({
   });
   const savingsPending = depositInFlight && verifiedEmpty;
   const savingsUncertain = !balanceComplete || balanceStale || depositInFlight;
+  const pendingUnavailable = pendingValue?.valuationUnavailable === true;
   const empty =
     !loading &&
+    !pendingUnavailable &&
     cashSummary?.value !== null &&
-    cashTotal?.value?.atoms === "0" &&
+    cashTotal?.status === "complete" &&
+    cashTotal.value?.atoms === "0" &&
     !savingsHeld;
   const savingsValue = formatUsdStablecoinAmount(total.toString());
   const rowRate =
@@ -470,7 +473,7 @@ export function CashOverview({
       : bestRate === null
       ? "Rate unavailable"
       : `Earn up to ${formatPresentationPercentage(bestRate, regionId)} APY`;
-  const cashValue =
+  const cashValue = pendingUnavailable ? null :
     cashSummary?.value !== null &&
     cashTotal?.value &&
     activeSnapshot?.quoteCurrency === "USD"
@@ -505,7 +508,7 @@ export function CashOverview({
               </div>
             ) : failed ? <BalancesCantLoad onRetry={onRetryBalances ?? (() => undefined)} /> : (
               <>
-                {cashValue ? <div className="text-4xl font-semibold tabular-nums"><MoneyTicker align="start" reserveDigits={false} value={cashValue} /></div> : activeSnapshot?.quoteCurrency && cashSummary?.value === null ? <UnavailableValue variant="hero" /> : activeSnapshot && !activeSnapshot.quoteCurrency ? <p className="text-sm text-muted-foreground">Choose a country in Account to set how money is shown</p> : null}
+                {cashValue ? <div className="text-4xl font-semibold tabular-nums"><MoneyTicker align="start" reserveDigits={false} value={cashValue} /></div> : activeSnapshot?.quoteCurrency && (cashSummary?.value === null || pendingUnavailable) ? <UnavailableValue variant="hero" /> : activeSnapshot && !activeSnapshot.quoteCurrency ? <p className="text-sm text-muted-foreground">Choose a country in Account to set how money is shown</p> : null}
                 {pendingValue ? (
                   <p className="flex items-baseline gap-1 text-sm text-muted-foreground tabular-nums" data-pending-cash-out>
                     <span>Pending cash-out</span>

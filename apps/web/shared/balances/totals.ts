@@ -7,7 +7,26 @@ import {
 } from "./math";
 import type { BalancesBorrow, BalancesTotal, BalancesTotals, Holding, HoldingValue } from "./types";
 
-type Contribution = { value: HoldingValue };
+type Contribution = { balance: { baseUnits: string }; value: HoldingValue };
+type Sum = { fraction: Fraction; partial: boolean };
+
+export function hasUnavailableFx(contribution: Contribution): boolean {
+  return BigInt(contribution.balance.baseUnits) > BigInt(0) &&
+    contribution.value.status === "unpriced" && contribution.value.reason === "fx-unavailable";
+}
+
+export function computeGrossTotal({ quoteCurrency, holdings }: {
+  quoteCurrency: FiatCurrencyCode | null;
+  holdings: readonly Holding[];
+}): BalancesTotal {
+  if (quoteCurrency === null) return { status: "no-quote-currency", value: null, currency: null };
+  const gross = sumPriced(holdings);
+  return {
+    status: gross.partial ? "partial" : "complete",
+    value: roundFractionPreservingPositive(gross.fraction),
+    currency: quoteCurrency,
+  };
+}
 
 export function computeBalancesTotals({
   quoteCurrency,
@@ -28,24 +47,24 @@ export function computeBalancesTotals({
     ...borrow.positions.map((position) => position.collateral),
   ]);
   const debt = sumPriced(borrow.positions.map((position) => position.debt));
-  const assets = addFractions([cash, investments]);
-  const assetsScaled = assets.numerator * debt.denominator;
-  const debtScaled = debt.numerator * assets.denominator;
+  const assets = addFractions([cash.fraction, investments.fraction]);
+  const assetsScaled = assets.numerator * debt.fraction.denominator;
+  const debtScaled = debt.fraction.numerator * assets.denominator;
   const negative = debtScaled > assetsScaled;
   const magnitude: Fraction = {
     numerator: negative ? debtScaled - assetsScaled : assetsScaled - debtScaled,
-    denominator: assets.denominator * debt.denominator,
+    denominator: assets.denominator * debt.fraction.denominator,
   };
-  const total = (value: Fraction): BalancesTotal => ({
-    status: "complete",
+  const total = (value: Fraction, partial: boolean): BalancesTotal => ({
+    status: partial ? "partial" : "complete",
     value: roundFractionPreservingPositive(value),
     currency: quoteCurrency,
   });
   return {
-    cash: total(cash),
-    investments: total(investments),
-    borrow: total(debt),
-    net: { ...total(magnitude), negative },
+    cash: total(cash.fraction, cash.partial),
+    investments: total(investments.fraction, investments.partial),
+    borrow: total(debt.fraction, debt.partial),
+    net: { ...total(magnitude, cash.partial || investments.partial || debt.partial), negative },
   };
 }
 
@@ -53,8 +72,11 @@ function isCashComponent(holding: Holding): boolean {
   return holding.cashCurrency !== null || holding.kind === "vault-share";
 }
 
-function sumPriced(entries: readonly Contribution[]): Fraction {
-  return addFractions(entries.flatMap((entry) =>
-    entry.value.status === "priced" ? [exactDecimalToFraction(entry.value.amount)] : [],
-  ));
+function sumPriced(entries: readonly Contribution[]): Sum {
+  return {
+    fraction: addFractions(entries.flatMap((entry) =>
+      entry.value.status === "priced" ? [exactDecimalToFraction(entry.value.amount)] : [],
+    )),
+    partial: entries.some(hasUnavailableFx),
+  };
 }
