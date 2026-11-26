@@ -12,12 +12,12 @@ import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MARKET_PRICE_RANGES, type MarketPriceHistoryCoverage, type MarketPriceHistoryPoint, type MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import { formatChartPrice, formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
-import { endsEarly, rangeLabels, rangeSeconds, scrubSpan, scrubTime, slowLoadDelayMs, useReducedMotion, type ChartClock, type ChartReadout } from "./asset-chart-support";
+import { endsEarly, gapSince, rangeLabels, rangeSeconds, scrubSpan, scrubTime, slowLoadDelayMs, useReducedMotion, type ChartClock, type ChartReadout } from "./asset-chart-support";
 import { usePresentationRegionId } from "./presentation-quote";
 import { usePriceHistory, type PriceHistoryState } from "./use-price-history";
 
 type Plot = { id: number; assetId: string; range: MarketPriceRange; points: LivelinePoint[]; value: number; windowSecs: number; coverage?: MarketPriceHistoryCoverage };
-const plotPadding = { top: 20, right: 18, bottom: 20, left: 16 };
+const plotPadding = { top: 28, right: 18, bottom: 20, left: 16 };
 let plotId = 0;
 
 function samePlot(a: Plot | undefined, b: Plot) {
@@ -334,8 +334,9 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
   const lastPoint = currentPlot?.points.at(-1);
   const lastX = lastPoint && drawn && stageSize.width ? pointX(lastPoint.time, drawn, stageSize.width, clock.value) : null;
   const visibleGap = !!drawn && !!lastPoint && endsEarly(lastPoint.time, drawn.range, clock.value, stock);
-  const gapWarning = active && endsEarly(active.points.at(-1)!.time, active.range, clock.value, stock)
-    ? `, no data since ${scrubTime(active.points.at(-1)!.time, active.range, regionId)}` : "";
+  const activeEnd = active?.points.at(-1)?.time;
+  const gapWarning = active && activeEnd !== undefined && endsEarly(activeEnd, active.range, clock.value, stock)
+    ? `, no data since ${gapSince(active.points[0]?.time ?? activeEnd, activeEnd, active.range, regionId)}` : "";
   const staleNotice = history.status === "stale"
     ? `Couldn't refresh price history · last updated ${formatPresentationDate(history.asOf, { regionId, style: "date-time-zone" })}` : null;
   const lastY = visibleGap && lastPoint && drawn && stageSize.height ? pointY(lastPoint.value, drawn, stageSize.height, clock.value) : null;
@@ -398,17 +399,17 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
           Try again
         </Button> : null}</Empty></div> : null}
         {visibleGap && lastX !== null && lastPoint && !missing ? <div aria-hidden="true"
-          className="pointer-events-none absolute top-5 bottom-5 end-0 z-1 bg-(--asset-surface,var(--color-background))" style={{ insetInlineStart: lastX + 1 }}>
+          className="pointer-events-none absolute end-0 z-1 bg-(--asset-surface,var(--color-background))" style={{ insetInlineStart: lastX + 1, top: plotPadding.top, bottom: plotPadding.bottom }}>
           {lastY !== null && !pending ? <span data-last-point className="absolute size-2 rounded-full"
             style={{ insetInlineStart: -5, top: lastY - plotPadding.top - 4, backgroundColor: plotColor(drawn!) }} /> : null}
         </div> : null}
         {visibleGap && lastPoint && !missing ? <span aria-hidden="true"
           className="pointer-events-none absolute end-2 z-2 rounded-sm bg-(--asset-surface,var(--color-background)) px-1 text-xs text-muted-foreground whitespace-nowrap top-0.5">
-          No data since {scrubTime(lastPoint.time, drawn!.range, regionId)}
+          No data since {gapSince(currentPlot?.points[0]?.time ?? lastPoint.time, lastPoint.time, drawn!.range, regionId)}
         </span> : null}
         {active ? <div aria-hidden="true" className="absolute inset-0 touch-pan-y" /> : null}
-        <div aria-hidden="true" data-scrub-cursor className="pointer-events-none absolute top-5 bottom-5 w-px bg-border"
-          style={{ insetInlineStart: scrubPosition?.x ?? 0, opacity: scrub && scrubPosition && active ? 1 : 0, transition: "opacity 80ms" }}>
+        <div aria-hidden="true" data-scrub-cursor className="pointer-events-none absolute w-px bg-border"
+          style={{ top: plotPadding.top, bottom: plotPadding.bottom, insetInlineStart: scrubPosition?.x ?? 0, opacity: scrub && scrubPosition && active ? 1 : 0, transition: "opacity 80ms" }}>
           <span className="absolute -translate-x-1/2 size-2 rounded-full border-2 border-background"
             style={{ top: (scrubPosition?.y ?? 0) - plotPadding.top - 4, backgroundColor: active ? plotColor(active) : "var(--primary)" }} />
         </div>
