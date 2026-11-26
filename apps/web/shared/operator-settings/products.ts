@@ -66,6 +66,16 @@ export function parseProductSettings(value: unknown): ProductSettings | null {
   return result.success ? result.data : null;
 }
 
+export function normalizeProductSettings(value: ProductSettings): ProductSettings {
+  if (value.products.borrow === "on") return value;
+  return { ...value, markets: Object.fromEntries(Object.keys(value.markets).map((id) => [id, "reducing-only"])) };
+}
+
+export function parseProductSettingsWrite(value: unknown): ProductSettings | null {
+  const parsed = parseProductSettings(value);
+  return parsed === null ? null : normalizeProductSettings(parsed);
+}
+
 export function productSettingsMatchCatalog(value: ProductSettings, catalog: ProductCatalog = productCatalog()): boolean {
   return sameIds(value.vaults, catalog.vaults) && sameIds(value.markets, catalog.markets);
 }

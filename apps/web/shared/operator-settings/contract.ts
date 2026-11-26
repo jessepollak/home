@@ -5,7 +5,7 @@ import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse, settingsEntrySchema } from "./envelope";
 import { INVEST_SETTINGS_DEFAULTS, parseInvestSettings, parseInvestSettingsWrite } from "./invest";
 import { parseRegionSettings, parseRegionSettingsWrite, REGION_SETTINGS_DEFAULTS } from "./regions";
-import { deploymentProductSettings, parseProductSettings, productSettingsMatchCatalog, type ProductSettings } from "./products";
+import { deploymentProductSettings, parseProductSettings, parseProductSettingsWrite, productSettingsMatchCatalog, type ProductSettings } from "./products";
 
 export { OPERATOR_SETTINGS_CONTRACT_VERSION, type SettingsEntry, type SettingsResponse } from "./envelope";
 /** @public parses settings responses for future administrator clients */
@@ -81,7 +81,7 @@ export const OPERATOR_SETTINGS_DOMAINS = {
   regions: { schemaVersion: 1, defaults: REGION_SETTINGS_DEFAULTS, parse: parseRegionSettings, parseWrite: parseRegionSettingsWrite },
   invest: { schemaVersion: 1, defaults: INVEST_SETTINGS_DEFAULTS, parse: parseInvestSettings, parseWrite: parseInvestSettingsWrite },
   fees: { schemaVersion: 1, defaults: OPERATOR_FEE_SETTINGS_DEFAULTS, parse: parseOperatorFeeSettings },
-  products: { schemaVersion: 1, defaults: deploymentProductSettings(), parse: parseProductSettings, acceptsWrite: (value) => productSettingsMatchCatalog(value) } satisfies DomainDefinition<ProductSettings>,
+  products: { schemaVersion: 1, defaults: deploymentProductSettings(), parse: parseProductSettings, parseWrite: parseProductSettingsWrite, acceptsWrite: (value) => productSettingsMatchCatalog(value) } satisfies DomainDefinition<ProductSettings>,
 } satisfies DomainRegistry;
 
 const addressSchema = z.pipe(

@@ -7,5 +7,5 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function AccountPage() {
-  redirect("/?account=signin");
+  redirect("/home?account=settings");
 }

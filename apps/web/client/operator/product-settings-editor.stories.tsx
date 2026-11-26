@@ -48,8 +48,37 @@ export const ReviewStep: Story = {
     const canvas = within(canvasElement);
     await userEvent.click(within(canvas.getByRole("radiogroup", { name: "Save mode" })).getByRole("radio", { name: "On" }));
     await userEvent.click(canvas.getByRole("button", { name: "Save settings" }));
-    const dialog = await within(document.body).findByRole("dialog", { name: "Turn on new entries?" });
+    const dialog = await within(document.body).findByRole("dialog", { name: "Review changes" });
     await expect(dialog).toBeVisible();
-    await expect(within(dialog).getByRole("button", { name: "Turn on" })).toBeVisible();
+    await expect(within(dialog).getByRole("button", { name: "Save changes" })).toBeVisible();
+  },
+};
+export const MixedReview: Story = {
+  args: { initialEntry: entry({ ...defaults, products: { ...defaults.products, save: "exit-only" } }, true) },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(within(canvas.getByRole("radiogroup", { name: "Save mode" })).getByRole("radio", { name: "On" }));
+    await userEvent.click(within(canvas.getByRole("radiogroup", { name: "Borrow mode" })).getByRole("radio", { name: "Exit only" }));
+    await userEvent.click(canvas.getByRole("button", { name: "Save settings" }));
+    const dialog = await within(document.body).findByRole("dialog", { name: "Review changes" });
+    await expect(within(dialog).getByText("Save", { exact: true })).toBeVisible();
+    await expect(within(dialog).getByText("Borrow", { exact: true })).toBeVisible();
+    await expect(within(dialog).getAllByText("Reducing only", { exact: false }).length).toBeGreaterThan(0);
+  },
+};
+export const PausedEntryChange: Story = {
+  args: { initialEntry: entry({ ...defaults, products: { ...defaults.products, save: "exit-only", send: "off" } }, true) },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const vault = VERIFIED_SAVE_VAULTS.find((entry) => entry.capabilities.save === "enabled");
+    if (!vault) throw new Error("Story needs an enabled vault.");
+    await userEvent.click(within(canvas.getByRole("radiogroup", { name: "Save mode" })).getByRole("radio", { name: "On" }));
+    await userEvent.click(within(canvas.getByRole("radiogroup", { name: `${vault.name} mode` })).getByRole("radio", { name: "Reducing only" }));
+    await userEvent.click(within(canvas.getByRole("radiogroup", { name: "Save mode" })).getByRole("radio", { name: "Exit only" }));
+    await userEvent.click(within(canvas.getByRole("radiogroup", { name: "Send mode" })).getByRole("radio", { name: "On" }));
+    await userEvent.click(canvas.getByRole("button", { name: "Save settings" }));
+    const dialog = await within(document.body).findByRole("dialog", { name: "Review changes" });
+    await expect(within(dialog).getByText(/Send/)).toBeVisible();
+    await expect(within(dialog).getByText("Applies when Save is on.", { exact: false })).toBeVisible();
   },
 };
