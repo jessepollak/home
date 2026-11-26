@@ -6,11 +6,11 @@ import { usePathname, useRouter, useSelectedLayoutSegments } from "next/navigati
 import { ArrowLeft, Menu } from "lucide-react";
 import { AddressText } from "@/components/address-text";
 import { Button } from "@/components/ui/button";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { RailNav, RailNavItem } from "@/components/ui/rail-nav";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { brand } from "@/config/brand";
+import { useBrandName } from "@/client/brand/brand-name";
 import { fetchOperatorSupportSummary } from "@/client/operator-support/api";
 import { reportPageClientError } from "@/client/observability/client-reporter";
 import { operatorNavigation } from "@/config/operator-navigation";
@@ -73,6 +73,7 @@ function OperatorSectionLoading() {
 
 export function OperatorShell({ address, children }: { address: `0x${string}`; children: React.ReactNode }) {
   const pathname = usePathname();
+  const brandName = useBrandName();
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
   const restoring = useRef(historyRestorePending);
@@ -215,7 +216,7 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
     <OperatorAddressContext.Provider value={updateAddress}>
       <div data-operator-ready={ready && !verifying ? "true" : undefined} className="min-h-dvh bg-background text-foreground md:flex">
         <aside aria-label="Operator sidebar" className="hidden w-64 shrink-0 flex-col overflow-y-auto border-e md:sticky md:top-0 md:flex md:h-dvh">
-          <div className="px-4 py-6 text-lg font-semibold">{brand.name}</div>
+          <div className="px-4 py-6 text-lg font-semibold">{brandName}</div>
           <SectionLinks pathname={pathname} sectionRoute={sectionRoute} supportUnread={supportUnread ?? 0} />
           <div className="mt-auto grid gap-3 border-t px-4 py-5">
             <Link href="/home" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">
@@ -225,14 +226,14 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
           </div>
         </aside>
         <header className="flex min-h-16 items-center justify-between border-b px-5 md:hidden">
-          <span className="text-lg font-semibold">{brand.name}</span>
+          <span className="text-lg font-semibold">{brandName}</span>
           <Button ref={menuButton} variant="ghost" size="icon-lg" className="size-11" aria-label="Open sections menu" aria-expanded={menuOpen} onClick={() => { menuNavigationPending.current = false; setMenuOpen(true); }}>
             <Menu aria-hidden="true" />
           </Button>
         </header>
         <Drawer open={menuOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={(open) => { if (!open) restoreFocusTarget()?.focus(); }}>
           <DrawerContent aria-label="Sections" finalFocus={restoreFocusTarget}>
-            <DrawerHeader><DrawerTitle>Sections</DrawerTitle></DrawerHeader>
+            <DrawerHeader><DrawerTitle>Sections</DrawerTitle><DrawerDescription>{brandName}</DrawerDescription></DrawerHeader>
             <div className="overflow-y-auto px-3 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               <SectionLinks pathname={pathname} sectionRoute={sectionRoute} onNavigate={navigateFromMenu} supportUnread={supportUnread ?? 0} />
               <Separator className="my-3" />

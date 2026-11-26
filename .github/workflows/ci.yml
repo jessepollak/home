@@ -338,8 +338,14 @@ jobs:
           set -o pipefail
           started=$(date +%s)
           log="$RUNNER_TEMP/smoke-warm.log"
+          echo "Chromium smoke: starting Playwright $(( started - HOME_SMOKE_STARTED_AT ))s into the job."
           if bun run --cwd apps/web test:browser-smoke 2>&1 | tee "$log"; then exit 0; fi
-          if [ -z "$TURBOPACK_CACHE_MATCHED_KEY" ] || ! grep -q "TimeoutError: apiRequestContext.get" "$log" || ! grep -q "at smokeSetup (" "$log"; then exit 1; fi
+          if grep -q "from config.webServer" "$log"; then
+            listen=$(grep -m1 -o "Local: *http[^ ]*" "$log" || echo "no listening address printed")
+            echo "::error::Chromium smoke readiness: next dev did not print 'Ready in' within 60s (${listen}); it started $(( started - HOME_SMOKE_STARTED_AT ))s into the job and was stopped $(( $(date +%s) - started ))s later."
+            exit 1
+          fi
+          if [ -z "$TURBOPACK_CACHE_MATCHED_KEY" ] || ! grep -q "Smoke compile [^ ]*: no response" "$log"; then exit 1; fi
           echo "::warning::A smoke compile timed out on the restored Turbopack cache; rerunning smoke once without it."
           echo "HOME_SMOKE_DISCARDED_SECONDS=$(( $(date +%s) - started ))" >> "$GITHUB_ENV"
           echo "HOME_SMOKE_CACHE_DISCARDED=1" >> "$GITHUB_ENV"
@@ -373,8 +379,51 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  browser-smoke-cache:
+    name: Chromium smoke cache
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DISABLE_CDP_USAGE_TRACKING: "true"
+      DISABLE_CDP_ERROR_REPORTING: "true"
+      CDP_SQL_AUTH_MODE: client-api-key
+      HOME_PLAYWRIGHT_ACCESS_CREDENTIAL: chromium-smoke-access-credential-fixture
+      HOME_PLAYWRIGHT_ACCESS_SIGNING_SECRET: chromium-smoke-signing-secret-fixture
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.23.4
+          package-manager-cache: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium
+        run: bun run --cwd apps/web playwright install --only-shell chromium
+
+      # Seed from an empty cache so each entry holds only this commit's compiles.
+      # Chaining restore and save grows the entry with every main push and
+      # dependency change; the smoke job only restores.
+      - name: Compile smoke routes from an empty cache
+        continue-on-error: true
+        run: bun run --cwd apps/web test:browser-smoke --global-timeout=360000
+
+      - name: Record Turbopack cache size
+        run: |
+          size=$(du -sh apps/web/.next/dev/cache 2>/dev/null | cut -f1)
+          echo "Chromium smoke Turbopack cache size: ${size:-none}."
+
       - name: Save Turbopack dev cache
-        if: always() && github.ref == 'refs/heads/main'
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: apps/web/.next/dev/cache

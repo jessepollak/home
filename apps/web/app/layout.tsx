@@ -5,7 +5,7 @@ import { AgentationOverlay } from "@/client/observability/agentation-overlay";
 import { AppearanceSync } from "@/client/appearance/use-appearance";
 import { appearanceBootScript } from "@/client/appearance/boot-script";
 import { appearanceThemeColors } from "@/shared/appearance/preference";
-import { BrandNameProvider } from "@/client/brand/brand-name";
+import { BrandProvider } from "@/client/brand/brand-name";
 import { resolveBrand } from "@/server/operator-settings/brand";
 import { brandCopyName, brandThemeCss } from "@/shared/operator-branding/theme";
 import "./globals.css";
@@ -31,11 +31,11 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full">
         <AppearanceSync />
-        <BrandNameProvider name={brandCopyName(settings.displayName)}>
+        <BrandProvider name={brandCopyName(settings.displayName)} logoUrl={settings.logoUrl} termsUrl={settings.termsUrl} privacyUrl={settings.privacyUrl}>
           <HomeQueryClientProvider>
             {children}
           </HomeQueryClientProvider>
-        </BrandNameProvider>
+        </BrandProvider>
         <HomeSpeedInsights />
         <AgentationOverlay disabled={smokeFixture} />
       </body>

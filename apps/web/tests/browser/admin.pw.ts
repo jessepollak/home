@@ -112,7 +112,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       ["Growth", "Invite data isn't available.", "/admin/growth"],
       ["Money", "Fee revenue is unavailable. Try again later.", "/admin/money"],
       ["Settings", "Region settings need a database. Home is offering its built-in regions.", "/admin/settings"],
-      ["Audit log", "Admin activity isn't recorded yet.", "/admin/audit"],
+      ["Audit log", "The audit log needs a database.", "/admin/audit"],
     ] as const;
     for (const [heading, empty, href] of sections) {
       if (viewport.width === 390) {

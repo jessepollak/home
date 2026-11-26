@@ -129,8 +129,8 @@ function StockStats({ assetId, range, now, headingLevel }: { assetId: string; ra
   const Heading = headingLevel === 2 ? "h2" : "h3";
   return <section aria-label="Stats" className="space-y-2">
     <Heading className="text-sm font-semibold">Stats</Heading>
-    <div role="group" aria-label={`${label} sampled reference-price low ${formatPresentationPrice(low.toString(), "USD", regionId)}, high ${formatPresentationPrice(high.toString(), "USD", regionId)}${partial ? `, partial coverage ${coverage.observed} of ${coverage.sampled} samples` : ""}`} className="space-y-2 py-2">
-      <p className="text-sm font-medium">{label} <span className="font-normal text-muted-foreground">· Sampled reference prices</span></p>
+    <div role="group" aria-label={`${label} sampled-price low ${formatPresentationPrice(low.toString(), "USD", regionId)}, high ${formatPresentationPrice(high.toString(), "USD", regionId)}${partial ? `, partial coverage ${coverage.observed} of ${coverage.sampled} samples` : ""}`} className="space-y-2 py-2">
+      <p className="text-sm font-medium">{label} <span className="font-normal text-muted-foreground">· Sampled prices</span></p>
       {partial ? <p className="text-xs text-muted-foreground">Partial coverage · {coverage.observed} of {coverage.sampled} samples</p> : null}
       <RangeBar low={low} high={high} current={Number(last.value)} />
     </div>

@@ -7,7 +7,7 @@ export const sheetHostExceptions = [
   },
   {
     file: "app/admin/operator-shell.tsx",
-    imports: ["Drawer", "DrawerContent", "DrawerHeader", "DrawerTitle"],
+    imports: ["Drawer", "DrawerContent", "DrawerDescription", "DrawerHeader", "DrawerTitle"],
     owner: "operator console",
     reason: "non-money operator navigation drawer",
   },
@@ -16,6 +16,12 @@ export const sheetHostExceptions = [
     imports: ["Drawer", "DrawerContent", "DrawerDescription", "DrawerFooter", "DrawerHeader", "DrawerTitle"],
     owner: "operator settings",
     reason: "non-money region-settings review drawer before an audited settings update",
+  },
+  {
+    file: "client/operator/product-settings-editor.tsx",
+    imports: ["Drawer", "DrawerContent", "DrawerDescription", "DrawerFooter", "DrawerHeader", "DrawerTitle"],
+    owner: "operator settings",
+    reason: "non-money product-settings review drawer before an audited settings update, matching Regions",
   },
   {
     file: "client/account/account-screen.tsx",

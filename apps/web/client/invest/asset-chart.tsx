@@ -43,7 +43,7 @@ function pointY(value: number, plot: Plot, height: number, now: number) {
   const upper = span < minRange ? lower + minRange : maximum + span * 0.12;
   return plotPadding.top + (1 - (value - lower) / (upper - lower)) * (height - plotPadding.top - plotPadding.bottom);
 }
-function plotChange(plot: Plot, regionId: ReturnType<typeof usePresentationRegionId>, now: number) {
+function plotChange(plot: Plot, regionId: ReturnType<typeof usePresentationRegionId>, now: number, sampled: boolean) {
   const first = plot.points[0];
   const last = plot.points.at(-1);
   if (!first || !last || plot.points.length < 2 || first.value <= 0) return null;
@@ -51,7 +51,7 @@ function plotChange(plot: Plot, regionId: ReturnType<typeof usePresentationRegio
   const nominalStart = now / 1000 - span;
   const tolerance = span * 0.1;
   const startsLate = first.time > nominalStart + tolerance;
-  const period = endsEarly(last.time, plot.range, now)
+  const period = endsEarly(last.time, plot.range, now, sampled)
     ? `${scrubTime(first.time, plot.range, regionId)} – ${scrubTime(last.time, plot.range, regionId)}`
     : startsLate ? `since ${scrubTime(first.time, plot.range, regionId)}` : rangeLabels[plot.range].toLowerCase();
   return `${formatSignedPercentChange((last.value - first.value) / first.value * 100, regionId)} · ${period}`;
@@ -174,8 +174,6 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
   }
   const failed = history.status === "error" || (history.status === "ready" || history.status === "stale")
     && history.points.length < 2 && !!coverage?.gaps.some((gap) => gap.reason === "read-failed" || gap.reason === "incomplete");
-  const source = "source" in history ? history.source : undefined;
-  const referencePrice = source ? source.kind === "tokenized-equity-feed" : stock;
   const missing = history.status === "error" || history.status === "empty"
     || (history.status === "ready" || history.status === "stale") && !next;
   const targetReady = !!next && plots[range]?.assetId === assetId && resting[range]?.id === plots[range].id;
@@ -258,7 +256,7 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
     return () => window.clearTimeout(timer);
   }, [scrub]);
   const currentPlot = missing || visible !== range || pending ? null : drawn;
-  const change = currentPlot ? plotChange(currentPlot, regionId, clock.value) : null;
+  const change = currentPlot ? plotChange(currentPlot, regionId, clock.value, stock) : null;
   useEffect(() => { onResting(change, !missing && (pending || visible !== range)); }, [change, missing, pending, visible, range, onResting]);
   useEffect(() => {
     scrubIndex.current = null;
@@ -335,8 +333,8 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
   }
   const lastPoint = currentPlot?.points.at(-1);
   const lastX = lastPoint && drawn && stageSize.width ? pointX(lastPoint.time, drawn, stageSize.width, clock.value) : null;
-  const visibleGap = !!drawn && !!lastPoint && endsEarly(lastPoint.time, drawn.range, clock.value);
-  const gapWarning = active && endsEarly(active.points.at(-1)!.time, active.range, clock.value)
+  const visibleGap = !!drawn && !!lastPoint && endsEarly(lastPoint.time, drawn.range, clock.value, stock);
+  const gapWarning = active && endsEarly(active.points.at(-1)!.time, active.range, clock.value, stock)
     ? `, no data since ${scrubTime(active.points.at(-1)!.time, active.range, regionId)}` : "";
   const staleNotice = history.status === "stale"
     ? `Couldn't refresh price history · last updated ${formatPresentationDate(history.asOf, { regionId, style: "date-time-zone" })}` : null;
@@ -422,15 +420,11 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
       }} aria-label="Price range" spacing={1} className="mt-2 w-full">
         {MARKET_PRICE_RANGES.map((value) => <ToggleGroupItem key={value} value={value} className="h-11 min-w-0 flex-1">{value}</ToggleGroupItem>)}
       </ToggleGroup>
-      <div className="space-y-1 py-2 text-xs text-muted-foreground" data-history-context>
-        <p>{referencePrice ? "Chainlink reference price" : "Codex market price"}{history.status === "ready" || history.status === "stale"
-          ? ` · Last observed ${formatPresentationDate(Date.parse(history.points.at(-1)?.time ?? ""), { regionId, style: "activity-short" })}` : ""}</p>
-        {coverage && (coverage.gaps.length > 0 || coverage.observed < coverage.sampled) ? <p data-coverage-label>
-          {coverage.gaps.some((gap) => gap.reason === "not-deployed") && history.points[0]
-            ? `Since ${formatPresentationDate(Date.parse(history.points[0].time), { regionId, style: "chart-date" })} · ` : "Partial coverage · "}
-          {coverage.observed} of {coverage.sampled} samples
-        </p> : null}
-      </div>
+      {coverage && (coverage.gaps.length > 0 || coverage.observed < coverage.sampled) ? <p className="py-2 text-xs text-muted-foreground" data-coverage-label>
+        {coverage.gaps.some((gap) => gap.reason === "not-deployed") && history.points[0]
+          ? `Since ${formatPresentationDate(Date.parse(history.points[0].time), { regionId, style: "chart-date" })} · ` : "Partial coverage · "}
+        {coverage.observed} of {coverage.sampled} samples
+      </p> : null}
       {staleNotice ? <div role="alert" className="flex items-center justify-between gap-3 py-2 text-sm text-muted-foreground">
         <span>{staleNotice}</span>
         <Button variant="outline" size="touch" onClick={() => { void getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", assetId, range) }); }}>Try again</Button>

@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { Client } from "pg";
 import { parseBrandSettingsResponse } from "../../shared/operator-branding/contract";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest } from "../../shared/operator-settings/contract";
 import { homeSessionToken } from "./fixtures/session";
@@ -32,6 +33,13 @@ async function brandAudit(context: BrowserContext) {
   return audit.entries.filter((entry) => entry.target.id === "brand");
 }
 
+async function resetSavedBrand() {
+  const client = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5_000 });
+  await client.connect();
+  try { await client.query("DELETE FROM operator_settings WHERE domain = 'brand'"); }
+  finally { await client.end(); }
+}
+
 async function expectOperatorReady(page: Page) {
   await expect(page.locator("[data-operator-ready=true]")).toBeVisible({ timeout: 15_000 });
 }
@@ -56,16 +64,22 @@ async function fillAndExpectPreview(page: Page, values: Parameters<typeof fill>[
 }
 
 async function save(page: Page, operator: string, revision: number) {
-  const pending = page.waitForResponse((response) => new URL(response.url()).pathname === settingsPath && response.request().method() === "PUT");
+  const sent = page.waitForRequest((request) => new URL(request.url()).pathname === settingsPath && request.method() === "PUT", { timeout: 10_000 }).catch(() => null);
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  const response = await pending;
+  const request = await sent;
+  const form = page.locator("[data-brand-settings]");
+  if (!request) throw new Error(`Save sent no PUT within 10 s; the form shows status "${await form.getByRole("status").first().textContent()}" and alerts "${(await form.getByRole("alert").allTextContents()).join(" | ")}".`);
+  const response = await request.response();
+  if (!response) throw new Error(`The Save PUT got no response: ${request.failure()?.errorText ?? "unknown failure"}.`);
   expect(parsePutSettingsRequest(response.request().postDataJSON())).toMatchObject({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, operator, expectedRevision: revision });
   return response;
 }
 
 test("Brand edits persist, apply to a fresh customer page and never overwrite silently", { tag: "@smoke" }, async ({ page, context }) => {
   test.setTimeout(120_000);
+  await resetSavedBrand();
   await setSession(context, admin);
+  const auditBaseline = (await brandAudit(context)).length;
   const puts: string[] = [];
   page.on("request", (request) => { if (new URL(request.url()).pathname === settingsPath && request.method() === "PUT") puts.push(request.url()); });
 
@@ -102,13 +116,13 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     const stored = await readBrand(context);
     expect(stored).toMatchObject({ source: "stored", revision: 1, updatedBy: admin, value: { displayName: "Acme Money", description: "Money for Acme customers.", primaryColor: "#0b6b3a", backgroundColor: "#f5f8f2" } });
     const audit = await brandAudit(context);
-    expect(audit).toHaveLength(1);
+    expect(audit).toHaveLength(auditBaseline + 1);
     expect(audit[0]).toMatchObject({ actor: admin, action: "settings.update", after: stored.value });
     await page.reload();
     await expectOperatorReady(page);
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Acme Money");
     await expect(page.getByLabel("Primary color", { exact: true })).toHaveValue("#0b6b3a");
-    await expect(page.getByText(/Saved settings, revision 1\./)).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: /^Saved .+ by 0x.+, revision 1\.$/ })).toBeVisible();
   });
 
   await test.step("a fresh customer page carries the saved brand, light tokens only", async () => {
@@ -185,4 +199,49 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     expect((await context.request.put(settingsPath, { data: {}, headers: { origin: new URL(page.url()).origin } })).status()).toBe(403);
     await setSession(context, admin);
   });
+});
+
+const logoPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
+
+test("logo, terms and privacy accept https only, and a logo that fails to load falls back to the Home mark", { tag: "@smoke" }, async ({ page, context }) => {
+  test.setTimeout(90_000);
+  await setSession(context, admin);
+  await page.route("https://brand.test/**", (route) => new URL(route.request().url()).pathname === "/logo.png"
+    ? route.fulfill({ status: 200, contentType: "image/png", body: logoPng })
+    : route.abort());
+  const puts: string[] = [];
+  page.on("request", (request) => { if (new URL(request.url()).pathname === settingsPath && request.method() === "PUT") puts.push(request.url()); });
+  await page.goto("/admin/settings/brand");
+  await expectOperatorReady(page);
+  const before = await readBrand(context);
+
+  await page.getByLabel("Logo URL", { exact: true }).fill("http://brand.test/logo.png");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Enter a full https:// address, or leave it empty.", { exact: true })).toBeVisible();
+  expect(puts).toHaveLength(0);
+
+  await page.getByLabel("Logo URL", { exact: true }).fill("https://brand.test/logo.png");
+  await page.getByLabel("Terms URL", { exact: true }).fill("https://brand.test/terms");
+  await page.getByLabel("Privacy URL", { exact: true }).fill("https://brand.test/privacy");
+  await expect(page.getByRole("group", { name: "Customer preview" }).getByRole("img", { name: before.value.displayName === "home" ? "Home" : before.value.displayName })).toBeVisible();
+  expect((await save(page, admin, before.revision)).status()).toBe(200);
+  const saved = await readBrand(context);
+  expect(saved).toMatchObject({ revision: before.revision + 1, value: { ...before.value, logoUrl: "https://brand.test/logo.png", termsUrl: "https://brand.test/terms", privacyUrl: "https://brand.test/privacy" } });
+
+  await page.goto("/access");
+  await expect(page.getByText(saved.value.displayName, { exact: true })).toBeVisible();
+  await page.goto("/");
+  await expect(page.locator('[data-home-mark="logo"]').getByRole("img", { name: saved.value.displayName, exact: true }).first()).toHaveAttribute("src", "https://brand.test/logo.png");
+
+  await page.goto("/admin/settings/brand");
+  await expectOperatorReady(page);
+  await page.getByLabel("Logo URL", { exact: true }).fill("https://brand.test/missing.png");
+  await page.getByLabel("Terms URL", { exact: true }).fill("");
+  await page.getByLabel("Privacy URL", { exact: true }).fill("  ");
+  expect((await save(page, admin, saved.revision)).status()).toBe(200);
+  expect((await readBrand(context)).value).toEqual({ ...before.value, logoUrl: "https://brand.test/missing.png", termsUrl: null, privacyUrl: null });
+
+  await page.goto("/");
+  await expect(page.locator('[data-home-mark=""]').first()).toBeVisible();
+  await expect(page.locator('[data-home-mark="logo"]')).toHaveCount(0);
 });

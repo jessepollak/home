@@ -213,7 +213,7 @@ export function AssetSparkline({ assetId, clock, onReadout, onResting }: {
   const edge = ready && last && stageSize.width ? pointX(last.time, windowSecs, stageSize.width, clock.value) : null;
   const lastY = early && last && stageSize.height ? pointY(last.value, points, windowSecs, stageSize.height, clock.value) : null;
   const color = plotColor(points);
-  const label = failed ? "Couldn't load price history" : pending ? "Loading price history" : "No price history for the past day.";
+  const label = failed ? "Couldn't load price history" : pending ? slow ? "Still loading price history" : "Loading price history" : "No price history for the past day.";
   const retry = () => { void getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", assetId, "1D") }); };
   const staleNotice = history.status === "stale"
     ? `Couldn't refresh price history · last updated ${formatPresentationDate(history.asOf, { regionId, style: "date-time-zone" })}` : null;
@@ -243,7 +243,7 @@ export function AssetSparkline({ assetId, clock, onReadout, onResting }: {
           style={{ insetInlineStart: edge - 4, top: lastY - 4, backgroundColor: color }} /> : null}
 </div> : pending ? <>
           <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-muted-foreground/20" />
-          {slow ? <span className="absolute inset-x-0 bottom-2 px-4 text-center text-sm text-muted-foreground">Still loading price history</span> : null}
+          {slow ? <span aria-hidden="true" className="absolute inset-x-0 bottom-2 px-4 text-center text-sm text-muted-foreground">Still loading price history</span> : null}
         </>
         : <div className="flex h-full items-center justify-between gap-3 px-4 text-sm text-muted-foreground">
           <span>{label}</span>{failed ? <Button variant="outline" size="touch" onClick={retry}>Try again</Button> : null}
@@ -261,7 +261,7 @@ export function AssetSparkline({ assetId, clock, onReadout, onResting }: {
     </div>
     {partial ? <p data-coverage-label className="pt-1 text-xs text-muted-foreground">Partial coverage · {coverage.observed} of {coverage.sampled} samples</p> : null}
     <span id={hintId} className="sr-only">Use the left and right arrow keys to move between points. Home and End jump to the first and last point. Escape stops.</span>
-    <span className="sr-only" aria-live="polite">{announcement}</span>
+    <span className="sr-only" aria-live="polite">{pending && slow ? label : announcement}</span>
     {staleNotice ? <div role="alert" className="flex items-center justify-between gap-3 py-2 text-sm text-muted-foreground">
       <span>{staleNotice}</span><Button variant="outline" size="touch" onClick={retry}>Try again</Button>
     </div> : null}

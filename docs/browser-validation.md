@@ -91,7 +91,7 @@ The same runner also runs `settings-brand.pw.ts`, which saves Brand values once 
 
 Playwright-rung: persisted-state / dispatch
 
-Browser control → signed-cookie request → real route/store transaction → audit → reload cannot be established by a presenter test. This credential-free fixture does not prove live-provider or funded behavior. The `/admin/audit` page remains a placeholder; audit persistence is verified through its real API.
+Browser control → signed-cookie request → real route/store transaction → audit → reload cannot be established by a presenter test. This credential-free fixture does not prove live-provider or funded behavior. Audit persistence is verified through its real API, and the first save is also read back on `/admin/audit`.
 
 ### Production warm navigation
 

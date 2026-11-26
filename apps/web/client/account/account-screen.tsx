@@ -14,7 +14,8 @@ import {
 } from "./cdp-client";
 import { SignInEmail } from "./sign-in-email";
 import { SignInOtp } from "./sign-in-otp";
-import { useBrandName } from "@/client/brand/brand-name";
+import { useBrandLogoUrl, useBrandName } from "@/client/brand/brand-name";
+import { BrandLogo } from "@/components/brand-logo";
 import { BaseAccountOnlySignIn } from "./sign-in-base-account";
 import { SignInBlockedPanel, SignInStatus } from "./sign-in-shell";
 
@@ -71,6 +72,7 @@ export function AccountSignInSheet({
   onVerified?: () => void;
 }) {
   const brandName = useBrandName();
+  const brandLogoUrl = useBrandLogoUrl();
   const {
     projectConfigured,
     signInAvailability,
@@ -299,9 +301,12 @@ export function AccountSignInSheet({
       <MoneyModalStep step={step} depth={step === "otp" ? 1 : 0} initialFocusRef={initialFocusRef}>
         <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-left">
           <span />
-          <DrawerTitle id="account-sign-in-title" className="text-center">
-            {step === "otp" ? "Check your email" : `Sign in to ${brandName}`}
-          </DrawerTitle>
+          <div className="grid min-w-0 justify-items-center gap-3">
+            {step === "otp" ? null : <BrandLogo src={brandLogoUrl} alt={brandName} className="h-8 w-auto max-w-40 object-contain" fallback={null} />}
+            <DrawerTitle id="account-sign-in-title" className="text-center">
+              {step === "otp" ? "Check your email" : `Sign in to ${brandName}`}
+            </DrawerTitle>
+          </div>
           <Button
             className="size-11 shrink-0"
             size="icon-lg"

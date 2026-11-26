@@ -96,6 +96,7 @@ function DashboardShellBody({
   const panelStageRef = useRef<HTMLElement>(null);
   const searchDetailTargetRef = useRef<{ href: string; assetId: string; query: string; token: string } | null>(null);
   const wasSettingsOpenRef = useRef(false);
+  const settingsOpenerRef = useRef<HTMLElement | null>(null);
   const previousPanelRef = useRef(activeNavigation);
   const activeNavigationRef = useRef(activeNavigation);
   const previousLocationRef = useRef(location);
@@ -200,6 +201,7 @@ function DashboardShellBody({
   useEffect(() => {
     if (isAccountSettingsOpen) {
       wasSettingsOpenRef.current = true;
+      if (accountOpener) settingsOpenerRef.current = accountOpener;
       settingsRegionRef.current?.focus({ preventScroll: true });
       return;
     }
@@ -208,7 +210,10 @@ function DashboardShellBody({
     const visible = (target: HTMLElement | null): target is HTMLElement =>
       Boolean(target && target.isConnected && target.getClientRects().length > 0 &&
         !(target instanceof HTMLButtonElement && target.disabled));
-    const previous = accountOpener;
+    const opener = settingsOpenerRef.current;
+    settingsOpenerRef.current = null;
+    const previous = opener?.isConnected || !opener?.hasAttribute("data-home-status") ? opener
+      : shellRef.current?.querySelector<HTMLElement>("[data-home-status]") ?? null;
     const rail = shellRef.current?.querySelector<HTMLElement>("[data-rail-account-action]") ?? null;
     const header = shellRef.current?.querySelector<HTMLElement>("[data-shell-account-action] button") ?? null;
     const target = visible(previous) ? previous : visible(rail) ? rail : visible(header) ? header : panelStageRef.current;
@@ -437,7 +442,7 @@ function DashboardShellBody({
     ? () => leaveRoute(shellParentHref)
     : investChrome?.nested?.onBack ?? (() => router.push("/invest"));
   const homeStatus = isVerified && !isAccountSettingsOpen ? headerStatus({
-    interruption, country: activeNavigation === "home" ? homeCountryStatus(paintedAssetBalances) : null,
+    interruption, country: activeNavigation === "home" || activeNavigation === cashPanelId || activeNavigation === investmentsPanelId ? homeCountryStatus(paintedAssetBalances) : null,
   }) : null;
 
   return <HomeShellRoutingProvider value={routingValue}><ShellPageProvider value={pageValue}>
@@ -461,7 +466,7 @@ function DashboardShellBody({
           onHome={() => navigateTo("home")} onDashboard={() => router.replace("/home")}
           onSignIn={(opener) => { setAccountOpener(opener); setIsAccountOpen(true); router.push("/?account=signin"); }}
           onSignOut={signOut} onOpenSettings={openAccountSettings} onCloseSettings={closeAccountSettings}
-          status={homeStatus ? <HomeHeaderStatus status={homeStatus} onRetry={retryHomeReads} onOpenAccount={() => openAccountSettings()} /> : null} />
+          status={homeStatus ? <HomeHeaderStatus status={homeStatus} onRetry={retryHomeReads} onOpenAccount={openAccountSettings} /> : null} />
         <ShellMain mainRef={mainRef} contentFrameRef={contentFrameRef} refreshInput={{ session: activitySession, regionId, currency: displayCurrency, fetchActivity: account.fetchActivity, enabled: homeRefreshEnabled }} pullEnabled={!flowOpen && !isAccountOpen && !homeDetailsOpen}>
             {isUnavailable ? <div className="mb-4"><LoadErrorCard description={account.message ?? "Account check unavailable."}
               onRetry={() => void account.retrySessionValidation()} /></div> : null}

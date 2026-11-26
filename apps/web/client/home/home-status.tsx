@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { CircleAlert, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -58,13 +58,15 @@ export function HomeHeaderStatus({
 }: {
   status: HomeBalancesStatus;
   onRetry: () => void;
-  onOpenAccount: () => void;
+  onOpenAccount: (opener: HTMLButtonElement | undefined) => void;
 }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
     <Popover>
       <PopoverTrigger
         render={
           <Button
+            ref={triggerRef}
             variant="ghost"
             size="icon"
             className="size-shell-header-control"
@@ -89,7 +91,7 @@ export function HomeHeaderStatus({
               <RotateCw aria-hidden="true" />
             </Button>
           ) : status.recovery === "choose-country" ? (
-            <Button variant="secondary" size="lg" className="h-11" onClick={onOpenAccount}>
+            <Button variant="secondary" size="lg" className="h-11" onClick={() => onOpenAccount(triggerRef.current ?? undefined)}>
               Open Account
             </Button>
           ) : null}

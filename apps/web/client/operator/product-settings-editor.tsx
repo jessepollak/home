@@ -1,23 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AddressText } from "@/components/address-text";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { RadioGroup, RadioGroupSegment } from "@/components/ui/radio-group";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION } from "@/shared/operator-settings/contract";
-import { formatPresentationDate } from "@/shared/formatting";
 import {
+  deploymentProductSettings,
   orphanedProductSettingIds,
   resolveProductOffering,
   type CatalogEntry,
   type ProductCatalog,
   type ProductSettings,
 } from "@/shared/operator-settings/products";
-import { exactCatalogSettings, reviewEnables, saveOutcome, type ProductSettingsEntry, type ReviewItem } from "./product-settings-model";
+import { exactCatalogSettings, reviewChanges, saveOutcome, type ProductSettingsEntry, type ReviewItem } from "./product-settings-model";
+import { SavedSettingsLine } from "./saved-settings-line";
 
 export function ProductSettingsLoadError() {
   const router = useRouter();
@@ -54,24 +55,30 @@ export function ProductSettingsEditor({ initialEntry, catalog, names, missingInv
   const [entry, setEntry] = useState(initialEntry);
   const [draft, setDraft] = useState<ProductSettings>(() => exactCatalogSettings(initialEntry.settings.value, catalog));
   const [review, setReview] = useState<{ items: ReviewItem[]; draft: ProductSettings } | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
   const [conflict, setConflict] = useState<ProductSettingsEntry | null | undefined>(undefined);
   const orphans = orphanedProductSettingIds(entry.settings.value, catalog);
   const baseline = resolveProductOffering(entry.settings.source === "default" ? { kind: "deployment" } : { kind: "saved", value: entry.settings.value }, catalog);
+  const savedSettings = entry.settings.source === "default" ? deploymentProductSettings(catalog) : entry.settings.value;
   const updateProduct = (product: keyof ProductSettings["products"], value: string) => {
     setDraft((previous) => ({ ...previous, products: { ...previous.products, [product]: value } }));
     setError(null);
+    setMessage("");
   };
   const updateEntry = (key: "vaults" | "markets", id: string, value: string) => {
     setDraft((previous) => ({ ...previous, [key]: { ...previous[key], [id]: value } }));
     setError(null);
+    setMessage("");
   };
   const save = async (snapshot: ProductSettings) => {
     if (pending) return;
     setPending(true);
     setError(null);
-    setReview(null);
+    setMessage("");
     try {
       const response = await fetch("/api/admin/settings/products", {
         method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" },
@@ -83,7 +90,10 @@ export function ProductSettingsEditor({ initialEntry, catalog, names, missingInv
         setEntry(outcome.entry);
         setDraft(exactCatalogSettings(outcome.entry.settings.value, catalog));
         setConflict(undefined);
+        setReviewOpen(false);
+        setMessage(outcome.entry.settings.revision === entry.settings.revision ? "No changes to save." : "Product settings saved.");
       } else if (outcome.kind === "conflict") {
+        setReviewOpen(false);
         setConflict(outcome.current);
         setError(outcome.message);
       } else setError(outcome.message);
@@ -95,9 +105,12 @@ export function ProductSettingsEditor({ initialEntry, catalog, names, missingInv
   };
   const startSave = () => {
     const snapshot = exactCatalogSettings(draft, catalog);
-    const items = reviewEnables(baseline, snapshot, names, catalog);
-    if (items.length) setReview({ items, draft: snapshot });
-    else void save(snapshot);
+    const items = reviewChanges(baseline, savedSettings, snapshot, names, catalog);
+    setMessage("");
+    if (items.some((item) => item.turnsOn)) {
+      setReview({ items, draft: snapshot });
+      setReviewOpen(true);
+    } else void save(snapshot);
   };
   const reload = () => {
     if (conflict) {
@@ -112,15 +125,13 @@ export function ProductSettingsEditor({ initialEntry, catalog, names, missingInv
     const effective = parentOff || locked ? "reducing-only" : draft[kind][id];
     return (
       <ModeRow key={id} label={names[kind][id] ?? id} detail={locked ? "Reducing only in code" : parentOff ? "Exit only while the product is paused" : undefined}
-        status={effective === "enabled" ? "Enabled" : "Reducing only"} value={effective} options={entryOptions} disabled={locked || parentOff || pending || review !== null || conflict !== undefined}
+        status={effective === "enabled" ? "Enabled" : "Reducing only"} value={effective} options={entryOptions} disabled={locked || parentOff || pending || reviewOpen || conflict !== undefined}
         onChange={(value) => updateEntry(kind, id, value)} />
     );
   });
   return (
     <div className="grid gap-8">
-      <Alert><AlertTitle>{entry.settings.source === "default" ? "Using deployment values — review and save" : "Saved settings"}</AlertTitle>
-        {entry.settings.source === "stored" && entry.settings.updatedAt && <AlertDescription><span>{formatPresentationDate(entry.settings.updatedAt, { style: "date-time-zone", timeZone: "UTC" })}</span>{entry.settings.updatedBy && <> · <AddressText address={entry.settings.updatedBy} presentation="compact" /></>}</AlertDescription>}
-      </Alert>
+      <SavedSettingsLine settings={entry.settings} unsaved="Using deployment values — review and save" />
       <section className="grid gap-3" aria-labelledby="operator-products-heading">
         <h2 id="operator-products-heading" className="text-lg font-semibold">Products</h2>
         {(["save", "borrow", "invest", "send"] as const).map((product) => {
@@ -130,7 +141,7 @@ export function ProductSettingsEditor({ initialEntry, catalog, names, missingInv
           return <ModeRow key={product} label={label} value={mode} options={product === "send" ? sendOptions : exitableOptions}
             status={notConnected ? "Not connected" : mode === "on" ? "On" : product === "send" ? "Off" : "Exit only"}
             detail={notConnected ? `Missing ${missingInvestCredentials.join(", ")}` : mode === "exit-only" ? "Customers with balances can still withdraw, repay or sell." : undefined}
-            disabled={pending || review !== null || conflict !== undefined} onChange={(value) => updateProduct(product, value)} />;
+            disabled={pending || reviewOpen || conflict !== undefined} onChange={(value) => updateProduct(product, value)} />;
         })}
       </section>
       <section className="grid gap-3" aria-labelledby="operator-vaults-heading">
@@ -143,19 +154,26 @@ export function ProductSettingsEditor({ initialEntry, catalog, names, missingInv
       </section>
       {(orphans.vaults.length > 0 || orphans.markets.length > 0) && <Alert><AlertTitle>No longer in the catalog</AlertTitle><AlertDescription>These IDs will be dropped on the next save: {[...orphans.vaults, ...orphans.markets].join(", ")}</AlertDescription></Alert>}
       {error && <Alert variant="destructive"><AlertTitle>{error}</AlertTitle>{conflict !== undefined && <Button variant="outline" size="touch" onClick={reload}>Reload settings</Button>}</Alert>}
-      {review === null ? <div><Button size="touch" loading={pending} disabled={conflict !== undefined} onClick={startSave}>Save settings</Button></div> : (
-        <section aria-labelledby="operator-review-heading" className="grid gap-3">
-          <Alert>
-            <AlertTitle id="operator-review-heading">Turn on new entries?</AlertTitle>
-            <AlertDescription>
-              <ul className="list-disc space-y-2 ps-5">
-                {review.items.map((item) => <li key={item.id}><strong>{item.label}</strong> — {item.id === "invest" && missingInvestCredentials.length ? "When connected, customers can buy investments." : item.effect}</li>)}
-              </ul>
-            </AlertDescription>
-          </Alert>
-          <div className="flex flex-wrap gap-2"><Button size="touch" loading={pending} onClick={() => void save(review.draft)}>Turn on</Button><Button variant="outline" size="touch" disabled={pending} onClick={() => setReview(null)}>Cancel</Button></div>
-        </section>
-      )}
+      {message && <Alert role="status"><AlertDescription>{message}</AlertDescription></Alert>}
+      <div><Button size="touch" loading={pending} disabled={conflict !== undefined || reviewOpen} onClick={startSave}>Save settings</Button></div>
+      <Drawer open={reviewOpen} onOpenChange={(open) => { if (!pending) setReviewOpen(open); }}>
+        <DrawerContent initialFocus={cancelButton}>
+          <DrawerHeader>
+            <DrawerTitle>Review changes</DrawerTitle>
+            <DrawerDescription>Confirm what changes for customers before saving.</DrawerDescription>
+          </DrawerHeader>
+          <div className="grid min-h-0 gap-3 overflow-y-auto p-4">
+            <ul className="list-disc space-y-2 ps-5">
+              {review?.items.map((item) => <li key={item.id}><strong>{item.label}</strong> → {item.state} — {item.id === "invest" && item.turnsOn && missingInvestCredentials.length ? "When connected, customers can buy investments." : item.effect}</li>)}
+            </ul>
+            {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+          </div>
+          <DrawerFooter className="flex-row justify-end">
+            <Button size="touch" loading={pending} disabled={!review} onClick={() => { if (review) void save(review.draft); }}>Save changes</Button>
+            <Button ref={cancelButton} variant="outline" size="touch" disabled={pending} onClick={() => setReviewOpen(false)}>Cancel</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

@@ -14,8 +14,8 @@ const { directory: mirror, lint } = await createOxlintWorkspace("home-oxlint-unk
 await mkdir(path.join(mirror, "app"), { recursive: true });
 await symlink(path.join(appsWebDir, "app/globals.css"), path.join(mirror, "app/globals.css"));
 
-async function diagnostics(code) {
-  return (await lint({ fixture: code })).fixture;
+async function diagnostics(code, request) {
+  return (await lint({ fixture: code }, request)).fixture;
 }
 
 describe("home/no-unknown-tailwind-classes", () => {
@@ -83,7 +83,7 @@ describe("home/no-unknown-tailwind-classes", () => {
     const entrypoint = path.join(mirror, "app/globals.css");
     await rm(entrypoint);
     try {
-      const found = await diagnostics("export const value = 1;");
+      const found = await diagnostics("export const value = 1;", { freshProcess: true });
       expect(found).toHaveLength(1);
       expect(found[0].message).toContain("project theme could not load");
     } finally {

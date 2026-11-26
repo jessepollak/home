@@ -234,3 +234,67 @@
     outline-color: Highlight;
   }
 }
+
+.logoRoot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  min-width: 44px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.logoControl {
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  min-width: 44px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  text-decoration: none;
+}
+
+.logoControl:enabled:hover,
+.logoControl:enabled:active {
+  background: transparent;
+  transform: none;
+}
+
+.logoControl:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.logo {
+  display: block;
+  width: auto;
+  height: 28px;
+  max-width: 160px;
+  object-fit: contain;
+  object-position: left center;
+  pointer-events: none;
+  user-select: none;
+}
+
+.logoRoot.compact .logoControl {
+  justify-content: center;
+  width: 44px;
+}
+
+.logoRoot.compact .logo {
+  height: auto;
+  max-width: 36px;
+  max-height: 28px;
+  object-position: center;
+}
+
+@media (forced-colors: active) {
+  .logoControl:focus-visible {
+    outline-color: Highlight;
+  }
+}

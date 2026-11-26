@@ -2,6 +2,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystem
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { MIGRATION_BOOTSTRAP_TIMEOUT_MS, readAllMigrationSql } from "@/tests/helpers/migrations";
+import { refreshCashoutProgress } from "@/server/funding/cash-out-progress";
+import { peerProvider } from "@/server/funding/providers/peer/adapter";
+import type { FundingProvider, OfframpOrder } from "@/shared/funding/provider-contract";
+import type { ActionReceiptState } from "./status";
 import { ActionsStore, actionOwnerKey } from "./store";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
@@ -124,6 +128,66 @@ describePostgres("cash-out lockout eligibility", () => {
     expect(await store.linkCashoutDeposit(owner, target, "DEPOSIT_10", false)).toBeNull();
     expect((await store.cashoutOrders(owner, [linked]))[0]).toMatchObject({ deposit_id: "deposit_10", deposit_proven: false });
     expect((await store.cashoutOrders(owner, [target]))[0]).toMatchObject({ deposit_id: null });
+  });
+
+  test("each swapped inferred cash-out relinks, as proven, to the deposit its own receipt names", async () => {
+    const offramp = peerProvider.offramp;
+    const deployment = peerProvider.manifest.offramp?.production;
+    if (!offramp || !deployment) throw new Error("Peer cash-out is unavailable.");
+    const createdAt = new Date().toISOString();
+    const a = await insertOrder(createdAt);
+    const b = await insertOrder(createdAt);
+    const depositA = `${deployment.contracts.escrow.toLowerCase()}_9439`;
+    const depositB = `${deployment.contracts.escrow.toLowerCase()}_9440`;
+    const hashA: `0x${string}` = `0x${"a".repeat(64)}`;
+    const hashB: `0x${string}` = `0x${"b".repeat(64)}`;
+    expect(await store.linkCashoutDeposit(owner, a, depositB, false)).toMatchObject({ deposit_id: depositB, deposit_proven: false });
+    expect(await store.linkCashoutDeposit(owner, b, depositA, false)).toMatchObject({ deposit_id: depositA, deposit_proven: false });
+    for (const [id, hash] of [[a, hashA], [b, hashB]]) {
+      await sql.query(`UPDATE actions SET transaction_hash = $2, outcome = 'succeeded', outcome_source = 'chain',
+        outcome_recorded_at = now(), settled_at = now() WHERE id = $1`, [id, hash]);
+    }
+    const order = (depositId: string): OfframpOrder => ({
+      depositId, owner: owner.address, state: "awaiting-buyer", platform: "cashapp", currency: "USD", canonicalHandle: null,
+      payeeHash: `0x${"c".repeat(64)}`, amountAtomic: "2000000", filledAmountAtomic: "0", returnedAmountAtomic: "0",
+      remainingAmountAtomic: "2000000", nextActions: ["withdraw"], updatedAt: new Date().toISOString(),
+    });
+    const provider: FundingProvider = { ...peerProvider, offramp: { ...offramp,
+      depositIdFromReceipt: (receipt) => receipt.logs[0]?.data === hashA ? depositA : depositB,
+      readOrder: async ({ depositId }) => order(depositId),
+    } };
+    const confirmed: ActionReceiptState = "confirmed";
+    const refresh = async () => {
+      const rows = [];
+      for (const id of [a, b]) {
+        const row = await store.get(owner, id);
+        if (row) rows.push({ row, receipt: confirmed });
+      }
+      return refreshCashoutProgress({
+        owner, store, rows, signal: new AbortController().signal, env: {}, providerForId: () => provider,
+        readTransactionReceipt: async (hash) => ({ logs: [{ address: owner.address, topics: [], data: hash, blockHash: hash,
+          blockNumber: BigInt(1), logIndex: 0, transactionHash: hash, transactionIndex: 0, removed: false }] }),
+      });
+    };
+
+    await refresh();
+    await refresh();
+    const orders = await store.cashoutOrders(owner, [a, b]);
+    expect(orders.find((row) => row.action_id === a)).toMatchObject({ deposit_id: depositA, deposit_proven: true, settled_at: null });
+    expect(orders.find((row) => row.action_id === b)).toMatchObject({ deposit_id: depositB, deposit_proven: true, settled_at: null });
+  });
+
+  test("a proven link never moves, by inference or by another receipt", async () => {
+    const proven = await insertOrder(new Date().toISOString());
+    const other = await insertOrder(new Date().toISOString(), "deposit_12");
+    expect(await store.linkCashoutDeposit(owner, proven, "deposit_11", true)).toMatchObject({ deposit_id: "deposit_11", deposit_proven: true });
+
+    expect(await store.linkCashoutDeposit(owner, proven, "deposit_12", true)).toBeNull();
+    expect(await store.linkCashoutDeposit(owner, proven, "deposit_13", false)).toBeNull();
+    expect(await store.linkCashoutDeposit(owner, other, "deposit_11", true)).toBeNull();
+    const orders = await store.cashoutOrders(owner, [proven, other]);
+    expect(orders.find((row) => row.action_id === proven)).toMatchObject({ deposit_id: "deposit_11", deposit_proven: true });
+    expect(orders.find((row) => row.action_id === other)).toMatchObject({ deposit_id: "deposit_12", deposit_proven: false });
   });
 
   test("only identical unsettled intents block another cash-out", async () => {

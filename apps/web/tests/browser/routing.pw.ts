@@ -3,6 +3,7 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
 import { expectNavigation, NAVIGATION_BUDGET_MS } from "./fixtures/navigation-budget";
 import { FUNDING_PROVIDERS_VERSION } from "../../shared/funding/contracts/providers";
+import { homeSessionToken } from "./fixtures/session";
 
 test("canonical routing preserves the shell and one balances read", async ({ page }) => {
   await seedSignedInSession(page);
@@ -440,6 +441,24 @@ test("Account settings moves focus into the view and restores it to the account 
   await expect(trigger).toBeFocused();
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
   await readPrimaryNavigationTargets();
+});
+
+test("/account opens Account settings when signed in and sign-in when signed out", async ({ page }) => {
+  await installApiFixtures(page);
+  await page.goto("/account");
+  await expectNavigation(page, /\/\?account=signin$/);
+  await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
+
+  await seedSignedInSession(page);
+  await page.goto("/account");
+  await expectNavigation(page, /\/home\?account=settings$/);
+  await expect(page.getByRole("region", { name: "Account settings" })).toBeVisible();
+
+  await page.context().addCookies([{ name: "home-session", value: homeSessionToken("0x1111111111111111111111111111111111111111"), domain: "localhost", path: "/", httpOnly: true, secure: false, sameSite: "Lax" }]);
+  await page.goto("/account");
+  await expectNavigation(page, /\/home\?account=settings$/);
+  await expect(page.getByRole("region", { name: "Account settings" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toHaveCount(0);
 });
 
 test("sign-in returns to Cash through the signed-in shell", async ({ page }) => {
