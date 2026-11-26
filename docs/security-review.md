@@ -128,8 +128,8 @@ Each pass ran the repository's targeted suites in its area (unit tests, plus Pos
 
 | ID | Severity | Evidence | Finding and disposition |
 | --- | --- | --- | --- |
-| F7 | P2 | `app/api/funding/webhooks/[provider]/route.ts:21-31`; core at `server/funding/core/service.ts:688-711` | A verified, matched delivery that fails during processing (for example a transient database error) is caught and returned as `202 {accepted:true}`. The provider sees success and has no HTTP reason to retry; polling can eventually recover, but delivery retry is suppressed. **Follow-up:** `fix(webhooks)`. |
-| F8 | P3 | `server/balances/webhook.ts:54-61` | The CDP body is JSON-parsed and its subscription id used to narrow candidate keys before HMAC verification. The body is bounded (64 KiB) and no state changes before verification. **Follow-up:** `fix(webhooks)`. |
+| F7 | P2 | `app/api/funding/webhooks/[provider]/route.ts:21-31`; core at `server/funding/core/service.ts:688-711` | A verified, matched delivery that fails during processing (for example a transient database error) is caught and returned as `202 {accepted:true}`. The provider sees success and has no HTTP reason to retry; polling can eventually recover, but delivery retry is suppressed. **Fixed** (#2265): a processing failure now returns a retryable `503` and an `unavailable` event; terminal outcomes keep `202`. |
+| F8 | P3 | `server/balances/webhook.ts:54-61` | The CDP body is JSON-parsed and its subscription id used to narrow candidate keys before HMAC verification. The body is bounded (64 KiB) and no state changes before verification. **Fixed** (#2265): the raw body is verified against every stored subscription key before it is parsed. |
 | F9 | P3 | `server/balances/webhook.ts:90-117`; `server/funding/core/service.ts:688-711` | Duplicate CDP and Ripio deliveries repeat stale/dirty writes and read-only scheduling or a forced order refresh. No duplicate dispatch or credit was observed; versions and monotonic stores prevent those inferences. **Follow-up:** `fix(webhooks)`. |
 
 ## 6. Credential and customer-data exposure

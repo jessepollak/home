@@ -499,7 +499,7 @@ describe("CDP balance activity webhook", () => {
     expect((await handler(raw, signed(raw))).status).toBe(401);
   });
 
-  test("re-reads stored subscriptions once for an unknown identified id", async () => {
+  test("re-reads stored subscriptions once when a fresh signature matches no cached secret", async () => {
     const store = await seededStore();
     let reads = 0;
     const raw = body({
@@ -543,7 +543,7 @@ describe("CDP balance activity webhook", () => {
     expect((await handler(raw, signed(raw))).status).toBe(200);
   });
 
-  test("throttles forced subscription re-lists to once per minute", async () => {
+  test("an anonymous body forces no re-list and a fresh unverified signature forces at most one per minute", async () => {
     const store = await seededStore();
     let reads = 0;
     const handler = createCdpWebhookHandler({
@@ -556,11 +556,15 @@ describe("CDP balance activity webhook", () => {
       },
       now: () => NOW,
     });
+    const anonymous = body({ subscriptionId: "unknown-0", eventType: "wallet.activity.multi" });
     const first = body({ subscriptionId: "unknown-1", eventType: "wallet.activity.multi" });
     const second = body({ subscriptionId: "unknown-2", eventType: "wallet.activity.multi" });
+    const forged = (raw: Uint8Array) => signed(raw).replace(/[0-9a-f]{64}$/, "0".repeat(64));
 
-    expect((await handler(first, "invalid")).status).toBe(401);
-    expect((await handler(second, "invalid")).status).toBe(401);
+    expect((await handler(anonymous, "invalid")).status).toBe(401);
+    expect(reads).toBe(1);
+    expect((await handler(first, forged(first))).status).toBe(401);
+    expect((await handler(second, forged(second))).status).toBe(401);
     expect(reads).toBe(2);
   });
 
