@@ -117,7 +117,7 @@ Use the [Launch settings](#launch) for the Home application project. The followi
 
 ### Database pool lifecycle
 
-The server opens its PostgreSQL pools (`max: 5`, 30-second idle timeout, 10-second connect timeout) and attaches each pool it opens to the platform lifecycle hook, so an idle Fluid instance stays alive long enough for `pg` to close idle connections before it suspends. Fluid compute stays enabled for that hook to do anything; without it connections die with the instance. The hook holds one idle wait per instance, so a later pool's attach supersedes an earlier pool's pending wait, and that pool's idle connections can still die with the instance — the same as running without the hook.
+The server opens up to two PostgreSQL pools per instance, one for the shared executor and one for the actions store, each with `max: 5`, a 30-second idle timeout and a 10-second connect timeout, and passes each to `attachDatabasePool` from `@vercel/functions`. After every client release, that pool keeps the instance alive through `waitUntil` for its idle timeout plus 100 ms, capped at the releasing request's remaining deadline minus one second, so `pg` closes idle connections before Fluid suspends the instance. Each pool holds its own wait; a later release on the same pool replaces it. Keep Fluid compute enabled.
 
 ### Pre-release production access
 
@@ -187,7 +187,7 @@ Storybook must use a separate Vercel project (for example, `<project>-storybook`
 | Deployment protection | Vercel Authentication on production and previews, unless the operator chooses a stricter existing convention |
 | Environment variables | None; do not copy Home, provider, wallet, or database variables |
 
-Do not add `apps/web/vercel.json`: both projects share that root, so a repository-level override could change the production Home application. Per-project Vercel settings are the isolation boundary. Project creation, team ownership, Git integration, and deployment protection are privileged operator actions; these documented settings do not claim that a hosted Storybook project or URL exists.
+Both projects read `apps/web/vercel.json` because they share that root, so it sets only the clean Install Command; anything added there also changes the production Home application. Per-project Vercel settings are the isolation boundary. Project creation, team ownership, Git integration, and deployment protection are privileged operator actions; these documented settings do not claim that a hosted Storybook project or URL exists.
 
 When this project is created before Storybook reaches `main`, the initial production deployment from `main` is expected to fail because that branch does not yet contain the Storybook build script. Keep **Production Branch** set to `main`; create or trigger the PR-head preview instead of temporarily treating the feature branch as production. After merge, verify that the first `main` deployment succeeds before calling current-main hosting complete.
 
