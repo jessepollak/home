@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
 import { formatAddress } from "@/shared/formatting";
 import { SavedSettingsLine } from "./saved-settings-line";
+import { useHydrated } from "./use-hydrated";
 import { readJson } from "@/shared/http/read-json";
 import {
   BRAND_DEFAULTS,
@@ -226,7 +227,8 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
   }) ?? baseline.value;
   const theme = deriveBrandTheme(previewable);
   const dirty = !result.value || !sameBrand(result.value, baseline.value);
-  const locked = saving;
+  const hydrated = useHydrated();
+  const locked = saving || !hydrated;
   const shown = touched ? result.errors : { displayName: null, description: null, primaryColor: null, backgroundColor: null, logoUrl: null, termsUrl: null, privacyUrl: null };
 
   const incomingKey = `${initial.revision}:${initial.updatedAt ?? ""}`;

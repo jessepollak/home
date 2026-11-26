@@ -247,3 +247,48 @@ test("logo, terms and privacy accept https only, and a logo that fails to load f
   await expect(page.locator('[data-home-mark=""]').first()).toBeVisible();
   await expect(page.locator('[data-home-mark="logo"]')).toHaveCount(0);
 });
+
+async function holdAppScripts(page: Page) {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const appScript = (url: URL) => url.pathname.startsWith("/_next/static/") && url.pathname.endsWith(".js");
+  await page.route(appScript, async (route) => { await held; await route.fallback(); });
+  return release;
+}
+
+test("Settings forms refuse typing until hydrated", { tag: "@smoke" }, async ({ page, context }) => {
+  test.setTimeout(120_000);
+  await setSession(context, admin);
+  await openAdmin(page, "/admin/settings/products");
+  await openAdmin(page, "/admin/settings/brand");
+
+  await test.step("Brand fields stay read-only before hydration, then accept typing once ready", async () => {
+    const hydrate = await holdAppScripts(page);
+    await page.reload({ waitUntil: "commit" });
+    const name = page.getByLabel("Display name", { exact: true }).filter({ visible: true });
+    await expect(name).toBeVisible();
+    const saved = await name.inputValue();
+    await name.focus();
+    await page.keyboard.type(" typed early");
+    await expect(name).toHaveValue(saved);
+    await expect(name).not.toBeEditable();
+    hydrate();
+    await expectOperatorReady(page);
+    await expect(name).toBeEditable();
+    await name.focus();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" typed late");
+    await expect(name).toHaveValue(`${saved} typed late`);
+  });
+
+  await test.step("Products modes are announced read-only before hydration, then editable", async () => {
+    const hydrate = await holdAppScripts(page);
+    await page.goto("/admin/settings/products", { waitUntil: "commit" });
+    const saveMode = page.getByRole("radiogroup", { name: "Save mode", exact: true }).filter({ visible: true });
+    await expect(saveMode).toBeVisible();
+    await expect(saveMode).toHaveAttribute("aria-readonly", "true");
+    hydrate();
+    await expectOperatorReady(page);
+    await expect(saveMode).not.toHaveAttribute("aria-readonly", "true");
+  });
+});
