@@ -57,7 +57,7 @@ export const DeploymentDefaults: Story = {
 export const Saved: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await waitForReady(() => expect(canvas.getByText(/Saved settings, revision 3\./)).toBeVisible());
+    await waitForReady(() => expect(canvas.getByText(/^Saved .+, revision 3\./)).toBeVisible());
     await expect(canvas.getByLabelText("Display name")).toHaveValue("Acme Money");
     await expect(canvas.getByRole("group", { name: "Customer preview" })).toBeVisible();
     await expect(canvas.getByRole("button", { name: "Cancel" })).toBeDisabled();

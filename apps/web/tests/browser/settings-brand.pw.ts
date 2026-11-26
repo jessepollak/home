@@ -108,7 +108,7 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     await expectOperatorReady(page);
     await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Acme Money");
     await expect(page.getByLabel("Primary color", { exact: true })).toHaveValue("#0b6b3a");
-    await expect(page.getByText(/Saved settings, revision 1\./)).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: /^Saved .+ by 0x.+, revision 1\.$/ })).toBeVisible();
   });
 
   await test.step("a fresh customer page carries the saved brand, light tokens only", async () => {

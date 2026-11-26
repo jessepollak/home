@@ -61,7 +61,7 @@ export const StoredWithDestination: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByLabelText("Revenue destination")).toHaveValue("0x52908400098527886E0F7030069857D2E4169EE7");
     await expect(canvas.getByText("50 bps = 0.50% of each swap.")).toBeVisible();
-    await expect(canvas.getByText(/Last updated Sep 24, 2026/)).toBeVisible();
+    await expect(canvas.getByText(/^Saved Sep 24, 2026/)).toBeVisible();
   },
 };
 

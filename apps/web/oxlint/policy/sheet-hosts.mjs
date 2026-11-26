@@ -18,6 +18,12 @@ export const sheetHostExceptions = [
     reason: "non-money region-settings review drawer before an audited settings update",
   },
   {
+    file: "client/operator/product-settings-editor.tsx",
+    imports: ["Drawer", "DrawerContent", "DrawerDescription", "DrawerFooter", "DrawerHeader", "DrawerTitle"],
+    owner: "operator settings",
+    reason: "non-money product-settings review drawer before an audited settings update, matching Regions",
+  },
+  {
     file: "client/account/account-screen.tsx",
     imports: ["DrawerHeader", "DrawerTitle"],
     owner: "account sign-in",

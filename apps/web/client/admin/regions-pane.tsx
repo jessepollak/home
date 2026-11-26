@@ -12,6 +12,7 @@ import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseOperatorSettingsErrorResponse,
 import { parseRegionSettings, type RegionSettings } from "@/shared/operator-settings/regions";
 import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
 import { readJson } from "@/shared/http/read-json";
+import { SavedSettingsLine } from "@/client/operator/saved-settings-line";
 
 type RegionEntry = SettingsEntry<RegionSettings>["settings"];
 
@@ -27,11 +28,6 @@ export function regionChanges(before: RegionSettings, after: RegionSettings) {
 
 function regionName(id: RegionId) {
   return id === "GLOBAL" ? "Global" : presentationRegions[id].countryName;
-}
-
-function savedAt(value: string | null) {
-  const time = value ? Date.parse(value) : Number.NaN;
-  return Number.isFinite(time) ? `${new Date(time).toISOString().slice(0, 16).replace("T", " ")} UTC` : "at an unknown time";
 }
 
 function readEntry(value: unknown): RegionEntry | null {
@@ -127,11 +123,7 @@ export function RegionsPane({ initialEntry, operator }: { initialEntry: RegionEn
     <section aria-labelledby="regions-heading" className="grid gap-6">
       <div className="grid gap-1">
         <h2 id="regions-heading" className="text-lg font-semibold">Regions</h2>
-        <p className="text-sm text-muted-foreground">
-          {baseline.source === "default"
-            ? "Using Home's built-in regions. Nothing is saved yet."
-            : `Saved ${savedAt(baseline.updatedAt)} by ${baseline.updatedBy ? `${baseline.updatedBy.slice(0, 6)}…${baseline.updatedBy.slice(-4)}` : "an unknown operator"}.`}
-        </p>
+        <SavedSettingsLine settings={baseline} unsaved="Using Home's built-in regions. Nothing is saved yet." />
       </div>
       <div className="grid gap-3">
         <h3 className="text-sm font-medium">Offered countries ({draft.offered.length})</h3>
@@ -167,7 +159,7 @@ export function RegionsPane({ initialEntry, operator }: { initialEntry: RegionEn
         )}
       </div>
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-      {message && <Alert><AlertDescription>{message}</AlertDescription></Alert>}
+      {message && <Alert role="status"><AlertDescription>{message}</AlertDescription></Alert>}
       <div><Button size="touch" disabled={!dirty || pending} onClick={() => setReviewOpen(true)}>Review changes</Button></div>
       <Drawer open={reviewOpen} onOpenChange={(open) => { if (!pending) setReviewOpen(open); }}>
         <DrawerContent initialFocus={cancelButton}>

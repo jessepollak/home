@@ -10,7 +10,8 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/c
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
-import { formatAddress, formatPresentationDate } from "@/shared/formatting";
+import { formatAddress } from "@/shared/formatting";
+import { SavedSettingsLine } from "./saved-settings-line";
 import { readJson } from "@/shared/http/read-json";
 import {
   BRAND_DEFAULTS,
@@ -120,12 +121,6 @@ const SAVE_TIMEOUT_MS = 15_000;
 
 function sameBrand(a: BrandSettings, b: BrandSettings): boolean {
   return FIELDS.every((field) => a[field] === b[field]);
-}
-
-function sourceLine(settings: BrandSettingsState): string {
-  if (settings.source === "default" || !settings.updatedAt) return "Using deployment defaults. Nothing is saved yet.";
-  const when = formatPresentationDate(settings.updatedAt, { style: "date-time-zone", timeZone: "UTC" });
-  return settings.updatedBy ? `Saved settings, revision ${settings.revision}. Updated ${when} by ${formatAddress(settings.updatedBy)}.` : `Saved settings, revision ${settings.revision}. Updated ${when}.`;
 }
 
 function ColorField({ id, label, text, error, help, locked, onChange }: {
@@ -351,7 +346,7 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
               <Swatch color={baseline.value.primaryColor} label={`Primary ${baseline.value.primaryColor}`} />
               <Swatch color={baseline.value.backgroundColor} label={`Background ${baseline.value.backgroundColor}`} />
             </div>
-            <p className="text-sm text-muted-foreground">{sourceLine(baseline)}</p>
+            <SavedSettingsLine settings={baseline} unsaved="Using deployment defaults. Nothing is saved yet." />
           </div>
           <FieldGroup>
             <Field data-invalid={shown.displayName ? true : undefined}>
