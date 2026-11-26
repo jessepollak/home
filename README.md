@@ -12,14 +12,18 @@ Delivery work is tracked in repository issues. Jesse adds the `factory` label wh
 
 Real browser captures of the current app, rendered with sample data. Select an image for full size.
 
+<p align="center">
+  <img src="docs/readme/demo.gif" width="300" alt="Sample-data clip on a phone-sized screen: Home with total balance, then Cash with the Add money sheet, then Invest, the Bitcoin price chart, and the Send flow ending on the confirm sheet for $25.00 USDC, without sending">
+</p>
+
 <table>
   <tr>
     <td align="center" valign="top">
-      <a href="docs/readme/home.png"><img src="docs/readme/home.png" width="250" alt="Sample-data capture of the Home dashboard with total balance, Add money and Send, Your money, and a pending cash-out in Activity"></a><br>
+      <a href="docs/readme/home.png"><img src="docs/readme/home.png" width="250" alt="Sample-data capture of the Home dashboard with total balance, Add money, Cash out, and Send, Your money, and a pending cash-out in Activity"></a><br>
       <strong>Home</strong><br><sub>Balance, money, and Activity</sub>
     </td>
     <td align="center" valign="top">
-      <a href="docs/readme/asset.png"><img src="docs/readme/asset.png" width="250" alt="Sample-data capture of the Bitcoin asset detail with a one-week price chart, range selector, balance, stats, and Buy and Sell"></a><br>
+      <a href="docs/readme/asset.png"><img src="docs/readme/asset.png" width="250" alt="Sample-data capture of the Bitcoin asset detail with a one-week price chart, range selector, price source, balance, stats, and Buy and Sell"></a><br>
       <strong>Asset detail</strong><br><sub>Price chart, holding, and stats</sub>
     </td>
     <td align="center" valign="top">
@@ -29,7 +33,7 @@ Real browser captures of the current app, rendered with sample data. Select an i
   </tr>
   <tr>
     <td align="center" valign="top">
-      <a href="docs/readme/cash.png"><img src="docs/readme/cash.png" width="250" alt="Sample-data capture of the Cash screen with a US dollar stablecoin balance and savings"></a><br>
+      <a href="docs/readme/cash.png"><img src="docs/readme/cash.png" width="250" alt="Sample-data capture of the Cash screen with Add money and Convert, a US dollar stablecoin balance, and savings"></a><br>
       <strong>Cash</strong><br><sub>Stablecoin currencies and savings</sub>
     </td>
     <td align="center" valign="top">
@@ -37,8 +41,8 @@ Real browser captures of the current app, rendered with sample data. Select an i
       <strong>Savings</strong><br><sub>Per-position management</sub>
     </td>
     <td align="center" valign="top">
-      <a href="docs/readme/invest.png"><img src="docs/readme/invest.png" width="250" alt="Sample-data capture of the Invest screen with asset search and stock and crypto shelves"></a><br>
-      <strong>Invest</strong><br><sub>Search, stocks, and crypto</sub>
+      <a href="docs/readme/invest.png"><img src="docs/readme/invest.png" width="250" alt="Sample-data capture of the Invest screen with stock and crypto shelves and the asset search button"></a><br>
+      <strong>Invest</strong><br><sub>Stocks, crypto, and search</sub>
     </td>
   </tr>
   <tr>
