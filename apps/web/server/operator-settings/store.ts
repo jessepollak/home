@@ -4,7 +4,8 @@ import { isDeepStrictEqual } from "node:util";
 import type { Named } from "@gdp-ts/core";
 import { isUniqueViolation, type SqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
 import type { OperatorAccess, OperatorAddress } from "@/server/proofs/operator-access";
-import { OPERATOR_SETTINGS_DOMAINS, type DomainRegistry, type SettingsEntry } from "@/shared/operator-settings/contract";
+import type { DomainRegistry, SettingsEntry } from "@/shared/operator-settings/contract";
+import { serverSettingsRegistry } from "./registry";
 
 export class OperatorSettingsCorruptError extends Error {}
 export class OperatorSettingsValidationError extends Error {}
@@ -16,7 +17,7 @@ type SettingsRow = {
 };
 
 export class OperatorSettingsStore {
-  constructor(private readonly sql: SqlExecutor, readonly registry: DomainRegistry = OPERATOR_SETTINGS_DOMAINS) {}
+  constructor(private readonly sql: SqlExecutor, readonly registry: DomainRegistry = serverSettingsRegistry()) {}
 
   hasDomain(domain: string): boolean {
     return Object.hasOwn(this.registry, domain);

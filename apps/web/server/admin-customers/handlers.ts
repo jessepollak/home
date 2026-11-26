@@ -52,10 +52,10 @@ function balances(deps: Dependencies): BalanceReader {
 }
 
 async function operator(request: Request, deps: Dependencies, route: string): Promise<{ address: `0x${string}`; store: AdminCustomerStore } | Response> {
-  const decision = await authorizeOperatorRequest(request, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig);
-  if (decision instanceof Response) return decision;
-  const customers = store(deps);
-  return customers ? { address: decision.address, store: customers } : fail(route, "CUSTOMERS_NOT_CONFIGURED", 503);
+  return authorizeOperatorRequest(request, (operator) => {
+    const customers = store(deps);
+    return customers ? { address: operator.value, store: customers } : fail(route, "CUSTOMERS_NOT_CONFIGURED", 503);
+  }, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig);
 }
 
 async function run(route: string, operation: () => Promise<Response>): Promise<Response> {

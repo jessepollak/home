@@ -181,7 +181,7 @@ export class PostgresHistoryStore implements HistoryStore {
   async putCheckpoints(addressId: number, checkpoints: readonly BalanceCheckpoint[]): Promise<void> {
     if (checkpoints.length === 0) return;
     await this.sql.transaction(async (tx) => {
-      const address = await tx.query("SELECT chain_id FROM history_addresses WHERE id=$1", [addressId]);
+      const address = await tx.query("SELECT chain_id FROM history_addresses WHERE id=$1 FOR UPDATE", [addressId]);
       if (!address.rows[0]) throw new Error("History address not found");
       const ids = await ensureAssets(tx, Number(address.rows[0].chain_id), checkpoints.map((c) => c.asset));
       for (const checkpoint of checkpoints) {

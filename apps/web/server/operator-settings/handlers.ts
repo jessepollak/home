@@ -14,6 +14,7 @@ import type { OperatorAccess, OperatorAddress } from "@/server/proofs/operator-a
 import { BRAND_SETTINGS_DOMAIN } from "@/shared/operator-branding/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parsePutSettingsRequest, validCursor, type OperatorSettingsErrorCode } from "@/shared/operator-settings/contract";
+import { GROWTH_SETTINGS_DOMAIN, GROWTH_SETTINGS_MAX_REQUEST_BYTES } from "@/shared/operator-settings/growth";
 import { AdminAuditLog } from "./audit";
 import { OperatorSettingsConflictError, OperatorSettingsStore, OperatorSettingsValidationError } from "./store";
 import { invalidateRegionPolicy } from "./regions";
@@ -79,7 +80,7 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
       const site = request.headers.get("sec-fetch-site");
       if (!expected || !origin || origin !== expected.origin || (site !== null && site !== "same-origin")) return error("CROSS_ORIGIN", 403);
       if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get("content-type") ?? "")) return error("INVALID_REQUEST", 400);
-      const read = await readJsonBody(request, { maxBytes: 16_384 });
+      const read = await readJsonBody(request, { maxBytes: domain === GROWTH_SETTINGS_DOMAIN ? GROWTH_SETTINGS_MAX_REQUEST_BYTES : 16_384 });
       if (read.kind !== "ok") return error("INVALID_REQUEST", 400);
       const parsed = parsePutSettingsRequest(read.value);
       const definition = settingsStore.registry[domain];
