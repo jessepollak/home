@@ -19,6 +19,7 @@ import {
 } from "@/shared/operator-settings/products";
 import { exactCatalogSettings, reviewChanges, saveOutcome, type ProductSettingsEntry, type ReviewItem } from "./product-settings-model";
 import { SavedSettingsLine } from "./saved-settings-line";
+import { useHydrated } from "./use-hydrated";
 
 export function ProductSettingsLoadError() {
   const router = useRouter();
@@ -32,6 +33,7 @@ function ModeRow({ label, detail, status, value, options, onChange, disabled }: 
   label: string; detail?: string; status: string; value: string; options: readonly (readonly [string, string])[];
   onChange: (value: string) => void; disabled?: boolean;
 }) {
+  const hydrated = useHydrated();
   return (
     <Item variant="outline" className="gap-4">
       <ItemContent>
@@ -39,7 +41,7 @@ function ModeRow({ label, detail, status, value, options, onChange, disabled }: 
         {detail && <ItemDescription lines="wrap">{detail}</ItemDescription>}
         <Badge variant={status === "On" || status === "Enabled" ? "secondary" : "outline"}>{status}</Badge>
       </ItemContent>
-      <RadioGroup variant="segmented" aria-label={`${label} mode`} value={value} onValueChange={onChange} disabled={disabled} className="w-full shrink-0 sm:w-64">
+      <RadioGroup variant="segmented" aria-label={`${label} mode`} value={value} onValueChange={onChange} disabled={disabled} readOnly={!hydrated} className="w-full shrink-0 sm:w-64">
         {options.map(([mode, text]) => <RadioGroupSegment key={mode} value={mode}>{text}</RadioGroupSegment>)}
       </RadioGroup>
     </Item>
