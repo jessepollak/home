@@ -7,13 +7,14 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { BASELINE_PATH, evaluateDisableBudget, repositoryFiles } from "../lint-disables.mjs";
 import { EXEMPTIONS_BASELINE_PATH, evaluateExemptions, readExemptionInput, shrinkExemptions, runLintExemptions } from "../lint-exemptions.mjs";
+import { GIT } from "../git-command.mjs";
 
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const clean = { unlisted: [], stale: [], invalid: [] };
 const record = (glob = "client/**", rule = "home/example", reason = "Reviewed fixture exemption") => ({ glob, rule, reason });
 const fixture = (files = ["client/**"], value = "off") => ({ overrides: [{ files, rules: { "home/example": value } }] });
 const evaluate = (config, baseline = []) => evaluateExemptions({ config, baseline });
-const cliProcess = (args = [], cwd = root) => spawnSync("node", ["scripts/gates/lint-exemptions.mjs", ...args], { cwd, encoding: "utf8" });
+const cliProcess = (args = [], cwd = root) => spawnSync(process.execPath, ["scripts/gates/lint-exemptions.mjs", ...args], { cwd, encoding: "utf8" });
 const cli = (args = [], cwd = root) => runLintExemptions({ args, cwd });
 
 function createMirror(t) {
@@ -24,7 +25,7 @@ function createMirror(t) {
   copyFileSync(path.join(root, "scripts/gates/lint-exemptions.mjs"), path.join(directory, "scripts/gates/lint-exemptions.mjs"));
   writeFileSync(path.join(directory, "apps/web/package.json"), "{}\n");
   symlinkSync(path.join(root, "apps/web/node_modules"), path.join(directory, "apps/web/node_modules"), "dir");
-  execFileSync("git", ["init", "--quiet"], { cwd: directory });
+  execFileSync(GIT, ["init", "--quiet"], { cwd: directory });
   return directory;
 }
 

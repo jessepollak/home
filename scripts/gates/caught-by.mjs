@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { GIT } from "./git-command.mjs";
 
 export const caughtByValues = ["lint", "unit", "bot", "review", "browser", "production"];
 
@@ -17,7 +18,7 @@ const caughtByTrailer = new RegExp(`^Caught-by: (${caughtByValues.join("|")})$`,
 export const gitMaxBuffer = 64 * 1024 * 1024;
 
 export function runGit(args, cwd = process.cwd(), { maxBuffer = gitMaxBuffer } = {}) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer });
+  const result = spawnSync(GIT, args, { cwd, encoding: "utf8", maxBuffer });
   if (result.error) {
     const reason = result.error.code === "ENOBUFS" ? `output exceeded ${maxBuffer} bytes (ENOBUFS)` : (result.error.code ?? result.error.message);
     throw new Error(`git ${args[0]} failed: ${reason}`, { cause: result.error });

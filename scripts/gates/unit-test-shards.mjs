@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseJunit } from "./test-runtime.mjs";
 import { discoverFiles } from "./unit-test-discovery.mjs";
+import { GIT } from "./git-command.mjs";
 export { discoverFiles } from "./unit-test-discovery.mjs";
 
 const web = fileURLToPath(new URL("../../apps/web/", import.meta.url));
@@ -50,7 +51,7 @@ export function verifyReports(files, reports) {
 }
 
 export function trackedFiles(cwd = web) {
-  const result = spawnSync("git", ["ls-files", "-z", "--", "."], { cwd });
+  const result = spawnSync(GIT, ["ls-files", "-z", "--", "."], { cwd });
   if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git ls-files failed");
   return discoverFiles(result.stdout.toString().split("\0").filter(Boolean));
 }

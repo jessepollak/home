@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { GIT } from "./git-command.mjs";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const requireWeb = createRequire(path.join(root, "apps/web/package.json"));
@@ -10,7 +11,7 @@ export const ts = requireWeb("typescript");
 const extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"];
 
 export function readWebSources() {
-  const paths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
+  const paths = execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
     .toString().split("\0").filter((file) => extensions.some((ext) => file.endsWith(ext)) && existsSync(path.join(root, file)));
   return paths.map((file) => ({ path: file.slice("apps/web/".length), content: readFileSync(path.join(root, file), "utf8") }));
 }

@@ -11,6 +11,7 @@ import {
   readCommitsForRange,
   pullRequestNumber,
 } from "../caught-by.mjs";
+import { GIT } from "../git-command.mjs";
 
 const commit = (subject, body = "") => ({ sha: "a".repeat(40), subject, body });
 
@@ -85,7 +86,7 @@ test("holds each squashed fix to one detector instead of the whole merge", () =>
 });
 
 test("the squash-merged main head 79b790da passes as HEAD^!", (t) => {
-  const probe = spawnSync("git", ["cat-file", "-e", "79b790dadbe4^{commit}"], { encoding: "utf8" });
+  const probe = spawnSync(GIT, ["cat-file", "-e", "79b790dadbe4^{commit}"], { encoding: "utf8" });
   if (probe.status !== 0) return t.skip("79b790da is not in this checkout");
   assert.deepEqual(caughtByViolations(readCommitsForRange("79b790dadbe4^!")), []);
 });
@@ -94,7 +95,7 @@ test("the squash-merged main head ab5f7eee passes as HEAD^!", (t) => {
   // Regression for main going red on 2026-09-22: the real commit must pass the
   // gate on its own so the next push to main is green. Skipped when a shallow
   // checkout does not contain the commit; the fixture above covers its shape.
-  const probe = spawnSync("git", ["cat-file", "-e", "ab5f7eee8478^{commit}"], { encoding: "utf8" });
+  const probe = spawnSync(GIT, ["cat-file", "-e", "ab5f7eee8478^{commit}"], { encoding: "utf8" });
   if (probe.status !== 0) return t.skip("ab5f7eee is not in this checkout");
   assert.deepEqual(caughtByViolations(readCommitsForRange("ab5f7eee8478^!")), []);
 });

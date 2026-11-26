@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { checkBoundaryExemptions, runBoundaryExemptions } from "../boundary-exemptions.mjs";
 import { EXEMPTIONS_PATH, evaluateBoundaryExemptions, readBoundaryBase } from "../exploration-boundary.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
+import { GIT } from "../git-command.mjs";
 
 const entry = { path: "probe", reason: "Probe helpers are non-production." };
 const clean = { stale: [], dormant: [], reactivated: [], invalid: [] };
@@ -73,8 +74,8 @@ function createMirror(t) {
   mkdirSync(`${directory}/scripts/gates`, { recursive: true });
   mkdirSync(`${directory}/apps/web/probe`, { recursive: true });
   mkdirSync(`${directory}/apps/web/other`, { recursive: true });
-  for (const file of ["boundary-exemptions.mjs", "exploration-boundary.mjs"]) copyFileSync(`${root}/scripts/gates/${file}`, `${directory}/scripts/gates/${file}`);
-  const git = (args) => execFileSync("git", args, { cwd: directory, env: gitFixtureEnv(), encoding: "utf8" }).trim();
+  for (const file of ["boundary-exemptions.mjs", "exploration-boundary.mjs", "git-command.mjs"]) copyFileSync(`${root}/scripts/gates/${file}`, `${directory}/scripts/gates/${file}`);
+  const git = (args) => execFileSync(GIT, args, { cwd: directory, env: gitFixtureEnv(), encoding: "utf8" }).trim();
   git(["init", "--initial-branch=main"]);
   git(["config", "user.name", "Fixture"]);
   git(["config", "user.email", "fixture@example.invalid"]);

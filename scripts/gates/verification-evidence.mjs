@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GIT } from "./git-command.mjs";
 
 export function parseSurfaceOwnership(markdown) {
   const surfaces = [];
@@ -108,7 +109,7 @@ export function verificationEvidenceFindings(files, body, surfaces) {
 }
 
 function changedFiles(base) {
-  return execFileSync("git", ["diff", "--name-only", `origin/${base}...HEAD`], { encoding: "utf8" })
+  return execFileSync(GIT, ["diff", "--name-only", `origin/${base}...HEAD`], { encoding: "utf8" })
     .split("\n")
     .filter(Boolean);
 }

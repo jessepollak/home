@@ -11,6 +11,7 @@ import {
   BOUNDARY_EXCLUDED_FILES, BOUNDARY_EXTENSIONS, BOUNDARY_EXTENSIONS_GLOB, BOUNDARY_IGNORE_PATTERNS, BOUNDARY_INVENTORY_EXCEPTIONS, BOUNDARY_RULE, BOUNDARY_RULES, FENCED_LAYERS, ROOT_CATCH_ALL,
   evaluateBoundaryConfig, evaluateBoundaryExemptions, evaluateBoundaryInventory, existingBoundaryPaths, expectedBoundaryFiles, isPreclassifiedRootFile, readBoundaryBase, rootSourceFiles, topLevelSourceDirectories,
 } from "../exploration-boundary.mjs";
+import { GIT } from "../git-command.mjs";
 
 const ts = createRequire(new URL("../../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../../..", import.meta.url));
@@ -28,7 +29,7 @@ function boundaryOverride(fields = {}) {
 
 async function realBoundary() {
   const exemptions = JSON.parse(await readFile(exemptionsUrl, "utf8"));
-  const paths = existingBoundaryPaths(execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
+  const paths = existingBoundaryPaths(execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
     .toString().split("\0").filter(Boolean).map((entry) => path.join(root, entry)))
     .map((entry) => path.relative(path.join(root, "apps/web"), entry).split(path.sep).join("/"));
   const directories = topLevelSourceDirectories(paths);
@@ -96,7 +97,7 @@ test("the real oxlint config has exactly the canonical exploration boundary patt
 });
 
 test("oxlint selects every git-visible lintable source for linting except reasoned inventory exceptions", () => {
-  const paths = existingBoundaryPaths(execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
+  const paths = existingBoundaryPaths(execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
     .toString().split("\0").filter(Boolean).map((entry) => path.join(root, entry)))
     .map((entry) => path.relative(path.join(root, "apps/web"), entry).split(path.sep).join("/"))
     .filter((entry) => BOUNDARY_EXTENSIONS.some((extension) => entry.endsWith(extension)));

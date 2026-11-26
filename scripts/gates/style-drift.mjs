@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { classifyStatusMark, classifyStyleDriftToken, isStatusStyleOwner, isPrimitiveStyleFile, isStyleDriftExempt, primitiveStyleScope, styleDriftFamilies, styleDriftOccurrences } from "../../apps/web/oxlint/policy/style-drift.mjs";
+import { GIT } from "./git-command.mjs";
 
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -20,7 +21,7 @@ export function isStyleDriftSource(file) {
 }
 
 export function repositoryFiles() {
-  return execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
+  return execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
     .toString().split("\0").filter((file) => file.startsWith("apps/web/") && isStyleDriftSource(file.slice("apps/web/".length)) && existsSync(path.join(root, file)))
     .sort().map((file) => ({ path: file.slice("apps/web/".length), content: readFileSync(path.join(root, file), "utf8") }));
 }
@@ -97,7 +98,7 @@ function entries(files, budget, allowLegacyFamilies = false) {
 }
 
 function git(args) {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  const result = spawnSync(GIT, args, { cwd: root, encoding: "utf8" });
   if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
   return result.stdout.trim();
 }
