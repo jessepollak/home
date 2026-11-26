@@ -257,6 +257,31 @@ export function runCommand(command, args, cwd) {
   return { status: result.status ?? 1, error: result.error };
 }
 
+export function pinnedBunVersion(root) {
+  try {
+    const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    const match = /^bun@(\d+\.\d+\.\d+)$/.exec(manifest.packageManager ?? "");
+    return match ? match[1] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function runningBunVersion(root) {
+  const result = spawnSync("bun", ["--version"], { cwd: root, encoding: "utf8" });
+  if (result.error || result.status !== 0) return undefined;
+  return result.stdout.trim();
+}
+
+export function assertPinnedBun(root, bunVersion = runningBunVersion) {
+  const pinned = pinnedBunVersion(root);
+  if (pinned === undefined) return;
+  const running = bunVersion(root);
+  if (running === pinned) return;
+  const found = running === undefined ? "no runnable `bun` is on PATH" : `bun ${running} is on PATH`;
+  throw new Error(`${found}, but package.json pins bun@${pinned}. Another Bun can reuse node_modules/.bun entries with stale links after a lockfile change. Install Bun ${pinned} (curl -fsSL https://bun.sh/install | bash -s "bun-v${pinned}") and rerun \`${BOOTSTRAP_COMMAND}\`.`);
+}
+
 export function installDependencies(root, run = runCommand, problems = dependencyProblems(root), { force = false } = {}) {
   for (const problem of problems) {
     if (problem.state === "symlink" || problem.state === "not-directory") {
@@ -380,7 +405,8 @@ export function copyWorktreeEnv(root, git = gitCommand, { copy = false } = {}) {
   return { status: "copied", target, source };
 }
 
-export function bootstrap(root, { git = gitCommand, run = runCommand, log = console.log, copyEnv = false, devServer } = {}) {
+export function bootstrap(root, { git = gitCommand, run = runCommand, log = console.log, copyEnv = false, devServer, bunVersion = runningBunVersion } = {}) {
+  assertPinnedBun(root, bunVersion);
   const problems = dependencyProblems(root);
   for (const problem of problems) {
     log(`worktree: ${problem.relative} is ${describeProblem(problem)}`);
