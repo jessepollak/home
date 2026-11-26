@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { reapOrphanedWorlds, stopWithProcess } from "./infra";
 import { INVARIANTS } from "./invariants";
 import type { RunResult } from "./run";
 import { simulateSeeds, type Crashed, type WorkerOutput } from "./worker";
@@ -66,8 +67,11 @@ if (workers === 1) {
   const outputs = await Promise.all(chunks.map(async (chunk) => {
     const child = Bun.spawn(["bun", "--conditions=react-server", import.meta.path, "--block", forkBlock.toString(), "--worker-seeds", chunk.join(",")],
       { stdout: "pipe", stderr: "inherit", env: process.env });
+    const release = stopWithProcess(() => child.kill("SIGTERM"));
     const text = await new Response(child.stdout).text();
     await child.exited;
+    release();
+    reapOrphanedWorlds();
     const line = text.split("\n").find((entry) => entry.startsWith(RESULT_MARKER));
     if (!line) return { results: chunk.map((seed) => ({ seed, crashed: `worker exited ${child.exitCode} without a result` })), stubbed: [], upstream: "BASE_RPC_URL", retried: [], peerRequestsRefused: 0 } satisfies WorkerOutput;
     return JSON.parse(line.slice(RESULT_MARKER.length)) as WorkerOutput;
