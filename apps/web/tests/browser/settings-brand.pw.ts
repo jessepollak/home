@@ -10,6 +10,8 @@ const secondAdmin = "0x3333333333333333333333333333333333333333";
 const customer = "0x2222222222222222222222222222222222222222";
 const settingsPath = "/api/admin/settings/brand";
 
+const brandForm = (page: Page) => page.locator("form[data-brand-settings]:visible");
+
 async function setSession(context: BrowserContext, address: string) {
   await context.addCookies([{
     name: "home-session", value: homeSessionToken(address), domain: "localhost", path: "/",
@@ -50,10 +52,10 @@ async function expectOperatorReady(page: Page) {
 }
 
 async function fill(page: Page, values: { name?: string; description?: string; primary?: string; background?: string }) {
-  if (values.name !== undefined) await page.getByLabel("Display name", { exact: true }).fill(values.name);
-  if (values.description !== undefined) await page.getByLabel("Description", { exact: true }).fill(values.description);
-  if (values.primary !== undefined) await page.getByLabel("Primary color", { exact: true }).fill(values.primary);
-  if (values.background !== undefined) await page.getByLabel("Background color", { exact: true }).fill(values.background);
+  if (values.name !== undefined) await brandForm(page).getByLabel("Display name", { exact: true }).fill(values.name);
+  if (values.description !== undefined) await brandForm(page).getByLabel("Description", { exact: true }).fill(values.description);
+  if (values.primary !== undefined) await brandForm(page).getByLabel("Primary color", { exact: true }).fill(values.primary);
+  if (values.background !== undefined) await brandForm(page).getByLabel("Background color", { exact: true }).fill(values.background);
 }
 
 async function fillAndExpectPreview(page: Page, values: Parameters<typeof fill>[1], expected: string) {
@@ -61,7 +63,7 @@ async function fillAndExpectPreview(page: Page, values: Parameters<typeof fill>[
     for (const [field, label] of [
       ["name", "Display name"], ["description", "Description"], ["primary", "Primary color"], ["background", "Background color"],
     ] as const) {
-      if (values[field] !== undefined) await page.getByLabel(label, { exact: true }).fill("");
+      if (values[field] !== undefined) await brandForm(page).getByLabel(label, { exact: true }).fill("");
     }
     await fill(page, values);
     await expect(page.getByRole("group", { name: "Customer preview" })).toContainText(expected);
@@ -70,10 +72,15 @@ async function fillAndExpectPreview(page: Page, values: Parameters<typeof fill>[
 
 async function save(page: Page, operator: string, revision: number) {
   const sent = page.waitForRequest((request) => new URL(request.url()).pathname === settingsPath && request.method() === "PUT", { timeout: 10_000 }).catch(() => null);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const clickFailure = await page.getByRole("button", { name: "Save", exact: true }).click({ timeout: 10_000 }).then(() => null, (error: unknown) => error);
   const request = await sent;
-  const form = page.locator("[data-brand-settings]");
-  if (!request) throw new Error(`Save sent no PUT within 10 s; the form shows status "${await form.getByRole("status").first().textContent()}" and alerts "${(await form.getByRole("alert").allTextContents()).join(" | ")}".`);
+  const form = brandForm(page);
+  if (clickFailure) throw new Error(`The Save click never completed (the button was not actionable): ${String(clickFailure).split("\n").slice(0, 8).join(" ")}`);
+  if (!request) {
+    const statuses = await form.getByRole("status").allTextContents().catch(() => []);
+    const alerts = await form.getByRole("alert").allTextContents().catch(() => []);
+    throw new Error(`Save was clicked but sent no PUT within 10 s: the form shows statuses "${statuses.join(" | ")}", alerts "${alerts.join(" | ")}" and ${await page.locator("form[data-brand-settings]").count()} brand form(s) in the document.`);
+  }
   const response = await request.response();
   if (!response) throw new Error(`The Save PUT got no response: ${request.failure()?.errorText ?? "unknown failure"}.`);
   expect(parsePutSettingsRequest(response.request().postDataJSON())).toMatchObject({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, operator, expectedRevision: revision });
@@ -94,19 +101,19 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     await expectNavigation(page, /\/admin\/settings\/brand$/);
     await expectOperatorReady(page);
     await expect(page.getByRole("heading", { name: "Brand", exact: true, level: 1 })).toBeVisible();
-    await expect(page.getByText("Using deployment defaults. Nothing is saved yet.", { exact: true })).toBeVisible();
+    await expect(brandForm(page).getByText("Using deployment defaults. Nothing is saved yet.", { exact: true })).toBeVisible();
     expect(await readBrand(context)).toMatchObject({ source: "default", revision: 0 });
   });
 
   await test.step("invalid input blocks the write and keeps the draft; Cancel writes nothing", async () => {
     await fill(page, { name: "   ", primary: "blue" });
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.getByText("Enter a display name.", { exact: true })).toBeVisible();
-    await expect(page.getByText("Enter a color like #0052ff.", { exact: true })).toBeVisible();
+    await expect(brandForm(page).getByText("Enter a display name.", { exact: true })).toBeVisible();
+    await expect(brandForm(page).getByText("Enter a color like #0052ff.", { exact: true })).toBeVisible();
     expect(puts).toHaveLength(0);
     await fill(page, { name: "Acme Money", primary: "#0B6B3A" });
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("home");
+    await expect(brandForm(page).getByLabel("Display name", { exact: true })).toHaveValue("home");
     expect(puts).toHaveLength(0);
     expect(await readBrand(context)).toMatchObject({ source: "default", revision: 0 });
   });
@@ -124,8 +131,8 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     expect(audit[0]).toMatchObject({ actor: admin, action: "settings.update", after: stored.value });
     await page.reload();
     await expectOperatorReady(page);
-    await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Acme Money");
-    await expect(page.getByLabel("Primary color", { exact: true })).toHaveValue("#0b6b3a");
+    await expect(brandForm(page).getByLabel("Display name", { exact: true })).toHaveValue("Acme Money");
+    await expect(brandForm(page).getByLabel("Primary color", { exact: true })).toHaveValue("#0b6b3a");
     await expect(page.getByRole("status").filter({ hasText: /^Saved .+ by 0x.+, revision 1\.$/ })).toBeVisible();
   });
 
@@ -163,7 +170,7 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
       expect(rejected.status()).toBe(409);
       expect(parseOperatorSettingsErrorResponse(await rejected.json())).toMatchObject({ error: { code: "SETTINGS_CONFLICT" } });
       await expect(page.getByText("Someone else saved brand settings", { exact: false }).first()).toBeVisible();
-      await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Draft Name");
+      await expect(brandForm(page).getByLabel("Display name", { exact: true })).toHaveValue("Draft Name");
       await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
       expect(await readBrand(context)).toEqual(winner);
       expect(await brandAudit(context)).toEqual(auditBefore);
@@ -182,13 +189,13 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     const rejected = await save(page, admin, 3);
     expect(rejected.status()).toBe(409);
     expect(parseOperatorSettingsErrorResponse(await rejected.json())).toMatchObject({ error: { code: "OPERATOR_CHANGED" } });
-    await expect(page.getByText("A different operator is signed in. Reload this page before saving.", { exact: true })).toBeVisible();
+    await expect(brandForm(page).getByText("A different operator is signed in. Reload this page before saving.", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
     expect(await readBrand(context)).toEqual(before);
     expect(await brandAudit(context)).toEqual(auditBefore);
     await page.getByRole("button", { name: "Reload page", exact: true }).click();
     await expectOperatorReady(page);
-    await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Draft Name");
+    await expect(brandForm(page).getByLabel("Display name", { exact: true })).toHaveValue("Draft Name");
     await setSession(context, admin);
   });
 
@@ -217,14 +224,14 @@ test("logo, terms and privacy accept https only, and a logo that fails to load f
   await expectOperatorReady(page);
   const before = await readBrand(context);
 
-  await page.getByLabel("Logo URL", { exact: true }).fill("http://brand.test/logo.png");
+  await brandForm(page).getByLabel("Logo URL", { exact: true }).fill("http://brand.test/logo.png");
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByText("Enter a full https:// address, or leave it empty.", { exact: true })).toBeVisible();
+  await expect(brandForm(page).getByText("Enter a full https:// address, or leave it empty.", { exact: true })).toBeVisible();
   expect(puts).toHaveLength(0);
 
-  await page.getByLabel("Logo URL", { exact: true }).fill("https://brand.test/logo.png");
-  await page.getByLabel("Terms URL", { exact: true }).fill("https://brand.test/terms");
-  await page.getByLabel("Privacy URL", { exact: true }).fill("https://brand.test/privacy");
+  await brandForm(page).getByLabel("Logo URL", { exact: true }).fill("https://brand.test/logo.png");
+  await brandForm(page).getByLabel("Terms URL", { exact: true }).fill("https://brand.test/terms");
+  await brandForm(page).getByLabel("Privacy URL", { exact: true }).fill("https://brand.test/privacy");
   await expect(page.getByRole("group", { name: "Customer preview" }).getByRole("img", { name: before.value.displayName === "home" ? "Home" : before.value.displayName })).toBeVisible();
   expect((await save(page, admin, before.revision)).status()).toBe(200);
   const saved = await readBrand(context);
@@ -237,9 +244,9 @@ test("logo, terms and privacy accept https only, and a logo that fails to load f
 
   await page.goto("/admin/settings/brand");
   await expectOperatorReady(page);
-  await page.getByLabel("Logo URL", { exact: true }).fill("https://brand.test/missing.png");
-  await page.getByLabel("Terms URL", { exact: true }).fill("");
-  await page.getByLabel("Privacy URL", { exact: true }).fill("  ");
+  await brandForm(page).getByLabel("Logo URL", { exact: true }).fill("https://brand.test/missing.png");
+  await brandForm(page).getByLabel("Terms URL", { exact: true }).fill("");
+  await brandForm(page).getByLabel("Privacy URL", { exact: true }).fill("  ");
   expect((await save(page, admin, saved.revision)).status()).toBe(200);
   expect((await readBrand(context)).value).toEqual({ ...before.value, logoUrl: "https://brand.test/missing.png", termsUrl: null, privacyUrl: null });
 
