@@ -2,7 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { formatPresentationDate } from "@/shared/formatting";
-import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
+import { STOCK_HISTORY_MAX_POINTS, type MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import type { usePresentationRegionId } from "./presentation-quote";
 
 export type ChartReadout = { value: string; time: string; index: number };
@@ -47,6 +47,10 @@ export type ChartClock = ReturnType<typeof useChartClock>;
 export function scrubTime(time: number, range: MarketPriceRange, regionId: ReturnType<typeof usePresentationRegionId>) {
   return formatPresentationDate(time * 1000, { regionId, style: range === "1D" || range === "1W" ? "activity-short" : "chart-date" });
 }
-export function endsEarly(lastTime: number, range: MarketPriceRange, now: number) {
-  return lastTime < now / 1000 - rangeSeconds[range] * 0.04;
+const barSeconds: Record<MarketPriceRange, number> = {
+  "1D": 900, "1W": 3600, "1M": 14400, "3M": 86400, "1Y": 86400,
+};
+export function endsEarly(lastTime: number, range: MarketPriceRange, now: number, sampled = false) {
+  const interval = sampled ? rangeSeconds[range] / (STOCK_HISTORY_MAX_POINTS - 1) : barSeconds[range];
+  return lastTime < now / 1000 - Math.min(rangeSeconds[range] * 0.04, interval * 2);
 }
