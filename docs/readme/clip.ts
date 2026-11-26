@@ -11,7 +11,6 @@ const OUTPUT = join(OUTPUT_DIR, "demo.gif");
 const MAX_BYTES = 4 * 1024 * 1024;
 const WIDTH = 390;
 const HEIGHT = 844;
-const GIF_WIDTH = 540;
 
 async function hold(page: Page, ms: number) {
   await page.waitForTimeout(ms);
@@ -19,13 +18,14 @@ async function hold(page: Page, ms: number) {
 
 const videoDir = await mkdtemp(join(tmpdir(), "home-readme-clip-"));
 const { browser, context } = await openSampleContext({
-  recordVideo: { dir: videoDir, size: { width: WIDTH * 2, height: HEIGHT * 2 } },
+  recordVideo: { dir: videoDir, size: { width: WIDTH, height: HEIGHT } },
 });
 await context.addInitScript(() => sessionStorage.setItem("home:playwright-smoke:signed-in", "1"));
 
 let summary = "";
 let video = "";
 let journeyStartMs = 0;
+let chartLoad: [number, number] = [0, 0];
 let journeyEndMs = 0;
 try {
   const page = await context.newPage();
@@ -52,8 +52,13 @@ try {
   await page.getByText("$184.32", { exact: true }).waitFor();
   await hold(page, 1_600);
 
+  const chartLoadStartMs = Date.now() - recordingStartMs;
   await page.getByRole("button", { name: /^Bitcoin/ }).first().click();
   await page.getByRole("heading", { name: "Bitcoin" }).first().waitFor();
+  await page.locator('[data-layer-range="1W"][data-layer-state="shown"]').waitFor();
+  await page.locator('[aria-roledescription="chart"]').waitFor();
+  await hold(page, 400);
+  chartLoad = [chartLoadStartMs - journeyStartMs, Date.now() - recordingStartMs - journeyStartMs];
   await hold(page, 2_200);
 
   await page.getByRole("button", { name: "Home", exact: true }).last().click();
@@ -89,7 +94,7 @@ const encode = spawnSync("ffmpeg", [
   "-ss", (journeyStartMs / 1_000).toFixed(2),
   "-t", ((journeyEndMs - journeyStartMs) / 1_000).toFixed(2),
   "-i", video,
-  "-vf", `fps=15,scale=${GIF_WIDTH}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=192:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`,
+  "-vf", `fps=15,select='not(between(t,${(chartLoad[0] / 1_000).toFixed(2)},${(chartLoad[1] / 1_000).toFixed(2)}))',setpts=N/15/TB,split[a][b];[a]palettegen=max_colors=192:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`,
   "-loop", "0",
   OUTPUT,
 ], { stdio: "inherit" });
@@ -97,8 +102,9 @@ await rm(videoDir, { recursive: true, force: true });
 if (encode.status !== 0) throw new Error("ffmpeg failed to encode the clip.");
 
 const { size } = await stat(OUTPUT);
+const seconds = (journeyEndMs - journeyStartMs - (chartLoad[1] - chartLoad[0])) / 1_000;
 if (size > MAX_BYTES) throw new Error(`The clip is ${(size / 1024 / 1024).toFixed(1)} MB, above the 4 MB README budget.`);
 console.log(
-  `Recorded ${((journeyEndMs - journeyStartMs) / 1_000).toFixed(1)} s README clip (${(size / 1024 / 1024).toFixed(1)} MB) ` +
+  `Recorded ${seconds.toFixed(1)} s README clip (${(size / 1024 / 1024).toFixed(1)} MB) ` +
   `from ${BASE_URL} into ${OUTPUT}; ${summary}`,
 );

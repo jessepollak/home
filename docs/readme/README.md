@@ -5,7 +5,7 @@
 
 The capture set contains one short sample-data clip and nine full-size mobile browser screenshots of the current Home implementation.
 
-[`demo.gif`](demo.gif) is a looping clip of about 17 seconds: Home, then Cash with the Add money sheet, Invest, the Bitcoin asset detail, and the Send flow ending on the confirm sheet. It stops on the review; nothing is sent. [`clip.ts`](clip.ts) records it.
+[`demo.gif`](demo.gif) is a looping clip of about 17 seconds at 390 × 844: Home, then Cash with the Add money sheet, Invest, the Bitcoin asset detail, and the Send flow ending on the confirm sheet. It stops on the review; nothing is sent. [`clip.ts`](clip.ts) records it.
 
 The screenshots, in the order [`capture.ts`](capture.ts) takes them:
 
@@ -19,7 +19,7 @@ The screenshots, in the order [`capture.ts`](capture.ts) takes them:
 - [`send-review.png`](send-review.png) — the Send confirm sheet with amount, recipient, and network fee, captured before anything is signed;
 - [`home-dark.png`](home-dark.png) — Home with the Account appearance preference set to Dark.
 
-The root README's gallery opens with the clip and shows all nine screenshots, led by Home. All captures use sample data; they are not live account records or evidence of production availability. They were rendered at a 390 × 844 CSS-pixel viewport with Chromium at 2× device scale, producing 780 × 1688 PNG files; the clip is recorded at the same scale and encoded as a 540-pixel-wide, 15 fps GIF, and `clip.ts` fails when it exceeds 4 MB. The set is mobile-only; the desktop layout is not captured.
+The root README's gallery opens with the clip and shows all nine screenshots, led by Home. All captures use sample data; they are not live account records or evidence of production availability. They were rendered at a 390 × 844 CSS-pixel viewport with Chromium at 2× device scale, producing 780 × 1688 PNG files; the clip is recorded at the same viewport and encoded as a 390 × 844, 15 fps GIF, because Playwright video records CSS pixels. `clip.ts` cuts the moment between tapping Bitcoin and its price chart being drawn, and fails when the GIF exceeds 4 MB. The set is mobile-only; the desktop layout is not captured.
 
 ## Provenance and safety boundary
 
