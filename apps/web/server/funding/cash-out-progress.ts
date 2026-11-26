@@ -155,7 +155,8 @@ export async function refreshCashoutProgress(input: {
       if (!record.settled_at) {
         let verifiedOrder: OfframpOrder | undefined;
         let unproven = receipt === "failed" || receipt === "unavailable" || receipt === "unattributed";
-        if (!record.deposit_id && receipt === "confirmed" && row.transaction_hash && providerReads < 2 && withinBudget()) {
+        const inferred = !!record.deposit_id && !record.deposit_proven && row.outcome === "succeeded";
+        if ((!record.deposit_id || inferred) && receipt === "confirmed" && row.transaction_hash && providerReads < 2 && withinBudget()) {
           await claim();
           let depositId: string | null = null;
           try {

@@ -349,17 +349,37 @@ export class ActionsStore {
   async linkCashoutDeposit(owner: MoneyActionOwner, actionId: string, depositId: string, proven = false): Promise<CashoutOrderRow | null> {
     return this.sql.transaction(async (tx) => {
       const key = actionOwnerKey(owner);
-      const target = await tx.query<CashoutOrderRow>(
-        `SELECT * FROM cashout_orders WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL AND deposit_id IS NULL FOR UPDATE`,
+      const head = await tx.query<Pick<CashoutOrderRow, "provider_id" | "deposit_id">>(
+        `SELECT provider_id, deposit_id FROM cashout_orders WHERE owner_key = $1 AND action_id = $2`,
         [key, actionId],
       );
+      const providerId = head.rows[0]?.provider_id;
+      if (!providerId) return null;
+      const lockedDeposits = [...new Set([depositId, head.rows[0]?.deposit_id].flatMap((id) => id ? [id.toLowerCase()] : []))].sort();
+      for (const lockedDeposit of lockedDeposits) {
+        await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1), hashtext(lower($2)))`, [providerId, lockedDeposit]);
+      }
+      const target = await tx.query<CashoutOrderRow>(
+        `SELECT * FROM cashout_orders WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL
+           AND (deposit_id IS NULL OR ($3::boolean AND deposit_proven = false)) FOR UPDATE`,
+        [key, actionId, proven],
+      );
       const record = target.rows[0];
-      if (!record) return null;
-      await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1), hashtext(lower($2)))`, [record.provider_id, depositId]);
+      if (!record || record.provider_id !== providerId) return null;
+      const previousDepositId = record.deposit_id;
+      if (previousDepositId && !lockedDeposits.includes(previousDepositId.toLowerCase())) return null;
+      if (previousDepositId?.toLowerCase() === depositId.toLowerCase()) {
+        const upgraded = await tx.query<CashoutOrderRow>(
+          `UPDATE cashout_orders SET deposit_proven = true, updated_at = now()
+           WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL AND deposit_proven = false RETURNING *`,
+          [key, actionId],
+        );
+        return upgraded.rows[0] ?? null;
+      }
       const existing = await tx.query<Pick<CashoutOrderRow, "action_id" | "owner_key" | "deposit_proven">>(
         `SELECT action_id, owner_key, deposit_proven FROM cashout_orders
-         WHERE provider_id = $1 AND lower(deposit_id) = lower($2) FOR UPDATE`,
-        [record.provider_id, depositId],
+         WHERE provider_id = $1 AND lower(deposit_id) = lower($2) AND action_id <> $3 FOR UPDATE`,
+        [record.provider_id, depositId, actionId],
       );
       const linked = existing.rows[0];
       if (linked && (!proven || linked.owner_key !== key || linked.deposit_proven)) return null;
@@ -373,9 +393,14 @@ export class ActionsStore {
         );
       }
       const result = await tx.query<CashoutOrderRow>(
-        `UPDATE cashout_orders SET deposit_id = $3, deposit_proven = $4, provider_updated_at = NULL, updated_at = now()
-         WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL AND deposit_id IS NULL RETURNING *`,
-        [key, actionId, depositId, proven],
+        previousDepositId
+          ? `UPDATE cashout_orders SET deposit_id = $3, deposit_proven = $4, state = 'submitted',
+               filled_atomic = '0', returned_atomic = '0', remaining_atomic = amount_atomic,
+               withdrawable = false, provider_updated_at = NULL, updated_at = now()
+             WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL AND deposit_id = $5 AND deposit_proven = false RETURNING *`
+          : `UPDATE cashout_orders SET deposit_id = $3, deposit_proven = $4, provider_updated_at = NULL, updated_at = now()
+             WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL AND deposit_id IS NULL RETURNING *`,
+        previousDepositId ? [key, actionId, depositId, proven, previousDepositId] : [key, actionId, depositId, proven],
       );
       return result.rows[0] ?? null;
     });
