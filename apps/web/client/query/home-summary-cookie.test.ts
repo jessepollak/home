@@ -39,6 +39,26 @@ test("the first-paint cookie is confined to Home and sign-out clears it from ano
   expect(document.cookie).not.toContain(homeSummaryCookieName);
 });
 
+test("a same-owner boundary off Home keeps the invisible display cookie and another owner still clears it", () => {
+  window.history.replaceState(null, "", "/home");
+  writeHomeSummaryCookie(record);
+  window.history.replaceState(null, "", "/cash");
+  expect(document.cookie).not.toContain(homeSummaryCookieName);
+  clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage, "a");
+  window.history.replaceState(null, "", "/home");
+  expect(document.cookie).toContain(homeSummaryCookieName);
+  window.localStorage.removeItem(`${homeSummaryCookieName}.owner`);
+  clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage, "a");
+  window.history.replaceState(null, "", "/invest");
+  clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage, "a");
+  window.history.replaceState(null, "", "/home");
+  expect(document.cookie).toContain(homeSummaryCookieName);
+  window.history.replaceState(null, "", "/invest");
+  clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage, "b");
+  window.history.replaceState(null, "", "/home");
+  expect(document.cookie).not.toContain(homeSummaryCookieName);
+});
+
 test("a refused cookie write or clear stays a best-effort failure", () => {
   const descriptor = Object.getOwnPropertyDescriptor(document, "cookie");
   Object.defineProperty(document, "cookie", { configurable: true, set: () => { throw new Error("denied"); }, get: () => "" });
