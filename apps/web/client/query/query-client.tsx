@@ -451,14 +451,6 @@ function hydrateOwnerClient(
     persister?.removeClient();
     return false;
   }
-  for (const query of queries) {
-    const policy = scopePolicies[String(query.queryKey[1])];
-    const live = queryClient.getQueryCache().get(query.queryHash);
-    if (policy?.audience !== "owner" || policy.persistence !== "owner" || !policy.mergeRestored || !live ||
-      live.state.data === undefined || live.state.dataUpdatedAt < query.state.dataUpdatedAt) continue;
-    const merged = policy.mergeRestored(live.state.data, query.state.data);
-    if (merged !== live.state.data) queryClient.setQueryData(live.queryKey, merged, { updatedAt: live.state.dataUpdatedAt });
-  }
   hydrate(queryClient, { mutations: [], queries });
   for (const query of queries) {
     retainRestoredScopeGcTime(queryClient, query.queryKey);

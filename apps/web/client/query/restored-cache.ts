@@ -1,7 +1,6 @@
 import { parseBalancesScope } from "./balances-scope";
-import { ACTIVITY_CONTRACT_VERSION, isVerifiedActivitySession, parseActivityDisplayPage, parseActivityPage } from "@/shared/activity/contract";
-import { ACTIVITY_BASE_CHAIN_ID, ACTIVITY_PAGE_SIZE, type ActivityPage } from "@/shared/activity/types";
-import { retainActivityPage } from "@/client/activity/retained-activity";
+import { ACTIVITY_CONTRACT_VERSION, isVerifiedActivitySession, parseActivityPage } from "@/shared/activity/contract";
+import { ACTIVITY_BASE_CHAIN_ID } from "@/shared/activity/types";
 import { mergeActivityPages } from "@/shared/activity/pages";
 import { isActivityValuationCurrency } from "@/shared/activity/valuation";
 import { BALANCES_CHAIN_ID } from "@/shared/balances/types";
@@ -14,7 +13,6 @@ import { isFundingCustomerListFor } from "@/shared/funding/contracts/provider-cu
 import { isRecord } from "@/shared/guards";
 import { parseStockTradeEligibilityResponse } from "@/shared/trading/contract-stock-eligibility";
 import { parseTradeAvailabilityResponse } from "@/shared/trading/contract";
-import type { FiatCurrencyCode } from "@/config/regions";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RestoredQueryEntry, TrustedRestoredData } from "./scopes/policy";
 
@@ -59,66 +57,6 @@ function isTrustedFundingOrderSummary(value: unknown): boolean {
 }
 
 
-const RESTORED_CARD_BATCH = 50;
-
-function parseRestoredActivityPage(
-  value: unknown,
-  session: VerifiedAccountSession,
-  windowEnd: string,
-  currency: FiatCurrencyCode,
-  mode: "wire" | "display",
-): ActivityPage | null {
-  if (!isRecord(value) || !Array.isArray(value.transfers) ||
-    value.version !== undefined && value.version !== ACTIVITY_CONTRACT_VERSION) return null;
-  const parsePage = mode === "wire" ? parseActivityPage : parseActivityDisplayPage;
-  const transfers: unknown[] = value.transfers;
-  const { cards, ...rest } = value;
-  const cardRows: unknown[] | null = isRecord(cards) && Array.isArray(cards.rows) ? cards.rows : null;
-  const batches = Math.max(1, Math.ceil(transfers.length / ACTIVITY_PAGE_SIZE),
-    cardRows ? Math.ceil(cardRows.length / RESTORED_CARD_BATCH) : 0);
-  try {
-    const chunks: ActivityPage[] = [];
-    for (let batch = 0; batch < batches; batch += 1) {
-      const rows = cardRows?.slice(batch * RESTORED_CARD_BATCH, (batch + 1) * RESTORED_CARD_BATCH);
-      chunks.push(parsePage({
-        ...rest,
-        ...(cards === undefined ? {} : { cards: isRecord(cards) && rows ? { ...cards, rows } : cards }),
-        transfers: transfers.slice(batch * ACTIVITY_PAGE_SIZE, (batch + 1) * ACTIVITY_PAGE_SIZE),
-        version: ACTIVITY_CONTRACT_VERSION,
-      }, session, windowEnd, currency));
-    }
-    const first = chunks[0]?.cards;
-    return {
-      ...mergeActivityPages(chunks),
-      ...(first ? { cards: { ...first, rows: chunks.flatMap((chunk) => chunk.cards?.rows ?? []) } } : {}),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function isActivityPageShape(value: unknown): value is ActivityPage {
-  return isRecord(value) && typeof value.walletAddress === "string" && typeof value.currency === "string" &&
-    Array.isArray(value.transfers) && isRecord(value.window);
-}
-
-function retainedActivityPage(data: unknown): ActivityPage | null {
-  if (!isRecord(data) || !Array.isArray(data.pages)) return null;
-  if (isActivityPageShape(data.retainedPage)) return data.retainedPage;
-  const pages: unknown[] = data.pages;
-  return pages.length && pages.every(isActivityPageShape) ? mergeActivityPages(pages) : null;
-}
-
-export function mergeRestoredActivity(current: unknown, restored: unknown): unknown {
-  if (!isRecord(current) || !Array.isArray(current.pages) || current.pages.length === 0) return current;
-  const live = retainedActivityPage(current);
-  const previous = retainedActivityPage(restored);
-  if (!live || !previous) return current;
-  const retainedPage = retainActivityPage(live, previous);
-  return retainedPage === current.retainedPage || retainedPage === live && current.retainedPage === undefined
-    ? current : { ...current, retainedPage };
-}
-
 export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   const owner = restoredOwner(entry.ownerKey);
   const session = owner ? activitySession(owner) : null;
@@ -129,20 +67,13 @@ export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry):
     typeof windowEnd !== "string" || !isActivityValuationCurrency(currency) || !data.pages.every(isRecord)) return null;
   const pageParams: unknown[] = data.pageParams;
   try {
-    const pages = data.pages.map((page) => parseRestoredActivityPage(page, session, windowEnd, currency, "wire"));
-    if (!pages.every((page): page is ActivityPage => page !== null)) return null;
+    const pages = data.pages.map((page) =>
+      parseActivityPage({ ...page, version: ACTIVITY_CONTRACT_VERSION }, session, windowEnd, currency));
     if (data.pageParams[0] !== null ||
       !data.pageParams.every((param, index) =>
         index === 0 || (typeof pages[index - 1]?.nextCursor === "string" && param === pages[index - 1]?.nextCursor))) return null;
-    const merged = mergeActivityPages(pages);
-    const retained = data.retainedPage === undefined ? null
-      : parseRestoredActivityPage(data.retainedPage, session, windowEnd, currency, "display");
-    return {
-      data: {
-        pages, pageParams: [...pageParams],
-        ...(retained ? { retainedPage: retainActivityPage(merged, retained) } : {}),
-      },
-    };
+    mergeActivityPages(pages);
+    return { data: { pages, pageParams: [...pageParams] } };
   } catch {
     return null;
   }

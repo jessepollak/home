@@ -121,25 +121,6 @@ export function parseActivityPage(
   expectedWindowEnd: string,
   expectedCurrency: FiatCurrencyCode = "USD",
 ): ParsedActivityPage {
-  return parsePage(value, expectedSession, expectedWindowEnd, expectedCurrency, "wire");
-}
-
-export function parseActivityDisplayPage(
-  value: unknown,
-  expectedSession: VerifiedAccountSession,
-  expectedWindowEnd: string,
-  expectedCurrency: FiatCurrencyCode = "USD",
-): ParsedActivityPage {
-  return parsePage(value, expectedSession, expectedWindowEnd, expectedCurrency, "display");
-}
-
-function parsePage(
-  value: unknown,
-  expectedSession: VerifiedAccountSession,
-  expectedWindowEnd: string,
-  expectedCurrency: FiatCurrencyCode,
-  mode: "wire" | "display",
-): ParsedActivityPage {
   const result = pageSchema.safeParse(value);
   if (!isVerifiedActivitySession(expectedSession) || !result.success) {
     throw new ActivityResponseError();
@@ -159,8 +140,7 @@ function parsePage(
     throw new ActivityResponseError();
   }
   if (wire.onchainStatus === "unavailable"
-    ? wire.cards === undefined || mode === "wire" &&
-      (wire.source !== null || wire.nextCursor !== null || wire.transfers.length !== 0)
+    ? wire.source !== null || wire.nextCursor !== null || wire.transfers.length !== 0 || wire.cards === undefined
     : wire.source === null) {
     throw new ActivityResponseError();
   }
@@ -178,7 +158,7 @@ function parsePage(
     transfers,
     ...(wire.cards === undefined ? {} : { cards: parseCardPurchases(wire.cards) }),
     nextCursor: wire.nextCursor,
-    source: wire.source,
+    source: wire.onchainStatus === "unavailable" ? null : wire.source,
     ...(wire.onchainStatus === "unavailable" ? { onchainStatus: wire.onchainStatus } : {}),
   };
 }
