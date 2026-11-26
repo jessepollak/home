@@ -43,7 +43,7 @@ function pointY(value: number, plot: Plot, height: number, now: number) {
   const upper = span < minRange ? lower + minRange : maximum + span * 0.12;
   return plotPadding.top + (1 - (value - lower) / (upper - lower)) * (height - plotPadding.top - plotPadding.bottom);
 }
-function plotChange(plot: Plot, regionId: ReturnType<typeof usePresentationRegionId>, now: number) {
+function plotChange(plot: Plot, regionId: ReturnType<typeof usePresentationRegionId>, now: number, sampled: boolean) {
   const first = plot.points[0];
   const last = plot.points.at(-1);
   if (!first || !last || plot.points.length < 2 || first.value <= 0) return null;
@@ -51,7 +51,7 @@ function plotChange(plot: Plot, regionId: ReturnType<typeof usePresentationRegio
   const nominalStart = now / 1000 - span;
   const tolerance = span * 0.1;
   const startsLate = first.time > nominalStart + tolerance;
-  const period = endsEarly(last.time, plot.range, now)
+  const period = endsEarly(last.time, plot.range, now, sampled)
     ? `${scrubTime(first.time, plot.range, regionId)} – ${scrubTime(last.time, plot.range, regionId)}`
     : startsLate ? `since ${scrubTime(first.time, plot.range, regionId)}` : rangeLabels[plot.range].toLowerCase();
   return `${formatSignedPercentChange((last.value - first.value) / first.value * 100, regionId)} · ${period}`;
@@ -256,7 +256,7 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
     return () => window.clearTimeout(timer);
   }, [scrub]);
   const currentPlot = missing || visible !== range || pending ? null : drawn;
-  const change = currentPlot ? plotChange(currentPlot, regionId, clock.value) : null;
+  const change = currentPlot ? plotChange(currentPlot, regionId, clock.value, stock) : null;
   useEffect(() => { onResting(change, !missing && (pending || visible !== range)); }, [change, missing, pending, visible, range, onResting]);
   useEffect(() => {
     scrubIndex.current = null;
@@ -333,8 +333,8 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
   }
   const lastPoint = currentPlot?.points.at(-1);
   const lastX = lastPoint && drawn && stageSize.width ? pointX(lastPoint.time, drawn, stageSize.width, clock.value) : null;
-  const visibleGap = !!drawn && !!lastPoint && endsEarly(lastPoint.time, drawn.range, clock.value);
-  const gapWarning = active && endsEarly(active.points.at(-1)!.time, active.range, clock.value)
+  const visibleGap = !!drawn && !!lastPoint && endsEarly(lastPoint.time, drawn.range, clock.value, stock);
+  const gapWarning = active && endsEarly(active.points.at(-1)!.time, active.range, clock.value, stock)
     ? `, no data since ${scrubTime(active.points.at(-1)!.time, active.range, regionId)}` : "";
   const staleNotice = history.status === "stale"
     ? `Couldn't refresh price history · last updated ${formatPresentationDate(history.asOf, { regionId, style: "date-time-zone" })}` : null;
