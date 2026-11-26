@@ -27,21 +27,21 @@ function error(code: OperatorSettingsErrorCode, status: number): Response {
 export function createFundingConnectionHandler(deps: Dependencies = {}) {
   return async (request: Request): Promise<Response> => {
     try {
-      const decision = await authorizeOperatorRequest(request, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig);
-      if (decision instanceof Response) return decision;
-      const expected = requestOrigin(request);
-      const origin = request.headers.get("origin");
-      const site = request.headers.get("sec-fetch-site");
-      if (!expected || !origin || origin !== expected.origin || (site !== null && site !== "same-origin")) return error("CROSS_ORIGIN", 403);
-      if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get("content-type") ?? "")) return error("INVALID_REQUEST", 400);
-      const body = await readJsonBody(request, { maxBytes: 1024 });
-      const parsed = body.kind === "ok" ? parseFundingConnectionRequest(body.value) : null;
-      if (!parsed) return error("INVALID_REQUEST", 400);
-      const providers = deps.providers ?? fundingProviders;
-      if (!providers.some((provider) => provider.manifest.id === parsed.providerId)) return error("NOT_FOUND", 404);
-      const result = await (deps.check ?? checkFundingConnection)({ providerId: parsed.providerId, providers });
-      const response = parseFundingConnectionResponse({ version: FUNDING_CONNECTIONS_VERSION, ...result });
-      return response ? privateJson(response, 200) : error("SETTINGS_UNAVAILABLE", 503);
+      return await authorizeOperatorRequest(request, async () => {
+        const expected = requestOrigin(request);
+        const origin = request.headers.get("origin");
+        const site = request.headers.get("sec-fetch-site");
+        if (!expected || !origin || origin !== expected.origin || (site !== null && site !== "same-origin")) return error("CROSS_ORIGIN", 403);
+        if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get("content-type") ?? "")) return error("INVALID_REQUEST", 400);
+        const body = await readJsonBody(request, { maxBytes: 1024 });
+        const parsed = body.kind === "ok" ? parseFundingConnectionRequest(body.value) : null;
+        if (!parsed) return error("INVALID_REQUEST", 400);
+        const providers = deps.providers ?? fundingProviders;
+        if (!providers.some((provider) => provider.manifest.id === parsed.providerId)) return error("NOT_FOUND", 404);
+        const result = await (deps.check ?? checkFundingConnection)({ providerId: parsed.providerId, providers });
+        const response = parseFundingConnectionResponse({ version: FUNDING_CONNECTIONS_VERSION, ...result });
+        return response ? privateJson(response, 200) : error("SETTINGS_UNAVAILABLE", 503);
+      }, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig);
     } catch {
       return error("SETTINGS_UNAVAILABLE", 503);
     }
