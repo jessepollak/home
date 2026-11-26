@@ -396,7 +396,8 @@ export const StaleAcrossYear: Story = { args: { staleMarket: true },
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: "1Y" }, chartWait));
     await expect(await canvas.findByText(/· \w{3} \d{1,2}, 2025 – \w{3} \d{1,2}, 2026$/, undefined, chartWait)).toBeVisible();
-    await expect(await canvas.findByText(/^No data since /, undefined, chartWait)).toBeVisible();
+    await expect(await canvas.findByText(/^No data since \w{3} \d{1,2}, 2026$/, undefined, chartWait)).toBeVisible();
+    await expect(canvas.getByRole("group", { name: /, no data since \w{3} \d{1,2}, 2026(,|$)/ })).toBeVisible();
   },
 };
 export const SlowHeld: Story = { tags: ["!test"],
