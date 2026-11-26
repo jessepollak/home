@@ -12,7 +12,7 @@ import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MARKET_PRICE_RANGES, type MarketPriceHistoryCoverage, type MarketPriceHistoryPoint, type MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import { formatChartPrice, formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
-import { endsEarly, rangeLabels, rangeSeconds, scrubTime, slowLoadDelayMs, useReducedMotion, type ChartClock, type ChartReadout } from "./asset-chart-support";
+import { endsEarly, rangeLabels, rangeSeconds, scrubSpan, scrubTime, slowLoadDelayMs, useReducedMotion, type ChartClock, type ChartReadout } from "./asset-chart-support";
 import { usePresentationRegionId } from "./presentation-quote";
 import { usePriceHistory, type PriceHistoryState } from "./use-price-history";
 
@@ -52,7 +52,7 @@ function plotChange(plot: Plot, regionId: ReturnType<typeof usePresentationRegio
   const tolerance = span * 0.1;
   const startsLate = first.time > nominalStart + tolerance;
   const period = endsEarly(last.time, plot.range, now, sampled)
-    ? `${scrubTime(first.time, plot.range, regionId)} – ${scrubTime(last.time, plot.range, regionId)}`
+    ? scrubSpan(first.time, last.time, plot.range, regionId)
     : startsLate ? `since ${scrubTime(first.time, plot.range, regionId)}` : rangeLabels[plot.range].toLowerCase();
   return `${formatSignedPercentChange((last.value - first.value) / first.value * 100, regionId)} · ${period}`;
 }
@@ -403,7 +403,7 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
             style={{ insetInlineStart: -5, top: lastY - plotPadding.top - 4, backgroundColor: plotColor(drawn!) }} /> : null}
         </div> : null}
         {visibleGap && lastPoint && !missing ? <span aria-hidden="true"
-          className={`pointer-events-none absolute end-2 z-2 rounded-sm bg-(--asset-surface,var(--color-background)) px-1 text-xs text-muted-foreground whitespace-nowrap ${lastY !== null && lastY < stageSize.height / 2 ? "bottom-8" : "top-8"}`}>
+          className="pointer-events-none absolute end-2 z-2 rounded-sm bg-(--asset-surface,var(--color-background)) px-1 text-xs text-muted-foreground whitespace-nowrap top-0.5">
           No data since {scrubTime(lastPoint.time, drawn!.range, regionId)}
         </span> : null}
         {active ? <div aria-hidden="true" className="absolute inset-0 touch-pan-y" /> : null}

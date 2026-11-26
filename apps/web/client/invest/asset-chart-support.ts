@@ -47,6 +47,13 @@ export type ChartClock = ReturnType<typeof useChartClock>;
 export function scrubTime(time: number, range: MarketPriceRange, regionId: ReturnType<typeof usePresentationRegionId>) {
   return formatPresentationDate(time * 1000, { regionId, style: range === "1D" || range === "1W" ? "activity-short" : "chart-date" });
 }
+export function scrubSpan(start: number, end: number, range: MarketPriceRange, regionId: ReturnType<typeof usePresentationRegionId>) {
+  if (new Date(start * 1000).getFullYear() === new Date(end * 1000).getFullYear()) {
+    return `${scrubTime(start, range, regionId)} – ${scrubTime(end, range, regionId)}`;
+  }
+  const style = range === "1D" || range === "1W" ? "activity-full" : "chart-date-year";
+  return `${formatPresentationDate(start * 1000, { regionId, style })} – ${formatPresentationDate(end * 1000, { regionId, style })}`;
+}
 const barSeconds: Record<MarketPriceRange, number> = {
   "1D": 900, "1W": 3600, "1M": 14400, "3M": 86400, "1Y": 86400,
 };
