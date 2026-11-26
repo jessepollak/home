@@ -476,7 +476,8 @@ export function AccountSettings({
               Stock prices are{" "}
               <a className="font-medium text-primary" href="https://docs.chain.link/data-feeds/tokenized-equity-feeds/coinbase" target="_blank" rel="noreferrer">
                 Chainlink reference prices
-              </a>.{" "}
+              </a>; corporate actions can change a tokenized stock&apos;s relationship to a share. Coinbase says each wrapped asset
+              represents the underlying asset held by Coinbase 1:1; Home does not provide redemption.{" "}
               <a className="font-medium text-primary" href="https://www.base.org/stocks" target="_blank" rel="noreferrer">
                 Tokenized stock roster
               </a>{" "}
