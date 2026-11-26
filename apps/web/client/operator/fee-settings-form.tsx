@@ -16,7 +16,7 @@ import {
   type OperatorFeeSettings,
 } from "@/shared/fees/contract";
 import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
-import { formatAddress, formatPresentationDate } from "@/shared/formatting";
+import { SavedSettingsLine } from "./saved-settings-line";
 import { formatBasisPoints } from "@/shared/formatting/money";
 import { readJson } from "@/shared/http/read-json";
 import {
@@ -67,12 +67,6 @@ function validate(draft: Draft) {
     : bpsError === null && bps > 0 && recipient === null ? "Add a revenue destination to charge a fee." : null;
   const value = bpsError || destinationError ? null : parseOperatorFeeSettings({ trade: { bps, recipient } });
   return { bps: bpsError ? null : bps, bpsError, destinationError, value };
-}
-
-function savedLine(settings: FeeSettingsState): string {
-  if (settings.source === "default" || !settings.updatedAt) return "Not saved yet.";
-  const when = formatPresentationDate(settings.updatedAt, { style: "date-time-zone", timeZone: "UTC" });
-  return settings.updatedBy ? `Last updated ${when} by ${formatAddress(settings.updatedBy)}` : `Last updated ${when}`;
 }
 
 export function FeeSettingsForm({ initial, operator }: { initial: FeeSettingsState; operator: `0x${string}` }) {
@@ -305,7 +299,7 @@ export function FeeSettingsForm({ initial, operator }: { initial: FeeSettingsSta
         <CardFooter className="flex-wrap justify-between gap-3">
           <div className="grid min-w-0 gap-0.5">
             <p role="status" className="font-medium">{status}</p>
-            <p className="text-muted-foreground">{savedLine(stored)}</p>
+            <SavedSettingsLine settings={stored} unsaved="Not saved yet." />
           </div>
           {confirming ? null : <Button ref={saveRef} type="submit" size="touch" loading={saving}>Save</Button>}
         </CardFooter>

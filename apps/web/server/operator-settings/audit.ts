@@ -51,11 +51,11 @@ export class AdminAuditLog {
     if (Number(result.rows[0]?.matched_count) !== input.conversationIds.length) throw new Error("Support read could not be audited");
   }
 
-  async list(input: { limit?: number; before?: string } = {}): Promise<{ entries: AuditEntry[]; nextCursor: string | null }> {
+  async list(input: { limit?: number; before?: string; timeoutMs?: number } = {}): Promise<{ entries: AuditEntry[]; nextCursor: string | null }> {
     const limit = input.limit ?? 50;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (input.before !== undefined && !validCursor(input.before))) throw new OperatorSettingsValidationError("Invalid audit cursor or limit");
     const result = await this.sql.query<AuditRow>(`SELECT * FROM admin_audit_log
-      WHERE ($1::bigint IS NULL OR id < $1::bigint) ORDER BY id DESC LIMIT $2`, [input.before ?? null, limit + 1]);
+      WHERE ($1::bigint IS NULL OR id < $1::bigint) ORDER BY id DESC LIMIT $2`, [input.before ?? null, limit + 1], { timeoutMs: input.timeoutMs });
     const entries: AuditEntry[] = result.rows.slice(0, limit).map((row) => {
       const actor = parseAddress(row.actor);
       if (!actor) throw new Error("Stored audit actor is not a canonical address");

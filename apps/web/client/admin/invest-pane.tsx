@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Switch } from "@/components/ui/switch";
-import { formatPresentationDate } from "@/shared/formatting";
+import { SavedSettingsLine } from "@/client/operator/saved-settings-line";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseOperatorSettingsErrorResponse, parseSettingsResponse, type SettingsEntry } from "@/shared/operator-settings/contract";
 import { parseInvestSettings, parseInvestSettingsWrite, type InvestSettings } from "@/shared/operator-settings/invest";
 import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
@@ -111,11 +111,7 @@ export function InvestPane({ initialEntry, operator }: { initialEntry: InvestEnt
     <section aria-labelledby="invest-heading" className="grid gap-6">
       <div className="grid gap-1">
         <h2 id="invest-heading" className="text-lg font-semibold">Invest</h2>
-        <p className="text-sm text-muted-foreground" suppressHydrationWarning>
-          {baseline.source === "default"
-            ? "Using Home's built-in catalog"
-            : `Saved ${baseline.updatedAt ? formatPresentationDate(baseline.updatedAt, { style: "date-time-zone" }) : "at an unknown time"} by ${baseline.updatedBy ? `${baseline.updatedBy.slice(0, 6)}…${baseline.updatedBy.slice(-4)}` : "an unknown operator"}`}
-        </p>
+        <SavedSettingsLine settings={baseline} unsaved="Using Home's built-in catalog" />
       </div>
       {categories.map(({ id, name }) => {
         const categoryShown = !draft.hiddenCategories.includes(id);

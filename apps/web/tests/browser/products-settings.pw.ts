@@ -5,7 +5,7 @@ import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseAuditListResponse, parseOperat
 import { settingsEntry } from "../../client/operator/product-settings-model";
 import { homeSessionToken } from "./fixtures/session";
 import { expectNavigation } from "./fixtures/navigation-budget";
-import { formatPresentationDate } from "../../shared/formatting";
+import { formatAddress, formatPresentationDate } from "../../shared/formatting";
 
 const admin = "0x1111111111111111111111111111111111111111";
 const secondAdmin = "0x3333333333333333333333333333333333333333";
@@ -52,12 +52,12 @@ async function save(page: Page, operator: string, revision: number, button = "Sa
 }
 
 async function expectSaved(page: Page, operator: string) {
-  await expect(visible(page.getByText("Saved settings", { exact: true }))).toBeVisible();
   await expect(visible(page.getByRole("button", { name: `Copy ${operator.slice(0, 6)}`, exact: false }))).toHaveCount(2);
   await expect(visible(page.getByText("Using deployment values — review and save", { exact: true }))).toHaveCount(0);
   const stored = await readSettings(page.context());
   if (!stored.settings.updatedAt) throw new Error("Saved provenance is missing its timestamp.");
-  await expect(visible(page.getByText(formatPresentationDate(stored.settings.updatedAt, { style: "date-time-zone", timeZone: "UTC" }), { exact: true }))).toBeVisible();
+  const when = formatPresentationDate(stored.settings.updatedAt, { style: "date-time-zone", timeZone: "UTC" });
+  await expect(visible(page.getByRole("status").filter({ hasText: `Saved ${when} by ${formatAddress(operator)}, revision ${stored.settings.revision}.` }))).toBeVisible();
 }
 
 const visible = (locator: Locator) => locator.filter({ visible: true });
@@ -89,6 +89,13 @@ test("Products persist real operator saves, reviewed enables and rejected stale 
     const audit = await readAudit(context);
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({ actor: admin, action: "settings.update", target: { kind: "settings", id: "products" }, before: deployment.settings.value, after: stored.settings.value });
+    await page.goto("/admin/audit");
+    const latest = page.getByRole("list", { name: "Admin activity, newest first" }).getByRole("listitem").first();
+    await expect(latest).toContainText("Updated Products and markets settings");
+    await expect(latest).toContainText(`products.save: ${deployment.settings.value.products.save} → exit-only`);
+    await expect(latest).toContainText(formatAddress(admin));
+    await page.goto("/admin/settings/products");
+    await expect(page.locator("[data-operator-ready=true]")).toBeVisible();
   });
 
   await test.step("re-enabling Save requires Turn on, Cancel writes nothing", async () => {

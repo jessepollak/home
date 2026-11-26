@@ -48,7 +48,8 @@ export const ReviewStep: Story = {
     const canvas = within(canvasElement);
     await userEvent.click(within(canvas.getByRole("radiogroup", { name: "Save mode" })).getByRole("radio", { name: "On" }));
     await userEvent.click(canvas.getByRole("button", { name: "Save settings" }));
-    await expect(await canvas.findByRole("region", { name: "Turn on new entries?" })).toBeVisible();
-    await expect(canvas.getByRole("button", { name: "Turn on" })).toBeVisible();
+    const dialog = await within(document.body).findByRole("dialog", { name: "Turn on new entries?" });
+    await expect(dialog).toBeVisible();
+    await expect(within(dialog).getByRole("button", { name: "Turn on" })).toBeVisible();
   },
 };
