@@ -8,11 +8,11 @@ import { SupportAssistantStore } from "./assistant";
 const url = process.env.FUNDING_PG_TEST_URL?.trim();
 const schema = `support_key_rotation_${randomBytes(4).toString("hex")}`;
 const actor = "0x1111111111111111111111111111111111111111" as const;
-const old = randomBytes(32).toString("base64url"), active = randomBytes(32).toString("base64url");
-const v1 = { HOME_SECRET_ENCRYPTION_KEY: old, HOME_SECRET_KEY_VERSION: "1" };
-const v2 = { HOME_SECRET_ENCRYPTION_KEY: active, HOME_SECRET_ENCRYPTION_KEY_PREVIOUS: old, HOME_SECRET_KEY_VERSION: "2" };
-const v2Only = { HOME_SECRET_ENCRYPTION_KEY: active, HOME_SECRET_KEY_VERSION: "2" };
-function ring(env: Record<string, string>) {
+const previousKey = randomBytes(32).toString("base64url"), activeKey = randomBytes(32).toString("base64url");
+const previousEnv = { HOME_SECRET_ENCRYPTION_KEY: previousKey, HOME_SECRET_KEY_VERSION: "1" };
+const rotatingEnv = { HOME_SECRET_ENCRYPTION_KEY: activeKey, HOME_SECRET_ENCRYPTION_KEY_PREVIOUS: previousKey, HOME_SECRET_KEY_VERSION: "2" };
+const activeOnlyEnv = { HOME_SECRET_ENCRYPTION_KEY: activeKey, HOME_SECRET_KEY_VERSION: "2" };
+function keyringFor(env: Record<string, string>) {
   const resolved = resolveSecretKeyring(env);
   if (!resolved.ok) throw new Error("invalid synthetic keyring");
   return resolved.keyring;
@@ -39,37 +39,37 @@ async function storedEnvelope() {
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); });
 
   test("a credential sealed under the previous version rotates and stays usable once the previous key is removed", async () => {
-    await new SupportAssistantStore(sql, v1).put("synthetic-gateway-key", actor);
-    const store = new SupportAssistantStore(sql, v2);
-    expect((await store.verifyCredential(ring(v2))).safeToRemovePrevious).toBe(false);
-    expect(await store.rotateCredential(ring(v2))).toEqual({ rotated: 1, unreadable: 0, skippedConcurrent: 0 });
-    expect(await store.rotateCredential(ring(v2))).toEqual({ rotated: 0, unreadable: 0, skippedConcurrent: 0 });
-    expect(await store.verifyCredential(ring(v2))).toEqual({ notAtActive: 0, unreadable: 0, safeToRemovePrevious: true });
-    expect((await new SupportAssistantStore(sql, v2Only).effective()).key).toBe("synthetic-gateway-key");
+    await new SupportAssistantStore(sql, previousEnv).put("synthetic-gateway-key", actor);
+    const store = new SupportAssistantStore(sql, rotatingEnv);
+    expect((await store.verifyCredential(keyringFor(rotatingEnv))).safeToRemovePrevious).toBe(false);
+    expect(await store.rotateCredential(keyringFor(rotatingEnv))).toEqual({ rotated: 1, unreadable: 0, skippedConcurrent: 0 });
+    expect(await store.rotateCredential(keyringFor(rotatingEnv))).toEqual({ rotated: 0, unreadable: 0, skippedConcurrent: 0 });
+    expect(await store.verifyCredential(keyringFor(rotatingEnv))).toEqual({ notAtActive: 0, unreadable: 0, safeToRemovePrevious: true });
+    expect((await new SupportAssistantStore(sql, activeOnlyEnv).effective()).key).toBe("synthetic-gateway-key");
   });
 
   test("an unreadable or concurrently replaced credential is preserved and reported", async () => {
     await new SupportAssistantStore(sql, { HOME_SECRET_ENCRYPTION_KEY: randomBytes(32).toString("base64url"), HOME_SECRET_KEY_VERSION: "1" }).put("lost-key", actor);
     const unreadable = await storedEnvelope();
-    const store = new SupportAssistantStore(sql, v2);
-    expect(await store.rotateCredential(ring(v2))).toEqual({ rotated: 0, unreadable: 1, skippedConcurrent: 0 });
-    expect(await store.verifyCredential(ring(v2))).toEqual({ notAtActive: 1, unreadable: 1, safeToRemovePrevious: false });
+    const store = new SupportAssistantStore(sql, rotatingEnv);
+    expect(await store.rotateCredential(keyringFor(rotatingEnv))).toEqual({ rotated: 0, unreadable: 1, skippedConcurrent: 0 });
+    expect(await store.verifyCredential(keyringFor(rotatingEnv))).toEqual({ notAtActive: 1, unreadable: 1, safeToRemovePrevious: false });
     expect(await storedEnvelope()).toBe(unreadable);
 
-    await new SupportAssistantStore(sql, v1).put("prior-key", actor);
+    await new SupportAssistantStore(sql, previousEnv).put("prior-key", actor);
     let raced = false;
     const racing: SqlExecutor = {
       async query<T>(text: string, values?: unknown[]) {
         const result = await sql.query<T>(text, values);
         if (!raced && text.startsWith("SELECT envelope FROM support_assistant_credentials")) {
           raced = true;
-          await new SupportAssistantStore(sql, v2).put("operator-replacement", actor);
+          await new SupportAssistantStore(sql, rotatingEnv).put("operator-replacement", actor);
         }
         return result;
       },
       transaction: (fn) => sql.transaction(fn),
     };
-    expect(await new SupportAssistantStore(racing, v2).rotateCredential(ring(v2))).toEqual({ rotated: 0, unreadable: 0, skippedConcurrent: 1 });
-    expect((await new SupportAssistantStore(sql, v2Only).effective()).key).toBe("operator-replacement");
+    expect(await new SupportAssistantStore(racing, rotatingEnv).rotateCredential(keyringFor(rotatingEnv))).toEqual({ rotated: 0, unreadable: 0, skippedConcurrent: 1 });
+    expect((await new SupportAssistantStore(sql, activeOnlyEnv).effective()).key).toBe("operator-replacement");
   });
 });
