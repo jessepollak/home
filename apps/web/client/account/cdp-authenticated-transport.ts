@@ -13,6 +13,7 @@ import { readJson } from "@/shared/http/read-json";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { parsePrepareActionErrorResponse, parseProductNotOfferedPrepareErrorResponse } from "@/shared/actions/contracts/prepare";
 import { parseConfirmActionErrorResponse } from "@/shared/actions/contracts/confirm";
+import { parseRetryActionErrorResponse } from "@/shared/actions/contracts/retry";
 import { parseHandleActionErrorResponse } from "@/shared/actions/contracts/handle";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import {
@@ -88,6 +89,12 @@ export function normalizeAccountResourcePath(path: string): string {
 function actionErrorDetails(pathname: string, payload: unknown): { code: string | null; serverMessage: string | null } {
   if (/^\/api\/actions\/[^/]+\/confirm$/.test(pathname)) {
     const parsed = parseConfirmActionErrorResponse(payload);
+    return parsed
+      ? { code: parsed.error.code, serverMessage: parsed.error.message }
+      : { code: null, serverMessage: responseErrorDetails(payload).serverMessage };
+  }
+  if (/^\/api\/actions\/[^/]+\/retry$/.test(pathname)) {
+    const parsed = parseRetryActionErrorResponse(payload);
     return parsed
       ? { code: parsed.error.code, serverMessage: parsed.error.message }
       : { code: null, serverMessage: responseErrorDetails(payload).serverMessage };
