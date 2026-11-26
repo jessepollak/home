@@ -34,6 +34,7 @@ Propose, review, and select design work on the [Storybook review board](../../..
 - **Beauty is product leverage.** A financial product earns trust through calm, cohesive correctness. Treat defaults and interaction feel as product work, not decoration.
 - **Cohesion is intentional.** Maintenance extends the accepted language. Exploration tests whether a different language better serves the brief; adoption turns the selected treatment into shared contracts.
 - **Hierarchy is the job.** Every surface names one primary action, and everything else recedes.
+- **Provenance is not product copy.** A brief asking for "sourced" data or "source/as-of information" is satisfied by the data and Account → Disclosures / Terms, never by on-screen captions naming a data source, method or observation time ("Chainlink reference price", "Codex market price", "Last observed …", "Source · …"). Keep only what the value would otherwise misstate, in its shortest form: stale, partial, delayed, paused, last close, estimated, or a method that changes the number's meaning ("Closing prices", "Sampled prices").
 
 ## Working sequence
 

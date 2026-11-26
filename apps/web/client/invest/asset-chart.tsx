@@ -174,8 +174,6 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
   }
   const failed = history.status === "error" || (history.status === "ready" || history.status === "stale")
     && history.points.length < 2 && !!coverage?.gaps.some((gap) => gap.reason === "read-failed" || gap.reason === "incomplete");
-  const source = "source" in history ? history.source : undefined;
-  const referencePrice = source ? source.kind === "tokenized-equity-feed" : stock;
   const missing = history.status === "error" || history.status === "empty"
     || (history.status === "ready" || history.status === "stale") && !next;
   const targetReady = !!next && plots[range]?.assetId === assetId && resting[range]?.id === plots[range].id;
@@ -422,15 +420,11 @@ export function AssetChart({ assetId, range, stock = false, onRangeChange, clock
       }} aria-label="Price range" spacing={1} className="mt-2 w-full">
         {MARKET_PRICE_RANGES.map((value) => <ToggleGroupItem key={value} value={value} className="h-11 min-w-0 flex-1">{value}</ToggleGroupItem>)}
       </ToggleGroup>
-      <div className="space-y-1 py-2 text-xs text-muted-foreground" data-history-context>
-        <p>{referencePrice ? "Chainlink reference price" : "Codex market price"}{history.status === "ready" || history.status === "stale"
-          ? ` · Last observed ${formatPresentationDate(Date.parse(history.points.at(-1)?.time ?? ""), { regionId, style: "activity-short" })}` : ""}</p>
-        {coverage && (coverage.gaps.length > 0 || coverage.observed < coverage.sampled) ? <p data-coverage-label>
-          {coverage.gaps.some((gap) => gap.reason === "not-deployed") && history.points[0]
-            ? `Since ${formatPresentationDate(Date.parse(history.points[0].time), { regionId, style: "chart-date" })} · ` : "Partial coverage · "}
-          {coverage.observed} of {coverage.sampled} samples
-        </p> : null}
-      </div>
+      {coverage && (coverage.gaps.length > 0 || coverage.observed < coverage.sampled) ? <p className="py-2 text-xs text-muted-foreground" data-coverage-label>
+        {coverage.gaps.some((gap) => gap.reason === "not-deployed") && history.points[0]
+          ? `Since ${formatPresentationDate(Date.parse(history.points[0].time), { regionId, style: "chart-date" })} · ` : "Partial coverage · "}
+        {coverage.observed} of {coverage.sampled} samples
+      </p> : null}
       {staleNotice ? <div role="alert" className="flex items-center justify-between gap-3 py-2 text-sm text-muted-foreground">
         <span>{staleNotice}</span>
         <Button variant="outline" size="touch" onClick={() => { void getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", assetId, range) }); }}>Try again</Button>
