@@ -16,6 +16,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertPinnedBrowserReady, repairPinnedBrowser } from "../verify/pinned-agent-browser.mjs";
 import { pruneStaleNextTypes } from "./next-types.mjs";
+import { GIT } from "../gates/git-command.mjs";
 
 export const BOOTSTRAP_COMMAND = "bun run worktree:bootstrap";
 export const COPY_ENV_FLAG = "--copy-env";
@@ -305,7 +306,7 @@ export function installDependencies(root, run = runCommand, problems = dependenc
 }
 
 export function gitCommand(args, cwd) {
-  return spawnSync("git", args, { cwd, encoding: "utf8" });
+  return spawnSync(GIT, args, { cwd, encoding: "utf8" });
 }
 
 function gitText(git, args, cwd) {

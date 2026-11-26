@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { containsSql, sqlPerformanceReport } from "../sql-performance.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
+import { GIT } from "../git-command.mjs";
 
 const gateModule = new URL("../sql-performance.mjs", import.meta.url).href;
 const path = "apps/web/server/example/store.ts";
@@ -16,7 +17,7 @@ function createGitFixture(t, callerEnv = process.env) {
   const dir = mkdtempSync(join(tmpdir(), "home-sql-gate-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const env = gitFixtureEnv(callerEnv);
-  const run = (...args) => execFileSync("git", args, { cwd: dir, env, stdio: "pipe" });
+  const run = (...args) => execFileSync(GIT, args, { cwd: dir, env, stdio: "pipe" });
   const read = (base) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "--eval", `const { changedSqlCandidates } = await import(${JSON.stringify(gateModule)}); process.stdout.write(JSON.stringify(changedSqlCandidates(${JSON.stringify(base)})));`], { cwd: dir, env, encoding: "utf8" }));
   const write = (file, source) => { mkdirSync(join(dir, file, ".."), { recursive: true }); writeFileSync(join(dir, file), source); };
   run("init", "-q"); run("config", "user.name", "test"); run("config", "user.email", "test@example.test");

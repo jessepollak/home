@@ -20,6 +20,7 @@ import {
 import { runGit } from "../caught-by.mjs";
 import { removeFixture } from "./fixture-cleanup.mjs";
 import { applyGitFixtureEnv, gitFixtureEnv } from "./git-fixture-env.mjs";
+import { GIT } from "../git-command.mjs";
 
 applyGitFixtureEnv();
 
@@ -32,7 +33,7 @@ const repo = mkdtempSync(path.join(tmpdir(), "caught-by-report-"));
 after(() => removeFixture(repo));
 
 function git(args, options = {}) {
-  const result = spawnSync("git", args, { cwd: repo, encoding: "utf8", ...options, env: { ...gitFixtureEnv(), ...options.env } });
+  const result = spawnSync(GIT, args, { cwd: repo, encoding: "utf8", ...options, env: { ...gitFixtureEnv(), ...options.env } });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
@@ -397,7 +398,7 @@ test("marks fixes that predate the policy commit and reports the excluded count"
 test("collectReport passes through PR body lookup, includes recovered candidates and unavailable count", () => {
   const fixture = mkdtempSync(path.join(tmpdir(), "caught-by-pr-recovery-"));
   const localGit = (args) => {
-    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8", env: gitFixtureEnv() });
+    const result = spawnSync(GIT, args, { cwd: fixture, encoding: "utf8", env: gitFixtureEnv() });
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim();
   };
@@ -437,7 +438,7 @@ test("collectReport passes through PR body lookup, includes recovered candidates
 test("collectReport bounds default PR lookups, retaining memoized bodies after the deadline", () => {
   const fixture = mkdtempSync(path.join(tmpdir(), "caught-by-lookup-budget-"));
   const localGit = (args) => {
-    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8", env: gitFixtureEnv() });
+    const result = spawnSync(GIT, args, { cwd: fixture, encoding: "utf8", env: gitFixtureEnv() });
     assert.equal(result.status, 0, result.stderr);
   };
   try {
@@ -516,7 +517,7 @@ test("the report reads a commit log larger than Node's 1 MiB default buffer", ()
   const fixture = mkdtempSync(path.join(tmpdir(), "caught-by-large-log-"));
   try {
     const fixtureGit = (args) => {
-      const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8", env: gitFixtureEnv() });
+      const result = spawnSync(GIT, args, { cwd: fixture, encoding: "utf8", env: gitFixtureEnv() });
       assert.equal(result.status, 0, result.stderr);
     };
     fixtureGit(["init", "-q", "-b", "main"]);

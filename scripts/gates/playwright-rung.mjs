@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GIT } from "./git-command.mjs";
 
 const playwrightRungs = new Set([
   "layout", "scrolling", "focus", "history", "persisted-state", "media-query",
@@ -57,7 +58,7 @@ export function playwrightRungFindings(diff, body) {
 }
 
 function git(args, cwd = process.cwd()) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+  const result = spawnSync(GIT, args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
   return result.stdout.trim();

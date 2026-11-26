@@ -11,6 +11,7 @@ import {
   runGit,
 } from "./caught-by.mjs";
 import { prBodyDetectors } from "./caught-by-pr-body.mjs";
+import { GIT } from "./git-command.mjs";
 
 // The report reads scoped fix commits' Caught-by trailers, recovering missing
 // detectors from visible PR-body lines for title-only squashes. It ranks the
@@ -34,12 +35,12 @@ const git = runGit;
 // Whether a commit exists in this repository. Fixture repositories predate the
 // policy start and report no policy line.
 function commitExists(sha, cwd) {
-  return spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd, encoding: "utf8" }).status === 0;
+  return spawnSync(GIT, ["cat-file", "-e", `${sha}^{commit}`], { cwd, encoding: "utf8" }).status === 0;
 }
 
 // Whether `descendant` is at or after `ancestor` in history.
 function isAncestor(ancestor, descendant, cwd) {
-  return spawnSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], { cwd, encoding: "utf8" }).status === 0;
+  return spawnSync(GIT, ["merge-base", "--is-ancestor", ancestor, descendant], { cwd, encoding: "utf8" }).status === 0;
 }
 
 // `--since` accepts the compact `N.days` form used by the scripts and CI; any

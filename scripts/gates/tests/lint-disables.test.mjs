@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { BASELINE_PATH, baseBudgetCandidates, countDisables, evaluateDisableBudget, hasFatalFindings, isLintedSource, readBaseBudget, readBaseCounts, readBaseInput, repositoryFiles, runLintDisables, shrinkBudget } from "../lint-disables.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
+import { GIT } from "../git-command.mjs";
 
 const budget = JSON.parse(readFileSync(new URL("../lint-disables-baseline.json", import.meta.url), "utf8"));
 const files = repositoryFiles();
@@ -23,13 +24,13 @@ after(() => mirrorTemplate && rmSync(mirrorTemplate, { recursive: true, force: t
 function createMirror(t) {
   const directory = mkdtempSync(`${tmpdir()}/home-lint-disables-`);
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const git = (args) => execFileSync("git", args, { cwd: directory, env: gitFixtureEnv(), encoding: "utf8" }).trim();
+  const git = (args) => execFileSync(GIT, args, { cwd: directory, env: gitFixtureEnv(), encoding: "utf8" }).trim();
   if (!mirrorTemplate) {
     mirrorTemplate = mkdtempSync(`${tmpdir()}/home-lint-disables-template-`);
     mkdirSync(`${mirrorTemplate}/scripts/gates`, { recursive: true });
     mkdirSync(`${mirrorTemplate}/apps/web/shared`, { recursive: true });
     writeFileSync(`${mirrorTemplate}/apps/web/package.json`, "{}\n");
-    execFileSync("git", ["init", "--quiet", "--initial-branch=main"], { cwd: mirrorTemplate, env: gitFixtureEnv() });
+    execFileSync(GIT, ["init", "--quiet", "--initial-branch=main"], { cwd: mirrorTemplate, env: gitFixtureEnv() });
     writeFileSync(`${mirrorTemplate}/.git/config`, `${readFileSync(`${mirrorTemplate}/.git/config`, "utf8")}[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n`);
   }
   cpSync(mirrorTemplate, directory, { recursive: true });
@@ -254,7 +255,7 @@ test("base input grants baseline-only budgets only when the base baseline is abs
 });
 
 test("CLI fails when the base ref cannot be resolved", () => {
-  const result = spawnSync("node", ["scripts/gates/lint-disables.mjs"], {
+  const result = spawnSync(process.execPath, ["scripts/gates/lint-disables.mjs"], {
     cwd: fileURLToPath(new URL("../../..", import.meta.url)),
     env: { ...process.env, BASE_REF: "not-a-real-base-ref" },
     encoding: "utf8",

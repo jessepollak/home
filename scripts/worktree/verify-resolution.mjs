@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { executedAsScript } from "./bootstrap.mjs";
+import { GIT } from "../gates/git-command.mjs";
 
 const USAGE = `Usage: bun run worktree:verify-resolution [--pr-head <ref>] [--base <ref>] [--allow <path>] [--help]
 
@@ -15,7 +16,7 @@ Fail when the resolved head changes a file the PR never touched.
 
 function gitCommand(args, cwd, env = process.env) {
   try {
-    return execFileSync("git", args, { cwd, env, encoding: "utf8" });
+    return execFileSync(GIT, args, { cwd, env, encoding: "utf8" });
   } catch (error) {
     const detail = error.stderr ? `: ${String(error.stderr).trim()}` : "";
     throw Object.assign(new Error(`Git command failed: git ${args.join(" ")}${detail}`), { status: error.status });

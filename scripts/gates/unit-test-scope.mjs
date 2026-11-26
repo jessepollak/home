@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { matchesGlob, resolve, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { discoverFiles, trackedFiles } from "./unit-test-shards.mjs";
+import { GIT } from "./git-command.mjs";
 
 export const MANIFEST_PATH = "scripts/gates/unit-test-scope.json";
 export const CATEGORY_IDS = ["money-math", "transaction-construction", "auth", "action-lifecycle", "route-contract-parser", "money-path-provider-failure", "money-record-integrity", "repository-gate", "review-board-runtime"];
@@ -365,7 +366,7 @@ function readBlobs(root, names) {
   const contents = new Map();
   if (!names.length) return contents;
   const input = names.map((name) => `${name}\0`).join("");
-  const output = execFileSync("git", ["cat-file", "--batch", "-Z"], { cwd: root, input, maxBuffer: 64 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
+  const output = execFileSync(GIT, ["cat-file", "--batch", "-Z"], { cwd: root, input, maxBuffer: 64 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
   let offset = 0;
   for (const name of names) {
     const end = output.indexOf(0, offset);
@@ -522,7 +523,7 @@ export function evaluateUnitTestScope({ files, toolingFiles = [], manifest, refe
 export function readBaseGrandfathered(root, baseRef) {
   if (!/^(?:[A-Za-z0-9][A-Za-z0-9_./-]*)$/.test(baseRef)) throw new Error("Invalid base ref");
   const base = /^[a-f0-9]{40}$/i.test(baseRef) ? baseRef : `origin/${baseRef}`;
-  const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const git = (args) => execFileSync(GIT, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   const mergeBase = git(["merge-base", base, "HEAD"]).trim();
   const baseFiles = discoverFiles(git(["ls-tree", "-rz", "--name-only", mergeBase]).split("\0").filter(Boolean));
   const baseWebFiles = baseFiles.filter((path) => path.startsWith(`${webRoot}/`)).map((path) => path.slice(webRoot.length + 1));

@@ -118,7 +118,7 @@ test("base budget reader rejects malformed JSON and invalid baselines", () => {
 });
 
 test("CLI fails when the base ref cannot be resolved", () => {
-  const result = spawnSync("node", ["scripts/gates/style-drift.mjs"], {
+  const result = spawnSync(process.execPath, ["scripts/gates/style-drift.mjs"], {
     cwd: fileURLToPath(new URL("../../..", import.meta.url)),
     env: { ...process.env, BASE_REF: "not-a-real-base-ref" },
     encoding: "utf8",

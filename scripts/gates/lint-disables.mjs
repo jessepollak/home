@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { GIT } from "./git-command.mjs";
 
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -20,7 +21,7 @@ export function isLintedSource(file) {
 }
 
 export function repositoryFiles(cwd = root, env = process.env) {
-  return execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd, env })
+  return execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd, env })
     .toString().split("\0").filter((file) => isLintedSource(file) && existsSync(path.join(cwd, file)))
     .sort().map((file) => ({ path: file, content: readFileSync(path.join(cwd, file), "utf8") }));
 }
@@ -92,12 +93,12 @@ function ownCount(counts, rule) {
 
 function gitIn(cwd, env) {
   const run = (args) => {
-    const result = spawnSync("git", args, { cwd, env, encoding: "utf8" });
+    const result = spawnSync(GIT, args, { cwd, env, encoding: "utf8" });
     if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
     return result.stdout.trim();
   };
   run.showBlobs = (revisions) => {
-    const result = spawnSync("git", ["cat-file", "--batch"], { cwd, env, input: revisions.map((revision) => `${revision}\n`).join(""), maxBuffer: 256 * 1024 * 1024 });
+    const result = spawnSync(GIT, ["cat-file", "--batch"], { cwd, env, input: revisions.map((revision) => `${revision}\n`).join(""), maxBuffer: 256 * 1024 * 1024 });
     if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git cat-file failed");
     const blobs = new Map();
     let offset = 0;

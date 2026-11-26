@@ -8,6 +8,7 @@ import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { BOUNDARY_EXTENSIONS, evaluateBoundaryExemptions, readBoundaryBase, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
+import { GIT } from "../git-command.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const appsWebDir = path.join(repoRoot, "apps/web");
@@ -46,7 +47,7 @@ await symlink(path.join(appsWebDir, "app/globals.css"), path.join(mirror, "app/g
 await mkdir(path.join(mirror, "components/ui"), { recursive: true });
 await symlink(path.join(appsWebDir, "components/ui/button.tsx"), path.join(mirror, "components/ui/button.tsx"));
 
-const paths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: repoRoot })
+const paths = execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: repoRoot })
   .toString().split("\0").filter((entry) => existsSync(path.join(repoRoot, entry)))
   .map((entry) => entry.slice("apps/web/".length));
 const directories = topLevelSourceDirectories(paths);

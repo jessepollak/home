@@ -7,6 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { evaluateModuleCss } from "../module-css.mjs";
+import { GIT } from "../git-command.mjs";
 
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const allowlistUrl = new URL("../module-css-allowlist.json", import.meta.url);
@@ -14,7 +15,7 @@ const clean = { unlisted: [], staleAllowlist: [], invalidAllowlist: [] };
 
 test("tracked and new CSS modules match the reasoned allowlist", async () => {
   const allowlist = JSON.parse(await readFile(allowlistUrl, "utf8"));
-  const paths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
+  const paths = execFileSync(GIT, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
     .toString().split("\0").filter((entry) => entry.endsWith(".module.css") && existsSync(path.join(root, entry)));
   assert.ok(paths.length > 0, "the CSS module scan must find tracked files");
   assert.deepEqual(evaluateModuleCss({ paths, allowlist }), clean);

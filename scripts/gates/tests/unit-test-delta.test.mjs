@@ -16,6 +16,7 @@ import {
 } from "../unit-test-delta.mjs";
 import { removeFixture } from "./fixture-cleanup.mjs";
 import { applyGitFixtureEnv, gitFixtureEnv } from "./git-fixture-env.mjs";
+import { GIT } from "../git-command.mjs";
 
 applyGitFixtureEnv();
 
@@ -26,7 +27,7 @@ mkdirSync(repo);
 after(() => removeFixture(fixture));
 
 function git(args) {
-  const result = spawnSync("git", args, { cwd: repo, encoding: "utf8", env: gitFixtureEnv() });
+  const result = spawnSync(GIT, args, { cwd: repo, encoding: "utf8", env: gitFixtureEnv() });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
