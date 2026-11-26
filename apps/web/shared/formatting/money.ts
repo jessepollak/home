@@ -783,7 +783,8 @@ export type PresentationDateStyle =
   | "quote-time"
   | "chart-time"
   | "chart-weekday"
-  | "chart-date";
+  | "chart-date"
+  | "chart-date-year";
 
 export function formatPresentationDate(
   value: string | number | Date,
@@ -823,6 +824,7 @@ export function formatPresentationDateRange(
     "chart-time": null,
     "chart-weekday": { weekday: "short" },
     "chart-date": { month: "short", day: "numeric" },
+    "chart-date-year": { month: "short", day: "numeric", year: "numeric" },
   };
   const timeParts: Record<PresentationDateStyle, Intl.DateTimeFormatOptions | null> = {
     "activity-full": { hour: "numeric", minute: "2-digit" },
@@ -833,6 +835,7 @@ export function formatPresentationDateRange(
     "chart-time": { hour: "numeric", minute: "2-digit" },
     "chart-weekday": null,
     "chart-date": null,
+    "chart-date-year": null,
   };
   const dateOptions = dateParts[options.style];
   const timeOptions = timeParts[options.style];

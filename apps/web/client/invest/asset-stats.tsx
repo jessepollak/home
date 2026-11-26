@@ -6,7 +6,7 @@ import type { ExactDecimal } from "@/shared/balances/types";
 import { formatChartPrice, formatPresentationDate, formatPresentationPrice, formatTrimmedChartPrice } from "@/shared/formatting";
 import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import type { MarketDataState } from "@/shared/invest/invest-market";
-import { endsEarly, rangeLabels, rangeSeconds, scrubTime, type ChartClock } from "./asset-chart-support";
+import { endsEarly, rangeLabels, rangeSeconds, scrubSpan, scrubTime, type ChartClock } from "./asset-chart-support";
 import { usePresentationQuote, usePresentationRegionId } from "./presentation-quote";
 import { usePriceHistory, type PriceHistoryState } from "./use-price-history";
 import { useMarketStats } from "./use-market-stats";
@@ -31,9 +31,8 @@ function RangeStat({ history, day, range, now, snapshotPrice }: {
   const mergedLast = series.reduce((latest, point) => Date.parse(point.time) > Date.parse(latest.time) ? point : latest);
   const current = snapshotPrice ?? Number(mergedLast.value);
   const start = scrubTime(Date.parse(first.time) / 1000, range, regionId);
-  const end = scrubTime(Date.parse(mergedLast.time) / 1000, range, regionId);
   const span: Record<"1D" | "1Y", number> = { "1D": 86400, "1Y": 31536000 };
-  const label = endsEarly(Date.parse(mergedLast.time) / 1000, range, now) ? `${start} – ${end}`
+  const label = endsEarly(Date.parse(mergedLast.time) / 1000, range, now) ? scrubSpan(Date.parse(first.time) / 1000, Date.parse(mergedLast.time) / 1000, range, regionId)
     : Date.parse(first.time) > now - span[range] * 1000 * 0.9 ? `Since ${start}`
       : range === "1D" ? "Past 24h" : "Past year";
   const formattedLow = formatPresentationPrice(low.toString(), "USD", regionId);
