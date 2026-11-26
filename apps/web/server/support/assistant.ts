@@ -7,7 +7,7 @@ import type { LanguageModel } from "ai";
 import { type SupportAssistantSettings, parseSupportAssistantSettings } from "@/shared/operator-settings/contract";
 import { SUPPORT_CONTRACT_VERSION, type SupportAssistantCapability, type SupportCredentialResponse } from "@/shared/support/contract";
 import type { SqlExecutor } from "@/server/db/sql";
-import { openSecret, resolveSecretKeyring, sealSecret } from "@/server/secrets/at-rest";
+import { envelopeKeyVersion, openSecret, resolveSecretKeyring, sealSecret, type SecretKeyring } from "@/server/secrets/at-rest";
 
 const aad = { purpose: "support-assistant-key", binding: { provider: "ai-gateway" } };
 type CredentialRow = { envelope: string; last4: string; updated_at: Date };
@@ -61,6 +61,22 @@ export class SupportAssistantStore {
         VALUES ($1,'support.credential.update','settings','support-assistant-key',$2::jsonb,$3::jsonb)`, [actor, JSON.stringify({ last4: previous?.last4 ?? null }), JSON.stringify({ last4 })]);
     });
     return this.credential();
+  }
+
+  async rotateCredential(keyring: SecretKeyring) {
+    const row = (await this.sql.query<{ envelope: string }>("SELECT envelope FROM support_assistant_credentials WHERE id='default'")).rows[0];
+    if (!row || envelopeKeyVersion(row.envelope) === keyring.version) return { rotated: 0, unreadable: 0, skippedConcurrent: 0 };
+    const opened = openSecret(keyring, row.envelope, aad);
+    if (!opened.ok) return { rotated: 0, unreadable: 1, skippedConcurrent: 0 };
+    const replaced = (await this.sql.query("UPDATE support_assistant_credentials SET envelope=$1 WHERE id='default' AND envelope=$2", [sealSecret(keyring, opened.plaintext, aad), row.envelope])).rowCount > 0;
+    return { rotated: replaced ? 1 : 0, unreadable: 0, skippedConcurrent: replaced ? 0 : 1 };
+  }
+
+  async verifyCredential(keyring: SecretKeyring) {
+    const row = (await this.sql.query<{ envelope: string }>("SELECT envelope FROM support_assistant_credentials WHERE id='default'")).rows[0];
+    const notAtActive = row && envelopeKeyVersion(row.envelope) !== keyring.version ? 1 : 0;
+    const unreadable = row && !openSecret(keyring, row.envelope, aad).ok ? 1 : 0;
+    return { notAtActive, unreadable, safeToRemovePrevious: notAtActive === 0 && unreadable === 0 };
   }
 
   async delete(actor: `0x${string}`): Promise<SupportCredentialResponse> {
