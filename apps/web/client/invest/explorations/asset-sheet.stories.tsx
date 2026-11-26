@@ -305,7 +305,7 @@ export const SlowHistory: Story = { parameters: { msw: { handlers: [historyHandl
   play: async ({ canvasElement }) => {
     const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Bitcoin" }, chartWait));
     await expect(dialog.queryByText("Still loading price history")).not.toBeInTheDocument();
-    try { await expect(await dialog.findByText("Still loading price history", undefined, chartWait)).toBeVisible(); }
+    try { await expect(await dialog.findByRole("status", { name: "Still loading price history" }, chartWait)).toBeVisible(); }
     finally { historyControl.release(); }
     await expect(await dialog.findByRole("group", { name: /1 day price history/ }, chartWait)).toBeVisible();
     await expect(dialog.queryByText("Still loading price history")).not.toBeInTheDocument();
