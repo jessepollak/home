@@ -9,7 +9,7 @@ import { homeSessionToken } from "./fixtures/session";
 // landing on Playwright's 30s default; the CI step matches the
 // "Smoke compile ... no response" line to rerun once without the cache.
 const warmUpTimeoutMs = 60_000;
-const authenticatedPaths = ["/admin", "/admin/settings/funding", "/cash/savings"];
+const authenticatedPaths = ["/admin", "/admin/settings", "/admin/settings/funding", "/cash/savings"];
 
 export default async function smokeSetup(config: FullConfig) {
   const baseURL = config.projects[0]?.use.baseURL;
