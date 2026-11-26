@@ -202,8 +202,9 @@ function activityQueryOptions(input: {
       const known = previous as RetainedActivityData | undefined;
       const data = next as RetainedActivityData;
       if (!data.pages.length) return replaceEqualDeep(previous, next);
+      const prior = known?.retainedPage ?? (known?.pages.length ? mergeActivityPages(known.pages) : seedPage);
       const retainedPage = retainActivityPage(mergeActivityPages(data.pages),
-        known?.retainedPage ?? (known?.pages.length ? mergeActivityPages(known.pages) : seedPage));
+        data.retainedPage ? retainActivityPage(data.retainedPage, prior) : prior);
       return replaceEqualDeep(previous, { ...data, retainedPage });
     },
     refetchOnWindowFocus: true,

@@ -97,6 +97,28 @@ function parseRestoredActivityPage(
   }
 }
 
+function isActivityPageShape(value: unknown): value is ActivityPage {
+  return isRecord(value) && typeof value.walletAddress === "string" && typeof value.currency === "string" &&
+    Array.isArray(value.transfers) && isRecord(value.window);
+}
+
+function retainedActivityPage(data: unknown): ActivityPage | null {
+  if (!isRecord(data) || !Array.isArray(data.pages)) return null;
+  if (isActivityPageShape(data.retainedPage)) return data.retainedPage;
+  const pages: unknown[] = data.pages;
+  return pages.length && pages.every(isActivityPageShape) ? mergeActivityPages(pages) : null;
+}
+
+export function mergeRestoredActivity(current: unknown, restored: unknown): unknown {
+  if (!isRecord(current) || !Array.isArray(current.pages) || current.pages.length === 0) return current;
+  const live = retainedActivityPage(current);
+  const previous = retainedActivityPage(restored);
+  if (!live || !previous) return current;
+  const retainedPage = retainActivityPage(live, previous);
+  return retainedPage === current.retainedPage || retainedPage === live && current.retainedPage === undefined
+    ? current : { ...current, retainedPage };
+}
+
 export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   const owner = restoredOwner(entry.ownerKey);
   const session = owner ? activitySession(owner) : null;

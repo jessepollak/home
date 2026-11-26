@@ -7,6 +7,7 @@ import { retainActivityRows } from "./retained-activity";
 export type RetainedActivitySources = {
   operations: readonly RecentMoneyActionOperation[];
   orders: readonly ActivityOrder[];
+  presented?: ReadonlySet<string>;
 };
 
 export type ActivitySourceRetention = {
@@ -70,13 +71,16 @@ function retention(registry: Registry, owner: string, scope: string): ActivitySo
     write: (rows) => {
       if (handle.dead) return;
       const known = registry.entries.get(scope);
-      if (!known && rows.operations.length === 0 && rows.orders.length === 0) return;
+      if (!known && rows.operations.length === 0 && rows.orders.length === 0 && !rows.presented?.size) return;
       const mergedOperations = retainActivityRows(known?.operations ?? [], rows.operations, (row) => row.action.id);
       const mergedOrders = retainActivityRows(known?.orders ?? [], rows.orders, (row) => row.id);
       const operations = sameRows(mergedOperations, rows.operations) ? rows.operations : mergedOperations;
       const orders = sameRows(mergedOrders, rows.orders) ? rows.orders : mergedOrders;
-      if (known && sameRows(operations, known.operations) && sameRows(orders, known.orders)) return;
-      registry.entries.set(scope, { owner, operations, orders });
+      const knownPresented = known?.presented ?? new Set<string>();
+      const presented = [...rows.presented ?? []].every((id) => knownPresented.has(id))
+        ? knownPresented : new Set([...knownPresented, ...rows.presented ?? []]);
+      if (known && sameRows(operations, known.operations) && sameRows(orders, known.orders) && presented === knownPresented) return;
+      registry.entries.set(scope, { owner, operations, orders, presented });
       notify(registry, scope);
     },
   };

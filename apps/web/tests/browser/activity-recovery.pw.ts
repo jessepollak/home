@@ -820,6 +820,14 @@ test("a full reload restores the Activity rows shown before a shorter read, and 
   await expect(rows).toHaveText(before);
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  unavailable = false;
+  const settledReads = reads;
+  await page.reload();
+  await expect(rows).toHaveText(before);
+  await page.clock.fastForward(11_000);
+  await requestBackgroundRevalidation(page, () => reads, settledReads);
+  await expect(rows).toHaveText(before);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
   switched = true;
   await page.route("**/api/activity/orders", (route) => json(route, {
     version: 1, owner: { subject: "playwright-smoke-second-subject", accountProvider: sessionBody.accountProvider }, orders: [],
@@ -857,6 +865,7 @@ test("a full reload restores retained transfers and cards from an onchain-unavai
   if (!value) throw new Error("Persisted owner cache is missing");
   const baseline: { clientState: DehydratedState } = JSON.parse(await decodeOwnerCache(value));
   unavailable = true;
+  await page.route("**/__owner-cache-edit", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>cache</title>" }));
   for (const variant of ["retained", "wrong owner", "wrong currency"] as const) {
     await test.step(variant, async () => {
       const persisted = structuredClone(baseline);
@@ -870,10 +879,11 @@ test("a full reload restores retained transfers and cards from an onchain-unavai
       if (variant === "wrong owner") retained.walletAddress = RECIPIENT;
       if (variant === "wrong currency") retained.currency = "EUR";
       query.state.data = { pages: [partial], pageParams: [null], retainedPage: retained };
+      await page.goto("/__owner-cache-edit");
       const current = await readIndexedOwnerCache(page);
       if (!current) throw new Error("Persisted owner cache is missing");
       await replaceIndexedOwnerCache(page, current, JSON.stringify(persisted));
-      await page.reload();
+      await page.goto("/home");
       if (variant === "retained") {
         await expect(rows).toHaveText(before);
         await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
@@ -888,4 +898,35 @@ test("a full reload restores retained transfers and cards from an onchain-unavai
       }
     });
   }
+});
+
+test("a panel mounted after an order settles behind the loaded boundary still shows the order the first panel showed", async ({ page }) => {
+  await setup(page);
+  const [pending] = activityOrdersFixture().orders;
+  if (!pending || pending.kind !== "funding") throw new Error("Pending funding fixture is missing");
+  const settledAt = new Date(FIXED_NOW - 2 * 3_600_000).toISOString();
+  const settled = { ...pending, status: "confirmed" as const, stage: "received" as const, instruction: null, resumable: false, updatedAt: settledAt, movedAt: settledAt };
+  let settledReads = 0;
+  await page.route("**/api/activity/orders", (route) => {
+    if (settledReads > 0) settledReads += 1;
+    return json(route, { ...activityOrdersFixture(), orders: [settledReads > 0 ? settled : pending] });
+  });
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    if (url.searchParams.has("cursor")) return new Promise<void>(() => {});
+    return json(route, { ...activityResponse(url, false), nextCursor: "next-page" });
+  });
+  const orders = page.locator("#navigation-panel [data-activity-sources]").getByRole("button", { name: /^Add money/ });
+  await page.goto("/activity");
+  await expect(orders).toHaveCount(1);
+  settledReads = 1;
+  await expect.poll(async () => {
+    await page.clock.runFor(1_000);
+    return settledReads;
+  }, { timeout: 30_000 }).toBeGreaterThan(1);
+  await expect(orders).toHaveCount(1);
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).click();
+  await expectNavigation(page, /\/home$/);
+  await expect(orders).toHaveCount(1);
 });

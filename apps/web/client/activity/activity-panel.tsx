@@ -118,9 +118,6 @@ export function ActivityPanelView({
     const rows = retainActivityRows(stored.orders, nextOrders, (row) => row.id, ordersRetainable);
     return sameRows(rows, stored.orders) ? stored.orders : rows;
   }, [stored.orders, nextOrders, ordersRetainable]);
-  useEffect(() => {
-    retention.write({ operations, orders });
-  }, [retention, operations, orders]);
   const [revealed, setRevealed] = useState(false);
   const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem; opener: HTMLElement | null } | null>(() => initialDetailItem
     ? { key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem, opener: null } : null);
@@ -201,12 +198,15 @@ export function ActivityPanelView({
       : pendingWindowEnd
     : null, [transfers, pendingWindowEnd]);
   const cards = activity.status === "ready" ? activity.page.cards?.rows : undefined;
-  const [eligibility, setEligibility] = useState({ owner: retentionOwner, regionId, ids: new Set<string>() });
+  const [eligibility, setEligibility] = useState(() => ({ owner: retentionOwner, regionId, ids: new Set<string>(stored.presented) }));
   const presentedIds = eligibility.owner === retentionOwner && eligibility.regionId === regionId ? eligibility.ids : undefined;
   const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, cards, loadedThrough, presentedIds }), [transfers, operations, orders, cards, loadedThrough, presentedIds]);
-  if (!presentedIds || feed.some((row) => !presentedIds.has(`${row.kind}:${row.id}`))) {
-    setEligibility({ owner: retentionOwner, regionId, ids: new Set([...(presentedIds ?? []), ...feed.map((row) => `${row.kind}:${row.id}`)]) });
+  if (!presentedIds || feed.some((row) => !presentedIds.has(`${row.kind}:${row.id}`)) || [...stored.presented ?? []].some((id) => !presentedIds.has(id))) {
+    setEligibility({ owner: retentionOwner, regionId, ids: new Set([...(presentedIds ?? []), ...stored.presented ?? [], ...feed.map((row) => `${row.kind}:${row.id}`)]) });
   }
+  useEffect(() => {
+    retention.write({ operations, orders, presented: presentedIds });
+  }, [retention, operations, orders, presentedIds]);
   const [clock, setClock] = useState(0);
   useEffect(() => {
     const now = Date.now();
