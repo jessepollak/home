@@ -4,6 +4,7 @@ import { resolveSecretKeyring } from "../apps/web/server/secrets/at-rest";
 import { getSqlExecutor } from "../apps/web/server/db/sql";
 import { PostgresWebhookSubscriptionStore } from "../apps/web/server/balances/webhook-subscription-store";
 import { rotateWebhookSecrets, verifyWebhookSecrets } from "../apps/web/server/balances/webhook-secret-rotation";
+import { SupportAssistantStore } from "../apps/web/server/support/assistant";
 
 const [action, ...args] = process.argv.slice(2);
 const store = createRuntimeFundingProviderUserTokenStore();
@@ -24,17 +25,22 @@ try {
     const resolved = resolveSecretKeyring(process.env);
     if (!resolved.ok) throw new Error("keyring unavailable");
     const webhookStore = new PostgresWebhookSubscriptionStore(getSqlExecutor(), resolved.keyring);
+    const supportStore = new SupportAssistantStore(getSqlExecutor(), process.env);
     if (action === "rotate") {
       const counts = await rotateUserTokens(store, resolved.keyring, () => new Date());
       console.log(`rotated=${counts.rotated} unreadable=${counts.unreadable} skipped-concurrent=${counts.skippedConcurrent}`);
       const webhookCounts = await rotateWebhookSecrets(webhookStore, resolved.keyring);
       console.log(`webhook-subscriptions sealed-legacy=${webhookCounts.sealedLegacy} rotated=${webhookCounts.rotated} unreadable=${webhookCounts.unreadable} skipped-concurrent=${webhookCounts.skippedConcurrent}`);
+      const supportCounts = await supportStore.rotateCredential(resolved.keyring);
+      console.log(`support-assistant rotated=${supportCounts.rotated} unreadable=${supportCounts.unreadable} skipped-concurrent=${supportCounts.skippedConcurrent}`);
     } else {
       const counts = await verifyUserTokens(store, resolved.keyring);
       console.log(`not-at-active=${counts.notAtActive} unreadable=${counts.unreadable}`);
       const webhookCounts = await verifyWebhookSecrets(webhookStore, resolved.keyring);
       console.log(`webhook-subscriptions plaintext=${webhookCounts.plaintext} not-at-active=${webhookCounts.notAtActive} unreadable=${webhookCounts.unreadable}`);
-      if (!counts.safeToRemovePrevious || !webhookCounts.safeToRemovePrevious) process.exitCode = 1;
+      const supportCounts = await supportStore.verifyCredential(resolved.keyring);
+      console.log(`support-assistant not-at-active=${supportCounts.notAtActive} unreadable=${supportCounts.unreadable}`);
+      if (!counts.safeToRemovePrevious || !webhookCounts.safeToRemovePrevious || !supportCounts.safeToRemovePrevious) process.exitCode = 1;
     }
   } else throw new Error("invalid arguments");
 } catch {

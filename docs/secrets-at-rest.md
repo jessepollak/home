@@ -1,6 +1,6 @@
 # Server secrets at rest
 
-Home encrypts Coinbase Embedded Orders `userAuthToken` in `funding_provider_user_tokens` and balance webhook signing secrets in `webhook_subscriptions` with AES-256-GCM. The key is held in server environment variables, not in PostgreSQL. This protects against database-only exposure, **not** a compromised Vercel project, server process, or key-bearing deployment; there is no KMS. Public orders, quote tokens, shared funding contracts, and structured logs never carry the credential.
+Home encrypts three credential classes with AES-256-GCM under one shared keyring: Coinbase Embedded Orders `userAuthToken` in `funding_provider_user_tokens`, balance webhook signing secrets in `webhook_subscriptions`, and the support assistant AI Gateway key in `support_assistant_credentials`. The key is held in server environment variables, not in PostgreSQL. This protects against database-only exposure, **not** a compromised Vercel project, server process, or key-bearing deployment; there is no KMS. Public orders, quote tokens, shared funding contracts, and structured logs never carry the credential.
 
 ## Provisioning gate
 
@@ -13,8 +13,10 @@ Each envelope is `vN.iv.tag.ciphertext` with authenticated purpose and the compl
 ## Rotate and verify
 
 1. Set `HOME_SECRET_ENCRYPTION_KEY_PREVIOUS` to the old key, `HOME_SECRET_ENCRYPTION_KEY` to a **new** key, and `HOME_SECRET_KEY_VERSION` to N+1 on all writers, then deploy. The previous key decrypts N only; it never encrypts new rows.
-2. With database access and the same environment, run `bun run --cwd apps/web secrets:rotate rotate`. This processes deterministic primary-key batches with compare-and-swap; unreadable rows stay untouched. Repeat if concurrent writes or rotations require another pass.
-3. Run `bun run --cwd apps/web secrets:rotate verify` until the funding line reads `not-at-active=0 unreadable=0`, the webhook line reads `plaintext=0 not-at-active=0 unreadable=0`, and exit status is zero. Only then remove `HOME_SECRET_ENCRYPTION_KEY_PREVIOUS` from all deployments. Commands print counts only, never credentials.
+2. With database access and the same environment, run `bun run --cwd apps/web secrets:rotate rotate`. This re-seals all three classes (funding tokens, webhook signing secrets, and the support assistant key) in deterministic primary-key batches with compare-and-swap; unreadable rows and rows written concurrently stay untouched and are counted. Repeat if concurrent writes or rotations require another pass.
+3. Run `bun run --cwd apps/web secrets:rotate verify` until the funding line reads `not-at-active=0 unreadable=0`, the webhook line reads `plaintext=0 not-at-active=0 unreadable=0`, the support assistant line reads `support-assistant not-at-active=0 unreadable=0`, and exit status is zero. A passing verify covers all three classes; any class that is not at the active version or is unreadable fails it. Only then remove `HOME_SECRET_ENCRYPTION_KEY_PREVIOUS` from all deployments. Commands print counts only, never credentials.
+
+If the support assistant key becomes unreadable (for example, a lost key), the assistant reports unavailable and support falls back to operators; an operator re-enters the key in operator settings, which seals it under the active version.
 
 If a key is lost, unreadable rows remain a harmless verification fallback. Delete affected owner rows with `bun run --cwd apps/web secrets:rotate delete --account-provider base-account --subject SUBJECT --provider coinbase --region US --sandbox false`, or explicitly truncate `funding_provider_user_tokens` after operator approval; customers re-verify. Use the same delete command for a per-owner deletion, repeating for each known provider, region and sandbox binding. Do not log subjects or envelopes in operational reports.
 
