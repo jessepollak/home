@@ -391,6 +391,14 @@ export const Stale: Story = { args: { staleMarket: true },
     await expect(canvas.getByText("Price snapshot is stale.")).toBeVisible();
   },
 };
+export const StaleAcrossYear: Story = { args: { staleMarket: true },
+  parameters: { msw: { handlers: [historyHandler("stale"), statsHandler()] } }, play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: "1Y" }, chartWait));
+    await expect(await canvas.findByText(/· \w{3} \d{1,2}, 2025 – \w{3} \d{1,2}, 2026$/, undefined, chartWait)).toBeVisible();
+    await expect(await canvas.findByText(/^No data since /, undefined, chartWait)).toBeVisible();
+  },
+};
 export const SlowHeld: Story = { tags: ["!test"],
   parameters: { msw: { handlers: [historyHandler("slow"), statsHandler()] } },
 };
