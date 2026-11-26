@@ -7,3 +7,5 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+Unit-test scope: follow [the root note](../../AGENTS.md) and [test policy](../../docs/architecture.md#test-policy). `oxlint/`, `scripts/` and other tooling take no new unit tests or cases; a new test needs a protected-category entry in `scripts/gates/unit-test-scope.json`, and presenter tests are not money math.
