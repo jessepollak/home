@@ -17,6 +17,11 @@ async function setSession(context: BrowserContext, address: string) {
   }]);
 }
 
+async function openAdmin(page: Page, path: string) {
+  await page.goto(path);
+  await expect(page.locator("[data-operator-ready=true]")).toBeVisible({ timeout: 15_000 });
+}
+
 async function readBrand(context: BrowserContext) {
   const response = await context.request.get(settingsPath);
   expect(response.status()).toBe(200);
@@ -84,8 +89,7 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
   page.on("request", (request) => { if (new URL(request.url()).pathname === settingsPath && request.method() === "PUT") puts.push(request.url()); });
 
   await test.step("Settings links to Brand, which names its deployment-default source", async () => {
-    await page.goto("/admin/settings");
-    await expectOperatorReady(page);
+    await openAdmin(page, "/admin/settings");
     await page.getByRole("link", { name: /^Brand/ }).click();
     await expectNavigation(page, /\/admin\/settings\/brand$/);
     await expectOperatorReady(page);
@@ -146,12 +150,10 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
   });
 
   await test.step("a real revision race keeps the rejected draft until the operator chooses", async () => {
-    await page.goto("/admin/settings/brand");
-    await expectOperatorReady(page);
+    await openAdmin(page, "/admin/settings/brand");
     const concurrent = await context.newPage();
     try {
-      await concurrent.goto("/admin/settings/brand");
-      await expectOperatorReady(concurrent);
+      await openAdmin(concurrent, "/admin/settings/brand");
       await fillAndExpectPreview(page, { name: "Draft Name" }, "Draft Name");
       await fillAndExpectPreview(concurrent, { description: "Won the race." }, "Won the race.");
       expect((await save(concurrent, admin, 1)).status()).toBe(200);
