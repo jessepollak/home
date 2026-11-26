@@ -98,21 +98,21 @@ test("Products persist real operator saves, reviewed enables and rejected stale 
     await expect(page.locator("[data-operator-ready=true]")).toBeVisible();
   });
 
-  await test.step("re-enabling Save requires Turn on, Cancel writes nothing", async () => {
+  await test.step("re-enabling Save requires review, Cancel writes nothing", async () => {
     const before = await readSettings(context);
     const audit = await readAudit(context);
     await mode(page, "Save").getByRole("radio", { name: "On", exact: true }).click();
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
-    await expect(page.getByText("Turn on new entries?", { exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Review changes" })).toBeVisible();
     await expect(page.getByText("Customers can deposit into enabled vaults.", { exact: false })).toBeVisible();
     expect(await readSettings(context)).toEqual(before);
     expect(await readAudit(context)).toEqual(audit);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Turn on", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save changes", exact: true })).toHaveCount(0);
     expect(await readSettings(context)).toEqual(before);
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Turn on", exact: true })).toBeVisible();
-    expect((await save(page, admin, 1, "Turn on")).status()).toBe(200);
+    await expect(page.getByRole("button", { name: "Save changes", exact: true })).toBeVisible();
+    expect((await save(page, admin, 1, "Save changes")).status()).toBe(200);
     await page.reload();
     await expect(mode(page, "Save").getByRole("radio", { name: "On", exact: true })).toBeChecked();
     expect((await readSettings(context)).settings.revision).toBe(2);
@@ -199,5 +199,38 @@ test("Products persist real operator saves, reviewed enables and rejected stale 
     const finalAudit = await readAudit(context);
     expect(finalAudit).toHaveLength(5);
     expect(finalAudit[0]).toMatchObject({ actor: secondAdmin, before: before.settings.value, after: stored.settings.value });
+  });
+
+  await test.step("Borrow exit-only saves its markets reducing-only; a mixed save reviews every change", async () => {
+    const paused = await readSettings(context);
+    expect(paused.settings.value.products.borrow).toBe("exit-only");
+    expect(Object.values(paused.settings.value.markets).every((entry) => entry === "reducing-only")).toBe(true);
+    const raw = {
+      ...paused.settings.value,
+      products: { ...paused.settings.value.products, send: "on" },
+      markets: Object.fromEntries(Object.keys(paused.settings.value.markets).map((id) => [id, "enabled"])),
+    };
+    const status = await page.evaluate(async ({ path, body }) => (await fetch(path, { method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).status,
+      { path: settingsPath, body: { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: paused.settings.revision, value: raw, operator: secondAdmin } });
+    expect(status).toBe(200);
+    const normalized = await readSettings(context);
+    expect(normalized.settings).toMatchObject({ revision: paused.settings.revision + 1, value: { products: { borrow: "exit-only", send: "on" } } });
+    expect(Object.values(normalized.settings.value.markets).every((entry) => entry === "reducing-only")).toBe(true);
+
+    await page.reload();
+    await mode(page, "Borrow").getByRole("radio", { name: "On", exact: true }).click();
+    await expect(mode(page, marketName).getByRole("radio", { name: "Reducing only", exact: true })).toBeChecked();
+    await mode(page, marketName).getByRole("radio", { name: "Enabled", exact: true }).click();
+    await mode(page, "Save").getByRole("radio", { name: "Exit only", exact: true }).click();
+    await page.getByRole("button", { name: "Save settings", exact: true }).click();
+    const review = page.getByRole("dialog", { name: "Review changes" });
+    await expect(review.getByRole("listitem").filter({ hasText: "Borrow → On" })).toBeVisible();
+    await expect(review.getByRole("listitem").filter({ hasText: "Save → Exit only" })).toContainText("Customers can withdraw but can't deposit.");
+    await expect(review.getByRole("listitem").filter({ hasText: `${marketName} → Enabled` })).toBeVisible();
+    expect(await readSettings(context)).toEqual(normalized);
+    expect((await save(page, secondAdmin, normalized.settings.revision, "Save changes")).status()).toBe(200);
+    const mixed = await readSettings(context);
+    expect(mixed.settings.value.products).toMatchObject({ borrow: "on", save: "exit-only" });
+    expect(Object.entries(mixed.settings.value.markets).filter(([, entry]) => entry === "enabled").map(([id]) => id)).toEqual([marketId]);
   });
 });

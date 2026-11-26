@@ -1,4 +1,5 @@
 import {
+  normalizeProductSettings,
   parseProductSettings,
   productCatalog,
   resolveProductOffering,
@@ -13,7 +14,7 @@ import {
 } from "@/shared/operator-settings/contract";
 
 export type ProductSettingsEntry = SettingsResponse & { settings: SettingsResponse["settings"] & { value: ProductSettings } };
-export type ReviewItem = { id: string; label: string; effect: string };
+export type ReviewItem = { id: string; label: string; state: string; effect: string; turnsOn: boolean };
 
 export function settingsEntry(value: unknown): ProductSettingsEntry | null {
   const parsed = parseSettingsResponse(value);
@@ -23,30 +24,46 @@ export function settingsEntry(value: unknown): ProductSettingsEntry | null {
 }
 
 export function exactCatalogSettings(value: ProductSettings, catalog: ProductCatalog = productCatalog()): ProductSettings {
-  return {
+  return normalizeProductSettings({
     products: { ...value.products },
     vaults: Object.fromEntries(catalog.vaults.map(({ id, mode }) => [id, mode === "enabled" ? value.vaults[id] ?? "reducing-only" : "reducing-only"])),
     markets: Object.fromEntries(catalog.markets.map(({ id, mode }) => [id, mode === "enabled" ? value.markets[id] ?? "reducing-only" : "reducing-only"])),
-  };
+  });
 }
 
-export function reviewEnables(before: ProductOffering, next: ProductSettings, labels: { vaults: Record<string, string>; markets: Record<string, string> }, catalog: ProductCatalog = productCatalog()): ReviewItem[] {
-  const after = resolveProductOffering({ kind: "saved", value: exactCatalogSettings(next, catalog) }, catalog);
+const productEffects = {
+  save: { on: "Customers can deposit into enabled vaults.", off: "Customers can withdraw but can't deposit." },
+  borrow: { on: "Customers can open new debt in enabled markets.", off: "Customers can repay but can't open new debt." },
+  invest: { on: "Customers can buy investments.", off: "Customers can sell but can't buy investments." },
+  send: { on: "Customers can send funds.", off: "Customers can't send funds." },
+} as const;
+const entryEffects = {
+  vaults: { on: "Customers can deposit into this vault.", off: "Customers can withdraw but can't deposit into this vault." },
+  markets: { on: "Customers can borrow in this market.", off: "Customers can repay but can't borrow in this market." },
+} as const;
+
+export function reviewChanges(before: ProductOffering, saved: ProductSettings, next: ProductSettings, labels: { vaults: Record<string, string>; markets: Record<string, string> }, catalog: ProductCatalog = productCatalog()): ReviewItem[] {
+  const stored = exactCatalogSettings(saved, catalog);
+  const draft = exactCatalogSettings(next, catalog);
+  const after = resolveProductOffering({ kind: "saved", value: draft }, catalog);
   const items: ReviewItem[] = [];
-  const effects: Record<string, string> = {
-    save: "Customers can deposit into enabled vaults.",
-    borrow: "Customers can open new debt in enabled markets.",
-    invest: "Customers can buy investments.",
-    send: "Customers can send funds.",
-  };
   for (const [id, label] of [["save", "Save"], ["borrow", "Borrow"], ["invest", "Invest"], ["send", "Send"]] as const) {
-    if (before.products[id] !== "on" && after.products[id] === "on") items.push({ id, label, effect: effects[id] });
+    const mode = after.products[id];
+    if (before.products[id] === mode) continue;
+    const turnsOn = mode === "on";
+    items.push({ id, label, state: turnsOn ? "On" : mode === "off" ? "Off" : "Exit only", effect: productEffects[id][turnsOn ? "on" : "off"], turnsOn });
   }
   for (const [key, entries, names] of [["vaults", catalog.vaults, labels.vaults], ["markets", catalog.markets, labels.markets]] as const) {
+    const product = key === "vaults" ? "Save" : "Borrow";
     for (const { id } of entries) {
-      if (before[key][id] !== "enabled" && after[key][id] === "enabled") {
-        items.push({ id, label: names[id] ?? id, effect: key === "vaults" ? "Customers can deposit into this vault." : "Customers can borrow in this market." });
+      if (before[key][id] === after[key][id]) {
+        if (stored[key][id] !== draft[key][id]) {
+          items.push({ id, label: names[id] ?? id, state: draft[key][id] === "enabled" ? "Enabled" : "Reducing only", effect: `Applies when ${product} is on.`, turnsOn: false });
+        }
+        continue;
       }
+      const turnsOn = after[key][id] === "enabled";
+      items.push({ id, label: names[id] ?? id, state: turnsOn ? "Enabled" : "Reducing only", effect: entryEffects[key][turnsOn ? "on" : "off"], turnsOn });
     }
   }
   return items;

@@ -10,13 +10,14 @@ import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/i
 import { RadioGroup, RadioGroupSegment } from "@/components/ui/radio-group";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION } from "@/shared/operator-settings/contract";
 import {
+  deploymentProductSettings,
   orphanedProductSettingIds,
   resolveProductOffering,
   type CatalogEntry,
   type ProductCatalog,
   type ProductSettings,
 } from "@/shared/operator-settings/products";
-import { exactCatalogSettings, reviewEnables, saveOutcome, type ProductSettingsEntry, type ReviewItem } from "./product-settings-model";
+import { exactCatalogSettings, reviewChanges, saveOutcome, type ProductSettingsEntry, type ReviewItem } from "./product-settings-model";
 import { SavedSettingsLine } from "./saved-settings-line";
 
 export function ProductSettingsLoadError() {
@@ -62,6 +63,7 @@ export function ProductSettingsEditor({ initialEntry, catalog, names, missingInv
   const [conflict, setConflict] = useState<ProductSettingsEntry | null | undefined>(undefined);
   const orphans = orphanedProductSettingIds(entry.settings.value, catalog);
   const baseline = resolveProductOffering(entry.settings.source === "default" ? { kind: "deployment" } : { kind: "saved", value: entry.settings.value }, catalog);
+  const savedSettings = entry.settings.source === "default" ? deploymentProductSettings(catalog) : entry.settings.value;
   const updateProduct = (product: keyof ProductSettings["products"], value: string) => {
     setDraft((previous) => ({ ...previous, products: { ...previous.products, [product]: value } }));
     setError(null);
@@ -103,9 +105,9 @@ export function ProductSettingsEditor({ initialEntry, catalog, names, missingInv
   };
   const startSave = () => {
     const snapshot = exactCatalogSettings(draft, catalog);
-    const items = reviewEnables(baseline, snapshot, names, catalog);
+    const items = reviewChanges(baseline, savedSettings, snapshot, names, catalog);
     setMessage("");
-    if (items.length) {
+    if (items.some((item) => item.turnsOn)) {
       setReview({ items, draft: snapshot });
       setReviewOpen(true);
     } else void save(snapshot);
@@ -157,17 +159,17 @@ export function ProductSettingsEditor({ initialEntry, catalog, names, missingInv
       <Drawer open={reviewOpen} onOpenChange={(open) => { if (!pending) setReviewOpen(open); }}>
         <DrawerContent initialFocus={cancelButton}>
           <DrawerHeader>
-            <DrawerTitle>Turn on new entries?</DrawerTitle>
-            <DrawerDescription>Confirm what customers can start using before saving.</DrawerDescription>
+            <DrawerTitle>Review changes</DrawerTitle>
+            <DrawerDescription>Confirm what changes for customers before saving.</DrawerDescription>
           </DrawerHeader>
           <div className="grid min-h-0 gap-3 overflow-y-auto p-4">
             <ul className="list-disc space-y-2 ps-5">
-              {review?.items.map((item) => <li key={item.id}><strong>{item.label}</strong> — {item.id === "invest" && missingInvestCredentials.length ? "When connected, customers can buy investments." : item.effect}</li>)}
+              {review?.items.map((item) => <li key={item.id}><strong>{item.label}</strong> → {item.state} — {item.id === "invest" && item.turnsOn && missingInvestCredentials.length ? "When connected, customers can buy investments." : item.effect}</li>)}
             </ul>
             {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
           </div>
           <DrawerFooter className="flex-row justify-end">
-            <Button size="touch" loading={pending} disabled={!review} onClick={() => { if (review) void save(review.draft); }}>Turn on</Button>
+            <Button size="touch" loading={pending} disabled={!review} onClick={() => { if (review) void save(review.draft); }}>Save changes</Button>
             <Button ref={cancelButton} variant="outline" size="touch" disabled={pending} onClick={() => setReviewOpen(false)}>Cancel</Button>
           </DrawerFooter>
         </DrawerContent>
