@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import { LoadErrorCard } from "@/components/load-error";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/empty-state";
@@ -18,6 +18,7 @@ import type { RegionId } from "@/config/regions";
 import { mergeActivityFeed, type ActivityFeedItem } from "./activity-feed";
 import { activitySourcesAttribute, sourceReadiness, transfersReadiness } from "./activity-sources";
 import { retainActivityRows } from "./retained-activity";
+import { localActivitySourceRetention, type ActivitySourceRetention, type RetainedActivitySources } from "./retained-activity-sources";
 import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
@@ -27,6 +28,11 @@ const ActivityLedgerSheet = deferSheet(() => import("./activity-ledger-sheet").t
 const EMPTY_TRANSFERS: readonly ActivityTransfer[] = [];
 const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
 const EMPTY_ORDERS: readonly ActivityOrder[] = [];
+const EMPTY_SOURCES: RetainedActivitySources = { operations: EMPTY_OPERATIONS, orders: EMPTY_ORDERS };
+
+function sameRows<T>(left: readonly T[], right: readonly T[]) {
+  return left.length === right.length && left.every((row, index) => row === right[index]);
+}
 
 export function ActivityPanelView({
   quietLoading = false,
@@ -61,6 +67,7 @@ export function ActivityPanelView({
   onOpenAsset,
   restoreDetailsRequest = 0,
   suspendDetailsRequest = 0,
+  sourceRetention,
 }: {
   quietLoading?: boolean;
   activity: UseActivityResult;
@@ -94,20 +101,23 @@ export function ActivityPanelView({
   onOpenAsset?: (assetKey: string) => boolean;
   restoreDetailsRequest?: number;
   suspendDetailsRequest?: number;
+  sourceRetention?: ActivitySourceRetention;
 }) {
   const retentionOwner = activity.ownerKey ?? (activity.status === "ready" ? activity.page.walletAddress : null);
-  const [retainedSources, setRetainedSources] = useState({ owner: retentionOwner, regionId, operations: nextOperations, orders: nextOrders });
-  const sameScope = retainedSources.owner === retentionOwner && retainedSources.regionId === regionId;
-  const operations = useMemo(() => sameScope
-    ? retainActivityRows(retainedSources.operations, nextOperations, (row) => row.action.id, actionsStatus === "ready" && !actionsFailed)
-    : nextOperations, [sameScope, retainedSources.operations, nextOperations, actionsStatus, actionsFailed]);
-  const orders = useMemo(() => sameScope
-    ? retainActivityRows(retainedSources.orders, nextOrders, (row) => row.id, ordersStatus === "ready" && !ordersFailed)
-    : nextOrders, [sameScope, retainedSources.orders, nextOrders, ordersStatus, ordersFailed]);
-  if (!sameScope || operations.length !== retainedSources.operations.length || operations.some((row, index) => row !== retainedSources.operations[index]) ||
-    orders.length !== retainedSources.orders.length || orders.some((row, index) => row !== retainedSources.orders[index])) {
-    setRetainedSources({ owner: retentionOwner, regionId, operations, orders });
-  }
+  const retentionScope = sourceRetention?.scope ?? `${retentionOwner ?? ""}\u0000${regionId}`;
+  const localRetention = useMemo(() => localActivitySourceRetention(retentionScope), [retentionScope]);
+  const retention = sourceRetention ?? localRetention;
+  const stored = useSyncExternalStore(retention.subscribe, retention.read, retention.read) ?? EMPTY_SOURCES;
+  const actionsRetainable = actionsStatus === "ready" && !actionsFailed;
+  const ordersRetainable = ordersStatus === "ready" && !ordersFailed;
+  const operations = useMemo(() => {
+    const rows = retainActivityRows(stored.operations, nextOperations, (row) => row.action.id, actionsRetainable);
+    return sameRows(rows, stored.operations) ? stored.operations : rows;
+  }, [stored.operations, nextOperations, actionsRetainable]);
+  const orders = useMemo(() => {
+    const rows = retainActivityRows(stored.orders, nextOrders, (row) => row.id, ordersRetainable);
+    return sameRows(rows, stored.orders) ? stored.orders : rows;
+  }, [stored.orders, nextOrders, ordersRetainable]);
   const [revealed, setRevealed] = useState(false);
   const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem; opener: HTMLElement | null } | null>(() => initialDetailItem
     ? { key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem, opener: null } : null);
@@ -188,12 +198,15 @@ export function ActivityPanelView({
       : pendingWindowEnd
     : null, [transfers, pendingWindowEnd]);
   const cards = activity.status === "ready" ? activity.page.cards?.rows : undefined;
-  const [eligibility, setEligibility] = useState({ owner: retentionOwner, regionId, ids: new Set<string>() });
+  const [eligibility, setEligibility] = useState(() => ({ owner: retentionOwner, regionId, ids: new Set<string>(stored.presented) }));
   const presentedIds = eligibility.owner === retentionOwner && eligibility.regionId === regionId ? eligibility.ids : undefined;
   const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, cards, loadedThrough, presentedIds }), [transfers, operations, orders, cards, loadedThrough, presentedIds]);
-  if (!presentedIds || feed.some((row) => !presentedIds.has(`${row.kind}:${row.id}`))) {
-    setEligibility({ owner: retentionOwner, regionId, ids: new Set([...(presentedIds ?? []), ...feed.map((row) => `${row.kind}:${row.id}`)]) });
+  if (!presentedIds || feed.some((row) => !presentedIds.has(`${row.kind}:${row.id}`)) || [...stored.presented ?? []].some((id) => !presentedIds.has(id))) {
+    setEligibility({ owner: retentionOwner, regionId, ids: new Set([...(presentedIds ?? []), ...stored.presented ?? [], ...feed.map((row) => `${row.kind}:${row.id}`)]) });
   }
+  useEffect(() => {
+    retention.write({ operations, orders, presented: presentedIds });
+  }, [retention, operations, orders, presentedIds]);
   const [clock, setClock] = useState(0);
   useEffect(() => {
     const now = Date.now();

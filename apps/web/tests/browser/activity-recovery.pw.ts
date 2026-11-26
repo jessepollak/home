@@ -4,6 +4,7 @@ import { requestBackgroundRevalidation } from "./fixtures/background-revalidatio
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { expectNavigation } from "./fixtures/navigation-budget";
+import { activityOrdersFixture } from "./feature-map/fixtures";
 
 const wallet = sessionBody.smartAccount.address;
 const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -686,4 +687,79 @@ test("an owner switch drops retained transfers and card purchases", async ({ pag
   await expect(feed.getByText("No activity yet", { exact: true })).toBeVisible();
   await expect(rows).toHaveCount(0);
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(0);
+});
+
+test("a panel mounted after a shorter orders read shows the rows the first panel kept", async ({ page }) => {
+  await setup(page);
+  const createdAt = new Date(FIXED_NOW - 5 * 60_000).toISOString();
+  const action = (id: string, title: string) => ({
+    id,
+    provider: "cdp-embedded",
+    kind: "send",
+    summary: { title, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }], warnings: [], expiresAt: createdAt },
+    status: "confirmed",
+    createdAt,
+    confirmedAt: createdAt,
+    owner: { subject: sessionBody.user.subject, address: wallet, chainId: 8453, accountProvider: sessionBody.accountProvider },
+  });
+  const allOrders = activityOrdersFixture();
+  let shorter = false;
+  let shorterOrderReads = 0;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [
+    action("11111111-1111-4111-8111-111111111112", "Fixture send"),
+    action("11111111-1111-4111-8111-111111111113", "Second send"),
+  ] }));
+  await page.route("**/api/activity/orders", (route) => {
+    if (shorter) shorterOrderReads += 1;
+    return json(route, { ...allOrders, orders: shorter ? allOrders.orders.slice(0, 1) : allOrders.orders });
+  });
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    return url.pathname === "/api/activity" ? json(route, activityResponse(url, false)) : route.fallback();
+  });
+  const activity = page.locator("#navigation-panel [data-activity-sources]");
+  const items = activity.getByRole("button", { name: /^(Add money|Cash out|Received|Sent|Fixture send|Second send|Fixture Coffee)/ });
+  await page.goto("/activity");
+  await expect(items).toHaveCount(11);
+  const before = await items.allTextContents();
+  shorter = true;
+  await expect.poll(async () => {
+    await page.clock.runFor(1_000);
+    return shorterOrderReads;
+  }, { timeout: 30_000 }).toBeGreaterThan(0);
+  await expect(items).toHaveText(before);
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).click();
+  await expectNavigation(page, /\/home$/);
+  await expect(items).toHaveText(before);
+});
+
+test("a panel mounted after an order settles behind the loaded boundary still shows the order the first panel showed", async ({ page }) => {
+  await setup(page);
+  const [pending] = activityOrdersFixture().orders;
+  if (!pending || pending.kind !== "funding") throw new Error("Pending funding fixture is missing");
+  const settledAt = new Date(FIXED_NOW - 2 * 3_600_000).toISOString();
+  const settled = { ...pending, status: "confirmed" as const, stage: "received" as const, instruction: null, resumable: false, updatedAt: settledAt, movedAt: settledAt };
+  let settledReads = 0;
+  await page.route("**/api/activity/orders", (route) => {
+    if (settledReads > 0) settledReads += 1;
+    return json(route, { ...activityOrdersFixture(), orders: [settledReads > 0 ? settled : pending] });
+  });
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    if (url.searchParams.has("cursor")) return new Promise<void>(() => {});
+    return json(route, { ...activityResponse(url, false), nextCursor: "next-page" });
+  });
+  const orders = page.locator("#navigation-panel [data-activity-sources]").getByRole("button", { name: /^Add money/ });
+  await page.goto("/activity");
+  await expect(orders).toHaveCount(1);
+  settledReads = 1;
+  await expect.poll(async () => {
+    await page.clock.runFor(1_000);
+    return settledReads;
+  }, { timeout: 30_000 }).toBeGreaterThan(1);
+  await expect(orders).toHaveCount(1);
+  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).click();
+  await expectNavigation(page, /\/home$/);
+  await expect(orders).toHaveCount(1);
 });
