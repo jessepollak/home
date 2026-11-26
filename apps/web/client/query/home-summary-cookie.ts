@@ -8,7 +8,9 @@ function cookieOwner(): string | null {
     if (value === undefined) return markerOwner();
     if (value.length > 3_500) return null;
     const record: unknown = JSON.parse(decodeURIComponent(value));
-    return record && typeof record === "object" && "owner" in record && typeof record.owner === "string" ? record.owner : null;
+    const owner = record && typeof record === "object" && "owner" in record && typeof record.owner === "string" ? record.owner : null;
+    if (owner && markerOwner() !== owner) setMarker(owner);
+    return owner;
   } catch { return null; }
 }
 

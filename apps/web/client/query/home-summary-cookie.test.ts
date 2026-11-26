@@ -47,6 +47,12 @@ test("a same-owner boundary off Home keeps the invisible display cookie and anot
   clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage, "a");
   window.history.replaceState(null, "", "/home");
   expect(document.cookie).toContain(homeSummaryCookieName);
+  window.localStorage.removeItem(`${homeSummaryCookieName}.owner`);
+  clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage, "a");
+  window.history.replaceState(null, "", "/invest");
+  clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage, "a");
+  window.history.replaceState(null, "", "/home");
+  expect(document.cookie).toContain(homeSummaryCookieName);
   window.history.replaceState(null, "", "/invest");
   clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage, "b");
   window.history.replaceState(null, "", "/home");
