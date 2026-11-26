@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { Client } from "pg";
 import { parseBrandSettingsResponse } from "../../shared/operator-branding/contract";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest } from "../../shared/operator-settings/contract";
 import { homeSessionToken } from "./fixtures/session";
@@ -32,6 +33,13 @@ async function brandAudit(context: BrowserContext) {
   return audit.entries.filter((entry) => entry.target.id === "brand");
 }
 
+async function resetSavedBrand() {
+  const client = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5_000 });
+  await client.connect();
+  try { await client.query("DELETE FROM operator_settings WHERE domain = 'brand'"); }
+  finally { await client.end(); }
+}
+
 async function expectOperatorReady(page: Page) {
   await expect(page.locator("[data-operator-ready=true]")).toBeVisible({ timeout: 15_000 });
 }
@@ -56,16 +64,22 @@ async function fillAndExpectPreview(page: Page, values: Parameters<typeof fill>[
 }
 
 async function save(page: Page, operator: string, revision: number) {
-  const pending = page.waitForResponse((response) => new URL(response.url()).pathname === settingsPath && response.request().method() === "PUT");
+  const sent = page.waitForRequest((request) => new URL(request.url()).pathname === settingsPath && request.method() === "PUT", { timeout: 10_000 }).catch(() => null);
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  const response = await pending;
+  const request = await sent;
+  const form = page.locator("[data-brand-settings]");
+  if (!request) throw new Error(`Save sent no PUT within 10 s; the form shows status "${await form.getByRole("status").first().textContent()}" and alerts "${(await form.getByRole("alert").allTextContents()).join(" | ")}".`);
+  const response = await request.response();
+  if (!response) throw new Error(`The Save PUT got no response: ${request.failure()?.errorText ?? "unknown failure"}.`);
   expect(parsePutSettingsRequest(response.request().postDataJSON())).toMatchObject({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, operator, expectedRevision: revision });
   return response;
 }
 
 test("Brand edits persist, apply to a fresh customer page and never overwrite silently", { tag: "@smoke" }, async ({ page, context }) => {
   test.setTimeout(120_000);
+  await resetSavedBrand();
   await setSession(context, admin);
+  const auditBaseline = (await brandAudit(context)).length;
   const puts: string[] = [];
   page.on("request", (request) => { if (new URL(request.url()).pathname === settingsPath && request.method() === "PUT") puts.push(request.url()); });
 
@@ -102,7 +116,7 @@ test("Brand edits persist, apply to a fresh customer page and never overwrite si
     const stored = await readBrand(context);
     expect(stored).toMatchObject({ source: "stored", revision: 1, updatedBy: admin, value: { displayName: "Acme Money", description: "Money for Acme customers.", primaryColor: "#0b6b3a", backgroundColor: "#f5f8f2" } });
     const audit = await brandAudit(context);
-    expect(audit).toHaveLength(1);
+    expect(audit).toHaveLength(auditBaseline + 1);
     expect(audit[0]).toMatchObject({ actor: admin, action: "settings.update", after: stored.value });
     await page.reload();
     await expectOperatorReady(page);
