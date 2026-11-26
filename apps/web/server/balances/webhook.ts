@@ -51,30 +51,25 @@ export function createCdpWebhookHandler(dependencies: {
   return async function handleCdpWebhook(raw: Uint8Array, signatureHeader: string | null, headers: Headers = new Headers()): Promise<Response> {
     const startedAt = Date.now();
     const current = now();
+    const verifies = (records: ReadonlyArray<{ secret: string }>) =>
+      records.some((record) => verifyCdpWebhookSignature(raw, signatureHeader, record.secret, current, headers));
+    let verified = verifies(await subscriptions());
+    if (
+      !verified &&
+      hasFreshSignatureHeader(signatureHeader, current) &&
+      current.getTime() - lastForcedListAt >= SUBSCRIPTION_CACHE_MS
+    ) {
+      lastForcedListAt = current.getTime();
+      verified = verifies(await subscriptions(true));
+    }
+    if (!verified) {
+      observe("rejected", "WEBHOOK_SIGNATURE_REJECTED", startedAt);
+      return Response.json({ accepted: false }, { status: 401 });
+    }
     let payload: unknown = null;
     try {
       payload = JSON.parse(new TextDecoder().decode(raw)) as unknown;
     } catch {
-    }
-
-    let records = await subscriptions();
-    const identified = isRecord(payload) ? readSubscriptionId(payload) : null;
-    let matches = identified
-      ? records.filter((record) => record.subscriptionId === identified)
-      : records;
-    if (
-      identified &&
-      matches.length === 0 &&
-      current.getTime() - lastForcedListAt >= SUBSCRIPTION_CACHE_MS
-    ) {
-      lastForcedListAt = current.getTime();
-      records = await subscriptions(true);
-      matches = records.filter((record) => record.subscriptionId === identified);
-    }
-    const candidates = matches.length > 0 ? matches : records;
-    if (candidates.length === 0 || !candidates.some((record) => verifyCdpWebhookSignature(raw, signatureHeader, record.secret, current, headers))) {
-      observe("rejected", "WEBHOOK_SIGNATURE_REJECTED", startedAt);
-      return Response.json({ accepted: false }, { status: 401 });
     }
     if (!isRecord(payload)) {
       observe("rejected", "WEBHOOK_BODY_REJECTED", startedAt);
@@ -174,11 +169,9 @@ function parseSignatureHeader(header: string | null): { timestamp: number; heade
   return timestamp !== null && Number.isSafeInteger(timestamp) && (v0 !== null || v1.length > 0) ? { timestamp, headerNames, v0, v1 } : null;
 }
 
-function readSubscriptionId(payload: Record<string, unknown>): string | null {
-  for (const key of ["subscriptionId", "subscription_id"]) {
-    if (typeof payload[key] === "string" && payload[key].length <= 256) return payload[key];
-  }
-  return null;
+function hasFreshSignatureHeader(header: string | null, now: Date): boolean {
+  const parsed = parseSignatureHeader(header);
+  return parsed !== null && Math.abs(Math.floor(now.getTime() / 1000) - parsed.timestamp) <= SIGNATURE_MAX_AGE_SECONDS;
 }
 
 function readEventType(payload: Record<string, unknown>): string | null {

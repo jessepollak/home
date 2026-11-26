@@ -84,6 +84,7 @@
     { "pattern": "server/funding/core/quote-token.test.ts", "category": "auth" },
     { "pattern": "server/funding/core/service.test.ts", "category": "action-lifecycle" },
     { "pattern": "server/funding/core/user-token-{rotation,service,store}.test.ts", "category": "auth" },
+    { "pattern": "server/funding/core/webhook-delivery.test.ts", "category": "money-path-provider-failure" },
     { "pattern": "server/funding/providers/**/adapter.test.ts", "category": "money-path-provider-failure" },
     { "pattern": "server/funding/providers/peer/offramp-progress.test.ts", "category": "action-lifecycle" },
     { "pattern": "server/funding/providers/ripio/client.test.ts", "category": "money-path-provider-failure" },
