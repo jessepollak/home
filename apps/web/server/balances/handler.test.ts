@@ -375,8 +375,14 @@ describe("balances handler", () => {
       { name: "missing net sign", original: complete, change: (wire) => {
         Reflect.deleteProperty(wire.totals.net, "negative");
       } },
-      { name: "partial total status", original: complete, change: (wire) => {
-        Object.assign(wire.total, { status: "partial" });
+      { name: "partial total without value", original: complete, change: (wire) => {
+        Object.assign(wire.total, { status: "partial", value: null });
+      } },
+      { name: "partial net without currency", original: complete, change: (wire) => {
+        Object.assign(wire.totals.net, { status: "partial", currency: null });
+      } },
+      { name: "unknown total status", original: complete, change: (wire) => {
+        Object.assign(wire.total, { status: "incomplete" });
       } },
     ];
     for (const { name, original, change, detail } of mutations) {

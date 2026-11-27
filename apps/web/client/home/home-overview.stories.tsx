@@ -785,6 +785,27 @@ export const PendingCashoutReturnedGb: Story = {
   play: expectPendingCashout("£142.57", null),
 };
 
+const pendingRateUnavailableSnapshot = buildBalancesSnapshotFixture({
+  region: "BR",
+  currency: "BRL",
+  registry: {
+    usdc: { balance: ready("0"), value: { status: "unpriced", reason: "fx-unavailable" }, cashValue: { status: "unpriced", reason: "fx-unavailable" } },
+  },
+});
+
+export const PendingCashoutRateUnavailable: Story = {
+  args: pendingCashoutArgs("waiting", pendingRateUnavailableSnapshot),
+  play: async ({ canvasElement }) => {
+    const hero = within(canvasElement).getByLabelText("Total balance");
+    const allocation = within(hero).getByRole("list", { name: "Balance allocation" });
+    await expect(within(hero).getAllByText("Value unavailable").filter((marker) => !allocation.contains(marker))).toHaveLength(1);
+    const item = hero.querySelector<HTMLElement>("[data-pending-cash-out]");
+    if (!item) throw new Error("Pending cash-out line is missing");
+    await expect(within(item).getByRole("button", { name: /Pending cash-out/ })).toBeVisible();
+    await expect(within(item).getByText("Value unavailable")).toBeInTheDocument();
+  },
+};
+
 async function expectThreeActions({ canvasElement, args }: { canvasElement: HTMLElement; args: HomeOverviewStoryProps }) {
   const actions = within(within(canvasElement).getByRole("group", { name: "Money actions" }));
   const labels = args.actionLabels ?? ["Add money", "Cash out", "Send"];

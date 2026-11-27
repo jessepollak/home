@@ -9,7 +9,7 @@ import {
 } from "./fixtures";
 import { exactDecimalToFraction } from "./math";
 import { computeBalancesTotals } from "./totals";
-import type { BalancesBorrow, BalancesTotal, BorrowMarketKey } from "./types";
+import type { BalancesBorrow, BalancesTotal, BorrowMarketKey, HoldingValue } from "./types";
 
 const SECOND_MARKET = `0x${"ab".repeat(32)}` as BorrowMarketKey;
 
@@ -138,9 +138,9 @@ describe("balances net totals", () => {
         debtBaseUnits: "30000000", debtValue: { status: "unpriced", reason: "fx-unavailable" },
       })],
     });
-    expect(result.borrow.status).toBe("complete");
+    expect(result.borrow.status).toBe("partial");
     expect(cents(result.borrow)).toBe("0");
-    expect(result.net.status).toBe("complete");
+    expect(result.net.status).toBe("partial");
     expect(cents(result.net)).toBe("15000");
   });
 
@@ -154,9 +154,11 @@ describe("balances net totals", () => {
       collateralBaseUnits: "100000", collateralValue: { status: "unpriced", reason: "price-unavailable" },
       debtBaseUnits: "10000000", debtValue: priced("USD", "1000"),
     })] });
+    expect(result.cash.status).toBe("partial");
     expect(cents(result.cash)).toBe("0");
+    expect(result.investments.status).toBe("complete");
     expect(cents(result.investments)).toBe("700");
-    expect(result.net.status).toBe("complete");
+    expect(result.net.status).toBe("partial");
     expect(result.net.negative).toBe(true);
     expect(cents(result.net)).toBe("300");
   });
@@ -203,5 +205,48 @@ describe("balances net totals", () => {
       expect(total).toMatchObject({ status: "no-quote-currency", value: null, currency: null });
     }
     expect(result.net.negative).toBe(false);
+  });
+
+  describe("missing exchange rate", () => {
+    const missingRate: HoldingValue = { status: "unpriced", reason: "fx-unavailable" };
+
+    test("priced-only sums are partial and the net inherits it", () => {
+      const snapshot = buildBalancesSnapshotFixture({ region: "BR", currency: "BRL", registry: {
+        usdc: { balance: ready("1"), value: missingRate },
+        cbbtc: { balance: ready("1"), value: priced("BRL", "30000") },
+      } });
+      const result = totals(snapshot);
+      expect(result.cash).toMatchObject({ status: "partial", currency: "BRL" });
+      expect(cents(result.cash)).toBe("0");
+      expect(result.investments.status).toBe("complete");
+      expect(result.borrow.status).toBe("complete");
+      expect(result.net.status).toBe("partial");
+      expect(cents(result.net)).toBe("30000");
+    });
+
+    test("an unpriced collateral or debt leg makes its component partial", () => {
+      const snapshot = buildBalancesSnapshotFixture({ region: "BR", currency: "BRL" });
+      const collateral = totals(snapshot, { positions: [borrowPosition({
+        collateralBaseUnits: "1", collateralValue: missingRate, debtBaseUnits: "0", debtValue: priced("BRL", "0"),
+      })] });
+      expect(collateral.investments.status).toBe("partial");
+      expect(collateral.borrow.status).toBe("complete");
+      const debt = totals(snapshot, { positions: [borrowPosition({
+        collateralBaseUnits: "0", collateralValue: priced("BRL", "0"), debtBaseUnits: "1", debtValue: missingRate,
+      })] });
+      expect(debt.borrow.status).toBe("partial");
+      expect(debt.net.status).toBe("partial");
+    });
+
+    test("zero balances and other unpriced reasons do not make totals partial", () => {
+      const snapshot = buildBalancesSnapshotFixture({ region: "BR", currency: "BRL", registry: {
+        usdc: { balance: ready("0"), value: missingRate },
+        eth: { balance: ready("1"), value: { status: "unpriced", reason: "price-unavailable" } },
+      } });
+      const result = totals(snapshot);
+      for (const total of [result.cash, result.investments, result.borrow, result.net]) {
+        expect(total.status).toBe("complete");
+      }
+    });
   });
 });

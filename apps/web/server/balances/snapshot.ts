@@ -9,12 +9,7 @@ import {
   type BalancesSnapshot,
   type Holding,
 } from "@/shared/balances/types";
-import {
-  addFractions,
-  exactDecimalToFraction,
-  roundFractionPreservingPositive,
-} from "@/shared/balances/math";
-import { computeBalancesTotals } from "@/shared/balances/totals";
+import { computeBalancesTotals, computeGrossTotal } from "@/shared/balances/totals";
 import type { BalancesRead } from "./types";
 
 export function assembleBalancesSnapshot({
@@ -34,15 +29,7 @@ export function assembleBalancesSnapshot({
   borrow: BalancesBorrow;
   stale?: boolean;
 }): BalancesSnapshot {
-  const total: BalancesSnapshot["total"] = quoteCurrency === null
-    ? { status: "no-quote-currency", value: null, currency: null }
-    : {
-        status: "complete",
-        value: roundFractionPreservingPositive(addFractions(holdings.flatMap((holding) =>
-          holding.value.status === "priced" ? [exactDecimalToFraction(holding.value.amount)] : [],
-        ))),
-        currency: quoteCurrency,
-      };
+  const total: BalancesSnapshot["total"] = computeGrossTotal({ quoteCurrency, holdings });
 
   return {
     version: BALANCES_VERSION,

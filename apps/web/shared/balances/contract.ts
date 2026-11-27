@@ -148,19 +148,19 @@ const positionSchema = z.object({
 const borrowSchema = z.object({ positions: z.array(positionSchema) })
   .check(z.refine((borrow) => new Set(borrow.positions.map((p) => p.marketId)).size === borrow.positions.length));
 const totalSchema = z.object({
-  status: z.enum(["complete", "no-quote-currency"]),
+  status: z.enum(["complete", "partial", "no-quote-currency"]),
   value: z.nullable(decimalSchema), currency: nullableCurrencySchema,
 }).check(z.refine((total) =>
-  total.status === "complete"
-    ? total.value !== null && total.currency !== null
-    : total.value === null && total.currency === null));
+  total.status === "no-quote-currency"
+    ? total.value === null && total.currency === null
+    : total.value !== null && total.currency !== null));
 const netSchema = z.object({
   status: totalSchema.shape.status, value: totalSchema.shape.value, currency: totalSchema.shape.currency,
   negative: z.boolean(),
 }).check(z.refine((net) =>
-  (net.status === "complete"
-    ? net.value !== null && net.currency !== null
-    : net.value === null && net.currency === null) &&
+  (net.status === "no-quote-currency"
+    ? net.value === null && net.currency === null
+    : net.value !== null && net.currency !== null) &&
   (net.value !== null || !net.negative)));
 const totalsSchema = z.object({ cash: totalSchema, investments: totalSchema, borrow: totalSchema, net: netSchema });
 

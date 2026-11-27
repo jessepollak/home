@@ -25,7 +25,7 @@ const presentationSchema = z.object({
 const rateSchema = z.object({ value: z.nullable(text), updatedAt: z.number() });
 export type HomeRateObservation = { value: string | null; updatedAt: number; pending: boolean };
 export type HomeRateLabels = { cash?: { value: string | null; updatedAt: number }; borrow?: { value: string | null; updatedAt: number } };
-const schema = z.object({ version: z.literal(5), currency: z.nullable(text), owner: z.string().check(z.maxLength(200)), region: text, updatedAt: z.number(), presentation: presentationSchema, rates: z.optional(z.object({ cash: z.optional(rateSchema), borrow: z.optional(rateSchema) })) });
+const schema = z.object({ version: z.literal(6), currency: z.nullable(text), owner: z.string().check(z.maxLength(200)), region: text, updatedAt: z.number(), presentation: presentationSchema, rates: z.optional(z.object({ cash: z.optional(rateSchema), borrow: z.optional(rateSchema) })) });
 const maxCharacters = 8 * 1024;
 
 export type HomeSummaryRecord = z.infer<typeof schema>;

@@ -2,7 +2,7 @@
 import type { PresentationScope } from "@/shared/account/display-currency";
 import type { BalancesSnapshot } from "./contract";
 
-export const BALANCES_VERSION = 7 as const;
+export const BALANCES_VERSION = 8 as const;
 export const BALANCES_CHAIN_ID = 8453 as const;
 export const BALANCES_PRICE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 

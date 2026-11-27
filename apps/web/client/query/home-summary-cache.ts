@@ -50,7 +50,7 @@ export function writeHomeRateLabels(storage: Pick<Storage, "getItem" | "setItem"
 export function writeHomeSummary(storage: Pick<Storage, "setItem"> & Partial<Pick<Storage, "getItem">>, owner: string, region: RegionId, currency: FiatCurrencyCode | null, updatedAt: number, presentation: HomeBalancesPresentation): boolean {
   if (!isSafeQueryIdentity(owner) || !Number.isFinite(updatedAt) || updatedAt <= 0 || updatedAt > Date.now()) return false;
   const rates = storage.getItem ? readHomeRateLabels({ getItem: storage.getItem.bind(storage) }, owner, region, currency) : undefined;
-  const parsed = parseHomeSummaryRecord(JSON.stringify({ version: 5, owner, region, currency, updatedAt, presentation, rates }), owner, region, currency);
+  const parsed = parseHomeSummaryRecord(JSON.stringify({ version: 6, owner, region, currency, updatedAt, presentation, rates }), owner, region, currency);
   if (!parsed) return false;
   try {
     const value = JSON.stringify(parsed);
