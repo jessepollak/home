@@ -1,7 +1,8 @@
+import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { ActionsStore } from "@/server/actions/store";
-import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
+import { createPostgresSqlExecutor, type SqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
 import { readOperatorRevenue } from "@/server/fees/revenue";
 import { readOperatorConfig } from "@/server/operator/config";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
@@ -32,8 +33,23 @@ function exportRequest(body: unknown) {
   });
 }
 
-function handler(address: `0x${string}`) {
-  return createMoneyExportHandler({ authorize: async () => session(address), config: () => readOperatorConfig({ HOME_OPERATOR_ADDRESSES: admin }), sql: () => sql });
+function handler(address: `0x${string}`, executor: () => SqlExecutor = () => sql) {
+  return createMoneyExportHandler({ authorize: async () => session(address), config: () => readOperatorConfig({ HOME_OPERATOR_ADDRESSES: admin }), sql: executor });
+}
+
+function beforeAuditWrite(interleave: () => Promise<void>): SqlExecutor {
+  let ran = false;
+  const hooked = (executor: SqlExecutor): SqlExecutor["query"] => async <T,>(text: string, values?: unknown[], options?: SqlQueryOptions) => {
+    if (!ran && text.includes("INSERT INTO admin_audit_log")) {
+      ran = true;
+      await interleave();
+    }
+    return executor.query<T>(text, values, options);
+  };
+  return {
+    query: hooked(sql),
+    transaction: (fn, options) => sql.transaction((tx) => fn({ ...tx, query: hooked(tx) }), options),
+  };
 }
 
 async function feeAction(amountBaseUnits: string, recordedAt: string): Promise<string> {
@@ -68,7 +84,7 @@ describePostgres("admin money movements and export", () => {
       await transaction.unsafe(`SET LOCAL search_path TO ${schema}`);
       for (const migration of await readAllMigrationSql()) await transaction.unsafe(migration);
     });
-    sql = createPostgresSqlExecutor(connectionString, { schema });
+    sql = createPostgresSqlExecutor(connectionString, { poolFactory: (config) => new Pool({ ...config, options: `-c search_path=${schema}` }) });
     store = new ActionsStore(sql);
   }, MIGRATION_BOOTSTRAP_TIMEOUT_MS);
   beforeEach(async () => { await sql.query("TRUNCATE actions CASCADE"); });
@@ -150,17 +166,49 @@ describePostgres("admin money movements and export", () => {
     expect(seen.at(-1)).toBe(`fee:${ids[4]}`);
   });
 
-  test("an export larger than one batch returns every row in the range, with the rate on each fee", async () => {
-    await bulkFees(50_001, "2026-03-05T00:00:00Z");
-    await feeAction("7", "2026-03-04T00:00:00Z");
-    const response = await handler(admin)(exportRequest({ version: 1, from: "2026-03-05", to: null }));
+  test("the file and its audit count come from one snapshot: a fee committed mid-export and a deleted newest action change neither", async () => {
+    const older = await feeAction("1000000", "2026-03-01T12:00:00Z");
+    const newest = await feeAction("2000000", "2026-03-02T12:00:00Z");
+    let late = "";
+    const response = await handler(admin, () => beforeAuditWrite(async () => {
+      late = await feeAction("3000000", "2026-03-03T12:00:00Z");
+      await sql.query("DELETE FROM actions WHERE id = $1", [newest]);
+    }))(exportRequest({ version: 1, from: null, to: null }));
     expect(response.status).toBe(200);
-    const lines = (await response.text()).trimEnd().split("\r\n");
+    const rows = (await response.text()).trimEnd().split("\r\n").slice(1);
+    expect(rows.map((line) => line.split(",")[2])).toEqual(["2", "1"]);
+    expect((await audits()).at(-1)?.after).toEqual({ from: null, to: null, rows: 2 });
+    expect(late).not.toBe("");
+    expect((await listMoneyMovements(sql, { range: { from: null, to: null }, limit: 10 })).rows.map((row) => row.id)).toEqual([`fee:${late}`, `fee:${older}`]);
+  });
+
+  test("an export above 25,000 rows returns 422 without an audit entry, and a shorter range still exports every row", async () => {
+    await bulkFees(25_000, "2026-03-05T00:00:00Z");
+    await feeAction("7", "2026-03-04T00:00:00Z");
+    const before = (await audits()).length;
+    const whole = await handler(admin)(exportRequest({ version: 1, from: null, to: null }));
+    expect(whole.status).toBe(422);
+    expect(parseAdminMoneyErrorResponse(await whole.json())).toEqual({ error: { code: "EXPORT_TOO_LARGE" } });
+    expect((await audits()).length).toBe(before);
+    const ranged = await handler(admin)(exportRequest({ version: 1, from: "2026-03-05", to: null }));
+    expect(ranged.status).toBe(200);
+    const lines = (await ranged.text()).trimEnd().split("\r\n");
     expect(lines[0]).toBe("date,category,amount_usdc,rate_bps,customer_id,payout_address,transaction_hash,status");
-    expect(lines).toHaveLength(50_002);
+    expect(lines).toHaveLength(25_001);
     expect(lines.slice(1).every((line) => line.startsWith("2026-03-05T00:00:00.000Z,fee,0.001,50,"))).toBe(true);
-    expect((await audits()).at(-1)?.after).toEqual({ from: "2026-03-05", to: null, rows: 50_001 });
+    expect((await audits()).at(-1)?.after).toEqual({ from: "2026-03-05", to: null, rows: 25_000 });
   }, 60_000);
+
+  test("an Older link still reaches older movements after its boundary movement is deleted", async () => {
+    const oldest = await feeAction("1", "2026-03-01T10:00:00Z");
+    const boundary = await feeAction("2", "2026-03-01T11:00:00Z");
+    await feeAction("3", "2026-03-01T12:00:00Z");
+    const first = await listMoneyMovements(sql, { range: { from: null, to: null }, limit: 2 });
+    expect(first.rows.at(-1)?.id).toBe(`fee:${boundary}`);
+    await sql.query("DELETE FROM actions WHERE id = $1", [boundary]);
+    const older = await listMoneyMovements(sql, { range: { from: null, to: null }, limit: 2, before: first.next });
+    expect(older).toEqual({ rows: [expect.objectContaining({ id: `fee:${oldest}` })], next: null });
+  });
 
   test("a payout signer or customer who is not an administrator cannot export and leaves no audit entry", async () => {
     await feeAction("1000000", "2026-03-01T12:00:00Z");
