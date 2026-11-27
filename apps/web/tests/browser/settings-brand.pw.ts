@@ -2,8 +2,9 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { parseBrandSettingsResponse } from "../../shared/operator-branding/contract";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest } from "../../shared/operator-settings/contract";
+import { brandCopyName } from "../../shared/operator-branding/theme";
 import { homeSessionToken } from "./fixtures/session";
-import { expectNavigation } from "./fixtures/navigation-budget";
+import { READINESS_BUDGET_MS, expectNavigation } from "./fixtures/navigation-budget";
 
 const admin = "0x1111111111111111111111111111111111111111";
 const secondAdmin = "0x3333333333333333333333333333333333333333";
@@ -79,7 +80,9 @@ async function save(page: Page, operator: string, revision: number) {
   if (!request) {
     const statuses = await form.getByRole("status").allTextContents().catch(() => []);
     const alerts = await form.getByRole("alert").allTextContents().catch(() => []);
-    throw new Error(`Save was clicked but sent no PUT within 10 s: the form shows statuses "${statuses.join(" | ")}", alerts "${alerts.join(" | ")}" and ${await page.locator("form[data-brand-settings]").count()} brand form(s) in the document.`);
+    const unchanged = statuses.some((text) => text.includes("No changes to save."));
+    const cause = unchanged ? "the form judged the draft identical to the saved brand, so the brand was already saved by an earlier attempt or test" : "the form showed no reason";
+    throw new Error(`Save was clicked but sent no PUT within 10 s (${cause}): the form shows statuses "${statuses.join(" | ")}", alerts "${alerts.join(" | ")}" and ${await page.locator("form[data-brand-settings]").count()} brand form(s) in the document.`);
   }
   const response = await request.response();
   if (!response) throw new Error(`The Save PUT got no response: ${request.failure()?.errorText ?? "unknown failure"}.`);
@@ -214,6 +217,7 @@ const logoPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0l
 
 test("logo, terms and privacy accept https only, and a logo that fails to load falls back to the Home mark", { tag: "@smoke" }, async ({ page, context }) => {
   test.setTimeout(90_000);
+  await resetSavedBrand();
   await setSession(context, admin);
   await page.route("https://brand.test/**", (route) => new URL(route.request().url()).pathname === "/logo.png"
     ? route.fulfill({ status: 200, contentType: "image/png", body: logoPng })
@@ -238,9 +242,9 @@ test("logo, terms and privacy accept https only, and a logo that fails to load f
   expect(saved).toMatchObject({ revision: before.revision + 1, value: { ...before.value, logoUrl: "https://brand.test/logo.png", termsUrl: "https://brand.test/terms", privacyUrl: "https://brand.test/privacy" } });
 
   await page.goto("/access");
-  await expect(page.getByText(saved.value.displayName, { exact: true })).toBeVisible();
+  await expect(page.getByText(saved.value.displayName, { exact: true })).toBeVisible({ timeout: READINESS_BUDGET_MS });
   await page.goto("/");
-  await expect(page.locator('[data-home-mark="logo"]').getByRole("img", { name: saved.value.displayName, exact: true }).first()).toHaveAttribute("src", "https://brand.test/logo.png");
+  await expect(page.locator('[data-home-mark="logo"]').getByRole("img", { name: brandCopyName(saved.value.displayName), exact: true }).first()).toHaveAttribute("src", "https://brand.test/logo.png", { timeout: READINESS_BUDGET_MS });
 
   await page.goto("/admin/settings/brand");
   await expectOperatorReady(page);
@@ -251,7 +255,7 @@ test("logo, terms and privacy accept https only, and a logo that fails to load f
   expect((await readBrand(context)).value).toEqual({ ...before.value, logoUrl: "https://brand.test/missing.png", termsUrl: null, privacyUrl: null });
 
   await page.goto("/");
-  await expect(page.locator('[data-home-mark=""]').first()).toBeVisible();
+  await expect(page.locator('[data-home-mark=""]').first()).toBeVisible({ timeout: READINESS_BUDGET_MS });
   await expect(page.locator('[data-home-mark="logo"]')).toHaveCount(0);
 });
 
