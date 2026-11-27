@@ -11,7 +11,7 @@ import { GrowthSettingsForm } from "./growth-settings-form";
 import { GrowthRewardQueue, growthUsdc } from "./growth-reward-queue";
 
 export type GrowthQueueEntry = {
-  id: string; inviterShortId: string; inviteeShortId: string; depositAssetsAtoms: string;
+  id: string; inviterShortId: string; inviteeShortId: string; depositAssetsAtoms: string; rewardAtoms: string;
   attributedAt: string; qualifiedAt: string; riskSignals: InviteRewardRiskSignal[];
 };
 export type GrowthDashboardData = {
@@ -43,13 +43,13 @@ export function GrowthDashboard({ data, operator }: { data: GrowthDashboardData;
       <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{metrics.map(([label, value]) => <div key={label} className="grid gap-1"><dt className="text-sm text-muted-foreground">{label}</dt><dd>{value ?? "Unavailable"}</dd></div>)}</dl>
     </CardContent></Card>
     {funnel && funnel.historyPendingCount > 0 && <Alert><AlertDescription>Balance history is behind for {funnel.historyPendingCount} rewards</AlertDescription></Alert>}
-    {settings ? <GrowthSettingsForm key={operator} initial={settings} operator={operator} signerState={data.signerState} payoutIsSigner={data.payoutIsSigner} onSaved={() => router.refresh()} /> : <Alert><AlertDescription>Program settings are unavailable.</AlertDescription></Alert>}
+    {settings ? <GrowthSettingsForm key={`settings-${operator}`} initial={settings} operator={operator} signerState={data.signerState} payoutIsSigner={data.payoutIsSigner} onSaved={() => router.refresh()} /> : <Alert><AlertDescription>Program settings are unavailable.</AlertDescription></Alert>}
     <Card><CardHeader><CardTitle>Payout account</CardTitle></CardHeader><CardContent className="grid gap-3">
       {settings ? account ? <><AddressText address={account} /><p className="text-sm text-muted-foreground">Top up this address with USDC on Base.</p></> : <p>No payout account configured.</p> : <p>Payout account is unavailable.</p>}
       <p>Approved, awaiting payout: {queue ? growthUsdc(queue.approvedAtoms) : "Unavailable"}</p>
       {account && operator.toLowerCase() !== account && <p>Sign in as the payout account to pay</p>}
       <p className="text-sm text-muted-foreground">Payout ships separately.</p>
     </CardContent></Card>
-    {queue ? <GrowthRewardQueue queue={queue} onDecision={() => router.refresh()} /> : <Alert><AlertDescription>Approval queue is unavailable.</AlertDescription></Alert>}
+    {queue ? <GrowthRewardQueue key={`queue-${operator}`} queue={queue} operator={operator} onDecision={() => router.refresh()} /> : <Alert><AlertDescription>Approval queue is unavailable.</AlertDescription></Alert>}
   </div>;
 }

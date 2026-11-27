@@ -20,7 +20,7 @@ const populated: GrowthDashboardData = {
   funnel: { counts: { joined: 7, saved: 5, qualified: 1, approved: 2, rejected: 1, disqualified: 3, ineligible: 2 }, historyPendingCount: 2, reservedAtoms: "10000000", approvedCount: 2 },
   settings: { value: { ...GROWTH_SETTINGS_DEFAULTS, enabled: true, countries: ["US"], acknowledgements: { taxReporting: true, sanctionsScreening: true }, inviterRewardAtoms: "5000000", budgetAtoms: "100000000", termsText: "Hold a qualifying Save deposit for 30 days.", payoutAccount: requireAddress(operator) }, revision: 3, source: "stored", updatedAt: "2026-10-01T12:00:00.000Z", updatedBy: operator },
   signerState: "configured", payoutIsSigner: true,
-  queue: { qualified: [{ id: "11111111-1111-4111-8111-111111111111", inviterShortId: "12345678", inviteeShortId: "87654321", depositAssetsAtoms: "25000000", attributedAt: "2026-08-01T12:00:00.000Z", qualifiedAt: "2026-09-01T12:00:00.000Z", riskSignals: ["funded-by-inviter", "signup-burst", "preexisting-shares"] }], approved: [{ id: "22222222-2222-4222-8222-222222222222", inviterShortId: "abcd1234", inviteeShortId: "dcba4321", depositAssetsAtoms: "50000000", attributedAt: "2026-08-01T12:00:00.000Z", qualifiedAt: "2026-09-01T12:00:00.000Z", decidedAt: "2026-09-02T12:00:00.000Z", riskSignals: [], reservedAtoms: "10000000" }], approvedAtoms: "10000000" },
+  queue: { qualified: [{ id: "11111111-1111-4111-8111-111111111111", inviterShortId: "12345678", inviteeShortId: "87654321", depositAssetsAtoms: "25000000", rewardAtoms: "5000000", attributedAt: "2026-08-01T12:00:00.000Z", qualifiedAt: "2026-09-01T12:00:00.000Z", riskSignals: ["funded-by-inviter", "signup-burst", "preexisting-shares"] }], approved: [{ id: "22222222-2222-4222-8222-222222222222", inviterShortId: "abcd1234", inviteeShortId: "dcba4321", depositAssetsAtoms: "50000000", rewardAtoms: "10000000", attributedAt: "2026-08-01T12:00:00.000Z", qualifiedAt: "2026-09-01T12:00:00.000Z", decidedAt: "2026-09-02T12:00:00.000Z", riskSignals: [], reservedAtoms: "10000000" }], approvedAtoms: "10000000" },
 };
 const meta = {
   title: "Journeys/Admin growth", component: GrowthDashboard,
@@ -41,6 +41,7 @@ export const Empty: Story = { args: { data: empty }, play: async ({ canvasElemen
 export const PopulatedQueue: Story = { args: { data: populated }, play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   await expect(canvas.getByText("Funded by inviter")).toBeVisible();
+  await expect(canvas.getByText("Reward reserved on approval: 5 USDC")).toBeVisible();
   await expect(canvas.getByText("Balance history is behind for 2 rewards")).toBeVisible();
 } };
 export const UnavailableSections: Story = { args: { data: { ...empty, stats: null, funnel: null, queue: null, settings: null } }, play: async ({ canvasElement }) => {
@@ -64,4 +65,10 @@ export const Reject: Story = { args: { data: populated }, parameters: { msw: { h
   await userEvent.type(canvas.getByRole("textbox", { name: "Rejection reason (operator only)" }), "Review failed");
   await userEvent.click(canvas.getByRole("button", { name: "Confirm rejection" }));
   await waitForReady(() => expect(canvas.getByText("Rejected.", { exact: true })).toBeVisible());
+} };
+export const OperatorChanged: Story = { args: { data: populated }, parameters: { msw: { handlers: [http.post("/api/admin/growth/rewards/:id", () => HttpResponse.json({ error: { code: "OPERATOR_CHANGED" } }, { status: 409 }))] } }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await userEvent.click(canvas.getByRole("button", { name: "Approve" }));
+  await waitForReady(() => expect(canvas.getByText(/A different operator is signed in/)).toBeVisible());
+  await expect(canvas.getByRole("button", { name: "Approve" })).toBeDisabled();
 } };

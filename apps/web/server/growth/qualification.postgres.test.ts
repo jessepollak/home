@@ -206,6 +206,21 @@ describePostgres("growth qualification and risk history readers", () => {
     expect(await evaluateReward(sql, { ...row, depositTxHash: `0x${"ff".repeat(32)}` }, at(40)))
       .toEqual({ kind: "pending", reason: "history-unavailable" });
   });
+  test("a confirmed deposit outside the verified Save vault or Base never blocks qualification, but an unreadable one still does", async () => {
+    const copy = async (summary: string, settledAt: Date) => sql.query(`INSERT INTO actions(id,owner_key,provider,kind,summary,customer_id,confirmed_at,transaction_hash,
+      outcome,outcome_source,outcome_recorded_at,settled_at,observed_receipt_block_number,observed_receipt_transaction_hash)
+      SELECT $1,owner_key,provider,kind,${summary},customer_id,$2,$3,outcome,outcome_source,$2,$2,8,$3 FROM actions WHERE id=$4`,
+    [randomUUID(), settledAt, `0x${randomUUID().replaceAll("-", "").repeat(2)}`, row.depositActionId]);
+    await copy(`jsonb_set(summary,'{metadata,vaultAddress}','"0x${"11".repeat(20)}"')`, at(-3));
+    await copy(`jsonb_set(summary,'{metadata,network,chainId}','1')`, at(-2));
+    expect(await evaluateReward(sql, row, at(40))).toMatchObject({ kind: "qualified", qualifiedAt: at(30), minSharesAtoms: BigInt(10) });
+    await copy("summary-'amounts'", at(-1));
+    expect(await evaluateReward(sql, row, at(40))).toEqual({ kind: "pending", reason: "history-unavailable" });
+    await sql.query("DELETE FROM actions WHERE settled_at=$1", [at(-1)]);
+    expect(await evaluateReward(sql, row, at(40))).toMatchObject({ kind: "qualified" });
+    await copy(`jsonb_set(summary,'{metadata,vaultAddress}','"not-an-address"')`, at(-1));
+    expect(await evaluateReward(sql, row, at(40))).toEqual({ kind: "pending", reason: "history-unavailable" });
+  });
   test("a recycled-capital dip disqualifies even after redeposit", async () => {
     await addChange(inviteeHistory, vaultAsset, "-10", 1);
     await addChange(inviteeHistory, vaultAsset, "10", 2);

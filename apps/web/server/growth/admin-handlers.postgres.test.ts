@@ -112,7 +112,7 @@ const handler = createRewardDecisionHandler({
 async function decide(id: string, action: "approve" | "reject" = "approve", reason = "Manual review") {
   return handler(new Request(`https://home.test/api/admin/growth/rewards/${id}`, {
     method: "POST", headers: { origin: "https://home.test", "content-type": "application/json; charset=utf-8", "sec-fetch-site": "same-origin" },
-    body: JSON.stringify({ version: 1, action, ...(action === "reject" ? { reason } : {}) }),
+    body: JSON.stringify({ version: 1, action, operator: actor, ...(action === "reject" ? { reason } : {}) }),
   }), { params: Promise.resolve({ id }) });
 }
 async function expectError(response: Response, status: number, code: GrowthAdminErrorCode) {
@@ -156,6 +156,17 @@ describePostgres("growth decision HTTP contract with real PostgreSQL", () => {
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ actor, action: `growth.reward.${action}`, target_id: row.id, after: { state, riskSignals: [] } });
     await expectError(await decide(row.id), 409, "NOT_QUALIFIED");
+  });
+
+  test("a decision from a different operator's queue changes nothing", async () => {
+    const row = await qualified();
+    const response = await handler(new Request(`https://home.test/api/admin/growth/rewards/${row.id}`, {
+      method: "POST", headers: { origin: "https://home.test", "content-type": "application/json", "sec-fetch-site": "same-origin" },
+      body: JSON.stringify({ version: 1, action: "approve", operator: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }),
+    }), { params: Promise.resolve({ id: row.id }) });
+    await expectError(response, 409, "OPERATOR_CHANGED");
+    expect((await sql.query("SELECT state FROM invite_rewards WHERE id=$1", [row.id])).rows[0]).toEqual({ state: "qualified" });
+    expect((await sql.query("SELECT id FROM admin_audit_log WHERE target_kind='reward'")).rows).toEqual([]);
   });
 
   test("missing and nonqualified rewards have distinct errors", async () => {

@@ -76,7 +76,7 @@ export async function refreshInviteRewards(sql: SqlExecutor, input: { now: Date;
 }
 
 type QueueEntry = {
-  id: string; inviterShortId: string; inviteeShortId: string; depositAssetsAtoms: string;
+  id: string; inviterShortId: string; inviteeShortId: string; depositAssetsAtoms: string; rewardAtoms: string;
   attributedAt: string; qualifiedAt: string; riskSignals: InviteRewardRiskSignal[];
 };
 
@@ -84,7 +84,7 @@ async function queueEntry(sql: SqlExecutor, row: StoredReward, now: Date): Promi
   if (row.deposit_assets_atoms === null || row.qualified_at === null) throw new Error("Stored reward is missing qualification");
   return {
     id: row.id, inviterShortId: row.inviter_customer_id.slice(0, 8), inviteeShortId: row.invitee_customer_id.slice(0, 8),
-    depositAssetsAtoms: row.deposit_assets_atoms, attributedAt: row.attributed_at.toISOString(), qualifiedAt: row.qualified_at.toISOString(),
+    depositAssetsAtoms: row.deposit_assets_atoms, rewardAtoms: row.terms.inviterRewardAtoms, attributedAt: row.attributed_at.toISOString(), qualifiedAt: row.qualified_at.toISOString(),
     riskSignals: await computeRiskSignals(sql, rewardRow(row), now),
   };
 }
