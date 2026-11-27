@@ -134,7 +134,7 @@ function ExportForm() {
           aria-label="Dates to export"
           value={scope}
           disabled={!hydrated || pending}
-          onValueChange={(value) => setScope(value === "range" ? "range" : "all")}
+          onValueChange={(value) => { setScope(value === "range" ? "range" : "all"); setError(null); }}
         >
           <RadioGroupSegment value="all">All dates</RadioGroupSegment>
           <RadioGroupSegment value="range">Date range</RadioGroupSegment>
@@ -143,11 +143,11 @@ function ExportForm() {
           <div className="grid gap-4 sm:grid-cols-2">
             <Field data-invalid={rangeError ? true : undefined}>
               <FieldLabel htmlFor={`${id}-from`}>From (UTC)</FieldLabel>
-              <Input id={`${id}-from`} type="date" variant="touch" className="h-11" value={from} max={to || undefined} disabled={pending} aria-invalid={rangeError ? true : undefined} onChange={(event) => setFrom(event.target.value)} />
+              <Input id={`${id}-from`} type="date" variant="touch" className="h-11" value={from} max={to || undefined} disabled={pending} aria-invalid={rangeError ? true : undefined} onChange={(event) => { setFrom(event.target.value); setError(null); }} />
             </Field>
             <Field data-invalid={rangeError ? true : undefined}>
               <FieldLabel htmlFor={`${id}-to`}>To (UTC)</FieldLabel>
-              <Input id={`${id}-to`} type="date" variant="touch" className="h-11" value={to} min={from || undefined} disabled={pending} aria-invalid={rangeError ? true : undefined} aria-describedby={rangeError ? `${id}-range-error` : undefined} onChange={(event) => setTo(event.target.value)} />
+              <Input id={`${id}-to`} type="date" variant="touch" className="h-11" value={to} min={from || undefined} disabled={pending} aria-invalid={rangeError ? true : undefined} aria-describedby={rangeError ? `${id}-range-error` : undefined} onChange={(event) => { setTo(event.target.value); setError(null); }} />
               {rangeError ? <FieldError id={`${id}-range-error`}>{rangeError}</FieldError> : null}
             </Field>
           </div>
