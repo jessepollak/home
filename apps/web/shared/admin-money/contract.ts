@@ -3,7 +3,8 @@ import { formatDecimalAmount } from "@/shared/amounts/decimal";
 import type { Address, Hash32 } from "@/shared/chain/hex";
 
 export const ADMIN_MONEY_CONTRACT_VERSION = 1 as const;
-export const MONEY_EXPORT_MAX_ROWS = 50_000;
+export const MONEY_EXPORT_MAX_ROWS = 1_000_000;
+export const MONEY_EXPORT_BATCH_ROWS = 10_000;
 export const MONEY_MOVEMENTS_PAGE_SIZE = 100;
 
 export type MoneyMovementCategory = "fee";
@@ -15,6 +16,7 @@ export type MoneyMovement = {
   category: MoneyMovementCategory;
   amountBaseUnits: string;
   decimals: 6;
+  bps: number | null;
   customerId: string | null;
   payoutAddress: Address | null;
   transactionHash: Hash32 | null;
@@ -29,17 +31,23 @@ export type OperatorAccountBalance =
 export type AdminMoneyPageData = {
   revenueDestination: OperatorAccountBalance;
   payoutAccount: OperatorAccountBalance;
-  movements: { rows: MoneyMovement[]; truncated: boolean } | null;
+  movements: { rows: MoneyMovement[]; next: string | null; before: string | null } | null;
 };
 
 export type MoneyExportRange = { from: string | null; to: string | null };
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const cursorPattern = /^[1-9]\d{0,18}$/;
+
+export function isMoneyMovementCursor(value: unknown): value is string {
+  return typeof value === "string" && cursorPattern.test(value) && BigInt(value) <= BigInt("9223372036854775807");
+}
 
 function calendarDate(value: string): boolean {
   if (!datePattern.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  const year = Number(value.slice(0, 4));
+  return year >= 2000 && year <= 2999 && Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 const dateSchema = z.nullable(z.string().check(z.refine(calendarDate)));
@@ -69,7 +77,7 @@ export function parseAdminMoneyErrorResponse(value: unknown): AdminMoneyErrorRes
   return result.success ? result.data : null;
 }
 
-export const MONEY_EXPORT_COLUMNS = ["date", "category", "amount_usdc", "customer_id", "payout_address", "transaction_hash", "status"] as const;
+export const MONEY_EXPORT_COLUMNS = ["date", "category", "amount_usdc", "rate_bps", "customer_id", "payout_address", "transaction_hash", "status"] as const;
 
 const formulaLead = /^[=+\-@\t\r]/;
 
@@ -78,15 +86,14 @@ export function csvCell(value: string): string {
   return /[",\r\n]|^\s|\s$/.test(safe) ? `"${safe.replaceAll("\"", "\"\"")}"` : safe;
 }
 
-export function moneyMovementsCsv(movements: readonly MoneyMovement[]): string {
-  const lines = [MONEY_EXPORT_COLUMNS.join(",")];
-  for (const movement of movements) {
-    lines.push([
-      movement.occurredAt, movement.category, formatDecimalAmount(BigInt(movement.amountBaseUnits), movement.decimals),
-      movement.customerId ?? "", movement.payoutAddress ?? "", movement.transactionHash ?? "", movement.status,
-    ].map(csvCell).join(","));
-  }
-  return `${lines.join("\r\n")}\r\n`;
+export const MONEY_EXPORT_HEADER = `${MONEY_EXPORT_COLUMNS.join(",")}\r\n`;
+
+export function moneyMovementsCsvRows(movements: readonly MoneyMovement[]): string {
+  return movements.map((movement) => `${[
+    movement.occurredAt, movement.category, formatDecimalAmount(BigInt(movement.amountBaseUnits), movement.decimals),
+    movement.bps === null ? "" : String(movement.bps),
+    movement.customerId ?? "", movement.payoutAddress ?? "", movement.transactionHash ?? "", movement.status,
+  ].map(csvCell).join(",")}\r\n`).join("");
 }
 
 export function moneyExportFilename(range: MoneyExportRange): string {

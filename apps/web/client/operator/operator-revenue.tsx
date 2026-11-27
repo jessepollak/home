@@ -47,7 +47,7 @@ function RevenueSection({ children }: { children: React.ReactNode }) {
 }
 
 export function OperatorRevenue({ summary }: { summary: OperatorRevenueSummary }) {
-  if (BigInt(summary.collectedBaseUnits) === BigInt(0) && summary.days.every((day) => day.collectedBaseUnits === "0")) {
+  if (!summary.recorded) {
     return (
       <RevenueSection>
         <Card>

@@ -16,6 +16,7 @@ const days = dailyAmounts.map((amount, index) => ({
 const populated: OperatorRevenueSummary = {
   collectedBaseUnits: "184250000",
   days,
+  recorded: true,
 };
 
 function RevenueStory({ summary }: { summary: OperatorRevenueSummary }) {
@@ -40,7 +41,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Empty: Story = {
-  args: { summary: { collectedBaseUnits: "0", days: days.map((day) => ({ ...day, collectedBaseUnits: "0" })) } },
+  args: { summary: { collectedBaseUnits: "0", days: days.map((day) => ({ ...day, collectedBaseUnits: "0" })), recorded: false } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByText("No fees yet")).toBeVisible();

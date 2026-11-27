@@ -93,7 +93,7 @@ describePostgres("admin money movements and export", () => {
     const unknown = await feeAction("2500000", "2026-03-04T12:00:00Z");
     await store.recordHandle(owner, unknown, { providerHandle: `0x${"ef".repeat(32)}` });
 
-    const movements = await listMoneyMovements(sql, { range: { from: null, to: null }, limit: 100 });
+    const movements = (await listMoneyMovements(sql, { range: { from: null, to: null }, limit: 100 })).rows;
     expect<unknown>(movements.map(({ id, status, amountBaseUnits, transactionHash }) => ({ id, status, amountBaseUnits, transactionHash }))).toEqual([
       { id: `fee:${unknown}`, status: "unresolved", amountBaseUnits: "2500000", transactionHash: null },
       { id: `fee:${declined}`, status: "not_submitted", amountBaseUnits: "750000", transactionHash: null },

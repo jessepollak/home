@@ -7,6 +7,7 @@ export const OPERATOR_REVENUE_MAX_DAYS = 366;
 
 type SummaryRow = {
   amount: string;
+  recorded: boolean;
   daily: Array<{ date: string; amount: string }>;
 };
 
@@ -25,6 +26,7 @@ daily AS (
 )
 SELECT
   (SELECT amount FROM totals) AS amount,
+  EXISTS (SELECT 1 FROM operator_fee_records) AS recorded,
   COALESCE((SELECT json_agg(json_build_object('date', date, 'amount', amount) ORDER BY date) FROM daily), '[]'::json) AS daily`;
 
 export async function readOperatorRevenue(
@@ -47,6 +49,7 @@ export async function readOperatorRevenue(
   const amounts = new Map((summary?.daily ?? []).map(({ date, amount }) => [date, amount]));
   return {
     collectedBaseUnits: summary?.amount ?? "0",
+    recorded: summary.recorded === true,
     days: Array.from({ length: days }, (_, index) => {
       const date = new Date(today - (days - 1 - index) * 86_400_000).toISOString().slice(0, 10);
       return { date, collectedBaseUnits: amounts.get(date) ?? "0" };

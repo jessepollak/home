@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseHash32, requireAddress } from "@/shared/chain/hex";
-import { csvCell, moneyMovementsCsv, parseMoneyExportRequest, type MoneyMovement } from "./contract";
+import { csvCell, MONEY_EXPORT_HEADER, moneyMovementsCsvRows, parseMoneyExportRequest, type MoneyMovement } from "./contract";
 
 test("export requests accept the whole list or a valid UTC date range and reject everything else", () => {
   expect(parseMoneyExportRequest({ version: 1, from: null, to: null })).toEqual({ version: 1, from: null, to: null });
@@ -12,6 +12,8 @@ test("export requests accept the whole list or a valid UTC date range and reject
     { version: 1, from: "2026-03-02", to: "2026-03-01" },
     { version: 1, from: "2026-02-30", to: null },
     { version: 1, from: "2026-2-01", to: null },
+    { version: 1, from: "0000-01-01", to: null },
+    { version: 1, from: null, to: "9999-12-31" },
     { version: 1, from: "2026-01-01T00:00:00Z", to: null },
     { version: 1, from: null, to: null, limit: 10 },
   ]) {
@@ -37,11 +39,11 @@ test("the csv has one header and one row per movement with exact decimal amounts
     transactionHash: parseHash32(`0x${"ab".repeat(32)}`), status: "reverted", bps: 50,
   };
   const payout = { ...movement, id: "fee:2", amountBaseUnits: "1", customerId: null, transactionHash: null, payoutAddress: requireAddress(`0x${"12".repeat(20)}`), status: "unresolved" as const };
-  expect(moneyMovementsCsv([movement, payout]).split("\r\n")).toEqual([
+  expect((MONEY_EXPORT_HEADER + moneyMovementsCsvRows([movement, payout])).split("\r\n")).toEqual([
     "date,category,amount_usdc,rate_bps,customer_id,payout_address,transaction_hash,status",
     `2026-03-01T12:00:00.000Z,fee,9007199254.740993,50,11111111-1111-4111-8111-111111111111,,0x${"ab".repeat(32)},reverted`,
     `2026-03-01T12:00:00.000Z,fee,0.000001,50,,0x${"12".repeat(20)},,unresolved`,
     "",
   ]);
-  expect(moneyMovementsCsv([])).toBe("date,category,amount_usdc,rate_bps,customer_id,payout_address,transaction_hash,status\r\n");
+  expect(MONEY_EXPORT_HEADER + moneyMovementsCsvRows([])).toBe("date,category,amount_usdc,rate_bps,customer_id,payout_address,transaction_hash,status\r\n");
 });

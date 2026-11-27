@@ -39,7 +39,7 @@ async function configuredAccounts(sql: SqlExecutor): Promise<[Address | null | u
   ];
 }
 
-export async function readAdminMoneyPageData(readBalances: BalanceRead = readUsdcBalances): Promise<AdminMoneyPageData | null> {
+export async function readAdminMoneyPageData(before: string | null, readBalances: BalanceRead = readUsdcBalances): Promise<AdminMoneyPageData | null> {
   if (!readDatabaseUrl()) return null;
   const sql = getSqlExecutor();
   const unavailable = (code: string) => () => {
@@ -48,7 +48,7 @@ export async function readAdminMoneyPageData(readBalances: BalanceRead = readUsd
   };
   const [accounts, rows] = await Promise.all([
     configuredAccounts(sql),
-    listMoneyMovements(sql, { range: { from: null, to: null }, limit: MONEY_MOVEMENTS_PAGE_SIZE + 1 }, { timeoutMs: OPERATOR_SETTINGS_PAGE_READ_TIMEOUT_MS })
+    listMoneyMovements(sql, { range: { from: null, to: null }, limit: MONEY_MOVEMENTS_PAGE_SIZE, before }, { timeoutMs: OPERATOR_SETTINGS_PAGE_READ_TIMEOUT_MS })
       .catch(unavailable("MONEY_MOVEMENTS_UNAVAILABLE")),
   ]);
   const unique = [...new Set(accounts.filter((account): account is Address => typeof account === "string"))];
@@ -62,6 +62,6 @@ export async function readAdminMoneyPageData(readBalances: BalanceRead = readUsd
   return {
     revenueDestination: account(accounts[0]),
     payoutAccount: account(accounts[1]),
-    movements: rows ? { rows: rows.slice(0, MONEY_MOVEMENTS_PAGE_SIZE), truncated: rows.length > MONEY_MOVEMENTS_PAGE_SIZE } : null,
+    movements: rows ? { rows: rows.rows, next: rows.next, before } : null,
   };
 }

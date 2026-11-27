@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AddressText } from "@/components/address-text";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -28,7 +28,7 @@ import {
   type MoneyMovementStatus,
   type OperatorAccountBalance,
 } from "@/shared/admin-money/contract";
-import { formatAddress, formatPresentationDate, formatUsdStablecoinAmount } from "@/shared/formatting";
+import { formatAddress, formatBasisPoints, formatPresentationDate, formatUsdStablecoinAmount } from "@/shared/formatting";
 import { readJson } from "@/shared/http/read-json";
 import { formatDecimalAmount } from "@/shared/amounts/decimal";
 
@@ -169,6 +169,9 @@ function MovementRow({ movement }: { movement: MoneyMovement }) {
       <TableCell><time dateTime={movement.occurredAt}>{formatPresentationDate(movement.occurredAt, { style: "date-time-zone", timeZone: "UTC" })}</time></TableCell>
       <TableCell>{categoryLabels[movement.category]}</TableCell>
       <TableCell className="text-end"><span className="tabular-nums">{formatUsdStablecoinAmount(movement.amountBaseUnits, movement.decimals)}</span></TableCell>
+      <TableCell className="text-end">
+        {movement.bps === null ? <span className="text-muted-foreground"><span aria-hidden="true">—</span><span className="sr-only">None</span></span> : <span className="tabular-nums">{formatBasisPoints(BigInt(movement.bps))}</span>}
+      </TableCell>
       <TableCell>
         {movement.customerId ? (
           <Link href={`/admin/customers/${movement.customerId}`} title={movement.customerId} className="font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
@@ -212,7 +215,7 @@ export function MoneyView({ data }: { data: AdminMoneyPageData }) {
             <ExportForm />
             {movements === null ? (
               <Alert><AlertDescription>Movements are unavailable. Try again later.</AlertDescription></Alert>
-            ) : movements.rows.length === 0 ? (
+            ) : movements.rows.length === 0 && movements.before === null ? (
               <Empty>
                 <EmptyHeader>
                   <EmptyTitle>No movements yet</EmptyTitle>
@@ -227,6 +230,7 @@ export function MoneyView({ data }: { data: AdminMoneyPageData }) {
                       <TableHead className="text-start">Date</TableHead>
                       <TableHead className="text-start">Category</TableHead>
                       <TableHead className="text-end">Amount</TableHead>
+                      <TableHead className="text-end">Rate</TableHead>
                       <TableHead className="text-start">Customer</TableHead>
                       <TableHead className="text-start">Payout address</TableHead>
                       <TableHead className="text-start">Transaction</TableHead>
@@ -237,7 +241,13 @@ export function MoneyView({ data }: { data: AdminMoneyPageData }) {
                     {movements.rows.map((movement) => <MovementRow key={movement.id} movement={movement} />)}
                   </TableBody>
                 </Table>
-                {movements.truncated && <p className="text-sm text-muted-foreground">Showing the latest {movements.rows.length}. Export for the full list.</p>}
+                {movements.rows.length === 0 && <p className="text-sm text-muted-foreground">No older movements.</p>}
+                {(movements.before || movements.next) && (
+                  <div className="flex flex-wrap gap-2">
+                    {movements.before && <Link className={buttonVariants({ variant: "outline", size: "touch" })} href="/admin/money">Newest</Link>}
+                    {movements.next && <Link className={buttonVariants({ variant: "outline", size: "touch" })} href={`/admin/money?before=${movements.next}`}>Older</Link>}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

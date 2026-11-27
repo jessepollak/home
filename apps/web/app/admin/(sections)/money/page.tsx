@@ -6,7 +6,7 @@ import { getSqlExecutor } from "@/server/db/sql";
 import { readOperatorRevenue } from "@/server/fees/revenue";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import { readOperatorPageDecision } from "@/server/operator/page";
-import type { AdminMoneyPageData } from "@/shared/admin-money/contract";
+import { isMoneyMovementCursor, type AdminMoneyPageData } from "@/shared/admin-money/contract";
 import type { OperatorRevenueSummary } from "@/shared/fees/revenue";
 
 function unavailable(error: unknown): null {
@@ -22,9 +22,9 @@ async function readRevenue(): Promise<OperatorRevenueSummary | null> {
   }
 }
 
-async function readMoney(): Promise<AdminMoneyPageData | null> {
+async function readMoney(before: string | null): Promise<AdminMoneyPageData | null> {
   try {
-    return await readAdminMoneyPageData();
+    return await readAdminMoneyPageData(before);
   } catch (error) {
     return unavailable(error);
   }
@@ -32,11 +32,13 @@ async function readMoney(): Promise<AdminMoneyPageData | null> {
 
 export const instant = false;
 
-export default async function MoneyPage() {
+export default async function MoneyPage({ searchParams }: PageProps<"/admin/money">) {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
   if (!address) return null;
-  const [revenue, money] = await Promise.all([readRevenue(), readMoney()]);
+  const requested = (await searchParams).before;
+  const before = isMoneyMovementCursor(requested) ? requested : null;
+  const [revenue, money] = await Promise.all([readRevenue(), readMoney(before)]);
   return (
     <OperatorSection address={address} heading="Money">
       {revenue ? <OperatorRevenue summary={revenue} /> : <OperatorEmpty>Fee revenue is unavailable. Try again later.</OperatorEmpty>}
