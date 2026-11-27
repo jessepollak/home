@@ -352,24 +352,20 @@ export function createSupportCredentialHandlers(deps: Dependencies = {}) {
     const decision = await operatorSession(request, deps);
     return decision instanceof Response ? decision : privateJson(await getAssistant(deps).credential(), 200);
   });
-  const PUT = async (request: Request) => run(route, async () => {
-    const decision = await operatorSession(request, deps);
-    if (decision instanceof Response) return decision;
+  const PUT = async (request: Request) => run(route, async () => authorizeOperatorRequest(request, async (operator, proof) => {
     const checked = await readSameOriginJson(request);
     if ("error" in checked) return fail(route, checked.error, checked.error === "CROSS_ORIGIN" ? 403 : 400);
     const input = parseSupportCredentialPutRequest(checked.value);
     if (!input) return fail(route, "INVALID_REQUEST", 400);
-    const result = await getAssistant(deps).put(input.apiKey, decision.address);
+    const result = await getAssistant(deps).put(input.apiKey, operator, proof);
     return result ? privateJson(result, 200) : fail(route, "SUPPORT_UNAVAILABLE", 503);
-  });
-  const DELETE = async (request: Request) => run(route, async () => {
-    const decision = await operatorSession(request, deps);
-    if (decision instanceof Response) return decision;
+  }, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig));
+  const DELETE = async (request: Request) => run(route, async () => authorizeOperatorRequest(request, async (operator, proof) => {
     const checked = await readSameOriginJson(request);
     if ("error" in checked) return fail(route, checked.error, checked.error === "CROSS_ORIGIN" ? 403 : 400);
     if (!parseCustomerSupportHandoffRequest(checked.value)) return fail(route, "INVALID_REQUEST", 400);
-    return privateJson(await getAssistant(deps).delete(decision.address), 200);
-  });
+    return privateJson(await getAssistant(deps).delete(operator, proof), 200);
+  }, deps.authorize ?? authorizeSession, deps.config ?? readOperatorConfig));
   return { GET, PUT, DELETE };
 }
 

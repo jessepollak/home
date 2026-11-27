@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createHash, createHmac } from "node:crypto";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 import { parseOperatorErrorResponse } from "@/shared/operator/contract";
 import { parseOperatorSettingsErrorResponse } from "@/shared/operator-settings/contract";
 import { issueCdpRenderHint } from "@/server/auth/cdp-render-session";
+import { AccountDeletedError, AccountDeletionAuthUnavailable } from "@/server/account-deletion/errors";
+import { authorizeSession } from "@/server/auth/authorize";
+import { readNativeBaseSessionToken } from "@/server/auth/native-base-session";
+import { readSignedValue, signedValue } from "@/server/auth/signed-cookie";
 import { createRewardDecisionHandler } from "@/server/growth/admin-handlers";
+import { readOperatorGrant } from "@/server/operator/email-grant";
 import { createOperatorApiHandler, createOperatorGrantHandler, operatorGrantReader } from "@/server/operator/api";
 import { decideOperatorPageAccess } from "@/server/operator/page";
 import { readOperatorConfig } from "@/server/operator/config";
@@ -132,6 +138,64 @@ test("a bearer-verified allowlisted email session opens Admin pages and APIs onl
   expect(decideOperatorPageAccess(cookieStore(granted), env, new Date(now.getTime() + 15 * 60_000))).toEqual({ kind: "verify-email" });
   const tampered = granted.replace(/(home-operator-grant=v1\.)([A-Za-z0-9_-])/, (_, prefix: string, first: string) => `${prefix}${first === "A" ? "B" : "A"}`);
   expect(decideOperatorPageAccess(cookieStore(tampered), env, now)).toEqual({ kind: "verify-email" });
+});
+
+test("operator grants accept only their purpose-derived signing key", async () => {
+  const verified = emailSession(operator);
+  const hinted = hint(verified);
+  const payload = JSON.stringify({ version: 1, subject: verified.user.subject, address: operator,
+    issuedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 15 * 60_000).toISOString(),
+  });
+  const key = createHmac("sha256", SECRET).update("home-operator-grant").digest();
+  const derived = signedValue(key, payload);
+  const raw = signedValue(Buffer.from(SECRET), payload);
+  expect(readOperatorGrant(cookieStore(`${hinted}; home-operator-grant=${derived}`), SECRET, now)).toEqual(verified);
+  expect(readOperatorGrant(cookieStore(`${hinted}; home-operator-grant=${raw}`), SECRET, now)).toBeNull();
+  const issued = (await grantCookie(hinted)).slice("home-operator-grant=".length);
+  expect(readSignedValue(key, issued)).toBe(payload);
+});
+
+test("a native home-session token cannot act as an operator grant", () => {
+  const native = { ...session(operator), user: { subject: `base-${createHash("sha256").update(operator).digest("hex").slice(0, 32)}` } };
+  const token = signedValue(Buffer.from(SECRET), JSON.stringify({ version: 1, session: native,
+    issuedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 15 * 60_000).toISOString(),
+  }));
+  expect(readNativeBaseSessionToken(token, SECRET, now).kind).toBe("valid");
+  const hinted = hint(emailSession(operator, native.user.subject));
+  expect(readOperatorGrant(cookieStore(`${hinted}; home-operator-grant=${token}`), SECRET, now)).toBeNull();
+});
+
+test("grant tombstones and lookup failures match bearer authorization responses", async () => {
+  const hinted = hint(emailSession(operator));
+  const granted = `${hinted}; ${await grantCookie(hinted)}`;
+  const cookieRequest = new Request(`${ORIGIN}/api/admin/session`, { headers: { cookie: granted } });
+  const bearerRequest = new Request(`${ORIGIN}/api/admin/session`, { headers: { Authorization: "Bearer test" } });
+  for (const { error, status, body } of [
+    { error: new AccountDeletedError(), status: 401, body: { error: { code: "UNAUTHENTICATED" } } },
+    { error: new AccountDeletionAuthUnavailable(), status: 503, body: { error: { code: "AUTH_UNAVAILABLE", message: "Authentication is temporarily unavailable." } } },
+    { error: new Error("tombstone lookup failed"), status: 503, body: { error: { code: "AUTH_UNAVAILABLE", message: "Authentication is temporarily unavailable." } } },
+  ]) {
+    const live = async () => { throw error; };
+    const grantResult = await operatorGrantReader(() => now, live)(cookieRequest);
+    if (!(grantResult instanceof Response)) throw new Error("grant liveness failure did not return a response");
+    const response = await createOperatorApiHandler(true, rejectBearer, grantConfig, async () => grantResult)(cookieRequest);
+    const bearerResponse = await createOperatorApiHandler(true,
+      (request) => authorizeSession(request, async () => emailSession(operator), live), grantConfig)(bearerRequest);
+    expect(response.status).toBe(status);
+    expect(bearerResponse.status).toBe(status);
+    expect(await response.json()).toEqual(body);
+    expect(await bearerResponse.json()).toEqual(body);
+    if (status === 503) expect(response).toBe(grantResult);
+  }
+});
+
+test("hint-only email pages verify only allowlisted accounts", () => {
+  const hinted = cookieStore(hint(emailSession(operator)));
+  expect(decideOperatorPageAccess(hinted, env, now)).toEqual({ kind: "verify-email" });
+  for (const allowlist of [undefined, "not-an-address", customer]) {
+    expect(decideOperatorPageAccess(hinted, { ...env, HOME_OPERATOR_ADDRESSES: allowlist }, now)).toEqual({ kind: "forbidden" });
+  }
+  expect(decideOperatorPageAccess(cookieStore(hint(emailSession(customer))), env, now)).toEqual({ kind: "forbidden" });
 });
 
 test("a render hint alone never authorizes the admin API", async () => {

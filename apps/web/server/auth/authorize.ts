@@ -112,7 +112,7 @@ function parseVerifiedSession(
   };
 }
 
-function authUnavailableResponse(): Response {
+export function authUnavailableResponse(): Response {
   return Response.json(
     {
       error: {

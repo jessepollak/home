@@ -15,12 +15,15 @@ export function readAccessConfig(
 ): AccessConfig {
   const credential = environment[credentialEnvironmentKey];
   const signingSecret = environment[signingSecretEnvironmentKey];
-  if ((credential === undefined) !== (environment[signingSecretEnvironmentKey] === undefined)) {
-    throw new Error(
-      `${credentialEnvironmentKey} and ${signingSecretEnvironmentKey} must be set together.`,
-    );
+  const required = environment.HOME_ACCESS_REQUIRED === "1";
+  if (!required) {
+    if ((credential === undefined) !== (signingSecret === undefined)) {
+      throw new Error(
+        `${credentialEnvironmentKey} and ${signingSecretEnvironmentKey} must be set together.`,
+      );
+    }
+    return { kind: "disabled" };
   }
-  if (environment.HOME_ACCESS_REQUIRED !== "1") return { kind: "disabled" };
   if (
     !credential ||
     Buffer.byteLength(credential, "utf8") < 8 ||

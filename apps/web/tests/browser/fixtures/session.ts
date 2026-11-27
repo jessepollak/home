@@ -38,5 +38,6 @@ export function operatorGrantCookie(session: { user: { subject: string }; smartA
     issuedAt: new Date(issuedAt).toISOString(), expiresAt: new Date(issuedAt + 15 * 60_000).toISOString(),
   })).toString("base64url");
   const input = `v1.${encoded}`;
-  return { name: "home-operator-grant", value: `${input}.${createHmac("sha256", Buffer.from(secret)).update(input).digest("base64url")}` };
+  const grantKey = createHmac("sha256", secret).update("home-operator-grant").digest();
+  return { name: "home-operator-grant", value: `${input}.${createHmac("sha256", grantKey).update(input).digest("base64url")}` };
 }

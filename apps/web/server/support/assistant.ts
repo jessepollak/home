@@ -1,6 +1,8 @@
 import "server-only";
 
+import type { Named } from "@gdp-ts/core";
 import { serverEnvironment } from "@/server/config/env";
+import type { OperatorAccess, OperatorAddress } from "@/server/proofs/operator-access";
 
 import { createGateway } from "@ai-sdk/gateway";
 import type { LanguageModel } from "ai";
@@ -48,7 +50,8 @@ export class SupportAssistantStore {
     return { settings, key, available, capability: { available, handoff: available && settings.mode === "hybrid" } };
   }
 
-  async put(apiKey: string, actor: `0x${string}`): Promise<SupportCredentialResponse | null> {
+  async put<N>(apiKey: string, operator: Named<N, OperatorAddress>, _proof: OperatorAccess<N>): Promise<SupportCredentialResponse | null> {
+    const actor = operator.value;
     const ring = resolveSecretKeyring(this.env);
     if (!ring.ok) return null;
     const envelope = sealSecret(ring.keyring, apiKey, aad);
@@ -79,7 +82,8 @@ export class SupportAssistantStore {
     return { notAtActive, unreadable, safeToRemovePrevious: notAtActive === 0 && unreadable === 0 };
   }
 
-  async delete(actor: `0x${string}`): Promise<SupportCredentialResponse> {
+  async delete<N>(operator: Named<N, OperatorAddress>, _proof: OperatorAccess<N>): Promise<SupportCredentialResponse> {
+    const actor = operator.value;
     await this.sql.transaction(async (tx) => {
       const previous = (await tx.query<{ last4: string }>("DELETE FROM support_assistant_credentials WHERE id='default' RETURNING last4")).rows[0];
       if (previous) await tx.query(`INSERT INTO admin_audit_log (actor,action,target_kind,target_id,before,after)
