@@ -47,6 +47,15 @@ export const Empty: Story = {
   },
 };
 
+export const NoSucceededFees: Story = {
+  args: { summary: { collectedBaseUnits: "0", days: days.map((day) => ({ ...day, collectedBaseUnits: "0" })), recorded: true } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByText("No fees yet")).toBeNull();
+    await expect(within(canvas.getByRole("list", { name: "Daily fee revenue" })).getAllByRole("listitem")).toHaveLength(30);
+  },
+};
+
 export const MixedResults: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

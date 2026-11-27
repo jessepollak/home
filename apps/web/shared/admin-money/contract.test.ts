@@ -34,14 +34,14 @@ test("the csv has one header and one row per movement with exact decimal amounts
   const movement: MoneyMovement = {
     id: "fee:1", occurredAt: "2026-03-01T12:00:00.000Z", category: "fee", amountBaseUnits: "9007199254740993", decimals: 6,
     customerId: "11111111-1111-4111-8111-111111111111", payoutAddress: null,
-    transactionHash: parseHash32(`0x${"ab".repeat(32)}`), status: "reverted",
+    transactionHash: parseHash32(`0x${"ab".repeat(32)}`), status: "reverted", bps: 50,
   };
   const payout = { ...movement, id: "fee:2", amountBaseUnits: "1", customerId: null, transactionHash: null, payoutAddress: requireAddress(`0x${"12".repeat(20)}`), status: "unresolved" as const };
   expect(moneyMovementsCsv([movement, payout]).split("\r\n")).toEqual([
-    "date,category,amount_usdc,customer_id,payout_address,transaction_hash,status",
-    `2026-03-01T12:00:00.000Z,fee,9007199254.740993,11111111-1111-4111-8111-111111111111,,0x${"ab".repeat(32)},reverted`,
-    `2026-03-01T12:00:00.000Z,fee,0.000001,,0x${"12".repeat(20)},,unresolved`,
+    "date,category,amount_usdc,rate_bps,customer_id,payout_address,transaction_hash,status",
+    `2026-03-01T12:00:00.000Z,fee,9007199254.740993,50,11111111-1111-4111-8111-111111111111,,0x${"ab".repeat(32)},reverted`,
+    `2026-03-01T12:00:00.000Z,fee,0.000001,50,,0x${"12".repeat(20)},,unresolved`,
     "",
   ]);
-  expect(moneyMovementsCsv([])).toBe("date,category,amount_usdc,customer_id,payout_address,transaction_hash,status\r\n");
+  expect(moneyMovementsCsv([])).toBe("date,category,amount_usdc,rate_bps,customer_id,payout_address,transaction_hash,status\r\n");
 });

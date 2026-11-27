@@ -51,6 +51,14 @@ async function audits() {
     "SELECT actor, action, target_kind, target_id, after FROM admin_audit_log WHERE action = 'money.export' ORDER BY id")).rows;
 }
 
+async function bulkFees(count: number, at: string) {
+  await sql.query(`WITH inserted AS (
+    INSERT INTO actions (id, owner_key, provider, kind, summary, confirmed_at)
+    SELECT gen_random_uuid(), 'bulk-' || g, 'base-account', 'trade', '{}'::jsonb, $2::timestamptz FROM generate_series(1, $1::int) g RETURNING id
+  ) INSERT INTO operator_fee_records (action_id, action_kind, amount_base_units, token_asset_id, token_address, token_decimals, bps, recipient, collected_by, recorded_at)
+    SELECT id, 'trade', 1000, $3, $4, 6, 50, $5, 'in-batch-transfer', $2::timestamptz FROM inserted`, [count, at, OPERATOR_FEE_TOKEN.assetId, OPERATOR_FEE_TOKEN.address, recipient]);
+}
+
 describePostgres("admin money movements and export", () => {
   beforeAll(async () => {
     client = new Bun.SQL(connectionString);
@@ -119,6 +127,40 @@ describePostgres("admin money movements and export", () => {
       { actor: admin, action: "money.export", target_kind: "money", target_id: "movements", after: { from: null, to: null, rows: 3 } },
     ]);
   });
+
+  test("pages walk every movement exactly once, including rows that share a timestamp", async () => {
+    const ids = [
+      await feeAction("1", "2026-03-01T12:00:00.000001Z"),
+      await feeAction("2", "2026-03-01T12:00:00.000001Z"),
+      await feeAction("3", "2026-03-01T12:00:00.000002Z"),
+      await feeAction("4", "2026-03-01T12:00:00.000002Z"),
+      await feeAction("5", "2026-03-01T11:00:00Z"),
+    ];
+    const seen: string[] = [];
+    let before: string | null = null;
+    for (let page = 0; page < 5; page++) {
+      const result = await listMoneyMovements(sql, { range: { from: null, to: null }, limit: 2, before });
+      seen.push(...result.rows.map((row) => row.id));
+      before = result.next;
+      if (!before) break;
+    }
+    expect(before).toBeNull();
+    expect(seen).toHaveLength(5);
+    expect(new Set(seen)).toEqual(new Set(ids.map((id) => `fee:${id}`)));
+    expect(seen.at(-1)).toBe(`fee:${ids[4]}`);
+  });
+
+  test("an export larger than one batch returns every row in the range, with the rate on each fee", async () => {
+    await bulkFees(50_001, "2026-03-05T00:00:00Z");
+    await feeAction("7", "2026-03-04T00:00:00Z");
+    const response = await handler(admin)(exportRequest({ version: 1, from: "2026-03-05", to: null }));
+    expect(response.status).toBe(200);
+    const lines = (await response.text()).trimEnd().split("\r\n");
+    expect(lines[0]).toBe("date,category,amount_usdc,rate_bps,customer_id,payout_address,transaction_hash,status");
+    expect(lines).toHaveLength(50_002);
+    expect(lines.slice(1).every((line) => line.startsWith("2026-03-05T00:00:00.000Z,fee,0.001,50,"))).toBe(true);
+    expect((await audits()).at(-1)?.after).toEqual({ from: "2026-03-05", to: null, rows: 50_001 });
+  }, 60_000);
 
   test("a payout signer or customer who is not an administrator cannot export and leaves no audit entry", async () => {
     await feeAction("1000000", "2026-03-01T12:00:00Z");

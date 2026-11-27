@@ -113,6 +113,17 @@ describePostgres("operator fee records and revenue", () => {
     ]);
   });
 
+  test("fee records with no succeeded outcome still mark revenue as recorded", async () => {
+    const empty = await readOperatorRevenue(sql, { now: new Date("2026-09-27T12:00:00Z"), days: 1 });
+    expect(empty.recorded).toBe(false);
+    const id = await insertAction("trade");
+    await store.confirm(owner, id);
+    await sql.query("UPDATE actions SET outcome = 'reverted', outcome_source = 'chain', outcome_recorded_at = now(), settled_at = now() WHERE id = $1", [id]);
+    const summary = await readOperatorRevenue(sql, { now: new Date("2026-09-27T12:00:00Z"), days: 1 });
+    expect(summary.collectedBaseUnits).toBe("0");
+    expect(summary.recorded).toBe(true);
+  });
+
   test("a provider-native fee persists its collection method and counts toward revenue once succeeded", async () => {
     const id = await insertAction("trade", { ...fee, collectedBy: "provider-native" });
     await store.confirm(owner, id);
