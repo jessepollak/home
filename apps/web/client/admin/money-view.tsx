@@ -49,7 +49,7 @@ const exportErrors: Record<AdminMoneyErrorCode, string> = {
   CROSS_ORIGIN: "Reload this page before exporting.",
   MONEY_NOT_CONFIGURED: "Exports need a database.",
   MONEY_UNAVAILABLE: "Export is unavailable. Try again shortly.",
-  EXPORT_TOO_LARGE: "Too many rows. Choose a shorter date range.",
+  EXPORT_TOO_LARGE: "More than 25,000 movements. Export a shorter range.",
 };
 
 function AccountCard({ title, account, unsetHint }: { title: string; account: OperatorAccountBalance; unsetHint: React.ReactNode }) {

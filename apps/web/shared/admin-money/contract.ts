@@ -3,8 +3,7 @@ import { formatDecimalAmount } from "@/shared/amounts/decimal";
 import type { Address, Hash32 } from "@/shared/chain/hex";
 
 export const ADMIN_MONEY_CONTRACT_VERSION = 1 as const;
-export const MONEY_EXPORT_MAX_ROWS = 1_000_000;
-export const MONEY_EXPORT_BATCH_ROWS = 10_000;
+export const MONEY_EXPORT_MAX_ROWS = 25_000;
 export const MONEY_MOVEMENTS_PAGE_SIZE = 100;
 
 export type MoneyMovementCategory = "fee";
@@ -37,10 +36,17 @@ export type AdminMoneyPageData = {
 export type MoneyExportRange = { from: string | null; to: string | null };
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-const cursorPattern = /^[1-9]\d{0,18}$/;
+const cursorPattern = /^(0|-?[1-9]\d{0,16})\.([1-9]\d{0,18})$/;
+const BIGINT_MAX = BigInt("9223372036854775807");
+
+export function parseMoneyMovementCursor(value: unknown): { recordedAtMicros: string; id: string } | null {
+  const match = typeof value === "string" ? cursorPattern.exec(value) : null;
+  if (!match?.[1] || !match[2] || BigInt(match[2]) > BIGINT_MAX) return null;
+  return { recordedAtMicros: match[1], id: match[2] };
+}
 
 export function isMoneyMovementCursor(value: unknown): value is string {
-  return typeof value === "string" && cursorPattern.test(value) && BigInt(value) <= BigInt("9223372036854775807");
+  return parseMoneyMovementCursor(value) !== null;
 }
 
 function calendarDate(value: string): boolean {

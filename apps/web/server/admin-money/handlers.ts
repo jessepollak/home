@@ -3,6 +3,7 @@ import "server-only";
 import { authorizeSession } from "@/server/auth/authorize";
 import { readDatabaseUrl } from "@/server/config/env";
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
+import { composeDeadline } from "@/server/http/deadline";
 import { privateJson, withPrivateHeaders } from "@/server/http/private-response";
 import { readSameOriginJson } from "@/server/http/same-origin-mutation";
 import { emitServerEvent } from "@/server/observability/log";
@@ -11,7 +12,6 @@ import { readOperatorConfig, type OperatorConfig } from "@/server/operator/confi
 import { AdminAuditLog } from "@/server/operator-settings/audit";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
-  MONEY_EXPORT_BATCH_ROWS,
   MONEY_EXPORT_HEADER,
   MONEY_EXPORT_MAX_ROWS,
   moneyExportFilename,
@@ -19,11 +19,12 @@ import {
   parseMoneyExportRequest,
   type AdminMoneyErrorCode,
   type MoneyExportRange,
+  type MoneyMovement,
 } from "@/shared/admin-money/contract";
-import { listMoneyMovements, readMoneyExportHead } from "./movements";
+import { listMoneyMovements } from "./movements";
 
 const ROUTE = "/api/admin/money/export";
-const QUERY_TIMEOUT_MS = 5_000;
+const EXPORT_DEADLINE_MS = 20_000;
 
 type Dependencies = {
   authorize?: (request: Request) => Promise<VerifiedAccountSession | Response>;
@@ -41,31 +42,16 @@ function database(deps: Dependencies): SqlExecutor | null {
   return readDatabaseUrl() ? getSqlExecutor() : null;
 }
 
-function csvStream(sql: SqlExecutor, range: MoneyExportRange, through: string | null, signal: AbortSignal): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  let before: string | null = null;
-  let started = false;
-  let done = through === null;
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      if (!started) {
-        started = true;
-        controller.enqueue(encoder.encode(MONEY_EXPORT_HEADER));
-        if (done) controller.close();
-        return;
-      }
-      try {
-        const page = await listMoneyMovements(sql, { range, limit: MONEY_EXPORT_BATCH_ROWS, before, through }, { timeoutMs: QUERY_TIMEOUT_MS, signal });
-        if (page.rows.length) controller.enqueue(encoder.encode(moneyMovementsCsvRows(page.rows)));
-        before = page.next;
-        done = before === null;
-        if (done) controller.close();
-      } catch (error) {
-        emitServerEvent("operator-registry", { route: ROUTE, code: "MONEY_EXPORT_INTERRUPTED", outcome: "failed" });
-        controller.error(error);
-      }
-    },
-  });
+async function readAuditedExport(sql: SqlExecutor, actor: `0x${string}`, range: MoneyExportRange, outer: AbortSignal): Promise<MoneyMovement[] | null> {
+  const signal = composeDeadline(outer, EXPORT_DEADLINE_MS);
+  return sql.transaction(async (tx) => {
+    await tx.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ", [], { signal });
+    await tx.query(`SET LOCAL statement_timeout = '${EXPORT_DEADLINE_MS}ms'`, [], { signal });
+    const page = await listMoneyMovements(tx, { range, limit: MONEY_EXPORT_MAX_ROWS }, { signal });
+    if (page.next !== null) return null;
+    await new AdminAuditLog(tx).recordMoneyExport({ actor, range, rows: page.rows.length }, tx);
+    return page.rows;
+  }, { signal });
 }
 
 export function createMoneyExportHandler(deps: Dependencies = {}) {
@@ -80,10 +66,9 @@ export function createMoneyExportHandler(deps: Dependencies = {}) {
       const sql = database(deps);
       if (!sql) return fail("MONEY_NOT_CONFIGURED", 503);
       const range = { from: parsed.from, to: parsed.to };
-      const head = await readMoneyExportHead(sql, range, { timeoutMs: QUERY_TIMEOUT_MS, signal: request.signal });
-      if (head.rows > MONEY_EXPORT_MAX_ROWS) return fail("EXPORT_TOO_LARGE", 422);
-      await new AdminAuditLog(sql).recordMoneyExport({ actor, range, rows: head.rows });
-      const response = withPrivateHeaders(new Response(csvStream(sql, range, head.through, request.signal), { status: 200 }));
+      const rows = await readAuditedExport(sql, actor, range, request.signal);
+      if (!rows) return fail("EXPORT_TOO_LARGE", 422);
+      const response = withPrivateHeaders(new Response(MONEY_EXPORT_HEADER + moneyMovementsCsvRows(rows), { status: 200 }));
       response.headers.set("Content-Type", "text/csv; charset=utf-8");
       response.headers.set("Content-Disposition", `attachment; filename="${moneyExportFilename(range)}"`);
       response.headers.set("X-Content-Type-Options", "nosniff");

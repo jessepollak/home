@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseHash32, requireAddress } from "@/shared/chain/hex";
-import { csvCell, MONEY_EXPORT_HEADER, moneyMovementsCsvRows, parseMoneyExportRequest, type MoneyMovement } from "./contract";
+import { csvCell, MONEY_EXPORT_HEADER, moneyMovementsCsvRows, parseMoneyExportRequest, parseMoneyMovementCursor, type MoneyMovement } from "./contract";
 
 test("export requests accept the whole list or a valid UTC date range and reject everything else", () => {
   expect(parseMoneyExportRequest({ version: 1, from: null, to: null })).toEqual({ version: 1, from: null, to: null });
@@ -18,6 +18,13 @@ test("export requests accept the whole list or a valid UTC date range and reject
     { version: 1, from: null, to: null, limit: 10 },
   ]) {
     expect(parseMoneyExportRequest(value)).toBeNull();
+  }
+});
+
+test("Older cursors carry the boundary's microsecond time and id and reject anything else", () => {
+  expect(parseMoneyMovementCursor("1772366400000001.42")).toEqual({ recordedAtMicros: "1772366400000001", id: "42" });
+  for (const value of ["42", "1772366400000001.0", "01.42", "1.9223372036854775808", "1.42 ", "1e3.42", 42, null]) {
+    expect(parseMoneyMovementCursor(value)).toBeNull();
   }
 });
 
