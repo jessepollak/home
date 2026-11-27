@@ -124,8 +124,8 @@ function sameBrand(a: BrandSettings, b: BrandSettings): boolean {
   return FIELDS.every((field) => a[field] === b[field]);
 }
 
-function ColorField({ id, label, text, error, help, locked, onChange }: {
-  id: string; label: string; text: string; error: string | null; help: string; locked: boolean; onChange: (value: string) => void;
+function ColorField({ id, label, text, error, help, saving, hydrated, onChange }: {
+  id: string; label: string; text: string; error: string | null; help: string; saving: boolean; hydrated: boolean; onChange: (value: string) => void;
 }) {
   const color = normalizeColor(text);
   const valid = error === null;
@@ -138,7 +138,8 @@ function ColorField({ id, label, text, error, help, locked, onChange }: {
           aria-label={`${label} picker`}
           className="size-11 shrink-0 cursor-pointer p-1"
           value={valid ? color : "#000000"}
-          disabled={locked}
+          disabled={saving}
+          aria-disabled={!hydrated || undefined}
           onChange={(event) => onChange(event.target.value)}
         />
         <Input
@@ -149,7 +150,7 @@ function ColorField({ id, label, text, error, help, locked, onChange }: {
           spellCheck={false}
           maxLength={7}
           value={text}
-          readOnly={locked}
+          readOnly={saving || !hydrated}
           aria-invalid={error ? true : undefined}
           aria-describedby={`${id}-help${error ? ` ${id}-error` : ""}`}
           onChange={(event) => onChange(event.target.value)}
@@ -388,7 +389,8 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
               label="Primary color"
               text={draft.primaryColor}
               error={shown.primaryColor}
-              locked={locked}
+              saving={saving}
+              hydrated={hydrated}
               help={theme.primaryClamped
                 ? `Darkened to ${theme.appliedPrimary} on light pages so links and buttons stay readable.`
                 : "Buttons, links and focus rings."}
@@ -399,7 +401,8 @@ export function BrandSettingsForm({ initial, operator }: { initial: BrandSetting
               label="Background color"
               text={draft.backgroundColor}
               error={shown.backgroundColor}
-              locked={locked}
+              saving={saving}
+              hydrated={hydrated}
               help={theme.pageClamped
                 ? `Light pages only. This color is lightened to ${theme.appliedBackground} so text stays readable.`
                 : "A light page tint. Cards and dark mode stay the same."}
