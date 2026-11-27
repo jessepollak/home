@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { NextRequest } from "next/server";
 import { readAccessConfig } from "./config";
+import { enforceAccess } from "./policy";
+import { issueAccessToken } from "./token";
 
 const credentialKey = `HOME_ACCESS_${"PASS"}${"WORD"}`;
 const signingSecretKey = "HOME_ACCESS_SIGNING_SECRET";
@@ -46,5 +49,24 @@ describe("deployment access configuration", () => {
     const signingSecret = "b".repeat(32);
     expect(readAccessConfig(environment("1", credential, signingSecret)))
       .toEqual({ kind: "enabled", credential, signingSecret });
+  });
+
+  test("a required gate with only one of the two values answers 503 without throwing, while a full configuration admits a valid token", async () => {
+    const now = new Date("2026-09-18T12:00:00.000Z");
+    const page = () => new NextRequest("https://home.test/borrow");
+    const api = () => new NextRequest("https://home.test/api/session");
+    for (const partial of [environment("1", "a".repeat(8)), environment("1", undefined, "b".repeat(32))]) {
+      expect(readAccessConfig(partial)).toEqual({ kind: "misconfigured" });
+      for (const blocked of [page(), api()]) {
+        const response = enforceAccess(blocked, readAccessConfig(partial), now);
+        expect(response?.status).toBe(503);
+        expect(await response?.json()).toEqual({ version: 1, error: { code: "ACCESS_UNAVAILABLE" } });
+      }
+      expect(enforceAccess(new NextRequest("https://home.test/api/webhooks/cdp"), readAccessConfig(partial), now)).toBeNull();
+    }
+    const full = readAccessConfig(environment("1", "a".repeat(8), "b".repeat(32)));
+    if (full.kind !== "enabled") throw new Error("expected an enabled configuration");
+    const token = issueAccessToken(full, now);
+    expect(enforceAccess(new NextRequest("https://home.test/api/session", { headers: { cookie: `home-access=${token}` } }), full, now)?.status).toBe(200);
   });
 });

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHmac } from "node:crypto";
 import { parseAddress } from "@/shared/chain/hex";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { readCdpRenderSession, type RenderCookieStore } from "@/server/auth/cdp-render-session";
@@ -97,5 +98,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function secretBuffer(secret: string | undefined): Buffer | null {
   const value = secret?.trim();
   if (!value || Buffer.byteLength(value, "utf8") < 32) return null;
-  return Buffer.from(value, "utf8");
+  return createHmac("sha256", value).update("home-operator-grant").digest();
 }

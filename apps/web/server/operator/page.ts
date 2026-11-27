@@ -29,7 +29,12 @@ export function decideOperatorPageAccess(
   if (native.length > 0) return { kind: "forbidden" };
   const granted = readOperatorGrant(store, env.HOME_SESSION_SECRET, now);
   if (granted) return withProvider(decideOperatorAccess(granted, readOperatorConfig(env)), "cdp-embedded");
-  if (readCdpRenderSession(store, env.HOME_SESSION_SECRET, now)) return { kind: "verify-email" };
+  const hinted = readCdpRenderSession(store, env.HOME_SESSION_SECRET, now);
+  if (hinted) {
+    return decideOperatorAccess(hinted, readOperatorConfig(env)).kind === "operator"
+      ? { kind: "verify-email" }
+      : { kind: "forbidden" };
+  }
   if (store.getAll(HOME_CDP_SESSION_COOKIE).length > 0 || store.getAll(HOME_CDP_LIVE_COOKIE).length > 0) {
     return { kind: "forbidden" };
   }

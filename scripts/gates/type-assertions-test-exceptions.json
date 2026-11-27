@@ -39,8 +39,8 @@
     {
       "path": "apps/web/tests/types/operator-access.typecheck.ts",
       "kind": "suppression",
-      "count": 2,
-      "reason": "The typecheck-only negative cases assert that an operator-settings write without an OperatorAccess proof, or with a proof about a different operator, fails to compile; @ts-expect-error is the assertion mechanism."
+      "count": 5,
+      "reason": "The typecheck-only negative cases assert that an operator-settings write or support credential write or delete without an OperatorAccess proof, or with a proof about a different operator, fails to compile; @ts-expect-error is the assertion mechanism."
     }
   ]
 }

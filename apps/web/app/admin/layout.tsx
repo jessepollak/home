@@ -27,7 +27,7 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
   };
   if (!address) return <OperatorEmailAccess granted={false} {...provider} />;
   return (
-    <OperatorEmailAccess granted {...provider}>
+    <OperatorEmailAccess granted operator={address} {...provider}>
       <OperatorShell address={address}>{children}</OperatorShell>
     </OperatorEmailAccess>
   );

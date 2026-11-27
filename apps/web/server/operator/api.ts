@@ -4,7 +4,8 @@ import type { Named } from "@gdp-ts/core";
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { OPERATOR_CONTRACT_VERSION } from "@/shared/operator/contract";
 import { assertSessionLive } from "@/server/account-deletion/tombstone";
-import { authorizeSession } from "@/server/auth/authorize";
+import { deletionAuthErrorResponse } from "@/server/account-deletion/errors";
+import { authorizeSession, authUnavailableResponse } from "@/server/auth/authorize";
 import { HOME_SESSION_COOKIE } from "@/server/auth/native-base-session";
 import { readCookie } from "@/server/auth/signed-cookie";
 import { readHomeSessionSecret } from "@/server/config/env";
@@ -16,15 +17,18 @@ import { issueOperatorGrant, readOperatorGrant, requestCookieStore } from "./ema
 
 type GrantReader = (request: Request) => Promise<VerifiedAccountSession | Response | null>;
 
-export function operatorGrantReader(now: () => Date = () => new Date()): GrantReader {
+export function operatorGrantReader(
+  now: () => Date = () => new Date(),
+  live: typeof assertSessionLive = assertSessionLive,
+): GrantReader {
   return async (request) => {
     const session = readOperatorGrant(requestCookieStore(request), readHomeSessionSecret(), now());
     if (!session) return null;
     try {
-      await assertSessionLive(session, now());
+      await live(session, now());
       return session;
-    } catch {
-      return privateJson({ error: { code: "UNAUTHENTICATED" } }, 401);
+    } catch (error) {
+      return deletionAuthErrorResponse(error) ?? authUnavailableResponse();
     }
   };
 }
@@ -40,7 +44,6 @@ export async function authorizeOperatorRequest<R>(
 ): Promise<Response | R> {
   const nativeCookie = readCookie(request, HOME_SESSION_COOKIE);
   const granted = !nativeCookie.present && !request.headers.has("Authorization") ? await grant(request) : null;
-  if (granted instanceof Response) return granted;
   const headers = new Headers(request.headers);
   if (nativeCookie.present && !headers.has(ACCOUNT_PROVIDER_HEADER)) {
     headers.set(ACCOUNT_PROVIDER_HEADER, "base-account");
