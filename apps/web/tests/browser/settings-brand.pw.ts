@@ -288,14 +288,44 @@ test("Settings forms refuse typing until hydrated", { tag: "@smoke" }, async ({ 
     await expect(name).toHaveValue(`${saved} typed late`);
   });
 
+  await test.step("Brand color pickers stay in the Tab order before hydration but refuse picks until ready", async () => {
+    const hydrate = await holdAppScripts(page);
+    await page.reload({ waitUntil: "commit" });
+    const description = page.getByLabel("Description", { exact: true }).filter({ visible: true });
+    const picker = page.getByLabel("Primary color picker", { exact: true }).filter({ visible: true });
+    const hex = page.getByLabel("Primary color", { exact: true }).filter({ visible: true });
+    await expect(description).toBeVisible();
+    const savedHex = await hex.inputValue();
+    await description.focus();
+    await page.keyboard.press("Tab");
+    await expect(picker).toBeFocused();
+    await expect(picker).toBeDisabled();
+    hydrate();
+    await expectOperatorReady(page);
+    await expect(picker).toBeEnabled();
+    await expect(hex).toHaveValue(savedHex);
+    const next = savedHex.toLowerCase() === "#123456" ? "#654321" : "#123456";
+    await picker.fill(next);
+    await expect(hex).toHaveValue(next);
+  });
+
   await test.step("Products modes are announced read-only before hydration, then editable", async () => {
     const hydrate = await holdAppScripts(page);
     await page.goto("/admin/settings/products", { waitUntil: "commit" });
     const saveMode = page.getByRole("radiogroup", { name: "Save mode", exact: true }).filter({ visible: true });
     await expect(saveMode).toBeVisible();
     await expect(saveMode).toHaveAttribute("aria-readonly", "true");
+    const checked = saveMode.getByRole("radio", { checked: true });
+    const savedMode = await checked.textContent();
+    const other = saveMode.getByRole("radio", { checked: false }).first();
+    const otherMode = await other.textContent();
+    await saveMode.getByRole("radio", { name: otherMode ?? "", exact: true }).click();
+    await expect(checked).toHaveText(savedMode ?? "");
     hydrate();
     await expectOperatorReady(page);
     await expect(saveMode).not.toHaveAttribute("aria-readonly", "true");
+    await expect(checked).toHaveText(savedMode ?? "");
+    await saveMode.getByRole("radio", { name: otherMode ?? "", exact: true }).click();
+    await expect(checked).toHaveText(otherMode ?? "");
   });
 });
