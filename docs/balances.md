@@ -10,7 +10,7 @@ Every figure is the last value Home actually read. Only a successful read replac
 
 On a first visit with no successful balance read, Home shows loading, then a can't-load state with retry if the read fails, never an invented zero. The baseline `Can’t load balances` treatment is shipped; its final treatment awaits Jesse's selection on `review-boards--balances-cant-load`.
 
-Pending cash-out and post-action behavior remain documented below until the follow-up PR replaces them with the expected-result rule in a later change. They are not a new general balance-health presentation. Activity likewise retains rows already shown for the same owner and presentation currency across failed, partial, shorter, and post-action reads, in every Activity panel mounted for that owner (a full reload does not yet keep rows from before a shorter read); first-read failure offers retry, without failure notices beside retained rows.
+Pending cash-out and post-action behavior remain documented below until the follow-up PR replaces them with the expected-result rule in a later change. They are not a new general balance-health presentation. Activity likewise retains rows already shown for the same owner and presentation currency across failed, partial, shorter, and post-action reads, in every Activity panel mounted for that owner, and through a full reload ([shown rows through a reload](activity-reload-retention.md)); first-read failure offers retry, without failure notices beside retained rows.
 
 ## What Jesse asked for
 
