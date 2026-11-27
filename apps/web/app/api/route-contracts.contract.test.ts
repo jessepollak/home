@@ -22,7 +22,6 @@ const acceptedGaps = {
   handlerUnlinked: new Set<string>(),
   undeclaredHandlerContracts: {
     "actions/[id]/confirm/route.ts": ["shared/actions/contracts/prepare.ts", "shared/cards/allowance-contract.ts"],
-    "actions/[id]/retry/route.ts": ["shared/cards/allowance-contract.ts"],
     "actions/prepare/route.ts": ["shared/trading/contract.ts"],
     "auth/base/verify/route.ts": ["shared/account/contracts/base-nonce.ts"],
     "market-prices/stats/route.ts": ["shared/invest/contracts/market-price-history.ts"],
@@ -30,6 +29,7 @@ const acceptedGaps = {
   clientUnlinked: {
     "access/route.ts": ["shared/access/contract.ts"],
     "actions/[id]/handle/route.ts": ["shared/actions/contracts/handle.ts"],
+    "actions/[id]/retry/route.ts": ["shared/cards/allowance-contract.ts"],
     "activity/route.ts": ["shared/activity/contract.ts", "shared/cards/transactions-contract.ts"],
   },
 };

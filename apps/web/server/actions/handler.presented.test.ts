@@ -4,11 +4,12 @@ import { parseDeclineActionResponse } from "@/shared/actions/contracts/decline";
 import { parseGetActionPendingResponse, parsePendingActionResponse, parsePresentedAction } from "@/shared/actions/contracts/get";
 import { parseHandleActionErrorResponse, parseHandleActionResponse } from "@/shared/actions/contracts/handle";
 import { parseRecentActionsPayload } from "@/shared/actions/contracts/list";
-import { parseRetryActionResponse } from "@/shared/actions/contracts/retry";
+import { parseRetryActionErrorResponse, parseRetryActionResponse, type RetryActionErrorCode } from "@/shared/actions/contracts/retry";
 import { isRecord } from "@/shared/guards";
 import { requireAddress } from "@/shared/chain/hex";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { ACTION_KINDS, type ActionKind } from "@/shared/money-actions/types";
+import { CardAllowancePreparationError } from "@/server/cards/allowance/prepare";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { parseJson, readJson } from "@/tests/helpers/read-json";
 import { createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
@@ -170,6 +171,17 @@ test.each(["trade", "card-allowance"] as const)("retry fails closed before check
   expect(body).toMatchObject({ error: { code: "ACTIONS_UNAVAILABLE" } });
   expect(body).not.toHaveProperty("action");
   expect(events).toMatchObject([{ kind: "action-retry", code: "ACTION_UNPRESENTABLE", outcome: "failed" }]);
+});
+
+const cardAllowanceRetryRejections: ReadonlyArray<readonly [string, boolean, () => Promise<void>, RetryActionErrorCode, number]> = [
+  ["a disallowed set-allowance", false, async () => {}, "CARD_ALLOWANCE_UNAVAILABLE", 503],
+  ["a card that is not ready", true, async () => { throw new CardAllowancePreparationError("not-ready"); }, "CARD_ALLOWANCE_NOT_READY", 409],
+];
+test.each(cardAllowanceRetryRejections)("retry answers %s with a parseable card-allowance error", async (_name, allowed, eligible, code, status) => {
+  const response = await createRetryActionHandler({ authorize, store: storeFor(row("card-allowance")), now: () => new Date(INSTANT),
+    cardAllowanceSetAllowed: () => allowed, cardAllowanceEligible: eligible })(request("retry", { version: 1, attempt: 1 }), context);
+  expect(response.status).toBe(status);
+  expect(parseRetryActionErrorResponse(await readJson(response))?.error.code).toBe(code);
 });
 
 test.each(["cash-out", "savings-deposit"] as const)("list preserves malformed %s rows and emits one event across both collections", async (kind) => {

@@ -1,4 +1,5 @@
 import { AUTH_BOUNDARY_ERROR_CODES, type AuthBoundaryErrorCode } from "@/shared/account/contracts/auth-boundary";
+import { CARD_ALLOWANCE_PREPARE_ERRORS } from "@/shared/cards/allowance-contract";
 import { parsePresentedAction, type PresentedAction } from "./get";
 
 export const RETRY_ACTION_CONTRACT_VERSION = 1 as const;
@@ -9,10 +10,12 @@ export type RetryActionResponse = {
   action: PresentedAction;
 };
 export type RetryActionErrorCode = AuthBoundaryErrorCode | "INVALID_ACTION" | "INVALID_ACTION_RETRY" | "ACTION_NOT_FOUND" | "ACTIONS_UNAVAILABLE" |
-  "ACTION_EXPIRED" | "ACTION_ALREADY_DISPATCHED" | "ACTION_RETRY_CONFLICT" | "TRADE_STOCK_RESTRICTED" | "CARD_ALLOWANCE_UNAVAILABLE" | "CARD_ALLOWANCE_NOT_READY";
+  "ACTION_EXPIRED" | "ACTION_ALREADY_DISPATCHED" | "ACTION_RETRY_CONFLICT" | "TRADE_STOCK_RESTRICTED" |
+  typeof CARD_ALLOWANCE_PREPARE_ERRORS.unavailable.code | typeof CARD_ALLOWANCE_PREPARE_ERRORS["not-ready"]["code"];
 export const RETRY_ACTION_ERROR_CODES: readonly RetryActionErrorCode[] = [
   ...AUTH_BOUNDARY_ERROR_CODES, "INVALID_ACTION", "INVALID_ACTION_RETRY", "ACTION_NOT_FOUND", "ACTIONS_UNAVAILABLE",
-  "ACTION_EXPIRED", "ACTION_ALREADY_DISPATCHED", "ACTION_RETRY_CONFLICT", "TRADE_STOCK_RESTRICTED", "CARD_ALLOWANCE_UNAVAILABLE", "CARD_ALLOWANCE_NOT_READY",
+  "ACTION_EXPIRED", "ACTION_ALREADY_DISPATCHED", "ACTION_RETRY_CONFLICT", "TRADE_STOCK_RESTRICTED",
+  CARD_ALLOWANCE_PREPARE_ERRORS.unavailable.code, CARD_ALLOWANCE_PREPARE_ERRORS["not-ready"].code,
 ];
 export type RetryActionErrorResponse = { error: { code: RetryActionErrorCode; message: string } };
 
