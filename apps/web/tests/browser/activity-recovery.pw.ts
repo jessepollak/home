@@ -5,6 +5,7 @@ import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { expectNavigation } from "./fixtures/navigation-budget";
 import { activityOrdersFixture } from "./feature-map/fixtures";
+import { COUNTRY_PREFERENCE_VERSION } from "@/shared/account/contracts/country-preference";
 import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "./fixtures/owner-cache";
 import { decodeOwnerCache, encodeOwnerCache, isCompressedOwnerCache, ownerCacheCompressionThreshold } from "../../client/query/owner-cache-codec";
 import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
@@ -767,18 +768,20 @@ test("a panel mounted after an order settles behind the loaded boundary still sh
   await expect(orders).toHaveCount(1);
 });
 
-type PersistedQuery = { queryKey: unknown[]; state: { data: unknown; dataUpdatedAt: number } };
+type PersistedQuery = { queryKey: unknown[]; state: { data: ShownSet; dataUpdatedAt: number } };
 type PersistedClient = { timestamp: number; clientState: { queries: PersistedQuery[] } };
 type ShownSet = { windowEnd: string; walletAddress: string; currency: string; transfers: Array<Record<string, unknown>>; cards?: { rows: Array<Record<string, unknown>> } };
 
 async function readPersisted(page: Page): Promise<{ raw: string; client: PersistedClient } | null> {
   const raw = await readIndexedOwnerCache(page);
-  return raw ? { raw, client: JSON.parse(await decodeOwnerCache(raw)) as PersistedClient } : null;
+  if (!raw) return null;
+  const client: PersistedClient = JSON.parse(await decodeOwnerCache(raw));
+  return { raw, client };
 }
 
 function shownSets(client: PersistedClient | undefined): Array<{ query: PersistedQuery; set: ShownSet }> {
   return (client?.clientState.queries ?? []).flatMap((query) =>
-    query.queryKey[1] === "activity-shown" ? [{ query, set: query.state.data as ShownSet }] : []);
+    query.queryKey[1] === "activity-shown" ? [{ query, set: query.state.data }] : []);
 }
 
 async function expectShownSet(page: Page, transfers: number, cards: number) {
@@ -807,9 +810,9 @@ async function editPersisted(page: Page, edit: (client: PersistedClient) => void
 async function holdOwnerRestore(page: Page) {
   await page.addInitScript(() => {
     if (sessionStorage.getItem("playwright-hold-restore") !== "1") return;
-    const gate = new Promise<void>((resolve) => { Object.assign(window, { releaseOwnerRestore: resolve }); });
+    const gate = new Promise<void>((resolve) => { window.addEventListener("playwright:release-owner-restore", () => resolve(), { once: true }); });
     const Native = window.DecompressionStream;
-    window.DecompressionStream = class {
+    Reflect.set(window, "DecompressionStream", class {
       readonly writable: WritableStream<BufferSource>;
       readonly readable: ReadableStream<Uint8Array>;
       constructor(format: CompressionFormat) {
@@ -817,7 +820,7 @@ async function holdOwnerRestore(page: Page) {
         this.writable = native.writable;
         this.readable = native.readable.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ start: () => gate }));
       }
-    } as unknown as typeof DecompressionStream;
+    });
   });
 }
 
@@ -929,7 +932,7 @@ test("a shorter read that paints before the persisted restore still gains the sh
   await expect.poll(() => reads).toBeGreaterThan(settledReads);
   await expect(rows).toHaveCount(1);
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(0);
-  await page.evaluate(() => (window as unknown as { releaseOwnerRestore: () => void }).releaseOwnerRestore());
+  await page.evaluate(() => window.dispatchEvent(new Event("playwright:release-owner-restore")));
   await expect(rows).toHaveText(before);
   await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(1);
@@ -1016,4 +1019,114 @@ test("a restored shown set for another wallet or currency, or with a malformed c
       await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(0);
     });
   }
+});
+
+test("a healthy read that omits a shown card keeps its newer shown status over an older cached copy", async ({ page }) => {
+  const { feed, rows } = await setup(page);
+  let omit = false;
+  let release = () => {};
+  let held: Promise<void> | null = null;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    if (held) await held;
+    const response = activityResponse(url, false);
+    if (omit) response.cards.rows = [];
+    return json(route, response);
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  await expectShownSet(page, 3, 1);
+  omit = true;
+  await editPersisted(page, (client) => {
+    const [entry] = shownSets(client);
+    if (!entry) throw new Error("Shown set is missing");
+    for (const query of client.clientState.queries) {
+      if (query.queryKey[1] !== "activity") continue;
+      const data: { pages: Array<{ cards?: { rows: Array<{ status: string }> } }> } = JSON.parse(JSON.stringify(query.state.data));
+      for (const row of data.pages[0]?.cards?.rows ?? []) row.status = "pending";
+      Object.assign(query.state, { data, dataUpdatedAt: entry.query.state.dataUpdatedAt - 60_000 });
+    }
+  });
+  held = new Promise<void>((resolve) => { release = resolve; });
+  await page.goto("/home");
+  const card = feed.getByRole("button", { name: new RegExp(`^${merchant}`) });
+  await expect(rows).toHaveCount(3);
+  await expect(card).toHaveAccessibleName(settledMerchant);
+  const live = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/activity");
+  held = null;
+  release();
+  await live;
+  await page.clock.runFor(1_000);
+  await expectShownSet(page, 3, 1);
+  const shownStatus = shownSets((await readPersisted(page))?.client)[0]?.set.cards?.rows[0]?.status;
+  expect(shownStatus).toBe("completed");
+  await expect(rows).toHaveCount(3);
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveAccessibleName(settledMerchant);
+});
+
+test("restored transfers do not move the loaded-through boundary for settled orders while the cursor is open", async ({ page }) => {
+  const { rows } = await setup(page);
+  const [pending] = activityOrdersFixture().orders;
+  if (!pending || pending.kind !== "funding") throw new Error("Pending funding fixture is missing");
+  const settledAt = new Date(FIXED_NOW - 30 * 60_000).toISOString();
+  const settled = { ...pending, status: "confirmed" as const, stage: "received" as const, instruction: null, resumable: false, updatedAt: settledAt, movedAt: settledAt };
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity/orders", (route) => json(route, { ...activityOrdersFixture(), orders: [settled] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    if (url.searchParams.has("cursor")) return new Promise<void>(() => {});
+    return json(route, { ...stableActivityResponse(url), nextCursor: "next-page" });
+  });
+  const orders = page.locator("#navigation-panel [data-activity-sources]").getByRole("button", { name: /^Add money/ });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  await expect(orders).toHaveCount(0);
+  await expectShownSet(page, 3, 1);
+  await editPersisted(page, (client) => {
+    const [entry] = shownSets(client);
+    const template = entry?.set.transfers[2];
+    if (!entry || !template) throw new Error("Shown transfer is missing");
+    entry.set.transfers.push({
+      ...template, id: `8453:${token}:recovery-9`, logId: "recovery-9", blockNumber: "900",
+      transactionHash: `0x${"9".padStart(64, "0")}`, blockTimestamp: new Date(FIXED_NOW - 60 * 60_000).toISOString(),
+    });
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(4);
+  await expect(orders).toHaveCount(0);
+});
+
+test("a saved display currency change discards the shown set for the previous currency", async ({ page }) => {
+  const { rows } = await setup(page);
+  let displayCurrency = "USD";
+  await page.route("**/api/account/country-preference", (route) => {
+    if (route.request().method() === "PUT") {
+      const body: unknown = route.request().postDataJSON();
+      const next = typeof body === "object" && body !== null ? Reflect.get(body, "displayCurrency") : undefined;
+      if (typeof next === "string") displayCurrency = next;
+    }
+    return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: "BR", displayCurrency });
+  });
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    return url.searchParams.get("currency") === "USD" ? json(route, activityResponse(url, false)) : new Promise<void>(() => {});
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  await expectShownSet(page, 3, 1);
+  await page.goto("/home?account=settings");
+  const select = page.getByRole("combobox", { name: "Display currency", exact: true });
+  await expect(select).toBeEnabled();
+  await select.click();
+  await page.getByRole("option", { name: "Brazilian real", exact: true }).click();
+  await expect(page.locator("#display-currency-status")).toHaveText("Display currency saved to your account.");
+  await expect.poll(async () => shownSets((await readPersisted(page))?.client).map(({ set }) => set.currency), {
+    intervals: [ownerQueryPersistThrottleMs + 100],
+  }).toEqual([]);
 });
