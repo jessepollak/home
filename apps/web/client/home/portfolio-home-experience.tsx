@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { useShownActivityCurrency } from "@/client/activity/use-activity";
+import { resolvedRegionalCurrency } from "@/client/account/regional-preferences";
 import { VaultPositionsProvider } from "@/client/balances/vault-positions";
 import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
@@ -139,15 +140,18 @@ export function PortfolioHomeExperience({
     if (!response.regionId) throw new Error("Country preference missing");
     return response.regionId;
   }, [fetchAccountResource]);
+  const [savedDisplayCurrency, setSavedDisplayCurrency] = useState<{ owner: string | null; choice: string | null } | null>(null);
   const writeAccountDisplayCurrency = useCallback(async (displayCurrency: import("@/shared/account/display-currency").DisplayCurrencyChoice, adopt: boolean) => {
     const body: CountryPreferenceRequest = { version: COUNTRY_PREFERENCE_VERSION, displayCurrency, adopt };
     const value = await fetchAccountResource("/api/account/country-preference", { method: "PUT", body });
     const response = parseCountryPreferenceResponse(value);
     if (!response) throw new Error("Invalid display currency preference response");
+    setSavedDisplayCurrency({ owner: readOwner, choice: response.displayCurrency });
     return response.displayCurrency;
-  }, [fetchAccountResource]);
+  }, [fetchAccountResource, readOwner]);
+  const readDisplayCurrency = hasSeed ? accountPreference?.displayCurrency ?? null : fetchedPreference?.displayCurrency ?? null;
   const region = useHomeRegion({
-    accountDisplayCurrency: hasSeed ? accountPreference?.displayCurrency ?? null : fetchedPreference?.displayCurrency ?? null,
+    accountDisplayCurrency: readDisplayCurrency,
     writeAccountDisplayCurrency,
     detectedCountry,
     accountPreference: hasSeed ? seedPreference : preferenceReadSettled ? fetchedPreference?.regionId ?? null : null,
@@ -173,7 +177,10 @@ export function PortfolioHomeExperience({
   const regionMatchesPreference = fetchedPreference?.status !== "settled" || fetchedPreference.regionId === null ||
     region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer) || region.resolutionSource === "explicit";
   const regionReady = region.isPreferenceReady && regionMatchesPreference && !accountPreferencePending;
-  useShownActivityCurrency(accountReady ? account.session : null, currency, regionReady);
+  const committedDisplayCurrency = savedDisplayCurrency?.owner === readOwner ? savedDisplayCurrency.choice : readDisplayCurrency;
+  const committedCurrency = region.resolutionSource === "explicit" ? undefined
+    : resolvedRegionalCurrency({ country: region.regionId, displayCurrency: committedDisplayCurrency }).currency;
+  useShownActivityCurrency(accountReady ? account.session : null, currency, regionReady && committedCurrency === currency);
   const provisionalPreferenceReady = provisionalPreference && fetchedPreference?.status === "settled" &&
     region.isPreferenceReady && (fetchedPreference.regionId === null || region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer));
   const provisionalRegionReady = hasSeed || provisionalPreferenceReady;

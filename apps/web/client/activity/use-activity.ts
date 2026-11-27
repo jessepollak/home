@@ -147,6 +147,12 @@ function waitForActivityRetry(delayMs: number, signal: AbortSignal): Promise<voi
   });
 }
 
+const liveActivityRows = new WeakMap<ActivityPage, ReadonlySet<string>>();
+
+function pageRowIds(page: ActivityPage): Set<string> {
+  return new Set([...page.transfers.map((row) => row.id), ...page.cards?.rows.map((row) => row.id) ?? []]);
+}
+
 function retainFreshCards(
   queryClient: QueryClient,
   queryKey: QueryKey,
@@ -161,8 +167,10 @@ function retainFreshCards(
   const data = queryClient.getQueryData<InfiniteData<ActivityPage>>(queryKey);
   const [first, ...rest] = data?.pages ?? [];
   if (!data || !first || !data.pages.some((known) => known.onchainStatus !== "unavailable")) return;
+  const fresh = retainActivityPage({ ...first, cards: page.cards }, first);
+  liveActivityRows.set(fresh, new Set([...liveActivityRows.get(first) ?? [], ...page.cards.rows.map((row) => row.id)]));
   queryClient.setQueryData<InfiniteData<ActivityPage>>(queryKey, {
-    ...data, pages: [retainActivityPage({ ...first, cards: page.cards }, first), ...rest],
+    ...data, pages: [fresh, ...rest],
   }, { updatedAt: query.state.dataUpdatedAt });
 }
 
@@ -208,7 +216,13 @@ function activityQueryOptions(input: {
       if (!data.pages.length) return replaceEqualDeep(previous, next);
       const retainedPage = retainActivityPage(mergeActivityPages(data.pages),
         known?.retainedPage ?? (known?.pages.length ? mergeActivityPages(known.pages) : seedPage));
-      return replaceEqualDeep(previous, { ...data, retainedPage });
+      const shared = replaceEqualDeep(previous, { ...data, retainedPage });
+      shared.pages.forEach((page, index) => {
+        const source = data.pages[index];
+        const live = source ? liveActivityRows.get(source) : undefined;
+        if (live) liveActivityRows.set(page, live);
+      });
+      return shared;
     },
     refetchOnWindowFocus: true,
     queryFn: async ({ pageParam, queryKey, signal }) => {
@@ -273,6 +287,7 @@ function activityQueryOptions(input: {
       if (pageParam && page.nextCursor === pageParam) {
         throw new Error("Activity cursor did not advance.");
       }
+      liveActivityRows.set(page, pageRowIds(page));
       return page;
     },
     getNextPageParam: (page) => page.nextCursor ?? undefined,
@@ -706,19 +721,12 @@ export function useActivity(
     queryFn: async () => { throw new Error("Shown Activity rows are written by the panel."); },
   }));
   const shownRows = shownRowsQuery.data;
-  const cachedActivity = ownerKey
-    ? queryClient.getQueryCache().find({ queryKey: activityQueryKey, exact: true })
-    : undefined;
-  const liveActivityRead = (cachedActivity?.state.dataUpdateCount ?? 0) > 0;
   const liveRowIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const page of liveActivityRead ? query.data?.pages ?? [] : []) {
-      for (const transfer of page.transfers) ids.add(transfer.id);
-      for (const card of page.cards?.rows ?? []) ids.add(card.id);
-    }
+    for (const page of query.data?.pages ?? []) for (const id of liveActivityRows.get(page) ?? []) ids.add(id);
     if (presentedPage !== mergedPage) for (const card of state.newerCards?.cards.rows ?? []) ids.add(card.id);
     return ids;
-  }, [liveActivityRead, query.data, presentedPage, mergedPage, state.newerCards]);
+  }, [query.data, presentedPage, mergedPage, state.newerCards]);
   const shownPage = useMemo(() => presentedPage ? withShownActivityRows(presentedPage, shownRows, liveRowIds) : null,
     [presentedPage, shownRows, liveRowIds]);
   const restoreSettled = useSyncExternalStore(
