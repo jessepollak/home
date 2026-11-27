@@ -305,6 +305,7 @@ export function clearOwnerQueryBoundary(
 ): void {
   clearHomeSummaryCookie(preserveOwnerKey);
   ownerRestoreRevisions.set(queryClient, (ownerRestoreRevisions.get(queryClient) ?? 0) + 1);
+  if (settledOwnerRestores.get(queryClient) !== preserveOwnerKey) settleOwnerRestore(queryClient, null);
   for (const listener of boundaryListeners.get(queryClient) ?? []) listener(preserveOwnerKey);
   clearBrowserIndexedOwnerCache(preserveOwnerKey);
   pauseOwnerPersistence(queryClient, () => {
@@ -322,6 +323,7 @@ export function clearOwnerQueryBoundary(
 
 export function clearOwnerQueryMemory(queryClient: QueryClient): void {
   ownerRestoreRevisions.set(queryClient, (ownerRestoreRevisions.get(queryClient) ?? 0) + 1);
+  settleOwnerRestore(queryClient, null);
   for (const listener of boundaryListeners.get(queryClient) ?? []) listener();
   pauseOwnerPersistence(queryClient, () => queryClient.clear());
 }
@@ -338,6 +340,27 @@ type TrustedRestoredQuery = {
 const scopePolicies: Partial<Record<string, QueryScopePolicy>> = queryScopes;
 const ownerRestoreRevisions = new WeakMap<QueryClient, number>();
 const boundaryListeners = new WeakMap<QueryClient, Set<(preserveOwner?: string) => void>>();
+
+const settledOwnerRestores = new WeakMap<QueryClient, string>();
+const restoreSettledListeners = new WeakMap<QueryClient, Set<() => void>>();
+
+function settleOwnerRestore(queryClient: QueryClient, ownerKey: string | null): void {
+  if ((settledOwnerRestores.get(queryClient) ?? null) === ownerKey) return;
+  if (ownerKey === null) settledOwnerRestores.delete(queryClient);
+  else settledOwnerRestores.set(queryClient, ownerKey);
+  for (const listener of [...restoreSettledListeners.get(queryClient) ?? []]) listener();
+}
+
+export function ownerRestoreSettled(queryClient: QueryClient, ownerKey: string): boolean {
+  return settledOwnerRestores.get(queryClient) === ownerKey;
+}
+
+export function subscribeOwnerRestoreSettled(queryClient: QueryClient, listener: () => void) {
+  const listeners = restoreSettledListeners.get(queryClient) ?? new Set();
+  restoreSettledListeners.set(queryClient, listeners);
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 
 export function subscribeOwnerQueryBoundary(queryClient: QueryClient, listener: (preserveOwner?: string) => void) {
   const listeners = boundaryListeners.get(queryClient) ?? new Set();
@@ -516,6 +539,7 @@ async function startIndexedOwnerPersistence(queryClient: QueryClient, ownerKey: 
       } catch { restored = false; }
     }
     if (!alive()) return () => {};
+    settleOwnerRestore(queryClient, ownerKey);
     recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
     let timer: ReturnType<typeof setTimeout> | null = null;
     let writeRevision = 0;
@@ -555,6 +579,7 @@ async function startIndexedOwnerPersistence(queryClient: QueryClient, ownerKey: 
     if (storage && alive()) {
       const restored = await restoreOwnerQueriesAsync(queryClient, storage, ownerKey, restoreCurrent);
       if (alive()) {
+        settleOwnerRestore(queryClient, ownerKey);
         recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
         return subscribeOwnerQueryPersistence(queryClient, storage, ownerKey, recordHomeCachePersistence);
       }

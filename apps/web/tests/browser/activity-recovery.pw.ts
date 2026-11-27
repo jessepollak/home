@@ -5,6 +5,9 @@ import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { expectNavigation } from "./fixtures/navigation-budget";
 import { activityOrdersFixture } from "./feature-map/fixtures";
+import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "./fixtures/owner-cache";
+import { decodeOwnerCache, encodeOwnerCache, isCompressedOwnerCache, ownerCacheCompressionThreshold } from "../../client/query/owner-cache-codec";
+import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 
 const wallet = sessionBody.smartAccount.address;
 const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -762,4 +765,255 @@ test("a panel mounted after an order settles behind the loaded boundary still sh
   await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).click();
   await expectNavigation(page, /\/home$/);
   await expect(orders).toHaveCount(1);
+});
+
+type PersistedQuery = { queryKey: unknown[]; state: { data: unknown; dataUpdatedAt: number } };
+type PersistedClient = { timestamp: number; clientState: { queries: PersistedQuery[] } };
+type ShownSet = { windowEnd: string; walletAddress: string; currency: string; transfers: Array<Record<string, unknown>>; cards?: { rows: Array<Record<string, unknown>> } };
+
+async function readPersisted(page: Page): Promise<{ raw: string; client: PersistedClient } | null> {
+  const raw = await readIndexedOwnerCache(page);
+  return raw ? { raw, client: JSON.parse(await decodeOwnerCache(raw)) as PersistedClient } : null;
+}
+
+function shownSets(client: PersistedClient | undefined): Array<{ query: PersistedQuery; set: ShownSet }> {
+  return (client?.clientState.queries ?? []).flatMap((query) =>
+    query.queryKey[1] === "activity-shown" ? [{ query, set: query.state.data as ShownSet }] : []);
+}
+
+async function expectShownSet(page: Page, transfers: number, cards: number) {
+  let previous: string | null = null;
+  await expect.poll(async () => {
+    const sets = shownSets((await readPersisted(page))?.client);
+    const shown = JSON.stringify(sets.map(({ set }) => [set.transfers.length, set.cards?.rows.length ?? 0]));
+    const settled = shown === previous && shown === JSON.stringify([[transfers, cards]]);
+    previous = shown;
+    return settled;
+  }, { intervals: [ownerQueryPersistThrottleMs + 100] }).toBe(true);
+}
+
+async function editPersisted(page: Page, edit: (client: PersistedClient) => void, compress = false) {
+  await page.route("**/__owner-cache-edit", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>cache</title>" }));
+  await page.goto("/__owner-cache-edit");
+  const current = await readPersisted(page);
+  if (!current) throw new Error("Persisted owner cache is missing");
+  edit(current.client);
+  const text = JSON.stringify(current.client);
+  const value = compress ? await encodeOwnerCache(text) : text;
+  if (compress && !isCompressedOwnerCache(value)) throw new Error("Owner cache was not compressed");
+  await replaceIndexedOwnerCache(page, current.raw, value);
+}
+
+async function holdOwnerRestore(page: Page) {
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem("playwright-hold-restore") !== "1") return;
+    const gate = new Promise<void>((resolve) => { Object.assign(window, { releaseOwnerRestore: resolve }); });
+    const Native = window.DecompressionStream;
+    window.DecompressionStream = class {
+      readonly writable: WritableStream<BufferSource>;
+      readonly readable: ReadableStream<Uint8Array>;
+      constructor(format: CompressionFormat) {
+        const native = new Native(format);
+        this.writable = native.writable;
+        this.readable = native.readable.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ start: () => gate }));
+      }
+    } as unknown as typeof DecompressionStream;
+  });
+}
+
+function stableActivityResponse(url: URL, freshCard = false) {
+  const response = activityResponse(url, false, freshCard);
+  for (const [index, transfer] of response.transfers.entries()) {
+    transfer.blockTimestamp = new Date(FIXED_NOW - (index + 2) * 60_000).toISOString();
+  }
+  for (const row of response.cards.rows) {
+    const offset = Date.parse(url.searchParams.get("to") ?? "") - Date.parse(row.createdAt);
+    row.createdAt = row.updatedAt = new Date(FIXED_NOW - offset - 60_000).toISOString();
+  }
+  return response;
+}
+
+function bulkCards(to: number, count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `11111111-1111-4111-8111-${(200 + index).toString().padStart(12, "0")}`,
+    kind: "transaction", amountMinor: "100", currency: "USD", merchantName: `Bulk Card ${index}`, merchantCategory: null,
+    status: "completed", declineReasonCode: null,
+    createdAt: new Date(to - (40 + index) * 60_000).toISOString(), updatedAt: new Date(to - (40 + index) * 60_000).toISOString(),
+  }));
+}
+
+test("a full reload in a different window keeps the transfers and 51 cards shown before a shorter read, and an owner switch drops them", async ({ page }) => {
+  const { feed, rows } = await setup(page);
+  let shorter = false;
+  let switched = false;
+  let reads = 0;
+  const windows: string[] = [];
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    reads += 1;
+    windows.push(url.searchParams.get("to") ?? "");
+    const response = stableActivityResponse(url, shorter);
+    if (!shorter) response.cards.rows.push(...bulkCards(FIXED_NOW - 60_000, 49));
+    if (switched) response.walletAddress = "0x3333333333333333333333333333333333333333";
+    if (shorter || switched) {
+      response.transfers = switched ? [] : response.transfers.slice(0, 1);
+      response.cards.rows = switched ? [] : response.cards.rows.filter((row) => row.merchantName === freshMerchant);
+    }
+    return json(route, response);
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  const before = await rows.allTextContents();
+  shorter = true;
+  await page.clock.fastForward(11_000);
+  await requestBackgroundRevalidation(page, () => reads, 1);
+  await expect.poll(async () => { await page.clock.runFor(500); return reads; }).toBeGreaterThanOrEqual(2);
+  await expect(rows).toHaveText(before);
+  await expectShownSet(page, 3, 51);
+  for (const round of [1, 2]) {
+    await test.step(`reload ${round}`, async () => {
+      const stamp = shownSets((await readPersisted(page))?.client)[0]?.set.windowEnd;
+      const first = windows.length;
+      await page.clock.fastForward(61_000);
+      await page.reload();
+      await expect(rows).toHaveText(before);
+      await expect.poll(() => windows.slice(first).some((to) => Date.parse(to) > Date.parse(stamp ?? ""))).toBe(true);
+      await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
+      await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(1);
+      await expect(feed.getByRole("alert")).toHaveCount(0);
+      await expect(feed.getByText(warning)).toHaveCount(0);
+      await expectShownSet(page, 3, 51);
+    });
+  }
+  switched = true;
+  await page.route("**/api/activity/orders", (route) => json(route, {
+    version: 1, owner: { subject: "playwright-smoke-second-subject", accountProvider: sessionBody.accountProvider }, orders: [],
+  }));
+  await page.route("**/api/session", (route) => json(route, { ...sessionBody, user: { subject: "playwright-smoke-second-subject" },
+    smartAccount: { ...sessionBody.smartAccount, address: "0x3333333333333333333333333333333333333333" } }));
+  await page.evaluate(() => window.dispatchEvent(new Event("home:playwright-smoke:owner-switch")));
+  await expect(feed.getByText("No activity yet", { exact: true })).toBeVisible();
+  await expect(rows).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(0);
+});
+
+test("a shorter read that paints before the persisted restore still gains the shown rows once the restore lands", async ({ page }) => {
+  const { feed, rows } = await setup(page);
+  await holdOwnerRestore(page);
+  let shorter = false;
+  let reads = 0;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    reads += 1;
+    const response = stableActivityResponse(url, true);
+    if (shorter) {
+      response.transfers = response.transfers.slice(0, 1);
+      response.cards.rows = response.cards.rows.filter((row) => row.merchantName === freshMerchant);
+    }
+    return json(route, response);
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  const before = await rows.allTextContents();
+  await expectShownSet(page, 3, 2);
+  shorter = true;
+  await page.clock.fastForward(61_000);
+  await editPersisted(page, (client) => { Object.assign(client, { padding: "x".repeat(ownerCacheCompressionThreshold) }); }, true);
+  await page.evaluate(() => sessionStorage.setItem("playwright-hold-restore", "1"));
+  const settledReads = reads;
+  await page.goto("/home");
+  await expect.poll(() => reads).toBeGreaterThan(settledReads);
+  await expect(rows).toHaveCount(1);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { releaseOwnerRestore: () => void }).releaseOwnerRestore());
+  await expect(rows).toHaveText(before);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(1);
+  await expectShownSet(page, 3, 2);
+  await page.evaluate(() => sessionStorage.removeItem("playwright-hold-restore"));
+  await page.reload();
+  await expect(rows).toHaveText(before);
+});
+
+test("a restored shown row yields to the live row, but outranks an older cached copy while the live read fails", async ({ page }) => {
+  const { feed, rows } = await setup(page);
+  let fail = false;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    return fail ? route.abort() : json(route, activityResponse(url, false));
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  await expectShownSet(page, 3, 1);
+  const card = feed.getByRole("button", { name: new RegExp(`^${merchant}`) });
+  await expect(card).toHaveAccessibleName(settledMerchant);
+  const pendingShownCard = (client: PersistedClient) => {
+    const [entry] = shownSets(client);
+    const row = entry?.set.cards?.rows[0];
+    if (!entry || !row) throw new Error("Shown card is missing");
+    row.status = "pending";
+    return entry;
+  };
+  await test.step("live row wins", async () => {
+    await editPersisted(page, pendingShownCard);
+    await page.goto("/home");
+    await expect(rows).toHaveCount(3);
+    await expect(card).toHaveCount(1);
+    await expect(card).toHaveAccessibleName(settledMerchant);
+  });
+  await test.step("shown copy outranks an older cached page", async () => {
+    await expectShownSet(page, 3, 1);
+    fail = true;
+    await editPersisted(page, (client) => {
+      const entry = pendingShownCard(client);
+      for (const query of client.clientState.queries) {
+        if (query.queryKey[1] === "activity") query.state.dataUpdatedAt = entry.query.state.dataUpdatedAt - 1_000;
+      }
+    });
+    await page.goto("/home");
+    await expect(rows).toHaveCount(3);
+    await expect(card).toHaveCount(1);
+    await expect(card).toHaveAccessibleName(/Pending/);
+  });
+});
+
+test("a restored shown set for another wallet or currency, or with a malformed card, adds nothing", async ({ page }) => {
+  const { feed, rows } = await setup(page);
+  let shorter = false;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    const response = activityResponse(url, false);
+    if (shorter) { response.transfers = response.transfers.slice(0, 1); response.cards.rows = []; }
+    return json(route, response);
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  await expectShownSet(page, 3, 1);
+  const baseline = await readPersisted(page);
+  if (!baseline) throw new Error("Persisted owner cache is missing");
+  shorter = true;
+  for (const variant of ["wrong wallet", "wrong currency", "malformed card"] as const) {
+    await test.step(variant, async () => {
+      await editPersisted(page, (client) => {
+        client.clientState = structuredClone(baseline.client.clientState);
+        const [entry] = shownSets(client);
+        if (!entry) throw new Error("Shown set is missing");
+        if (variant === "wrong wallet") entry.set.walletAddress = RECIPIENT;
+        if (variant === "wrong currency") entry.set.currency = "EUR";
+        if (variant === "malformed card" && entry.set.cards) entry.set.cards.rows.push({ id: "not-a-card" });
+        client.clientState.queries = client.clientState.queries.filter((query) => query.queryKey[1] !== "activity");
+      });
+      await page.goto("/home");
+      await expect(rows).toHaveCount(1);
+      await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(0);
+    });
+  }
 });

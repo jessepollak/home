@@ -8,4 +8,5 @@ export type PublicQueryScope = Exclude<QueryScope, OwnerQueryScope>;
 
 export const tradeAvailabilityScope = "trade-availability" satisfies OwnerQueryScope;
 export const activityWindowScope = "activity-window" satisfies OwnerQueryScope;
+export const activityShownScope = "activity-shown" satisfies OwnerQueryScope;
 export const networkFeePolicyScope = "network-fee-policy" satisfies OwnerQueryScope;

@@ -4,6 +4,7 @@ import { adminCustomerDetail } from "./admin-customer-detail";
 import { adminCustomerSearch } from "./admin-customer-search";
 import { activity } from "./activity";
 import { activityOrders } from "./activity-orders";
+import { activityShown } from "./activity-shown";
 import { activityWindow } from "./activity-window";
 import { balances } from "./balances";
 import { balancesAction } from "./balances-action";
@@ -41,6 +42,7 @@ export const queryScopes = {
   "admin-customer-search": adminCustomerSearch,
   activity,
   "activity-orders": activityOrders,
+  "activity-shown": activityShown,
   "activity-window": activityWindow,
   balances,
   "balances-action": balancesAction,

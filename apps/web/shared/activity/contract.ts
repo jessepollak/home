@@ -20,7 +20,7 @@ import {
   parseActivityTransferValuation,
 } from "@/shared/activity/valuation";
 import type { FiatCurrencyCode } from "@/config/regions";
-import { parseCardPurchases } from "@/shared/cards/transactions-contract";
+import { parseCardPurchases, type CardPurchases } from "@/shared/cards/transactions-contract";
 
 export const ACTIVITY_CONTRACT_VERSION = 1;
 export type ParsedActivityTransfer = ActivityTransfer & {
@@ -160,6 +160,51 @@ export function parseActivityPage(
     nextCursor: wire.nextCursor,
     source: wire.onchainStatus === "unavailable" ? null : wire.source,
     ...(wire.onchainStatus === "unavailable" ? { onchainStatus: wire.onchainStatus } : {}),
+  };
+}
+
+export const ACTIVITY_SHOWN_ROW_LIMIT = 500;
+
+export type ShownActivityRows = {
+  windowEnd: string;
+  walletAddress: ActivityPage["walletAddress"];
+  currency: FiatCurrencyCode;
+  transfers: ActivityTransfer[];
+  cards?: CardPurchases;
+};
+
+const shownRowsSchema = z.object({
+  windowEnd: timestampSchema,
+  walletAddress: addressSchema,
+  currency: z.string(),
+  transfers: z.array(transferSchema).check(z.maxLength(ACTIVITY_SHOWN_ROW_LIMIT)),
+  cards: z.optional(z.object({ version: z.unknown(), status: z.unknown(), rows: z.array(z.unknown()).check(z.maxLength(ACTIVITY_SHOWN_ROW_LIMIT)) })),
+});
+
+export function parseShownActivityRows(
+  value: unknown,
+  expectedSession: VerifiedAccountSession,
+  expectedCurrency: FiatCurrencyCode,
+): ShownActivityRows {
+  const result = shownRowsSchema.safeParse(value);
+  if (!isVerifiedActivitySession(expectedSession) || !result.success || !isActivityValuationCurrency(expectedCurrency)) {
+    throw new ActivityResponseError();
+  }
+  const { windowEnd, walletAddress, currency, cards } = result.data;
+  if (walletAddress !== parseAddress(expectedSession.smartAccount.address) || currency !== expectedCurrency ||
+    Date.parse(windowEnd) <= Date.parse(ACTIVITY_HISTORY_START)) throw new ActivityResponseError();
+  const transfers = result.data.transfers.map((transfer) =>
+    parseTransfer(transfer, walletAddress, ACTIVITY_HISTORY_START, windowEnd, expectedCurrency));
+  assertStrictDescending(transfers);
+  const cardRows = cards ? Array.from({ length: Math.ceil(cards.rows.length / 50) }, (_, index) =>
+    parseCardPurchases({ ...cards, rows: cards.rows.slice(index * 50, index * 50 + 50) }).rows).flat() : [];
+  if (new Set(cardRows.map((row) => row.id)).size !== cardRows.length) throw new ActivityResponseError();
+  return {
+    windowEnd,
+    walletAddress,
+    currency: expectedCurrency,
+    transfers,
+    ...(cards ? { cards: { ...parseCardPurchases({ ...cards, rows: [] }), rows: cardRows } } : {}),
   };
 }
 

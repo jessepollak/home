@@ -1,5 +1,5 @@
 import { parseBalancesScope } from "./balances-scope";
-import { ACTIVITY_CONTRACT_VERSION, isVerifiedActivitySession, parseActivityPage } from "@/shared/activity/contract";
+import { ACTIVITY_CONTRACT_VERSION, isVerifiedActivitySession, parseActivityPage, parseShownActivityRows } from "@/shared/activity/contract";
 import { ACTIVITY_BASE_CHAIN_ID } from "@/shared/activity/types";
 import { mergeActivityPages } from "@/shared/activity/pages";
 import { isActivityValuationCurrency } from "@/shared/activity/valuation";
@@ -74,6 +74,18 @@ export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry):
         index === 0 || (typeof pages[index - 1]?.nextCursor === "string" && param === pages[index - 1]?.nextCursor))) return null;
     mergeActivityPages(pages);
     return { data: { pages, pageParams: [...pageParams] } };
+  } catch {
+    return null;
+  }
+}
+
+export function trustRestoredShownActivity(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
+  const owner = restoredOwner(entry.ownerKey);
+  const session = owner ? activitySession(owner) : null;
+  const currency = entry.queryKey[2];
+  if (!session || entry.queryKey.length !== 3 || !isActivityValuationCurrency(currency)) return null;
+  try {
+    return { data: parseShownActivityRows(data, session, currency) };
   } catch {
     return null;
   }

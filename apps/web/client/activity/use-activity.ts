@@ -6,6 +6,7 @@ import {
   compareActivityTransferKeys,
   isVerifiedActivitySession,
   parseActivityPage,
+  type ShownActivityRows,
 } from "@/shared/activity/contract";
 import { mergeActivityPages, sameActivityTransfer } from "@/shared/activity/pages";
 import type {
@@ -18,10 +19,13 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   browserHomeQueryClient,
   ownerQueryKey,
+  ownerRestoreSettled,
+  subscribeOwnerRestoreSettled,
   useHomeInfiniteQuery,
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
+import { activityShownScope } from "@/client/query/query-scopes";
 import {
   activityWindowScope,
   advanceActivityWindowEnd,
@@ -34,7 +38,7 @@ import { ResourceFailure } from "@/client/account/resource-failure";
 import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { presentationMoneyMetadata } from "@/shared/formatting";
 import { ownerInfiniteQuery, ownerQuery } from "@/client/query/query-options";
-import { retainActivityPage } from "./retained-activity";
+import { retainActivityPage, shownActivityRows, withShownActivityRows } from "./retained-activity";
 
 export const activityLatestReadTimeoutMs = 45_000;
 const activityRefreshExtraPages = 10;
@@ -665,12 +669,46 @@ export function useActivity(
     controller?.getLatestState ?? latestStateWithoutOwner,
     controller?.getLatestState ?? latestStateWithoutOwner,
   );
-  const shownPage = useMemo<ActivityPage | null>(() => {
+  const presentedPage = useMemo<ActivityPage | null>(() => {
     const snapshot = state.newerCards;
     if (!mergedPage || !snapshot || snapshot.currency !== currency || snapshot.windowQuery !== activityWindowQuery ||
       Date.parse(snapshot.to) <= Date.parse(mergedPage.window.to)) return mergedPage;
     return retainActivityPage({ ...mergedPage, cards: snapshot.cards }, mergedPage);
   }, [mergedPage, state.newerCards, activityWindowQuery, currency]);
+  const shownRowsQuery = useHomeQuery(ownerQuery<ShownActivityRows>({
+    owner: ownerKey,
+    scope: activityShownScope,
+    key: [currency],
+    enabled: false,
+    gcTime: Infinity,
+    queryFn: async () => { throw new Error("Shown Activity rows are written by the panel."); },
+  }));
+  const shownRows = shownRowsQuery.data;
+  const cachedActivity = ownerKey
+    ? queryClient.getQueryCache().find({ queryKey: activityQueryKey, exact: true })
+    : undefined;
+  const liveActivityRead = (cachedActivity?.state.dataUpdateCount ?? 0) > 0;
+  const preferShown = !liveActivityRead && presentedPage === mergedPage && shownRowsQuery.dataUpdatedAt >= query.dataUpdatedAt;
+  const shownPage = useMemo(() => presentedPage ? withShownActivityRows(presentedPage, shownRows, preferShown) : null,
+    [presentedPage, shownRows, preferShown]);
+  const restoreSettled = useSyncExternalStore(
+    useCallback((listener: () => void) => subscribeOwnerRestoreSettled(queryClient, listener), [queryClient]),
+    () => ownerKey !== null && ownerRestoreSettled(queryClient, ownerKey),
+    () => false,
+  );
+  useEffect(() => {
+    if (!ownerKey || !restoreSettled || !shownPage || !ownerRestoreSettled(queryClient, ownerKey)) return;
+    const shownKey = ownerQueryKey(ownerKey, activityShownScope, currency);
+    const previous = queryClient.getQueryData<ShownActivityRows>(shownKey);
+    const next = shownActivityRows(shownPage, previous);
+    if (liveActivityRead) {
+      queryClient.removeQueries({
+        queryKey: ownerQueryKey(ownerKey, activityShownScope),
+        predicate: (query) => query.queryKey[2] !== currency,
+      });
+    }
+    if (next !== previous) queryClient.setQueryData(shownKey, next);
+  }, [ownerKey, restoreSettled, shownPage, currency, queryClient, liveActivityRead]);
   const latestUnavailable = Boolean(ownerKey && state.failure?.windowEnd === windowEnd && state.failure.currency === currency);
   const latestBusy = Boolean(ownerKey && state.busy);
   const observerId = useRef(Symbol());
