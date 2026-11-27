@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useShownActivityCurrency } from "@/client/activity/use-activity";
 import { VaultPositionsProvider } from "@/client/balances/vault-positions";
 import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
@@ -172,6 +173,7 @@ export function PortfolioHomeExperience({
   const regionMatchesPreference = fetchedPreference?.status !== "settled" || fetchedPreference.regionId === null ||
     region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer) || region.resolutionSource === "explicit";
   const regionReady = region.isPreferenceReady && regionMatchesPreference && !accountPreferencePending;
+  useShownActivityCurrency(accountReady ? account.session : null, currency, regionReady);
   const provisionalPreferenceReady = provisionalPreference && fetchedPreference?.status === "settled" &&
     region.isPreferenceReady && (fetchedPreference.regionId === null || region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer));
   const provisionalRegionReady = hasSeed || provisionalPreferenceReady;

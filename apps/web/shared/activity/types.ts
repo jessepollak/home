@@ -88,6 +88,7 @@ export type ActivityPage = {
 export type ActivityReadyState = {
   status: "ready";
   page: ActivityPage;
+  boundaryTransfers?: readonly ActivityTransfer[];
   loadingMore: boolean;
   loadMoreError: boolean;
   continuing: boolean;

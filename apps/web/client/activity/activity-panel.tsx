@@ -189,14 +189,15 @@ export function ActivityPanelView({
   const labelledBy = header === null ? undefined : "activity-title";
   const labelled = header === null ? "Activity" : undefined;
   const transfers = activity.status === "ready" ? activity.page.transfers : EMPTY_TRANSFERS;
+  const boundaryTransfers = activity.status === "ready" ? activity.boundaryTransfers ?? transfers : EMPTY_TRANSFERS;
   const pendingWindowEnd = activity.status === "ready" && activity.page.nextCursor !== null ? activity.page.window.to : null;
   const loadedThrough = useMemo(() => pendingWindowEnd !== null
-    ? transfers.length > 0
-      ? transfers.reduce((oldest, transfer) =>
+    ? boundaryTransfers.length > 0
+      ? boundaryTransfers.reduce((oldest, transfer) =>
         Date.parse(transfer.blockTimestamp) < Date.parse(oldest) ? transfer.blockTimestamp : oldest,
-      transfers[0]!.blockTimestamp)
+      boundaryTransfers[0]!.blockTimestamp)
       : pendingWindowEnd
-    : null, [transfers, pendingWindowEnd]);
+    : null, [boundaryTransfers, pendingWindowEnd]);
   const cards = activity.status === "ready" ? activity.page.cards?.rows : undefined;
   const [eligibility, setEligibility] = useState(() => ({ owner: retentionOwner, regionId, ids: new Set<string>(stored.presented) }));
   const presentedIds = eligibility.owner === retentionOwner && eligibility.regionId === regionId ? eligibility.ids : undefined;

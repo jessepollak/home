@@ -965,7 +965,10 @@ test("a restored shown row yields to the live row, but outranks an older cached 
   };
   await test.step("live row wins", async () => {
     await editPersisted(page, pendingShownCard);
+    await page.clock.fastForward(11_000);
+    const live = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/activity");
     await page.goto("/home");
+    await live;
     await expect(rows).toHaveCount(3);
     await expect(card).toHaveCount(1);
     await expect(card).toHaveAccessibleName(settledMerchant);
@@ -1103,6 +1106,7 @@ test("restored transfers do not move the loaded-through boundary for settled ord
 test("a saved display currency change discards the shown set for the previous currency", async ({ page }) => {
   const { rows } = await setup(page);
   let displayCurrency = "USD";
+  const currencies: string[] = [];
   await page.route("**/api/account/country-preference", (route) => {
     if (route.request().method() === "PUT") {
       const body: unknown = route.request().postDataJSON();
@@ -1115,6 +1119,7 @@ test("a saved display currency change discards the shown set for the previous cu
   await page.route("**/api/activity*", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/activity") return route.fallback();
+    currencies.push(url.searchParams.get("currency") ?? "");
     return url.searchParams.get("currency") === "USD" ? json(route, activityResponse(url, false)) : new Promise<void>(() => {});
   });
   await page.goto("/home");
@@ -1126,6 +1131,8 @@ test("a saved display currency change discards the shown set for the previous cu
   await select.click();
   await page.getByRole("option", { name: "Brazilian real", exact: true }).click();
   await expect(page.locator("#display-currency-status")).toHaveText("Display currency saved to your account.");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect.poll(() => currencies).toContain("BRL");
   await expect.poll(async () => shownSets((await readPersisted(page))?.client).map(({ set }) => set.currency), {
     intervals: [ownerQueryPersistThrottleMs + 100],
   }).toEqual([]);

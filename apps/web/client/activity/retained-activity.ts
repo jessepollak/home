@@ -41,19 +41,19 @@ function sameShownSet(page: ActivityPage, shown: ShownActivityRows | undefined):
   return shown !== undefined && shown.walletAddress === page.walletAddress && shown.currency === page.currency;
 }
 
-function withShownRows<T extends { id: string }>(rows: readonly T[], shown: readonly T[], preferShown: boolean): T[] {
+function withShownRows<T extends { id: string }>(rows: readonly T[], shown: readonly T[], live: ReadonlySet<string>): T[] {
   const shownById = new Map(shown.map((row) => [row.id, row]));
   const present = new Set(rows.map((row) => row.id));
   return [
-    ...preferShown ? rows.map((row) => shownById.get(row.id) ?? row) : rows,
+    ...rows.map((row) => live.has(row.id) ? row : shownById.get(row.id) ?? row),
     ...shown.filter((row) => !present.has(row.id)),
   ];
 }
 
-export function withShownActivityRows(page: ActivityPage, shown: ShownActivityRows | undefined, preferShown = false): ActivityPage {
+export function withShownActivityRows(page: ActivityPage, shown: ShownActivityRows | undefined, live: ReadonlySet<string>): ActivityPage {
   if (!sameShownSet(page, shown)) return page;
-  const transfers = withShownRows(page.transfers, shown.transfers, preferShown);
-  const cardRows = withShownRows(page.cards?.rows ?? [], shown.cards?.rows ?? [], preferShown);
+  const transfers = withShownRows(page.transfers, shown.transfers, live);
+  const cardRows = withShownRows(page.cards?.rows ?? [], shown.cards?.rows ?? [], live);
   const sameTransfers = transfers.length === page.transfers.length && transfers.every((row, index) => row === page.transfers[index]);
   const pageCards = page.cards?.rows ?? [];
   const sameCards = cardRows.length === pageCards.length && cardRows.every((row, index) => row === pageCards[index]);
