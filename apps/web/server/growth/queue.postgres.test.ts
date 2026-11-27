@@ -690,7 +690,7 @@ describePostgres("invite reward snapshot and operator decisions", () => {
     const queue = await listRewardQueue(sql, { now });
     expect(queue.qualified.map((row) => row.id)).toEqual([old.id, recent.id]);
     expect(queue.qualified[0]).toMatchObject({ inviterShortId: old.inviterId.slice(0, 8), inviteeShortId: old.inviteeId.slice(0, 8),
-      depositAssetsAtoms: "25000000", attributedAt: attributedAt.toISOString(), qualifiedAt: "2026-01-03T00:00:00.000Z", riskSignals: [] });
+      depositAssetsAtoms: "25000000", rewardAtoms: "1000000", attributedAt: attributedAt.toISOString(), qualifiedAt: "2026-01-03T00:00:00.000Z", riskSignals: [] });
     const output = JSON.stringify(queue);
     for (const privateValue of [old.inviterId, old.inviteeId, old.address]) expect(output).not.toContain(privateValue);
     await approveReward(sql, { rewardId: old.id, actor, now });

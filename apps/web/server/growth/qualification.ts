@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SqlExecutor } from "@/server/db/sql";
 import type { InviteRewardState, InviteRewardTerms } from "@/shared/growth/reward";
+import { parseAddress } from "@/shared/chain/hex";
 import { isRecord } from "@/shared/guards";
 import { BASE_CHAIN_ID, BASE_USDC_ADDRESS, getVerifiedSaveVault } from "@/shared/savings/config";
 import { evaluateQualification, firstQualifyingDeposit, type AnchoredDeposit, type QualificationChange,
@@ -28,12 +29,13 @@ type ActionEvidence = { id: string; summary: unknown; transaction_hash: string |
   observed_receipt_transaction_hash: string | null; observed_receipt_block_number: string | null;
   settled_at: Date | null; outcome_source: string | null };
 
-function parseDeposit(action: ActionEvidence): QualificationDeposit | null {
+function parseDeposit(action: ActionEvidence): QualificationDeposit | "not-qualifying" | null {
   const summary = action.summary;
   if (!isRecord(summary) || !isRecord(summary.metadata) || !Array.isArray(summary.amounts)) return null;
   const metadata = summary.metadata;
   if (metadata.product !== "savings" || metadata.operation !== "deposit" || typeof metadata.vaultAddress !== "string" ||
-    !getVerifiedSaveVault(metadata.vaultAddress) || !isRecord(metadata.network) || metadata.network.chainId !== BASE_CHAIN_ID) return null;
+    parseAddress(metadata.vaultAddress) === null || !isRecord(metadata.network) || typeof metadata.network.chainId !== "number") return null;
+  if (!getVerifiedSaveVault(metadata.vaultAddress) || metadata.network.chainId !== BASE_CHAIN_ID) return "not-qualifying";
   const usdcId = `eip155:${BASE_CHAIN_ID}/erc20:${BASE_USDC_ADDRESS.toLowerCase()}`;
   const amount: unknown = summary.amounts.find((value: unknown) => isRecord(value) && value.assetId === usdcId && value.direction === "spend");
   const hash = action.observed_receipt_transaction_hash ?? action.transaction_hash;
@@ -61,7 +63,7 @@ export async function readRewardEvidence(sql: SqlExecutor, row: RewardRow, now: 
        ORDER BY settled_at NULLS FIRST, id LIMIT $2`, [row.inviteeCustomerId, ACTION_LIMIT + 1]);
   const deposits = actions.rows.map(parseDeposit);
   if (actions.rows.length > ACTION_LIMIT || deposits.some((deposit) => deposit === null)) return { error: unavailable };
-  const knownDeposits = deposits.filter((deposit): deposit is QualificationDeposit => deposit !== null);
+  const knownDeposits = deposits.filter((deposit): deposit is QualificationDeposit => deposit !== null && deposit !== "not-qualifying");
   const candidate = firstQualifyingDeposit(row.terms, knownDeposits, now, row.depositTxHash);
   if (!candidate) return row.depositTxHash === null
     ? { deposits: knownDeposits, ledger: [], coverage: { wallets: [] } satisfies QualificationCoverage }

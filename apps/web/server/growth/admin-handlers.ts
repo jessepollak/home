@@ -51,6 +51,7 @@ export function createRewardDecisionHandler(deps: Dependencies = {}) {
       if (body.kind !== "ok") return error("INVALID_REQUEST", 400);
       const parsed = parseRewardDecisionRequest(body.value);
       if (!parsed) return error("INVALID_REQUEST", 400);
+      if (parsed.operator !== actor.toLowerCase()) return error("OPERATOR_CHANGED", 409);
       const input = { rewardId: id, actor: actor.toLowerCase(), now: new Date() };
       const sql = (deps.sql ?? getSqlExecutor)();
       const result = parsed.action === "approve" ? await approveReward(sql, input) : await rejectReward(sql, { ...input, reason: parsed.reason });
