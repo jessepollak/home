@@ -1137,3 +1137,79 @@ test("a saved display currency change discards the shown set for the previous cu
     intervals: [ownerQueryPersistThrottleMs + 100],
   }).toEqual([]);
 });
+
+test("loading another page does not treat a restored first page as live over a newer shown card", async ({ page }) => {
+  await setup(page);
+  const feed = page.locator('section[aria-label="Activity"]').last();
+  const rows = feed.getByRole("button", { name: /^(Received|Sent) .*USDC$/ });
+  let omit = false;
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    const response = stableActivityResponse(url);
+    if (url.searchParams.has("cursor")) {
+      const older = response.transfers[2];
+      if (!older) throw new Error("Transfer fixture is missing");
+      return json(route, { ...response, cards: { ...response.cards, rows: [] }, nextCursor: null, transfers: [{
+        ...older, id: `8453:${token}:recovery-8`, logId: "recovery-8", blockNumber: "950",
+        fromAddress: wallet, toAddress: RECIPIENT, direction: "outgoing",
+        transactionHash: `0x${"8".padStart(64, "0")}`, blockTimestamp: new Date(FIXED_NOW - 45 * 60_000).toISOString(),
+      }] });
+    }
+    if (omit) return route.abort();
+    return json(route, { ...response, nextCursor: "next-page" });
+  });
+  const cursorRead = () => page.waitForResponse((response) => new URL(response.url()).searchParams.has("cursor"));
+  const firstLoad = cursorRead();
+  await page.goto("/activity");
+  await firstLoad;
+  await expect(rows).toHaveCount(4);
+  await expectShownSet(page, 4, 1);
+  omit = true;
+  const now = await page.evaluate(() => Date.now());
+  await editPersisted(page, (client) => {
+    for (const query of client.clientState.queries) {
+      if (query.queryKey[1] !== "activity") continue;
+      query.state.dataUpdatedAt = now;
+      const data: { pages: Array<{ cards?: { rows: Array<{ status: string }> } }>; pageParams: unknown[] } = JSON.parse(JSON.stringify(query.state.data));
+      for (const row of data.pages[0]?.cards?.rows ?? []) row.status = "pending";
+      Object.assign(query.state, { data: { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } });
+    }
+  });
+  const reload = cursorRead();
+  await page.goto("/activity");
+  await reload;
+  await page.clock.runFor(1_000);
+  await expect(rows).toHaveCount(4);
+  const card = feed.getByRole("button", { name: new RegExp(`^${merchant}`) });
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveAccessibleName(settledMerchant);
+  await expectShownSet(page, 4, 1);
+  expect(shownSets((await readPersisted(page))?.client)[0]?.set.cards?.rows[0]?.status).toBe("completed");
+});
+
+test("a rejected display currency save keeps the saved currency's shown set", async ({ page }) => {
+  const { rows } = await setup(page);
+  await page.route("**/api/account/country-preference", (route) => route.request().method() === "PUT"
+    ? route.fulfill({ status: 503, json: { error: { code: "COUNTRY_PREFERENCE_UNAVAILABLE", message: "Try again." } } })
+    : json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: "BR", displayCurrency: "USD" }));
+  await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [] }));
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    return url.searchParams.get("currency") === "USD" ? json(route, activityResponse(url, false)) : new Promise<void>(() => {});
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  await expectShownSet(page, 3, 1);
+  await page.goto("/home?account=settings");
+  const select = page.getByRole("combobox", { name: "Display currency", exact: true });
+  await expect(select).toBeEnabled();
+  await select.click();
+  await page.getByRole("option", { name: "Brazilian real", exact: true }).click();
+  await expect(page.locator("#display-currency-status")).toContainText("Could not save");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.clock.runFor(1_000);
+  await expectShownSet(page, 3, 1);
+});
