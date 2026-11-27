@@ -40,6 +40,7 @@
     { "pattern": "server/account-deletion/lifecycle.postgres.test.ts", "category": "money-record-integrity" },
     { "pattern": "server/admin-customers/balances.test.ts", "category": "money-math" },
     { "pattern": "server/admin-customers/store.postgres.test.ts", "category": "auth" },
+    { "pattern": "server/admin-money/handlers.postgres.test.ts", "category": "money-record-integrity" },
     { "pattern": "server/actions/**", "category": "action-lifecycle" },
     { "pattern": "server/auth/**", "category": "auth" },
     { "pattern": "server/balances/borrow.test.ts", "category": "money-path-provider-failure" },

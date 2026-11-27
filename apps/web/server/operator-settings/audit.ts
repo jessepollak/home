@@ -6,8 +6,8 @@ import { validCursor, type AuditEntry } from "@/shared/operator-settings/contrac
 import { OperatorSettingsValidationError } from "./store";
 
 type AuditRow = {
-  id: string; occurred_at: Date; actor: `0x${string}`; action: "settings.update" | "support.credential.update" | "support.credential.delete" | "customer.read" | "growth.reward.approve" | "growth.reward.reject";
-  target_kind: "settings" | "customer" | "reward"; target_id: string; purpose: string | null; before: unknown; after: unknown;
+  id: string; occurred_at: Date; actor: `0x${string}`; action: "settings.update" | "support.credential.update" | "support.credential.delete" | "customer.read" | "growth.reward.approve" | "growth.reward.reject" | "money.export";
+  target_kind: "settings" | "customer" | "reward" | "money"; target_id: string; purpose: string | null; before: unknown; after: unknown;
 };
 
 export class AdminAuditLog {
@@ -35,6 +35,13 @@ export class AdminAuditLog {
     const result = await this.sql.query(`INSERT INTO admin_audit_log (actor, action, target_kind, target_id, purpose)
       SELECT $1, 'customer.read', 'customer', listed.id, $3 FROM unnest($2::text[]) AS listed(id)`, [input.actor, ids, input.purpose]);
     if (result.rowCount !== ids.length) throw new Error("Customer read could not be audited");
+  }
+
+  async recordMoneyExport(input: { actor: `0x${string}`; range: { from: string | null; to: string | null }; rows: number }, sql: SqlExecutor = this.sql): Promise<void> {
+    if (!Number.isSafeInteger(input.rows) || input.rows < 0) throw new OperatorSettingsValidationError("Invalid money export");
+    const result = await sql.query(`INSERT INTO admin_audit_log (actor, action, target_kind, target_id, after)
+      VALUES ($1, 'money.export', 'money', 'movements', $2::jsonb)`, [input.actor, JSON.stringify({ from: input.range.from, to: input.range.to, rows: input.rows })]);
+    if (result.rowCount !== 1) throw new Error("Money export could not be audited");
   }
 
   async recordSupportConversationReads(input: { actor: `0x${string}`; conversationIds: string[]; repeatWithinSeconds: number }): Promise<void> {
@@ -67,6 +74,10 @@ export class AdminAuditLog {
       if (row.action === "growth.reward.approve" || row.action === "growth.reward.reject") {
         if (row.target_kind !== "reward" || row.before === null || row.after === null) throw new Error("Stored reward audit row is malformed");
         return { ...common, action: row.action, target: { kind: "reward", id: row.target_id }, before: row.before, after: row.after };
+      }
+      if (row.action === "money.export") {
+        if (row.target_kind !== "money" || row.after === null) throw new Error("Stored money export audit row is malformed");
+        return { ...common, action: "money.export", target: { kind: "money", id: row.target_id }, after: row.after };
       }
       if (row.target_kind !== "settings") throw new Error("Stored settings audit row is malformed");
       const target = { kind: "settings" as const, id: row.target_id };

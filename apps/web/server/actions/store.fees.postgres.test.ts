@@ -89,7 +89,7 @@ describePostgres("operator fee records and revenue", () => {
     expect((await sql.query("SELECT 1 FROM operator_fee_records WHERE action_id = $1", [id])).rows).toHaveLength(0);
   });
 
-  test("revenue counts only succeeded outcomes, zero-fills UTC days and reads current hash and outcome from actions", async () => {
+  test("revenue counts only succeeded outcomes and zero-fills UTC days", async () => {
     const ids = await Promise.all(Array.from({ length: 5 }, () => insertAction("trade")));
     for (const id of ids) await store.confirm(owner, id);
     const amounts = ["9007199254740993", "8", "10", "11", "13"];
@@ -98,12 +98,11 @@ describePostgres("operator fee records and revenue", () => {
         [ids[index], amounts[index], `2026-09-${24 + index}T12:00:00.000Z`]);
     }
     const hash = `0x${"AB".repeat(32)}`;
-    const normalizedHash = hash.toLowerCase() as `0x${string}`;
     await sql.query("UPDATE actions SET outcome = 'succeeded', outcome_source = 'chain', outcome_recorded_at = '2026-09-27T00:15:00Z', settled_at = now(), transaction_hash = $2 WHERE id = $1", [ids[0], hash]);
     await sql.query("UPDATE actions SET outcome = 'succeeded', outcome_source = 'chain', outcome_recorded_at = '2026-09-25T23:15:00Z', settled_at = now() WHERE id = $1", [ids[1]]);
     await sql.query("UPDATE actions SET outcome = 'reverted', outcome_source = 'chain', outcome_recorded_at = now(), settled_at = now(), transaction_hash = $2 WHERE id = $1", [ids[2], hash]);
     await sql.query("UPDATE actions SET outcome = 'not_submitted', outcome_source = 'wallet', outcome_recorded_at = now() WHERE id = $1", [ids[3]]);
-    const summary = await readOperatorRevenue(sql, { now: new Date("2026-09-28T23:59:59Z"), days: 5, limit: 5 });
+    const summary = await readOperatorRevenue(sql, { now: new Date("2026-09-28T23:59:59Z"), days: 5 });
     expect(summary.collectedBaseUnits).toBe("9007199254741001");
     expect(summary.days).toEqual([
       { date: "2026-09-24", collectedBaseUnits: "0" },
@@ -112,14 +111,6 @@ describePostgres("operator fee records and revenue", () => {
       { date: "2026-09-27", collectedBaseUnits: "9007199254740993" },
       { date: "2026-09-28", collectedBaseUnits: "0" },
     ]);
-    expect(summary.entries.map(({ actionId, result, transactionHash }) => ({ actionId, result, transactionHash }))).toEqual([
-      { actionId: ids[4], result: "unresolved", transactionHash: null },
-      { actionId: ids[3], result: "not_submitted", transactionHash: null },
-      { actionId: ids[2], result: "reverted", transactionHash: normalizedHash },
-      { actionId: ids[1], result: "succeeded", transactionHash: null },
-      { actionId: ids[0], result: "succeeded", transactionHash: normalizedHash },
-    ]);
-    expect((await readOperatorRevenue(sql, { now: new Date("2026-09-28T00:00:00Z"), days: 1, limit: 1 })).entries).toHaveLength(1);
   });
 
   test("a provider-native fee persists its collection method and counts toward revenue once succeeded", async () => {
@@ -128,10 +119,8 @@ describePostgres("operator fee records and revenue", () => {
     expect((await sql.query<{ collected_by: string }>("SELECT collected_by FROM operator_fee_records WHERE action_id = $1", [id])).rows)
       .toEqual([{ collected_by: "provider-native" }]);
     await sql.query("UPDATE actions SET outcome = 'succeeded', outcome_source = 'chain', outcome_recorded_at = now(), settled_at = now() WHERE id = $1", [id]);
-    const summary = await readOperatorRevenue(sql, { now: new Date("2026-09-27T12:00:00Z"), days: 1, limit: 5 });
+    const summary = await readOperatorRevenue(sql, { now: new Date("2026-09-27T12:00:00Z"), days: 1 });
     expect(summary.collectedBaseUnits).toBe(fee.amountBaseUnits);
-    expect(summary.entries.map(({ actionId, collectedBy, result }) => ({ actionId, collectedBy, result })))
-      .toEqual([{ actionId: id, collectedBy: "provider-native", result: "succeeded" }]);
   });
 
   test("an action that is not a trade writes no record even when its summary carries fee metadata", async () => {
