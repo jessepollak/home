@@ -22,6 +22,7 @@
     "admin/audit/route.ts": { "contracts": ["shared/operator-settings/contract.ts"], "client": "The audit API has no Home client fetcher; admin pages render on the server." },
     "admin/customers/[id]/route.ts": { "contracts": ["shared/admin-customers/contract.ts"] },
     "admin/customers/route.ts": { "contracts": ["shared/admin-customers/contract.ts"] },
+    "admin/growth/rewards/[id]/route.ts": { "contracts": ["shared/growth/admin-contract.ts"], "methods": { "POST": { "contracts": ["shared/growth/admin-contract.ts"] } } },
     "admin/session/route.ts": { "contracts": ["shared/operator/contract.ts"], "methods": { "GET": { "contracts": ["shared/operator/contract.ts"] }, "POST": { "contracts": ["shared/operator/contract.ts"] } } },
     "admin/settings/[domain]/route.ts": { "contracts": ["shared/operator-branding/contract.ts", "shared/operator-settings/contract.ts"], "methods": { "GET": { "contracts": ["shared/operator-settings/contract.ts"] }, "PUT": { "contracts": ["shared/operator-branding/contract.ts", "shared/operator-settings/contract.ts"] } } },
     "admin/settings/funding/connections/route.ts": { "contracts": ["shared/operator-settings/contract-funding-connections.ts", "shared/operator-settings/contract.ts"] },
