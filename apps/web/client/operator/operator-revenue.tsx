@@ -1,21 +1,7 @@
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { condensedTransactionHash, transactionExplorerLink } from "@/components/transaction-explorer";
-import type { OperatorFeeActionType } from "@/shared/fees/contract";
-import type { OperatorFeeResult, OperatorRevenueDay, OperatorRevenueSummary } from "@/shared/fees/revenue";
+import type { OperatorRevenueDay, OperatorRevenueSummary } from "@/shared/fees/revenue";
 import { formatPresentationDate, formatUsdStablecoinAmount } from "@/shared/formatting";
-import { formatBasisPoints } from "@/shared/formatting/money";
-
-const actionLabels: Record<OperatorFeeActionType, string> = { trade: "Swap" };
-
-const resultBadges: Record<OperatorFeeResult, { label: string; variant: "outline" | "secondary" | "warning" }> = {
-  succeeded: { label: "Succeeded", variant: "outline" },
-  reverted: { label: "Reverted", variant: "secondary" },
-  not_submitted: { label: "Not submitted", variant: "secondary" },
-  unresolved: { label: "Unresolved", variant: "warning" },
-};
 
 function dayLabel(date: string): string {
   return formatPresentationDate(`${date}T00:00:00.000Z`, { style: "chart-date", timeZone: "UTC" });
@@ -61,7 +47,7 @@ function RevenueSection({ children }: { children: React.ReactNode }) {
 }
 
 export function OperatorRevenue({ summary }: { summary: OperatorRevenueSummary }) {
-  if (summary.entries.length === 0 && BigInt(summary.collectedBaseUnits) === BigInt(0)) {
+  if (!summary.recorded) {
     return (
       <RevenueSection>
         <Card>
@@ -95,59 +81,6 @@ export function OperatorRevenue({ summary }: { summary: OperatorRevenueSummary }
             </div>
             <DailyRevenue days={summary.days} />
           </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle><h3>Recent fees</h3></CardTitle>
-        </CardHeader>
-        <CardContent>
-          {summary.entries.length === 0 ? (
-            <p className="text-muted-foreground">No recent fees.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-start">Date</TableHead>
-                  <TableHead className="text-start">Action</TableHead>
-                  <TableHead className="text-end">Amount</TableHead>
-                  <TableHead className="text-end">Rate</TableHead>
-                  <TableHead className="text-start">Result</TableHead>
-                  <TableHead className="text-start">Transaction</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {summary.entries.map((entry) => {
-                  const result = resultBadges[entry.result];
-                  const explorer = transactionExplorerLink(entry.transactionHash);
-                  return (
-                    <TableRow key={entry.actionId}>
-                      <TableCell>{formatPresentationDate(entry.recordedAt, { style: "date-time-zone", timeZone: "UTC" })}</TableCell>
-                      <TableCell>{actionLabels[entry.actionKind]}</TableCell>
-                      <TableCell className="text-end"><span className="tabular-nums">{formatUsdStablecoinAmount(entry.amountBaseUnits, entry.decimals)}</span></TableCell>
-                      <TableCell className="text-end"><span className="tabular-nums">{formatBasisPoints(BigInt(entry.bps))}</span></TableCell>
-                      <TableCell><Badge variant={result.variant}>{result.label}</Badge></TableCell>
-                      <TableCell>
-                        {explorer && entry.transactionHash ? (
-                          <a
-                            className="font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                            href={explorer.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title={explorer.title}
-                          >
-                            {condensedTransactionHash(entry.transactionHash)}<span className="sr-only"> (opens BaseScan)</span>
-                          </a>
-                        ) : (
-                          <span className="text-muted-foreground"><span aria-hidden="true">—</span><span className="sr-only">None</span></span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
         </CardContent>
       </Card>
     </RevenueSection>

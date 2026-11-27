@@ -1,30 +1,48 @@
 import { authorizedOperatorAddress, OperatorEmpty, OperatorSection } from "../../section-content";
+import { MoneyView } from "@/client/admin/money-view";
 import { OperatorRevenue } from "@/client/operator/operator-revenue";
+import { readAdminMoneyPageData } from "@/server/admin-money/page-data";
 import { getSqlExecutor } from "@/server/db/sql";
 import { readOperatorRevenue } from "@/server/fees/revenue";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import { readOperatorPageDecision } from "@/server/operator/page";
+import { isMoneyMovementCursor, type AdminMoneyPageData } from "@/shared/admin-money/contract";
 import type { OperatorRevenueSummary } from "@/shared/fees/revenue";
+
+function unavailable(error: unknown): null {
+  writeObservabilityEvent({ kind: "unhandled-server-error", route: "/admin/money", errorName: error instanceof Error ? error.name : "UnknownError" });
+  return null;
+}
 
 async function readRevenue(): Promise<OperatorRevenueSummary | null> {
   try {
     return await readOperatorRevenue(getSqlExecutor());
   } catch (error) {
-    writeObservabilityEvent({ kind: "unhandled-server-error", route: "/admin/money", errorName: error instanceof Error ? error.name : "UnknownError" });
-    return null;
+    return unavailable(error);
+  }
+}
+
+async function readMoney(before: string | null): Promise<AdminMoneyPageData | null> {
+  try {
+    return await readAdminMoneyPageData(before);
+  } catch (error) {
+    return unavailable(error);
   }
 }
 
 export const instant = false;
 
-export default async function MoneyPage() {
+export default async function MoneyPage({ searchParams }: PageProps<"/admin/money">) {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);
   if (!address) return null;
-  const revenue = await readRevenue();
+  const requested = (await searchParams).before;
+  const before = isMoneyMovementCursor(requested) ? requested : null;
+  const [revenue, money] = await Promise.all([readRevenue(), readMoney(before)]);
   return (
     <OperatorSection address={address} heading="Money">
       {revenue ? <OperatorRevenue summary={revenue} /> : <OperatorEmpty>Fee revenue is unavailable. Try again later.</OperatorEmpty>}
+      {money ? <MoneyView data={money} /> : <OperatorEmpty>Accounts and movements need a database.</OperatorEmpty>}
     </OperatorSection>
   );
 }

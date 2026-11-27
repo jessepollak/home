@@ -129,6 +129,12 @@ const auditEntrySchema = z.union([
   settingsAuditEntrySchema("support.credential.delete"),
   z.looseObject({
     ...auditFields,
+    action: z.literal("money.export"),
+    target: z.looseObject({ kind: z.literal("money"), id: z.string() }),
+    after: z.unknown(),
+  }).check(z.refine((entry) => "after" in entry)),
+  z.looseObject({
+    ...auditFields,
     action: z.literal("customer.read"),
     target: z.looseObject({ kind: z.literal("customer"), id: z.string() }),
     purpose: z.string(),

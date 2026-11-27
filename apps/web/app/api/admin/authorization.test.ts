@@ -4,6 +4,7 @@ import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 import { parseOperatorErrorResponse } from "@/shared/operator/contract";
 import { parseOperatorSettingsErrorResponse } from "@/shared/operator-settings/contract";
 import { issueCdpRenderHint } from "@/server/auth/cdp-render-session";
+import { createMoneyExportHandler } from "@/server/admin-money/handlers";
 import { createRewardDecisionHandler } from "@/server/growth/admin-handlers";
 import { createOperatorApiHandler, createOperatorGrantHandler, operatorGrantReader } from "@/server/operator/api";
 import { decideOperatorPageAccess } from "@/server/operator/page";
@@ -46,6 +47,7 @@ test("operator authorization precedes malformed-body parsing and settings or aud
       await createSettingsListHandler(dependencies)(request("settings")),
       await createAuditListHandler(dependencies)(request("audit")),
       await createRewardDecisionHandler(dependencies)(request("growth/rewards/not-a-uuid", { malformed: true }), { params: Promise.resolve({ id: "not-a-uuid" }) }),
+      await createMoneyExportHandler(dependencies)(request("money/export", { malformed: true })),
     ]) {
       expect(response.status).toBe(variant.status);
       expect<unknown>(parseOperatorSettingsErrorResponse(await response.json())).toEqual({ error: { code: variant.code } });

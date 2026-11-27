@@ -49,8 +49,18 @@ function describeChange(path: string, from: unknown, to: unknown): string {
   return `${label}: ${shown(from)} → ${shown(to)}`;
 }
 
+function moneyExportRange(after: unknown): string {
+  const value = new Map<string, unknown>(after !== null && typeof after === "object" ? Object.entries(after) : []);
+  const from = value.get("from");
+  const to = value.get("to");
+  const rows = value.get("rows");
+  const range = typeof from !== "string" && typeof to !== "string" ? "All dates" : `${typeof from === "string" ? from : "Start"} to ${typeof to === "string" ? to : "today"}`;
+  return typeof rows === "number" ? `${range} · ${rows === 1 ? "1 row" : `${rows} rows`}` : range;
+}
+
 export function summarizeAuditEntry(entry: AuditEntry): { title: string; changes: string[] } {
   if (entry.action === "customer.read") return { title: "Viewed a customer", changes: [`${entry.target.id} · ${entry.purpose}`] };
+  if (entry.action === "money.export") return { title: "Exported money movements", changes: [moneyExportRange(entry.after)] };
   if (entry.action === "support.credential.delete") return { title: "Removed the support assistant key", changes: [] };
   const changed = changedLeaves(entry.before, entry.after);
   const lines = changed.slice(0, MAX_CHANGES).map(({ path, from, to }) => describeChange(path, from, to));
